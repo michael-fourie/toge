@@ -3,7 +3,7 @@ import { MODES } from './host.ts';
 import type { Render } from './router.ts';
 import { $, SERVER_PILL, esc, goOnline, playerName, replay, sheet } from './ui.ts';
 
-const REFRESH_MS = 3000;
+const REFRESH_MS = 5000;
 
 export const join: Render = (root, ctx, screen) => {
   root.innerHTML = sheet(
@@ -113,7 +113,7 @@ export const join: Render = (root, ctx, screen) => {
   });
   $(root, '[data-refresh]').addEventListener('click', () => void refresh());
   void refresh();
-  const timer = setInterval(() => void refresh(), REFRESH_MS);
+  const timer = setInterval(() => !document.hidden && void refresh(), REFRESH_MS);
 
   return () => {
     off();

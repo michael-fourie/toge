@@ -6,6 +6,7 @@ import { MAP } from '../shared/map.ts';
 import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/math.ts';
 import { Ev, type PlayerState, createPlayerState, emptyInput, stepPlayer } from '../shared/movement.ts';
 import {
+  type ClientMsg,
   type DeathCause,
   type GameMode,
   type NetPlayerState,
@@ -97,6 +98,7 @@ export class Game {
   private last = performance.now();
   private raf = 0;
   private sendAcc = 0;
+  private lastSent = '';
 
   private scoped = false;
   private bolt = 0; // seconds until the next shot is chambered
@@ -594,14 +596,19 @@ export class Game {
     this.sendAcc %= 1 / NET.clientSendRate;
     if (!this.alive) return;
     const m = this.me;
-    this.opts.net!.send({
+    const msg: ClientMsg = {
       t: 'state',
       p: [round3(m.pos.x), round3(m.pos.y), round3(m.pos.z)],
       v: [round3(m.vel.x), round3(m.vel.y), round3(m.vel.z)],
       yaw: round3(this.input.yaw),
       pitch: round3(this.input.pitch),
       f: (m.wallrunning ? StateFlag.Wallrun : 0) | (m.sliding ? StateFlag.Sliding : 0),
-    });
+    };
+    // The server keeps our last state, so standing still costs nothing (every message is a billed request on Cloudflare).
+    const key = JSON.stringify(msg);
+    if (key === this.lastSent) return;
+    this.lastSent = key;
+    this.opts.net!.send(msg);
   }
 
   private onNet(msg: ServerMsg) {

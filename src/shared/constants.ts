@@ -3,7 +3,7 @@
 export const TICK_DT = 1 / 128; // movement sim rate (like a 128-tick CS server)
 
 export const NET = {
-  clientSendRate: 30, // client -> server state updates per second
+  clientSendRate: 20, // client -> server state updates per second; no point exceeding snapshotRate, the server only relays that often
   snapshotRate: 20, // server -> client snapshots per second
   interpDelayMs: 100, // remote players are rendered this far in the past
   maxPlayersPerLobby: 12,

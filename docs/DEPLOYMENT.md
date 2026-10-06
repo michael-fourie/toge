@@ -33,10 +33,10 @@ First time: `npx wrangler login`, then `npm run deploy`. That publishes to `http
 ## Free-plan budget (limits as of writing; check Cloudflare's pricing page)
 
 - Static asset requests are free and unlimited.
-- Worker + DO requests: 100k/day. Inbound WebSocket messages count 1:20, so one player sending 30 Hz state is about 5.4k requests per hour, roughly 18 player-hours per day.
+- Worker + DO requests: 100k/day. Inbound WebSocket messages count 1:20, so one moving player sending 20 Hz state is about 3.6k requests per hour, roughly 28 player-hours per day. Standing still sends nothing, and the Join screen polls the lobby list every 5 s (about 1.4k requests/hour while open).
 - DO duration: 13k GB-s/day. A room costs 0.125 GB × wall-clock while anyone is connected, about 29 room-hours per day.
 - If a limit is hit, new requests fail until the daily reset. The $5/mo Workers Paid plan lifts all of this.
-- Cheap wins when needed: lower the client send rate in `constants.ts`, batch inputs, switch JSON to binary.
+- Already done: 20 Hz send (the server only relays 20 Hz), no send when state is unchanged. Next if needed: binary encoding, batching, slower lobby polling.
 
 ## Not done yet
 

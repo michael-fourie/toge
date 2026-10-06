@@ -98,7 +98,7 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 - The lobby room is client-side only: the server drops you into the match on join, and the room screen just shows the live roster before you enter.
 
 **Netcode (deliberate prototype shortcuts)**
-- Movement is **client-authoritative**: clients send state at 30 Hz and the server relays 20 Hz snapshots.
+- Movement is **client-authoritative**: clients send state at 20 Hz (only when it changed) and the server relays 20 Hz snapshots.
 - Remote players render 100 ms in the past, interpolated.
 - Hits are detected on the client (favour the shooter). The server only sanity-checks distance and uses `WEAPON.fireCooldown` as a rate limit.
 - The planned upgrade path: send inputs instead, run the shared `stepPlayer` on the server, and add prediction plus reconciliation. Keep `src/shared` deterministic so that path stays open.
