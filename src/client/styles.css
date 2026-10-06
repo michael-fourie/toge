@@ -903,9 +903,9 @@ button:disabled {
     linear-gradient(#2b1f15cc, #2b1f15cc) center / 1px 100% no-repeat,
     radial-gradient(
       circle at center,
-      transparent 0 calc(min(46vw, 46vh) - 6px),
-      #c9963f calc(min(46vw, 46vh) - 5px) calc(min(46vw, 46vh)),
-      #20170f calc(min(46vw, 46vh) + 1px)
+      transparent 0 calc(min(50vw, 50vh) - 6px),
+      #c9963f calc(min(50vw, 50vh) - 5px) calc(min(50vw, 50vh)),
+      #20170f calc(min(50vw, 50vh) + 1px)
     );
 }
 .bolt {
