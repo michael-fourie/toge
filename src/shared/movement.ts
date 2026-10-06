@@ -145,11 +145,29 @@ function land(s: PlayerState) {
   set(s.lastWallNormal, 0, 0, 0);
 }
 
-/** Push off a wall: away from it plus a nudge along the input, and up. Only ever adds speed; refreshes the double jump. */
+/**
+ * Push off a wall and up. Speed is never lost:
+ * - the speed that was driving you *into* the wall bounces back out instead of being deleted by the collision,
+ * - along-the-wall speed is untouched,
+ * - the extra boost follows the way you're already travelling (not the keys), so it works hands-off.
+ * Refreshes the double jump.
+ */
 function wallJump(s: PlayerState, n: Vec3, wish: Vec3) {
-  s.vel.x += n.x * MOVE.wallJumpOut + wish.x * MOVE.wallJumpBoost;
-  s.vel.z += n.z * MOVE.wallJumpOut + wish.z * MOVE.wallJumpBoost;
-  s.vel.y = Math.max(s.vel.y, MOVE.wallJumpUp);
+  const vel = s.vel;
+  const into = vel.x * n.x + vel.z * n.z; // negative: moving into the wall
+  const out = Math.max(MOVE.wallJumpOut, -into);
+  if (into < 0) {
+    vel.x -= n.x * into;
+    vel.z -= n.z * into;
+  }
+  vel.x += n.x * out;
+  vel.z += n.z * out;
+  const h = hlen(vel);
+  const bx = h > 0.5 ? vel.x / h : wish.x;
+  const bz = h > 0.5 ? vel.z / h : wish.z;
+  vel.x += bx * MOVE.wallJumpBoost;
+  vel.z += bz * MOVE.wallJumpBoost;
+  vel.y = Math.max(vel.y, MOVE.wallJumpUp);
   s.wallrunning = false;
   s.lastWallNormal = { ...n }; // this wall can't be kicked again until you land or use another one
   s.wallCooldown = MOVE.wallrunCooldown;

@@ -47,8 +47,8 @@ export const MOVE = {
   wallrunGravityStart: 2,
   wallrunCooldown: 0.5, // before re-attaching to a wall facing the same way
   wallJumpUp: 7.5,
-  wallJumpOut: 7,
-  wallJumpBoost: 2, // extra push along the input direction
+  wallJumpOut: 4, // minimum push off the wall; hitting it faster bounces the whole into-wall speed back out
+  wallJumpBoost: 2, // extra speed along the way you're already travelling
 
   // Air jumps. Both only ever *raise* upward speed (and a wall kick adds push), so they never cost momentum.
   airJumps: 1, // extra mid-air jumps per airtime (the double jump); a wall jump refreshes it, landing resets it

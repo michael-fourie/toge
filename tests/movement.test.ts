@@ -297,8 +297,26 @@ test('wall kick keeps and adds to the speed along the wall', () => {
   s.airTime = 1;
   const before = hlen(s.vel);
   run(s, { ...emptyInput(), jumpPressed: true }, 0.02, [wall]);
-  assert.ok(Math.abs(s.vel.z - -3) < 0.3, `along-wall speed kept: vz=${s.vel.z.toFixed(2)}`);
+  assert.ok(s.vel.z <= -3, `along-wall speed kept: vz=${s.vel.z.toFixed(2)}`);
   assert.ok(hlen(s.vel) > before);
+});
+
+test('wall jumps keep all your momentum, hands-off or not, however you meet the wall', () => {
+  const wall: Box = { min: { x: -2, y: -1, z: -300 }, max: { x: -1, y: 60, z: 300 }, kind: 'wall' };
+  for (const [vx, vz] of [[-8, -20], [-15, -15], [-20, -5], [-3, -25], [0, -14]]) {
+    for (const holdW of [true, false]) {
+      const s = createPlayerState({ x: -0.6, y: 30, z: 0 });
+      s.vel = { x: vx, y: 0, z: vz };
+      s.airTime = 1;
+      const before = hlen(s.vel);
+      const input: MoveInput = { ...emptyInput(), forward: holdW ? 1 : 0, yaw: 0, jumpPressed: true }; // looking along the wall (holding W into your own bounce would be air-braking, as in CS)
+      stepPlayer(s, input, TICK_DT, [wall]);
+      assert.ok(s.events & Ev.WallJump, `kick at v=(${vx},${vz})`);
+      assert.ok(hlen(s.vel) >= before - 1e-9, `speed lost at v=(${vx},${vz}) W=${holdW}: ${before.toFixed(1)} -> ${hlen(s.vel).toFixed(1)}`);
+      assert.ok(s.vel.x >= 0, 'leaves the wall, not into it');
+      assert.ok(Math.abs(s.vel.z) >= Math.abs(vz) - 1e-9, 'along-wall speed untouched');
+    }
+  }
 });
 
 // --- Boosters (wind gates + puffballs) -------------------------------------------------------
