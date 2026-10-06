@@ -338,14 +338,17 @@ function buildWindward(): MapData {
     ...centreHalf.map(mirror),
   ];
 
-  const spawns: SpawnPoint[] = [
-    { pos: { x: -14, y: 12.01, z: 100 }, yaw: 0 },
-    { pos: { x: -6, y: 12.01, z: 104 }, yaw: 0 },
-    { pos: { x: 6, y: 12.01, z: 104 }, yaw: 0 },
-    { pos: { x: 14, y: 12.01, z: 100 }, yaw: 0 },
-    { pos: { x: -7, y: 12.01, z: 96 }, yaw: 0 },
-    { pos: { x: 7, y: 12.01, z: 96 }, yaw: 0 },
+  // Battle spawns, spread over the whole map instead of two camp-able harbours: farthest-point sampled
+  // over every spot you can stand still on (both harbours, the centre island, gorge, ruins, mills, undercliffs),
+  // each facing the middle. `spawn.ts` picks among them at random, away from living players.
+  const SPAWN_SPOTS: [number, number, number][] = [
+    [-19, 12.01, 105], [19, 12.01, -105], [-23, 0.01, -5], [31, 0.01, 49], [41, -1.99, -27], [-31, 0.01, -69],
+    [-25, 2.01, 51], [33, 9.01, 97], [13, 2.01, -61], [17, 0.01, 9], [-19, 12.01, -105], [5, 0.01, -25],
+    [-41, -1.99, 23], [-27, 0.01, -37], [4, 4.01, 65], [-9, 0.01, 25], [5, 12.01, 93], [31, 10.01, 27],
+    [-8, -4.99, -51], [8, -4.99, 43], [-1, 12.01, -89], [-31, 12.01, 85], [31, 12.01, -85], [23, 0.01, -13],
+    [-33, 9.01, -89], [27, 0.01, 69], [25, 2.01, -45], [-11, 3.01, -69], [-8, -4.99, 53],
   ];
+  const spawns: SpawnPoint[] = SPAWN_SPOTS.map(([x, y, z]) => ({ pos: { x, y, z }, yaw: Math.atan2(x, z) }));
 
   // Survival: back to the trunk, facing out; the horde comes from the rim and the ruins terrace.
   const survivalSpawns: SpawnPoint[] = [
@@ -365,7 +368,7 @@ function buildWindward(): MapData {
     boxes: [...centre, ...half, ...half.map(mirror)],
     triggers: [...centreTriggers, ...centreTriggers.map(mirrorTrigger), ...halfTriggers, ...halfTriggers.map(mirrorTrigger)],
     decor: [{ kind: 'canopy', pos: { x: 0, y: 23, z: 0 }, radius: 13 }],
-    spawns: [...spawns, ...spawns.map((s) => ({ pos: flip(s.pos), yaw: s.yaw + Math.PI }))],
+    spawns,
     survivalSpawns: [...survivalSpawns, ...survivalSpawns.map((s) => ({ pos: flip(s.pos), yaw: s.yaw + Math.PI }))],
     zombieSpawns: [...zombieSpawns, ...zombieSpawns.map(flip)],
     killY: -40,

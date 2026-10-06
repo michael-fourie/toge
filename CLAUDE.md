@@ -33,6 +33,7 @@ src/shared/   runs on client AND server. No three.js, no DOM. Deterministic.
   zombie.ts     Survival zombie AI + physics (chase, claw, hop, detour, pounce); the server runs it
   collision.ts  AABB boxes + wedge ramps + non-solid Triggers: move-and-slide, probes, raycasts
   map.ts        the "Windward" map as data (boxes, triggers, decor, spawns), built from helpers; one half mirrored
+  spawn.ts      pickSpawn(): random good spawn (far from, and out of sight of, living players; not recently used)
   protocol.ts   JSON wire types (ClientMsg / ServerMsg), StateFlag bits
 src/server/   Cloudflare Worker: worker.ts (routing), room.ts (LobbyRoom Durable Object, one per match),
               directory.ts (Directory DO: codes + lobby list), lobby.ts (game logic: 20 Hz snapshots, kills, respawns),

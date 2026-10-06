@@ -5,6 +5,7 @@ import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
 import { MAP } from '../shared/map.ts';
 import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/math.ts';
 import { Ev, type PlayerState, createPlayerState, emptyInput, stepPlayer } from '../shared/movement.ts';
+import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import {
   type ClientMsg,
   type DeathCause,
@@ -99,6 +100,7 @@ export class Game {
   private raf = 0;
   private sendAcc = 0;
   private lastSent = '';
+  private recentSpawns: number[] = [];
 
   private scoped = false;
   private bolt = 0; // seconds until the next shot is chambered
@@ -492,8 +494,13 @@ export class Game {
     return this.players.get(id) ?? this.remotes.get(id)?.info;
   }
 
+  /** Practice respawn: a random good spot away from the dummies (same chooser the server uses). */
   private randomSpawn() {
-    const s = MAP.spawns[Math.floor(Math.random() * MAP.spawns.length)];
+    const dummies = [...this.remotes.values()].filter((r) => r.dummy && r.info.alive).map((r) => ({ x: r.dummy!.base.x, y: r.dummy!.base.y, z: r.dummy!.base.z }));
+    const i = pickSpawn(MAP.spawns, dummies, this.recentSpawns, MAP.boxes);
+    this.recentSpawns.push(i);
+    if (this.recentSpawns.length > RECENT_SPAWNS) this.recentSpawns.shift();
+    const s = MAP.spawns[i];
     return { pos: { ...s.pos }, yaw: s.yaw };
   }
 

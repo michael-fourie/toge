@@ -1,6 +1,7 @@
 import { NET, RESPAWN_SECONDS, SURVIVAL, WEAPON } from '../shared/constants.ts';
-import { MAP, type SpawnPoint } from '../shared/map.ts';
+import { MAP } from '../shared/map.ts';
 import type { ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
+import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import { Survival } from './survival.ts';
 
 /** The slice of a WebSocket the lobby needs (satisfied by the Workers WebSocket). */
@@ -47,6 +48,7 @@ export class Lobby {
   hostId = 0;
   private timer: ReturnType<typeof setInterval>;
   private ticks = 0;
+  private recentSpawns: number[] = [];
   private survival: Survival | null;
 
   /** `onChange` fires on join/leave and as a heartbeat; `onEmpty` once the last player leaves. */
@@ -182,25 +184,28 @@ export class Lobby {
     this.broadcast({ t: 'snapshot', players, zombies: this.survival?.snapshot() });
   }
 
-  /** Spawn point furthest from every living player (Survival: around the Great Tree). */
+  /** Battle: a random good spot from across the map (spawn.ts). Survival: back to back around the Great Tree. */
   private pickSpawn(): { p: V3; yaw: number } {
-    const spawns: SpawnPoint[] = this.survival ? MAP.survivalSpawns : MAP.spawns;
-    let best = spawns[0];
-    let bestDist = -1;
-    for (const s of spawns) {
-      let nearest = Infinity;
-      for (const m of this.members.values()) {
-        if (!m.info.alive) continue;
-        const [x, , z] = m.state.p;
-        nearest = Math.min(nearest, Math.hypot(x - s.pos.x, z - s.pos.z));
+    const living = [...this.members.values()].filter((m) => m.info.alive);
+    if (this.survival) {
+      // Teammates: spread out around the tree, farthest from everyone already up (jittered so it isn't fixed).
+      let best = MAP.survivalSpawns[0];
+      let bestDist = -1;
+      for (const s of MAP.survivalSpawns) {
+        const nearest = Math.min(Infinity, ...living.map((m) => Math.hypot(m.state.p[0] - s.pos.x, m.state.p[2] - s.pos.z)));
+        const score = nearest + Math.random() * 5;
+        if (score > bestDist) {
+          bestDist = score;
+          best = s;
+        }
       }
-      // Jitter so an empty server doesn't always pick the same spot.
-      const score = nearest + Math.random() * 5;
-      if (score > bestDist) {
-        bestDist = score;
-        best = s;
-      }
+      return { p: [best.pos.x, best.pos.y, best.pos.z], yaw: best.yaw };
     }
+    const enemies = living.map((m) => ({ x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] }));
+    const i = pickSpawn(MAP.spawns, enemies, this.recentSpawns, MAP.boxes);
+    this.recentSpawns.push(i);
+    if (this.recentSpawns.length > RECENT_SPAWNS) this.recentSpawns.shift();
+    const best = MAP.spawns[i];
     return { p: [best.pos.x, best.pos.y, best.pos.z], yaw: best.yaw };
   }
 

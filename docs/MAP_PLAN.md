@@ -24,7 +24,7 @@ Both triggers are idempotent while you're inside them (a "set at least" rule), s
 ## Layout (one half; the other is rotated 180°)
 
 ```
- z +106  ┌──────── Sky Harbor (spawn, y 12) ─────────┐   6 spawns behind the harbor wall
+ z +106  ┌──────── Sky Harbor (spawn, y 12) ─────────┐   (harbor spawns are 4 of the map-wide set)
          │  gate      gate (slide ramp)      gate    │   three doorways, each with a wind gate
  z  86   └──┬───────────────┬───────────────────┬────┘
    Surf     │  Windway      │                   │  Old Ruins
@@ -42,7 +42,7 @@ Both triggers are idempotent while you're inside them (a "set at least" rule), s
 
 | Area | Height | Purpose |
 | --- | --- | --- |
-| Sky Harbor | 12 | Safe spawns behind a 2.2 m harbour wall. Doorways line up with the three lanes, and a wind gate in each doorway launches you out. |
+| Sky Harbor | 12 | A fenced island with a 2.2 m wall (no longer the only place you spawn: see Spawns). Doorways line up with the three lanes, and a wind gate in each doorway launches you out. |
 | Windway (centre lane) | 12 → 4 → 1 | Slide ramp (~22°), then a speed gate, then three bhop stones with a mid-air gate. This is the fastest route. |
 | Surf Gorge (left) | 8 → 4 → −2 | Two descending surf A-frames with a gate between them. They exit onto a terrace, and a ramp leads up into the middle. |
 | Old Ruins (right) | 9 → 0 | Ramp down into a corridor between tall walls (wallrun or walk). It has a roofed tunnel you can hide in and also run on top of, plus pillars and arches. It opens onto a terrace beside the island, with a watchtower perch reached by pad. |
@@ -78,3 +78,7 @@ Survival reuses Windward. Players start (and are revived) back to back around th
 
 - **Tests:** every spawn is valid, every pad lands on solid ground, and the trigger physics work (gates never slow you, puffballs keep horizontal speed). Scripted traversals check each lane: the Windway slide-then-bhop reaches the centre, the gorge surf reaches the exit terrace, the ruins walk reaches the centre, and each puffball lands on its branch.
 - **In the browser:** spawn view (can you see the lanes?), each lane, the view from the crown, and frame rate.
+
+## Spawns
+
+Battle spawns are 29 spots spread over the whole map (both harbours, centre island, gorge, ruins, mills, undercliffs), found by farthest-point sampling over every spot you can stand on, and each faces the middle. There is no spawn zone to camp. `src/shared/spawn.ts` picks one at random among the good ones: at least 30 m from every living player, out of their line of sight (within 90 m), and not one of the last 8 used. If nothing qualifies it relaxes those rules in order and finally takes the farthest spot. Survival keeps its own back-to-back spawns around the tree. Tests: `tests/spawn.test.ts`.

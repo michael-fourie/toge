@@ -110,8 +110,7 @@ function play(s: PlayerState, input: MoveInput, seconds: number, onTick?: (i: nu
 
 const onCentreIsland = (p: Vec3) => Math.abs(p.x) <= 24 && Math.abs(p.z) <= 26 && Math.abs(p.y) < 0.05;
 
-test('every spawn is clear, stands on the harbour, and both sides are mirrored', () => {
-  assert.equal(MAP.spawns.length, 12);
+test('every spawn is clear and stands on solid ground', () => {
   for (const sp of MAP.spawns) {
     const s = createPlayerState(sp.pos);
     play(s, emptyInput(), 1);
