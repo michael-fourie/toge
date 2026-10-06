@@ -1009,12 +1009,12 @@ button:disabled {
   display: none;
   min-width: 150px;
   max-width: 220px;
-  padding: 6px 10px;
-  background: #fbf4e2dd;
-  color: var(--ink);
-  border-radius: 12px;
+  padding: 2px 4px;
+  color: #fffdf3;
   font-size: 13px;
-  box-shadow: 0 4px 12px #2a3e5a30;
+  font-weight: 700;
+  /* No panel, so it never covers the view; a dark halo keeps it readable on any background. */
+  text-shadow: 0 0 3px #1c2a3acc, 0 1px 2px #1c2a3acc, 0 0 8px #1c2a3a80;
 }
 .livescore.show {
   display: block;
@@ -1037,7 +1037,7 @@ button:disabled {
   white-space: nowrap;
 }
 .livescore .me {
-  color: var(--meadow-dark);
+  color: #ffe28a;
   font-weight: 900;
 }
 .killfeed {
@@ -1046,19 +1046,15 @@ button:disabled {
   justify-items: end;
 }
 .killfeed div {
-  background: #fbf4e2e6;
-  color: var(--ink);
-  padding: 6px 12px;
-  border-radius: 12px;
+  color: #fffdf3;
+  padding: 2px 4px;
   font-size: 14px;
-  box-shadow: 0 4px 12px #2a3e5a30;
+  font-weight: 700;
+  text-shadow: 0 0 3px #1c2a3acc, 0 1px 2px #1c2a3acc, 0 0 8px #1c2a3a80;
   animation: slidein 0.2s ease-out;
 }
-.killfeed b {
-  text-shadow: 0 0 1px #4a3726aa;
-}
 .killfeed span {
-  color: var(--ink-soft);
+  opacity: 0.85;
   font-weight: 500;
   margin: 0 6px;
 }
