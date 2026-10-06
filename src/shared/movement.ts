@@ -24,6 +24,7 @@ export const Ev = {
   SlideEnd: 64,
   Boost: 128,
   Bounce: 256,
+  AirJump: 512,
 } as const;
 
 export interface PlayerState {
@@ -35,6 +36,10 @@ export interface PlayerState {
   wallrunTime: number;
   lastWallNormal: Vec3;
   wallCooldown: number;
+  /** Mid-air jumps left this airtime (double jump). */
+  airJumps: number;
+  /** Seconds since leaving the ground. */
+  airTime: number;
   /** Seconds left on a buffered jump press (lets a slightly-early press still hop on the landing tick). */
   jumpBuffer: number;
   /** Surface normal of the ground we're standing on; (0,1,0) on flat floors. Set by ground classification. */
@@ -64,6 +69,8 @@ export function createPlayerState(pos: Vec3 = v3()): PlayerState {
     lastWallNormal: v3(),
     wallCooldown: 0,
     jumpBuffer: 0,
+    airJumps: MOVE.airJumps,
+    airTime: 0,
     inTrigger: null,
     events: 0,
   };
@@ -133,6 +140,22 @@ function land(s: PlayerState) {
   s.onGround = true;
   endWallrun(s);
   s.wallCooldown = 0;
+  s.airJumps = MOVE.airJumps;
+  s.airTime = 0;
+  set(s.lastWallNormal, 0, 0, 0);
+}
+
+/** Push off a wall: away from it plus a nudge along the input, and up. Only ever adds speed; refreshes the double jump. */
+function wallJump(s: PlayerState, n: Vec3, wish: Vec3) {
+  s.vel.x += n.x * MOVE.wallJumpOut + wish.x * MOVE.wallJumpBoost;
+  s.vel.z += n.z * MOVE.wallJumpOut + wish.z * MOVE.wallJumpBoost;
+  s.vel.y = Math.max(s.vel.y, MOVE.wallJumpUp);
+  s.wallrunning = false;
+  s.lastWallNormal = { ...n }; // this wall can't be kicked again until you land or use another one
+  s.wallCooldown = MOVE.wallrunCooldown;
+  s.airJumps = MOVE.airJumps;
+  s.jumpBuffer = 0;
+  s.events |= Ev.WallJump;
 }
 
 /** Advances one player by one fixed tick. Deterministic given the same inputs and world. */
@@ -172,14 +195,19 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
     endSlide(s, false); // slide-jump: leaves the ground before friction, so it keeps every bit of speed
     s.events |= Ev.Jump;
   } else if (s.wallrunning && input.jumpPressed) {
-    const n = s.wallNormal;
-    vel.x += n.x * MOVE.wallJumpOut + wish.x * MOVE.wallJumpBoost;
-    vel.z += n.z * MOVE.wallJumpOut + wish.z * MOVE.wallJumpBoost;
-    vel.y = MOVE.wallJumpUp;
-    endWallrun(s);
-    s.jumpBuffer = 0;
-    s.events |= Ev.WallJump;
+    wallJump(s, s.wallNormal, wish);
+  } else if (!s.onGround && input.jumpPressed && !landingSoon(s, boxes)) {
+    // A fresh press in the air (never the held key, so autohop can't burn it): kick off a nearby wall, else double jump.
+    const n = probeWall(s.pos, boxes, vel, MOVE.wallrunReach);
+    if (n && dot(n, s.lastWallNormal) < 0.7) wallJump(s, n, wish);
+    else if (s.airJumps > 0 && s.airTime >= MOVE.airJumpDelay) {
+      vel.y = Math.max(vel.y, MOVE.airJumpSpeed);
+      s.airJumps--;
+      s.jumpBuffer = 0;
+      s.events |= Ev.AirJump;
+    }
   }
+  if (!s.onGround) s.airTime += dt;
 
   // --- Acceleration --------------------------------------------------------
   let gravity = MOVE.gravity;
@@ -277,6 +305,12 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
   } else if (!s.onGround && wishAmount > 0) {
     tryStartWallrun(s, boxes);
   }
+}
+
+/** Ground within reach of the jump buffer: a press now is a landing hop (bhop), not an air jump. */
+function landingSoon(s: PlayerState, boxes: readonly Box[]): boolean {
+  const probe = { ...s.pos };
+  return snapToGround(probe, boxes, Math.max(0.15, -s.vel.y * MOVE.jumpBuffer)) !== null;
 }
 
 /** Wind gates and puffballs. Both only raise velocity, so momentum is never lost. */

@@ -211,6 +211,96 @@ test('pressing jump in the air never redirects or eats horizontal momentum', () 
   assert.ok(hlen(s.vel) >= hlen(before) - 1e-6);
 });
 
+// --- Air jumps (double jump + wall kick) ------------------------------------------------------
+
+/** Airborne at a decent height, running forward, jump not held. */
+function airborneRunner() {
+  const s = createPlayerState({ x: 0, y: 30, z: 0 });
+  s.vel = { x: 0, y: 0, z: -9 };
+  return s;
+}
+
+test('a double jump fires once per airtime, on a fresh press, and resets on landing', () => {
+  const s = airborneRunner();
+  const input: MoveInput = { ...emptyInput(), forward: 1 };
+  run(s, input, 0.3, [floor]); // falling
+  assert.ok(s.vel.y < 0);
+  input.jumpPressed = true;
+  let ev = run(s, input, 0.02, [floor]);
+  assert.ok(ev & Ev.AirJump, 'air jump should fire');
+  assert.ok(s.vel.y > MOVE.airJumpSpeed - 1, `vy=${s.vel.y.toFixed(2)}`);
+  input.jumpPressed = true;
+  ev = run(s, input, 0.02, [floor]);
+  assert.ok(!(ev & Ev.AirJump), 'only one extra jump per airtime');
+  run(s, input, 6, [floor]); // fall back down
+  assert.ok(s.onGround);
+  assert.equal(s.airJumps, MOVE.airJumps, 'landing re-arms the double jump');
+});
+
+test('double jump never touches horizontal momentum', () => {
+  const s = airborneRunner();
+  s.vel = { x: 14, y: 0, z: -22 };
+  const input: MoveInput = { ...emptyInput(), forward: 1 };
+  run(s, input, 0.3, [floor]);
+  const control = structuredClone(s);
+  stepPlayer(control, { ...input, jumpPressed: false }, TICK_DT, [floor]);
+  input.jumpPressed = true;
+  stepPlayer(s, input, TICK_DT, [floor]);
+  assert.ok(s.events & Ev.AirJump);
+  assert.equal(s.vel.x, control.vel.x);
+  assert.equal(s.vel.z, control.vel.z);
+});
+
+test('holding jump (autohop) never spends the double jump, and a hop buffered before landing is a normal hop', () => {
+  const { s, input } = runUp();
+  let air = 0;
+  run(s, input, 5, [floor], () => {
+    if (s.events & Ev.AirJump) air++;
+  });
+  assert.equal(air, 0);
+  // Press jump ~40 ms before touching down: that is a bhop hop on the landing tick, not an air jump.
+  const p = createPlayerState({ x: 0, y: 0.3, z: 0 });
+  p.vel = { x: 0, y: -4, z: -9 };
+  const inp: MoveInput = { ...emptyInput(), forward: 1 };
+  p.airTime = 1;
+  inp.jumpPressed = true;
+  const ev = run(p, inp, 0.2, [floor]);
+  assert.ok(ev & Ev.Jump, 'buffered hop on landing');
+  assert.ok(!(ev & Ev.AirJump));
+});
+
+test('a press near a wall kicks off it without needing a wallrun, once per wall until you land', () => {
+  const wall: Box = { min: { x: -2, y: -1, z: -100 }, max: { x: -1, y: 60, z: 100 }, kind: 'wall' };
+  const s = createPlayerState({ x: -0.6, y: 30, z: 0 });
+  s.vel = { x: 0, y: -1, z: 0 }; // too slow to wallrun
+  s.airTime = 1;
+  const input: MoveInput = { ...emptyInput(), jumpPressed: true };
+  const ev = run(s, input, 0.02, [wall]);
+  assert.ok(ev & Ev.WallJump, 'wall kick');
+  assert.ok(s.vel.x > MOVE.wallJumpOut - 0.5, `pushed off: vx=${s.vel.x.toFixed(2)}`);
+  assert.ok(s.vel.y >= MOVE.wallJumpUp - 0.5);
+  assert.equal(s.airJumps, MOVE.airJumps, 'kick refreshes the double jump');
+
+  // Back at the same wall: no second kick; the press falls through to a double jump instead.
+  s.pos.x = -0.6;
+  s.vel = { x: 0, y: -1, z: 0 };
+  input.jumpPressed = true;
+  const ev2 = run(s, input, 0.02, [wall]);
+  assert.ok(!(ev2 & Ev.WallJump), 'same wall twice');
+  assert.ok(ev2 & Ev.AirJump);
+});
+
+test('wall kick keeps and adds to the speed along the wall', () => {
+  const wall: Box = { min: { x: -2, y: -1, z: -100 }, max: { x: -1, y: 60, z: 100 }, kind: 'wall' };
+  const s = createPlayerState({ x: -0.6, y: 30, z: 0 });
+  s.vel = { x: 0, y: -1, z: -3 }; // slower than wallrunMinSpeed, so no wallrun first
+  s.airTime = 1;
+  const before = hlen(s.vel);
+  run(s, { ...emptyInput(), jumpPressed: true }, 0.02, [wall]);
+  assert.ok(Math.abs(s.vel.z - -3) < 0.3, `along-wall speed kept: vz=${s.vel.z.toFixed(2)}`);
+  assert.ok(hlen(s.vel) > before);
+});
+
 // --- Boosters (wind gates + puffballs) -------------------------------------------------------
 
 const gate: Trigger = { kind: 'boost', min: { x: -5, y: 0, z: -12 }, max: { x: 5, y: 4, z: -10 }, dir: { x: 0, y: 0, z: -1 }, speed: 16 };

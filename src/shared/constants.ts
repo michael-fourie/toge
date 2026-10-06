@@ -50,6 +50,11 @@ export const MOVE = {
   wallJumpOut: 7,
   wallJumpBoost: 2, // extra push along the input direction
 
+  // Air jumps. Both only ever *raise* upward speed (and a wall kick adds push), so they never cost momentum.
+  airJumps: 1, // extra mid-air jumps per airtime (the double jump); a wall jump refreshes it, landing resets it
+  airJumpSpeed: 301.993 * U, // same launch as a ground jump
+  airJumpDelay: 0.15, // seconds airborne before a press counts, so a spammed hop doesn't burn it right off the ground
+
   // Slide (hold Shift). Not in CS; tuned so it carries momentum rather than creating it.
   slideMinSpeed: 4, // need this much horizontal speed to start a slide
   slideEndSpeed: 3, // slide ends below this

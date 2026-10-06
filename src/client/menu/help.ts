@@ -3,9 +3,9 @@ import { $, sheet } from './ui.ts';
 
 const KEYS: [string, string][] = [
   ['WASD', 'Move. In the air, let go of W, hold A or D and turn the mouse the same way to gain speed.'],
-  ['Space / wheel', 'Jump. Hold to bhop; every hop keeps your speed.'],
+  ['Space / wheel', 'Jump. Hold to bhop; every hop keeps your speed. Tap again in the air for a double jump.'],
   ['Shift', 'Slide. Hold it in the air to slide the moment you land.'],
-  ['Walls', 'Run along one in the air to wallrun. Space wall-jumps.'],
+  ['Walls', 'Run along one in the air to wallrun, or tap Space beside one to kick off it (a new wall each time, and it refreshes your double jump).'],
   ['Blue ramps', 'Surf. Strafe into the slope to ride it.'],
   ['Left / right mouse', 'Shoot / hold to scope. No-scopes spray.'],
   ['R', 'Reload (automatic when empty).'],

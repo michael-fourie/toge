@@ -43,9 +43,9 @@ Kills earn mini achievements, and several at once **stack** into one combo with 
 | Input | Action |
 | --- | --- |
 | WASD | Move. In the air, let go of W, hold A or D and turn the mouse the same way to gain speed (air-strafing). |
-| Space / mouse wheel | Jump. Hold Space to auto-bhop; you keep all your speed on every hop. |
+| Space / mouse wheel | Jump. Hold Space to auto-bhop; you keep all your speed on every hop. Tap again in the air for a double jump. |
 | Shift (hold) | Slide. Hold it in the air to slide the moment you land. Jumping out of a slide keeps your speed. |
-| Run along a wall in the air | Wallrun. Space wall-jumps off it. |
+| Run along a wall in the air | Wallrun. Space wall-jumps off it; tapping Space next to any wall kicks off it too (once per wall until you land), and refreshes the double jump. |
 | Steep blue ramps | Surf: strafe into the ramp to ride it. |
 | LMB / RMB | Shoot / hold to scope. The bolt cycle drops you out of scope, and you scope back in if still holding. No-scopes have spread. |
 | R | Reload (automatic when the mag runs dry) |

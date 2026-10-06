@@ -255,6 +255,7 @@ export class Game {
     if (ev & Ev.WallrunStart) sfx.wallrun();
     if (ev & Ev.SlideStart) sfx.slide();
     if (ev & Ev.WallJump) sfx.wallJump();
+    if (ev & Ev.AirJump) sfx.airJump();
     if (ev & Ev.JumpPad) sfx.pad();
     if (ev & Ev.Bounce) sfx.bounce();
     if (ev & Ev.Boost) {
