@@ -107,7 +107,24 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 - No new dependencies without a strong reason. Current runtime deps: `three`, `ws`, `lil-gui`, `tsx`.
 - Every movement or physics change gets a test. In particular, momentum must be preserved (see the "Momentum" block in `movement.test.ts`).
 - Prefer small exact edits. When several agents or sessions work in parallel, give each one clear file ownership and keep each test area in its own file.
-- Don't commit unless asked. The remote is `origin` → github.com/michael-fourie/atrous (private); the working branch is `combat-fps-sniping-game`.
+- Don't commit unless asked. The remote is `origin` → github.com/michael-fourie/atrous (private), default branch `master`.
+
+## Status and known gaps
+
+A playable prototype covering practice and online lobbies. Everything listed in README works and is covered by tests or was checked in the browser. Known gaps, roughly in priority order:
+
+- **Netcode is a prototype:** client-authoritative movement, client-side hit detection, JSON messages. The upgrade path is under Netcode above and in `docs/DEPLOYMENT.md`.
+- **Not deployed yet.** `docs/DEPLOYMENT.md` has the free-hosting plan plus the small code changes it needs: `VITE_SERVER_URL`, `/health`, `maxPayload`, an origin check, and reconnection tokens.
+- **Lobby room:** while you sit in the room, your bean is already in the live match, idle at spawn. The fix is a server "ready" flag.
+- **Real AWP model:** the GLB loader has never run against the real Sketchfab file. That file needs a manual download (see README).
+- **Viewmodel:** during the bolt cycle the right hand covers the knob.
+- **Map:**
+  - Grass tufts aren't scattered on ramps.
+  - House interiors are tested by scripted walks but have had little visual review.
+  - Every box is its own mesh (~360 meshes). Merge static geometry by material if frame rate becomes an issue.
+- **Tooling:** Node 18 pins Vite 6. Moving to Node 22 would allow Vite 8.
+
+Design docs in `docs/` describe the current map and menu. Update them when you change those areas.
 
 ## Verifying in the browser
 
