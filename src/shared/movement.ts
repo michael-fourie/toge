@@ -1,6 +1,6 @@
-import { type Box, type Contacts, moveAndCollide, probeGround, probeWall } from './collision.ts';
+import { type Box, type Trigger, moveAndCollide, newContacts, probeGround, probeWall, snapToGround, touches } from './collision.ts';
 import { MOVE } from './constants.ts';
-import { type Vec3, addScaled, dot, hlen, set, v3, yawForward, yawRight } from './math.ts';
+import { type Vec3, addScaled, copy, dot, hlen, set, v3, yawForward, yawRight } from './math.ts';
 
 export interface MoveInput {
   forward: number; // -1..1
@@ -18,12 +18,12 @@ export const Ev = {
   Jump: 1,
   Land: 2,
   WallrunStart: 4,
-  WallrunEnd: 8,
-  WallJump: 16,
-  AirJump: 32,
-  JumpPad: 64,
-  SlideStart: 128,
-  SlideEnd: 256,
+  WallJump: 8,
+  JumpPad: 16,
+  SlideStart: 32,
+  SlideEnd: 64,
+  Boost: 128,
+  Bounce: 256,
 } as const;
 
 export interface PlayerState {
@@ -35,7 +35,6 @@ export interface PlayerState {
   wallrunTime: number;
   lastWallNormal: Vec3;
   wallCooldown: number;
-  airJumpsLeft: number;
   /** Seconds left on a buffered jump press (lets a slightly-early press still hop on the landing tick). */
   jumpBuffer: number;
   /** Surface normal of the ground we're standing on; (0,1,0) on flat floors. Set by ground classification. */
@@ -45,6 +44,8 @@ export interface PlayerState {
   slideBoostCooldown: number;
   /** A slide ended while Shift was still held; Shift must be released (or you must go airborne) to slide again. */
   slideLocked: boolean;
+  /** The trigger we were inside last tick, so enter events fire once. */
+  inTrigger: Trigger | null;
   events: number;
 }
 
@@ -62,8 +63,8 @@ export function createPlayerState(pos: Vec3 = v3()): PlayerState {
     wallrunTime: 0,
     lastWallNormal: v3(),
     wallCooldown: 0,
-    airJumpsLeft: MOVE.airJumps,
     jumpBuffer: 0,
+    inTrigger: null,
     events: 0,
   };
 }
@@ -73,7 +74,12 @@ const fwd = v3();
 const right = v3();
 const wish = v3();
 const tangent = v3();
-const contacts: Contacts = { ground: null, ceiling: false, hitX: false, hitZ: false };
+const contacts = newContacts();
+
+/** Source NON_JUMP_VELOCITY (140 u/s): moving away from the ground faster than this means airborne. */
+const NON_JUMP_VELOCITY = 140 * 0.0254;
+/** Source StayOnGround step (18 u): how far below us walkable ground can be and still be snapped to. */
+const STEP_DOWN = 18 * 0.0254;
 
 function accelerate(vel: Vec3, dir: Vec3, wishSpeed: number, accel: number, dt: number, cap = Infinity) {
   const current = dot(vel, dir);
@@ -120,19 +126,17 @@ function endWallrun(s: PlayerState) {
   s.wallrunning = false;
   s.lastWallNormal = { ...s.wallNormal };
   s.wallCooldown = MOVE.wallrunCooldown;
-  s.events |= Ev.WallrunEnd;
 }
 
 function land(s: PlayerState) {
   if (!s.onGround) s.events |= Ev.Land;
   s.onGround = true;
   endWallrun(s);
-  s.airJumpsLeft = MOVE.airJumps;
   s.wallCooldown = 0;
 }
 
 /** Advances one player by one fixed tick. Deterministic given the same inputs and world. */
-export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: readonly Box[]): void {
+export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: readonly Box[], triggers: readonly Trigger[] = []): void {
   s.events = 0;
   s.wallCooldown = Math.max(0, s.wallCooldown - dt);
   s.slideBoostCooldown = Math.max(0, s.slideBoostCooldown - dt);
@@ -173,15 +177,8 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
     vel.z += n.z * MOVE.wallJumpOut + wish.z * MOVE.wallJumpBoost;
     vel.y = MOVE.wallJumpUp;
     endWallrun(s);
-    s.airJumpsLeft = MOVE.airJumps;
     s.jumpBuffer = 0;
     s.events |= Ev.WallJump;
-  } else if (!s.onGround && !s.wallrunning && input.jumpPressed && s.airJumpsLeft > 0) {
-    // Optional double jump (off by default, CS has none). Purely vertical so it never eats momentum.
-    s.airJumpsLeft--;
-    s.jumpBuffer = 0;
-    vel.y = Math.max(vel.y, MOVE.airJumpSpeed);
-    s.events |= Ev.AirJump;
   }
 
   // --- Acceleration --------------------------------------------------------
@@ -189,13 +186,16 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
   if (s.onGround) {
     if (s.sliding && !input.slide) endSlide(s, false);
     if (!s.sliding && input.slide && !s.slideLocked && hlen(vel) >= MOVE.slideMinSpeed) {
-      // Enter a slide. The entry boost has a cooldown so tapping Shift can't farm speed.
+      // Enter a slide. The entry boost is a "starter" kick: it only tops you up to run speed + boost,
+      // so it never adds speed on top of bhop momentum (bhop + held Shift would otherwise farm +2 m/s
+      // every landing). The cooldown additionally stops Shift-tapping from re-triggering it.
       s.sliding = true;
       s.events |= Ev.SlideStart;
-      if (s.slideBoostCooldown === 0) {
-        const sp = hlen(vel);
-        vel.x += (vel.x / sp) * MOVE.slideBoost;
-        vel.z += (vel.z / sp) * MOVE.slideBoost;
+      const sp = hlen(vel);
+      const boost = Math.min(MOVE.slideBoost, MOVE.maxGroundSpeed + MOVE.slideBoost - sp);
+      if (s.slideBoostCooldown === 0 && boost > 0) {
+        vel.x += (vel.x / sp) * boost;
+        vel.z += (vel.z / sp) * boost;
         s.slideBoostCooldown = MOVE.slideBoostCooldown;
       }
     }
@@ -244,8 +244,18 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
   moveAndCollide(s.pos, vel, dt, boxes, contacts);
 
   // --- Post-move classification ---------------------------------------------
-  const ground = contacts.ground ?? (vel.y <= 0 ? probeGround(s.pos, boxes) : null);
-  if (ground && vel.y <= 0) {
+  // Grounded = on walkable ground (normal.y >= 0.7; surf ramps never count) and not moving away
+  // from it faster than NON_JUMP_VELOCITY. If we were grounded and didn't jump, snap down onto
+  // ground just below (Source StayOnGround) so walking or sliding down a ramp sticks to it.
+  const wasGrounded = s.onGround; // already cleared above if we jumped this tick
+  let ground = contacts.ground;
+  if (ground) copy(s.groundNormal, contacts.groundNormal);
+  else ground = probeGround(s.pos, boxes, s.groundNormal);
+  if (!ground && wasGrounded) ground = snapToGround(s.pos, boxes, STEP_DOWN, s.groundNormal);
+  if (ground && dot(vel, s.groundNormal) <= NON_JUMP_VELOCITY) {
+    // Keep horizontal speed and make the vertical part follow the surface (0 on flat ground).
+    const n = s.groundNormal;
+    vel.y = -(n.x * vel.x + n.z * vel.z) / n.y;
     land(s);
     if (ground.kind === 'pad' && ground.launch) {
       set(vel, ground.launch.x, ground.launch.y, ground.launch.z);
@@ -254,8 +264,11 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
     }
   } else {
     s.onGround = false;
+    set(s.groundNormal, 0, 1, 0);
     vel.y -= gravity * dt * 0.5;
   }
+
+  applyTriggers(s, input, triggers);
 
   if (s.wallrunning) {
     // Still touching the same wall?
@@ -264,6 +277,31 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
   } else if (!s.onGround && wishAmount > 0) {
     tryStartWallrun(s, boxes);
   }
+}
+
+/** Wind gates and puffballs. Both only raise velocity, so momentum is never lost. */
+function applyTriggers(s: PlayerState, input: MoveInput, triggers: readonly Trigger[]) {
+  let inside: Trigger | null = null;
+  for (const t of triggers) {
+    if (!touches(s.pos, t)) continue;
+    inside = t;
+    const vel = s.vel;
+    if (t.kind === 'boost') {
+      const along = vel.x * t.dir.x + vel.z * t.dir.z;
+      if (along < t.speed) {
+        vel.x += t.dir.x * (t.speed - along);
+        vel.z += t.dir.z * (t.speed - along);
+      }
+      if (s.inTrigger !== t) s.events |= Ev.Boost;
+    } else if (vel.y < t.up) {
+      vel.y = t.up;
+      s.onGround = false;
+      if (s.sliding) endSlide(s, input.slide);
+      endWallrun(s);
+      if (s.inTrigger !== t) s.events |= Ev.Bounce;
+    }
+  }
+  s.inTrigger = inside;
 }
 
 function tryStartWallrun(s: PlayerState, boxes: readonly Box[]) {
@@ -281,7 +319,6 @@ function tryStartWallrun(s: PlayerState, boxes: readonly Box[]) {
   s.wallrunning = true;
   s.wallrunTime = 0;
   s.wallNormal = { ...n };
-  s.airJumpsLeft = MOVE.airJumps;
   vel.x = alongX;
   vel.z = alongZ;
   vel.y = Math.min(Math.max(vel.y, 0.5), 3); // catch falls, tame launches

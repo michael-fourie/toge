@@ -1,128 +1,63 @@
-import type { LobbyInfo, ServerMsg } from '../shared/protocol.ts';
+import { MOVE } from '../shared/constants.ts';
 import { Game } from './game.ts';
+import { help } from './menu/help.ts';
+import { host } from './menu/host.ts';
+import { join } from './menu/join.ts';
+import { lobby } from './menu/lobby.ts';
+import { practice } from './menu/practice.ts';
+import { type Ctx, type Joined, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
+import { title } from './menu/title.ts';
+import { SKY_BACKDROP, playerName } from './menu/ui.ts';
 import { Net } from './net.ts';
+import { loadSettings } from './settings.ts';
 import { sfx } from './sfx.ts';
 
 const app = document.getElementById('app')!;
-const net = new Net();
+const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, practice, host, join, lobby, help };
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+let game: Game | null = null;
+let leaveScreen: (() => void) | null = null;
 
-function storedName(): string {
-  try {
-    return localStorage.getItem('atrous.name') ?? '';
-  } catch {
-    return '';
+/** The sky stays put while screens swap on top of it. */
+function stage(): HTMLElement {
+  let el = app.querySelector<HTMLElement>('.menu-stage');
+  if (!el) {
+    app.innerHTML = `<div class="menu">${SKY_BACKDROP}<div class="menu-stage"></div></div>`;
+    el = app.querySelector<HTMLElement>('.menu-stage')!;
   }
+  return el;
 }
 
-/** Painted sky backdrop shared by the menu and the loading screen: drifting clouds and a floating island. */
-const SKY_BACKDROP = `
-  <div class="sky">
-    <div class="sun"></div>
-    <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div><div class="cloud c4"></div>
-    <svg class="isle" viewBox="0 0 320 300" aria-hidden="true">
-      <path d="M40 120 Q160 92 280 120 L250 150 Q215 250 165 292 Q140 230 92 190 Q60 160 40 120Z" fill="#a98c6c"/>
-      <path d="M92 190 Q140 232 165 292 Q170 230 150 180Z" fill="#8a6f55" opacity=".7"/>
-      <path d="M36 118 Q160 86 284 118 Q280 132 250 136 Q160 120 70 138 Q40 134 36 118Z" fill="#7fb24e"/>
-      <rect x="196" y="40" width="9" height="74" rx="3" fill="#7a5236"/>
-      <circle cx="200" cy="44" r="30" fill="#4f8a3c"/><circle cx="178" cy="62" r="22" fill="#6aa548"/>
-      <circle cx="224" cy="60" r="24" fill="#3f7434"/><circle cx="204" cy="26" r="18" fill="#6aa548"/>
-      <rect x="92" y="78" width="10" height="44" fill="#efdcbc"/><rect x="88" y="74" width="18" height="6" fill="#e3c79c"/>
-      <rect x="120" y="92" width="10" height="28" fill="#efdcbc"/>
-      <path d="M246 134 q4 40 -2 90" stroke="#e9f6ff" stroke-width="5" fill="none" opacity=".8" stroke-linecap="round"/>
-    </svg>
-    <div class="cloud c5"></div>
-  </div>`;
-
-function showMenu(notice?: string) {
-  app.innerHTML = `
-    <div class="menu">
-      ${SKY_BACKDROP}
-      <div class="menu-card">
-        <h1 class="logo">Atrous<span>a sky-island bhop &amp; snipe</span></h1>
-        <label class="field">
-          <span>Your name</span>
-          <input id="name" maxlength="16" placeholder="sniper_mcgee" value="${esc(storedName())}" />
-        </label>
-        <div class="row">
-          <button id="practice" class="primary">Practice</button>
-          <button id="host">Host lobby</button>
-        </div>
-        <div class="row join">
-          <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" />
-          <button id="join">Join</button>
-        </div>
-        <div class="lobbies">
-          <div class="lobbies-head"><span>Open lobbies</span><button id="refresh" class="link">refresh</button></div>
-          <ul id="lobby-list"><li class="empty">Hit refresh to look for games</li></ul>
-        </div>
-        <p class="notice" id="notice">${notice ? esc(notice) : ''}</p>
-      </div>
-    </div>`;
-
-  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-  const nameInput = $<HTMLInputElement>('name');
-  const codeInput = $<HTMLInputElement>('code');
-  const setNotice = (t: string) => ($('notice').textContent = t);
-  const name = () => {
-    const n = nameInput.value.trim() || `bean${Math.floor(Math.random() * 1000)}`;
-    try {
-      localStorage.setItem('atrous.name', n);
-    } catch {
-      /* private mode */
-    }
-    return n;
-  };
-
-  // While the menu is up, route server messages here.
-  const off = net.on((m: ServerMsg) => {
-    if (m.t === 'lobbies') renderLobbies(m.lobbies);
-    if (m.t === 'error') setNotice(m.message);
-    if (m.t === 'joined') {
-      off();
-      void startGame(name(), m);
-    }
-  });
-
-  const online = async (then: () => void) => {
-    sfx.unlock();
-    setNotice('Connecting…');
-    try {
-      await net.connect(name());
-      setNotice('');
-      then();
-    } catch (e) {
-      setNotice(`${(e as Error).message}. Is the server running? (npm run dev)`);
-    }
-  };
-
-  const renderLobbies = (lobbies: LobbyInfo[]) => {
-    const list = $('lobby-list');
-    list.innerHTML = lobbies.length
-      ? lobbies
-          .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s game</span><em>${l.players}/${l.max}</em><button data-code="${esc(l.code)}">Join</button></li>`)
-          .join('')
-      : '<li class="empty">No open lobbies. Host one!</li>';
-    list.querySelectorAll<HTMLButtonElement>('button[data-code]').forEach((b) =>
-      b.addEventListener('click', () => online(() => net.send({ t: 'join', code: b.dataset.code! }))),
-    );
-  };
-
-  $('practice').addEventListener('click', () => {
-    off();
-    sfx.unlock();
-    void startGame(name());
-  });
-  $('host').addEventListener('click', () => online(() => net.send({ t: 'host' })));
-  $('join').addEventListener('click', () => {
-    const code = codeInput.value.trim().toUpperCase();
-    if (code.length !== 4) return setNotice('Lobby codes are 4 letters.');
-    online(() => net.send({ t: 'join', code }));
-  });
-  codeInput.addEventListener('keydown', (e) => e.key === 'Enter' && $('join').click());
-  $('refresh').addEventListener('click', () => online(() => net.send({ t: 'list' })));
+function show(s: Screen) {
+  // Browser Back during a match leaves the match (its onExit brings us back to the title).
+  if (game) return game.exit();
+  if (s.name === 'game') return router.replace({ name: 'title' });
+  leaveScreen?.();
+  leaveScreen = null;
+  leaveScreen = SCREENS[s.name](stage(), ctx, s) ?? null;
 }
+
+const router = createRouter(show);
+
+const ctx: Ctx = {
+  net: new Net(),
+  go: router.push,
+  replace: router.replace,
+  back: router.back,
+  play: (joined) => void play(joined),
+  joined: null,
+};
+
+// Esc = Back everywhere in the menu (in a match, Esc belongs to the game's pause menu).
+addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !game && (history.state as Screen | null)?.name !== 'title') router.back();
+});
+addEventListener('click', (e) => {
+  if ((e.target as HTMLElement).closest('[data-back]')) router.back();
+});
+
+// ---------------------------------------------------------------------------
+// Entering a match
 
 const LOADING_LINES = ['Catching the wind…', 'Waking the island spirits…', 'Polishing the brass scopes…', 'Fluffing the clouds…', 'Shooing the dust bunnies…'];
 
@@ -148,18 +83,27 @@ function showLoading(): () => void {
   };
 }
 
-async function startGame(name: string, joined?: Extract<ServerMsg, { t: 'joined' }>) {
+async function play(joined?: Joined) {
+  sfx.unlock();
+  leaveScreen?.();
+  leaveScreen = null;
+  router.mark({ name: 'game' });
+  MOVE.autoHop = loadSettings().autoHop;
   const hide = showLoading();
   // Offline we can let the loading screen paint before building the world. Online, build
   // immediately so no lobby messages arrive before the game is listening.
   if (!joined) await nextPaint();
   app.innerHTML = '';
-  new Game({
+  game = new Game({
     container: app,
-    name,
-    net: joined ? net : undefined,
+    name: playerName(),
+    net: joined ? ctx.net : undefined,
     joined,
-    onExit: (reason) => showMenu(reason),
+    onExit: (reason) => {
+      game = null;
+      ctx.joined = null;
+      router.replace({ name: 'title', notice: reason });
+    },
   });
   // The first rendered frames compile shaders; keep the veil up through them.
   await nextPaint();
@@ -167,7 +111,17 @@ async function startGame(name: string, joined?: Extract<ServerMsg, { t: 'joined'
   hide();
 }
 
-// Deep link: /?join=ABCD
+// ---------------------------------------------------------------------------
+// Boot. A deep link (/?join=ABCD) lands on the Join page with the code filled in.
+
+// A reload restores the page you were on, except the lobby room and matches (the connection is gone).
 const deepLink = new URLSearchParams(location.search).get('join');
-showMenu();
-if (deepLink) (document.getElementById('code') as HTMLInputElement).value = deepLink.toUpperCase();
+const restored = history.state as Screen | null;
+if (deepLink) {
+  history.replaceState({ name: 'title', depth: 0 }, '', location.pathname);
+  router.push({ name: 'join', code: deepLink.toUpperCase() });
+} else if (restored && restored.name !== 'lobby' && restored.name !== 'game') {
+  router.replace({ ...restored, notice: undefined });
+} else {
+  router.replace({ name: 'title' });
+}

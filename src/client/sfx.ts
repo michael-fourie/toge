@@ -67,13 +67,20 @@ export const sfx = {
     burst(0.4, v, 900);
   },
   jump: () => tone('sine', 220, 360, 0.09, 0.12),
-  airJump: () => tone('triangle', 400, 900, 0.14, 0.18),
   land: (hard: number) => burst(0.08 + hard * 0.08, 0.15 + hard * 0.3, 300),
   wallrun: () => burst(0.35, 0.18, 1400, 2, 'bandpass'),
   wallJump: () => tone('triangle', 300, 700, 0.12, 0.2),
   slide() {
     burst(0.45, 0.22, 700, 1.2, 'bandpass'); // grassy swish
     tone('sine', 260, 140, 0.25, 0.06);
+  },
+  boost() {
+    burst(0.5, 0.3, 900, 0.7, 'bandpass'); // rushing wind
+    tone('sine', 300, 700, 0.35, 0.08);
+  },
+  bounce() {
+    tone('sine', 90, 500, 0.35, 0.4); // squishy boing
+    tone('triangle', 140, 760, 0.3, 0.12, 0.02);
   },
   pad() {
     tone('sine', 120, 900, 0.5, 0.35); // boing
@@ -90,4 +97,20 @@ export const sfx = {
   },
   death: () => tone('sawtooth', 400, 50, 0.8, 0.25),
   scope: () => tone('sine', 900, 600, 0.05, 0.08),
+  // Weapon handling: short metallic clacks and slides.
+  boltUp: () => tone('square', 1800, 1200, 0.03, 0.06),
+  boltBack() {
+    burst(0.07, 0.25, 3200, 1.5, 'highpass');
+    tone('square', 700, 500, 0.04, 0.06);
+  },
+  boltForward() {
+    burst(0.05, 0.3, 2600, 1.5, 'highpass');
+    tone('square', 900, 1300, 0.05, 0.08, 0.02);
+  },
+  magOut: () => tone('triangle', 500, 260, 0.08, 0.12),
+  magIn() {
+    burst(0.05, 0.35, 1800, 1, 'bandpass');
+    tone('square', 320, 260, 0.06, 0.12);
+  },
+  dryFire: () => tone('square', 2200, 2000, 0.02, 0.08),
 };

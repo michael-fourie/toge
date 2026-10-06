@@ -348,3 +348,74 @@ export function softDot(): THREE.CanvasTexture {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
+/** Smooth sky-glazed stone for surf ramps: long pale streaks run along the ramp (texture u). */
+export function surfTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(61);
+  const grad = g.createLinearGradient(0, 0, 0, S);
+  grad.addColorStop(0, '#9ccbe0');
+  grad.addColorStop(0.5, '#b7dcea');
+  grad.addColorStop(1, '#9ccbe0');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  blobs(g, S, S, r, 50, ['#8fc0d8', '#c9e7f1', '#a8d3e6'], [12, 40], [0.15, 0.35]);
+  // Wind streaks: long thin strokes along u, wrapped so they tile.
+  for (let i = 0; i < 26; i++) {
+    const y = r() * S;
+    const x = r() * S;
+    const len = 60 + r() * 140;
+    const w = 1 + r() * 2.5;
+    g.globalAlpha = 0.25 + r() * 0.35;
+    g.strokeStyle = r() < 0.75 ? '#f4fbff' : '#7fb3cc';
+    g.lineWidth = w;
+    g.lineCap = 'round';
+    wrapped(g, S, S, () => {
+      g.beginPath();
+      g.moveTo(x, y);
+      g.bezierCurveTo(x + len * 0.3, y - 3, x + len * 0.7, y + 3, x + len, y);
+      g.stroke();
+    });
+  }
+  g.globalAlpha = 1;
+  // Faint tile seams across the ramp every half-texture.
+  g.strokeStyle = '#7aa9c0';
+  g.globalAlpha = 0.3;
+  g.lineWidth = 2;
+  for (const x of [0, S / 2]) {
+    g.beginPath();
+    g.moveTo(x, 0);
+    g.lineTo(x, S);
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+  return toTexture(c, renderer);
+}
+
+/** Ridged bark for the great tree's trunk and roots. */
+export function barkTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(71);
+  g.fillStyle = '#7a5236';
+  g.fillRect(0, 0, S, S);
+  // Vertical ridges with soft light/dark edges, wrapping horizontally.
+  for (let i = 0; i < 26; i++) {
+    const x = r() * S;
+    const w = 4 + r() * 10;
+    g.fillStyle = r() > 0.5 ? '#8f6440' : '#5e3e28';
+    g.globalAlpha = 0.5 + r() * 0.4;
+    for (const dx of [-S, 0, S]) {
+      g.beginPath();
+      g.moveTo(x + dx, 0);
+      for (let y = 0; y <= S; y += 16) g.lineTo(x + dx + Math.sin(y * 0.04 + i) * 4, y);
+      g.lineTo(x + dx + w, S);
+      for (let y = S; y >= 0; y -= 16) g.lineTo(x + dx + w + Math.sin(y * 0.04 + i) * 4, y);
+      g.fill();
+    }
+  }
+  g.globalAlpha = 1;
+  blobs(g, S, S, r, 18, ['#6f9a4a', '#88b05a'], [6, 18], [0.25, 0.4]); // moss
+  return toTexture(c, renderer);
+}

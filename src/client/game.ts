@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { PLAYER, MOVE, NET, RESPAWN_SECONDS, TICK_DT, WEAPON } from '../shared/constants.ts';
 import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
 import { MAP } from '../shared/map.ts';
-import { type Vec3, copy, hlen, lookDir, v3, yawRight } from '../shared/math.ts';
+import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/math.ts';
 import { Ev, type PlayerState, createPlayerState, emptyInput, stepPlayer } from '../shared/movement.ts';
 import { type DeathCause, type NetPlayerState, type PlayerInfo, type ServerMsg, StateFlag, type V3, round3 } from '../shared/protocol.ts';
 import { Avatar, Corpses } from './avatar.ts';
@@ -16,7 +16,7 @@ import { type World, buildWorld } from './world.ts';
 
 type Joined = Extract<ServerMsg, { t: 'joined' }>;
 
-export interface GameOptions {
+interface GameOptions {
   container: HTMLElement;
   name: string;
   /** Omit for offline practice (with target dummies). */
@@ -77,9 +77,13 @@ export class Game {
   private sendAcc = 0;
 
   private scoped = false;
-  private bolt = 0;
+  private bolt = 0; // seconds until the next shot is chambered
+  private ammo = WEAPON.magSize;
+  private reloading = 0; // seconds left on a reload
+  private autoReloadAt = -1;
   private roll = 0;
   private landDip = 0;
+  private fovKick = 0; // brief FOV punch when a wind gate hits
   /** Smoothed camera height above the feet (drops while sliding). Shots should originate here too. */
   private eyeHeight = PLAYER.eyeHeight;
   private showScores = false;
@@ -178,7 +182,7 @@ export class Game {
     while (this.acc >= TICK_DT && ticks++ < 20) {
       copy(this.prevPos, this.me.pos);
       const fallSpeed = -this.me.vel.y;
-      stepPlayer(this.me, this.input.sample(this.moveInput), TICK_DT, MAP.boxes);
+      stepPlayer(this.me, this.input.sample(this.moveInput), TICK_DT, MAP.boxes, MAP.triggers);
       this.onMoveEvents(this.me.events, fallSpeed);
       this.acc -= TICK_DT;
     }
@@ -205,8 +209,12 @@ export class Game {
     if (ev & Ev.WallrunStart) sfx.wallrun();
     if (ev & Ev.SlideStart) sfx.slide();
     if (ev & Ev.WallJump) sfx.wallJump();
-    if (ev & Ev.AirJump) sfx.airJump();
     if (ev & Ev.JumpPad) sfx.pad();
+    if (ev & Ev.Bounce) sfx.bounce();
+    if (ev & Ev.Boost) {
+      sfx.boost();
+      this.fovKick = 10;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -214,16 +222,38 @@ export class Game {
 
   private updateWeapon(dt: number) {
     this.bolt = Math.max(0, this.bolt - dt);
-    // Hold RMB to scope. The bolt cycle after a shot knocks you out of scope (CS-style);
+    if (this.reloading > 0) {
+      this.reloading = Math.max(0, this.reloading - dt);
+      if (this.reloading === 0) this.ammo = WEAPON.magSize;
+    }
+    if (this.autoReloadAt >= 0 && this.time >= this.autoReloadAt) {
+      this.autoReloadAt = -1;
+      this.startReload();
+    }
+    // Hold RMB to scope. The bolt cycle (and reloads) knock you out of scope, CS-style;
     // if RMB is still held when it finishes, you scope straight back in.
-    const wantScope = this.alive && this.input.scopeHeld && this.bolt === 0;
+    const wantScope = this.alive && this.input.scopeHeld && this.bolt === 0 && this.reloading === 0;
     if (wantScope && !this.scoped) sfx.scope();
     this.scoped = wantScope;
     if (this.input.takeFire()) this.fire();
   }
 
+  private startReload() {
+    if (!this.alive || this.reloading > 0 || this.ammo >= WEAPON.magSize) return;
+    const fromEmpty = this.ammo === 0; // chamber's empty too: finish with a bolt cycle
+    this.reloading = WEAPON.reloadTime + (fromEmpty ? WEAPON.boltTime : 0);
+    this.bolt = 0;
+    this.autoReloadAt = -1;
+    this.vm.reload(fromEmpty);
+  }
+
   private fire() {
-    if (!this.alive || this.bolt > 0) return;
+    if (!this.alive || this.bolt > 0 || this.reloading > 0) return;
+    if (this.ammo === 0) {
+      sfx.dryFire();
+      this.startReload();
+      return;
+    }
     const pitch = this.input.pitch;
     const yaw = this.input.yaw;
     const d = lookDir(yaw, pitch);
@@ -237,7 +267,8 @@ export class Game {
       d.y /= l;
       d.z /= l;
     }
-    const o = { x: this.renderPos.x, y: this.renderPos.y + PLAYER.eyeHeight, z: this.renderPos.z };
+    // Shoot from where the camera actually is (lower while sliding).
+    const o = { x: this.renderPos.x, y: this.renderPos.y + this.eyeHeight, z: this.renderPos.z };
 
     let best = rayWorld(o, d, MAP.boxes, WEAPON.range);
     let victim: Remote | null = null;
@@ -263,16 +294,12 @@ export class Game {
     const muzzle = this.camera.localToWorld(new THREE.Vector3(0.22, -0.2, -1.1));
     this.addTracer(muzzle, end, this.players.get(this.selfId)!.color);
 
-    this.vm.fire();
+    this.ammo--;
+    this.vm.fire(this.ammo > 0);
     sfx.shoot();
-    this.bolt = WEAPON.fireCooldown;
+    if (this.ammo > 0) this.bolt = WEAPON.fireCooldown;
+    else this.autoReloadAt = this.time + 0.25; // last round: drop straight into a reload
     this.scoped = false; // updateWeapon re-scopes after the bolt if RMB is still held
-    // Rocket-sniping: firing while airborne kicks you backwards.
-    if (!this.me.onGround) {
-      this.me.vel.x -= d.x * MOVE.shotRecoilPush;
-      this.me.vel.y -= d.y * MOVE.shotRecoilPush;
-      this.me.vel.z -= d.z * MOVE.shotRecoilPush;
-    }
 
     if (victim) {
       this.hud.hitmarker();
@@ -369,6 +396,10 @@ export class Game {
     this.input.pitch = 0;
     this.alive = true;
     this.deathCorpse = null;
+    this.ammo = WEAPON.magSize;
+    this.bolt = this.reloading = 0;
+    this.autoReloadAt = -1;
+    this.vm.draw();
     const self = this.players.get(this.selfId);
     if (self) self.alive = true;
   }
@@ -429,13 +460,14 @@ export class Game {
 
   private spawnDummies() {
     const spots: Vec3[] = [
-      { x: 0, y: 0, z: -8 },
-      { x: -10, y: 0, z: 0 },
-      { x: 28, y: 12, z: 20 },
-      { x: -28, y: 12, z: -20 },
-      { x: 0, y: 0, z: -62 },
-      { x: -20, y: 1, z: -29 },
-      { x: -20, y: 0, z: -45 },
+      { x: -12, y: 0, z: -8 }, // centre island, beside the tree
+      { x: 8, y: 8, z: 0 }, // east branch
+      { x: 0, y: 23, z: -5 }, // the crown
+      { x: -29, y: 10, z: -25 }, // far ruins watchtower
+      { x: -27, y: 0, z: -33 }, // far ruins approach
+      { x: 0, y: 4, z: -58 }, // far Windway runway
+      { x: 35, y: -2, z: -21 }, // far gorge exit terrace
+      { x: 0, y: 12, z: -98 }, // far harbour
     ];
     const colors = [0xc9a27e, 0x9bb7d4, 0xd9a3a0, 0xa9c48f]; // soft scarecrow tones
     spots.forEach((base, i) =>
@@ -476,11 +508,7 @@ export class Game {
       v: [round3(m.vel.x), round3(m.vel.y), round3(m.vel.z)],
       yaw: round3(this.input.yaw),
       pitch: round3(this.input.pitch),
-      f:
-        (m.onGround ? StateFlag.Ground : 0) |
-        (m.wallrunning ? StateFlag.Wallrun : 0) |
-        (this.scoped ? StateFlag.Scoped : 0) |
-        (m.sliding ? StateFlag.Sliding : 0),
+      f: (m.wallrunning ? StateFlag.Wallrun : 0) | (m.sliding ? StateFlag.Sliding : 0),
     });
   }
 
@@ -566,7 +594,8 @@ export class Game {
     // FOV widens with speed: the "going fast" feeling.
     const speed = hlen(this.me.vel);
     const slideKick = this.me.sliding ? 5 : 0;
-    const targetFov = this.scoped ? WEAPON.scopedFov : BASE_FOV + slideKick + Math.min(14, Math.max(0, speed - MOVE.maxGroundSpeed) * 0.6);
+    this.fovKick = Math.max(0, this.fovKick - dt * 20);
+    const targetFov = this.scoped ? WEAPON.scopedFov : BASE_FOV + slideKick + this.fovKick + Math.min(14, Math.max(0, speed - MOVE.maxGroundSpeed) * 0.6);
     cam.fov += (targetFov - cam.fov) * Math.min(1, dt * (this.scoped ? 25 : 6));
     cam.updateProjectionMatrix();
     this.input.sensitivityScale = this.scoped ? WEAPON.scopedFov / BASE_FOV : 1;
@@ -577,7 +606,9 @@ export class Game {
 
   private updateHud(dt: number) {
     this.hud.setScoped(this.scoped && this.alive);
-    this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, !this.me.onGround && this.me.airJumpsLeft > 0, this.bolt / WEAPON.fireCooldown);
+    this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, this.bolt / WEAPON.fireCooldown);
+    this.hud.ammo(this.ammo, WEAPON.magSize, this.reloading > 0);
+    this.hud.setCredit(this.vm.credit);
     if (this.alive) this.hud.death('', null);
     else this.hud.death(this.deathText, Math.max(0, this.respawnAt - this.time));
     this.hud.scoreboard(this.showScores ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.dummy).map((r) => r.info)] : null, this.selfId);
@@ -585,6 +616,7 @@ export class Game {
 
   private onKey(code: string, down: boolean) {
     if (code === 'Tab') this.showScores = down;
+    if (code === 'KeyR' && down) this.startReload();
     if (code === 'Backquote' && down) {
       const show = this.gui._hidden;
       this.gui.show(show);
@@ -606,9 +638,6 @@ export class Game {
     const air = f('Air');
     air.add(MOVE, 'airAccel', 0, 200);
     air.add(MOVE, 'airSpeedCap', 0.1, 5);
-    air.add(MOVE, 'airJumps', 0, 5, 1);
-    air.add(MOVE, 'airJumpSpeed', 2, 15);
-    air.add(MOVE, 'shotRecoilPush', 0, 30);
     const wall = f('Wallrun');
     wall.add(MOVE, 'wallrunMinSpeed', 0, 15);
     wall.add(MOVE, 'wallrunReach', 0.05, 2);
@@ -660,7 +689,6 @@ export class Game {
   }
 }
 
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const arr = (p: V3): Vec3 => ({ x: p[0], y: p[1], z: p[2] });
 const pick = <T>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
 function lerpAngle(a: number, b: number, t: number) {

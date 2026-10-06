@@ -1,4 +1,3 @@
-import { MOVE } from '../shared/constants.ts';
 import type { PlayerInfo } from '../shared/protocol.ts';
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
@@ -10,7 +9,7 @@ export class Hud {
   private q = <T extends HTMLElement = HTMLElement>(sel: string) => this.root.querySelector(sel) as T;
   private speedEl: HTMLElement;
   private speedBar: HTMLElement;
-  private chips: Record<'wallrun' | 'dj', HTMLElement>;
+  private wallrunChip: HTMLElement;
   private boltBar: HTMLElement;
   private centerTimer = 0;
   private hitTimer = 0;
@@ -27,7 +26,9 @@ export class Hud {
       <div class="hitmarker"></div>
       <div class="bolt"><i></i></div>
       <div class="speed"><b>0</b><small>m/s</small><div class="bar"><i></i></div></div>
-      <div class="chips"><span class="chip wallrun">WALLRUN</span><span class="chip dj">AIR JUMP</span></div>
+      <div class="chips"><span class="chip wallrun">WALLRUN</span></div>
+      <div class="ammo"><b>10</b><small>/ 10</small><span>reloading…</span></div>
+      <div class="credit"></div>
       <div class="lobby-tag">${esc(lobbyLabel)}</div>
       <div class="killfeed"></div>
       <div class="center-msg"></div>
@@ -41,8 +42,10 @@ export class Hud {
           <dl class="keys">
             <dt>WASD</dt><dd>move — in the air, let go of W, hold A/D and turn the mouse with it to gain speed</dd>
             <dt>Space / wheel</dt><dd>jump — hold to bhop, momentum is kept</dd>
+            <dt>Shift</dt><dd>slide (hold it in the air to slide on landing; jump out to keep speed)</dd>
             <dt>Run along walls</dt><dd>wallrun, Space to wall-jump</dd>
             <dt>LMB / RMB</dt><dd>shoot / hold to scope</dd>
+            <dt>R</dt><dd>reload (auto when empty)</dd>
             <dt>Tab</dt><dd>scores</dd>
             <dt>\`</dt><dd>movement tuning panel</dd>
           </dl>
@@ -52,7 +55,7 @@ export class Hud {
     this.speedEl = this.q('.speed b');
     this.speedBar = this.q('.speed .bar i');
     this.boltBar = this.q('.bolt i');
-    this.chips = { wallrun: this.q('.chip.wallrun'), dj: this.q('.chip.dj') };
+    this.wallrunChip = this.q('.chip.wallrun');
     this.q('.resume').addEventListener('click', () => this.onResume?.());
     this.q('.leave').addEventListener('click', () => this.onLeave?.());
   }
@@ -65,15 +68,13 @@ export class Hud {
     this.root.classList.toggle('scoped', s);
   }
 
-  update(dt: number, speed: number, wallrun: boolean, airJump: boolean, bolt: number) {
+  update(dt: number, speed: number, wallrun: boolean, bolt: number) {
     this.speedEl.textContent = speed.toFixed(1);
     const k = Math.min(1, speed / 30);
     this.speedBar.style.width = `${k * 100}%`;
     // Cream at walking pace, warming to sunset coral as you build speed.
     this.speedEl.style.color = `hsl(${44 - k * 34}, ${75 + k * 20}%, ${95 - k * 28}%)`;
-    this.chips.wallrun.classList.toggle('on', wallrun);
-    this.chips.dj.hidden = MOVE.airJumps <= 0; // air jumps are off by default (CS-style movement)
-    this.chips.dj.classList.toggle('on', airJump);
+    this.wallrunChip.classList.toggle('on', wallrun);
     this.boltBar.style.width = `${(1 - bolt) * 100}%`;
     this.root.classList.toggle('cycling', bolt > 0);
 
@@ -81,6 +82,18 @@ export class Hud {
     if (this.centerTimer <= 0) this.q('.center-msg').classList.remove('show');
     this.hitTimer -= dt;
     if (this.hitTimer <= 0) this.q('.hitmarker').classList.remove('show');
+  }
+
+  ammo(rounds: number, mag: number, reloading: boolean) {
+    this.q('.ammo b').textContent = String(rounds);
+    this.q('.ammo small').textContent = `/ ${mag}`;
+    this.root.classList.toggle('reloading', reloading);
+    this.root.classList.toggle('low-ammo', rounds <= 2);
+  }
+
+  /** Attribution line for a CC BY model, shown small in the pause menu corner. */
+  setCredit(text: string | null) {
+    this.q('.credit').textContent = text ?? '';
   }
 
   hitmarker() {

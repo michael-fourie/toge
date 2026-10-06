@@ -10,9 +10,7 @@ export const v3 = (x = 0, y = 0, z = 0): Vec3 => ({ x, y, z });
 export const copy = (o: Vec3, a: Vec3): Vec3 => ((o.x = a.x), (o.y = a.y), (o.z = a.z), o);
 export const set = (o: Vec3, x: number, y: number, z: number): Vec3 => ((o.x = x), (o.y = y), (o.z = z), o);
 export const dot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
-export const len = (a: Vec3): number => Math.hypot(a.x, a.y, a.z);
 export const hlen = (a: Vec3): number => Math.hypot(a.x, a.z);
-export const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 export function addScaled(o: Vec3, a: Vec3, s: number): Vec3 {
@@ -20,17 +18,6 @@ export function addScaled(o: Vec3, a: Vec3, s: number): Vec3 {
   o.y += a.y * s;
   o.z += a.z * s;
   return o;
-}
-
-/** Normalizes in place; leaves zero vectors as zero. Returns the original length. */
-export function normalize(o: Vec3): number {
-  const l = len(o);
-  if (l > 1e-9) {
-    o.x /= l;
-    o.y /= l;
-    o.z /= l;
-  }
-  return l;
 }
 
 /** Forward (look) direction on the horizontal plane for a yaw. Yaw 0 looks down -Z (three.js convention). */

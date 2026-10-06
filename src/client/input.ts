@@ -1,4 +1,5 @@
 import type { MoveInput } from '../shared/movement.ts';
+import { loadSettings } from './settings.ts';
 
 /**
  * Keyboard + raw mouse via Pointer Lock. Look angles update immediately per mouse event
@@ -7,7 +8,7 @@ import type { MoveInput } from '../shared/movement.ts';
 export class Input {
   yaw = 0;
   pitch = 0;
-  sensitivity = 0.0022; // radians per mouse count, at 1x zoom
+  sensitivity = 0.0022 * loadSettings().sensitivity; // radians per mouse count, at 1x zoom
   sensitivityScale = 1; // reduced while scoped
   locked = false;
 

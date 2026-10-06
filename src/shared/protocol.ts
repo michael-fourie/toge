@@ -28,7 +28,7 @@ export interface NetPlayerState {
   f: number;
 }
 
-export const StateFlag = { Ground: 1, Wallrun: 2, Scoped: 4, Sliding: 8 } as const;
+export const StateFlag = { Wallrun: 1, Sliding: 2 } as const;
 
 export type DeathCause = 'snipe' | 'headshot' | 'void';
 

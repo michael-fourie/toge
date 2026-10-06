@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import type { Box } from '../shared/collision.ts';
-import type { MapData } from '../shared/map.ts';
+import type { Box, Trigger } from '../shared/collision.ts';
+import type { Decor, MapData } from '../shared/map.ts';
 import {
+  barkTexture,
   cloudSeaTexture,
   cloudTexture,
   earthSideTexture,
@@ -10,6 +11,7 @@ import {
   rng,
   rockTexture,
   softDot,
+  surfTexture,
   toonRamp,
   wallTexture,
   woodTexture,
@@ -18,7 +20,7 @@ import {
 // Painterly sky-island look (think Castle in the Sky): warm sun, soft cel shading,
 // cumulus clouds, a sea of clouds below, hazy distant islands.
 
-export const PALETTE = {
+const PALETTE = {
   zenith: 0x3f8fd6,
   sky: 0x8cc6ee,
   horizon: 0xf6ecd4,
@@ -60,14 +62,97 @@ function boxGeometry(b: Box, tile: number, anchorTop = false): THREE.BoxGeometry
   return geo;
 }
 
+/** True if another box sits within a few metres under `b`'s footprint (cave floor, stalk, room). */
+function hasSolidBelow(b: Box, all: readonly Box[]): boolean {
+  return all.some(
+    (o) =>
+      o !== b &&
+      o.max.y <= b.min.y + 0.01 &&
+      o.max.y > b.min.y - 8 &&
+      o.min.x < b.max.x - 0.5 &&
+      o.max.x > b.min.x + 0.5 &&
+      o.min.z < b.max.z - 0.5 &&
+      o.max.z > b.min.z + 0.5,
+  );
+}
+
+/**
+ * Wedge geometry for a ramp (see RampShape): group 0 is the sloped face, group 1 the sides/back/bottom.
+ * UVs are world metres ÷ tile; on the slope, u runs across the ramp and v up it.
+ */
+function rampGeometry(b: Box, tile: number): THREE.BufferGeometry {
+  const r = b.ramp!;
+  const along = r.axis;
+  const across = along === 'x' ? 'z' : 'x';
+  const L = b.max[along] - b.min[along];
+  const y0 = b.min.y;
+  const y1 = b.max.y;
+  // Canonical coords: u along the slope axis (0 = low end, L = tall end), w across it.
+  const P = (u: number, y: number, w: number): THREE.Vector3 => {
+    const p = new THREE.Vector3();
+    p[along] = r.rise > 0 ? b.min[along] + u : b.max[along] - u;
+    p.y = y;
+    p[across] = w;
+    return p;
+  };
+  const w0 = b.min[across];
+  const w1 = b.max[across];
+  const A = P(0, y0, w0);
+  const B = P(0, y0, w1);
+  const C = P(L, y1, w1);
+  const D = P(L, y1, w0);
+  const E = P(L, y0, w0);
+  const F = P(L, y0, w1);
+  const centre = new THREE.Vector3((b.min.x + b.max.x) / 2, (y0 + y1) / 2, (b.min.z + b.max.z) / 2);
+
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const slopeLen = Math.hypot(L, y1 - y0);
+  const tri = (a: THREE.Vector3, b2: THREE.Vector3, c: THREE.Vector3, uvs: [number, number][]) => {
+    // Wind each triangle outward (the wedge is convex, so "away from the centre" is outward).
+    const n = new THREE.Vector3().subVectors(b2, a).cross(new THREE.Vector3().subVectors(c, a));
+    const mid = new THREE.Vector3().add(a).add(b2).add(c).divideScalar(3).sub(centre);
+    const pts = n.dot(mid) >= 0 ? [a, b2, c] : [a, c, b2];
+    const tex = n.dot(mid) >= 0 ? uvs : [uvs[0], uvs[2], uvs[1]];
+    for (let i = 0; i < 3; i++) {
+      pos.push(pts[i].x, pts[i].y, pts[i].z);
+      uv.push(tex[i][0] / tile, tex[i][1] / tile);
+    }
+  };
+  // Planar UVs for the side pieces, by dominant axis.
+  const planar = (p: THREE.Vector3, drop: 'x' | 'y' | 'z'): [number, number] =>
+    drop === 'x' ? [p.z, p.y] : drop === 'z' ? [p.x, p.y] : [p.x, p.z];
+
+  // Sloped face (group 0).
+  const sv = (u: number) => (u / L) * slopeLen;
+  tri(A, B, C, [[w0, sv(0)], [w1, sv(0)], [w1, sv(L)]]);
+  tri(A, C, D, [[w0, sv(0)], [w1, sv(L)], [w0, sv(L)]]);
+  const slopeCount = pos.length / 3;
+  // Bottom, tall back face, two triangular sides (group 1).
+  const flat = (a: THREE.Vector3, b2: THREE.Vector3, c: THREE.Vector3, drop: 'x' | 'y' | 'z') =>
+    tri(a, b2, c, [planar(a, drop), planar(b2, drop), planar(c, drop)]);
+  flat(A, E, F, 'y');
+  flat(A, F, B, 'y');
+  flat(E, D, C, along);
+  flat(E, C, F, along);
+  flat(A, D, E, across);
+  flat(B, F, C, across);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  geo.addGroup(0, slopeCount, 0);
+  geo.addGroup(slopeCount, pos.length / 3 - slopeCount, 1);
+  return geo;
+}
+
 function toon(params: THREE.MeshToonMaterialParameters) {
   return new THREE.MeshToonMaterial({ gradientMap: toonRamp(), ...params });
 }
 
 export interface World {
   scene: THREE.Scene;
-  sun: THREE.DirectionalLight;
-  pads: THREE.Object3D[];
   update(time: number): void;
 }
 
@@ -101,6 +186,9 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
   const wallTop = toon({ map: grass.map, color: 0xd6e8b0 }); // mossy cap
   const wood = toon({ map: woodTexture(renderer) });
   const padMat = toon({ map: padTexture(renderer), emissive: new THREE.Color(0x58e0b8), emissiveIntensity: 0.5 });
+  // Surf ramps: smooth sky-glazed stone with wind streaks along their length, so they read as "ride this".
+  const surf = toon({ map: surfTexture(renderer), emissive: new THREE.Color(0x2c5a78), emissiveIntensity: 0.25 });
+  const bark = toon({ map: barkTexture(renderer) });
 
   const pads: THREE.Object3D[] = [];
   const floorTops: Box[] = [];
@@ -108,6 +196,14 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
   const r = rng(5);
 
   for (const b of map.boxes) {
+    if (b.ramp) {
+      // Walkable slide ramps are grassy slopes over earth; surf ramps are glazed stone over rock.
+      const mesh = new THREE.Mesh(rampGeometry(b, 2), b.kind === 'surf' ? [surf, underside] : [grass, earth]);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      continue;
+    }
     let mesh: THREE.Mesh;
     const cx = (b.min.x + b.max.x) / 2;
     const cy = (b.min.y + b.max.y) / 2;
@@ -117,7 +213,8 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
         // [+x, -x, top, bottom, +z, -z]
         mesh = new THREE.Mesh(boxGeometry(b, 2, true), [earth, earth, grass, underside, earth, earth]);
         floorTops.push(b);
-        scene.add(islandUnderside(b, rock, r));
+        // Hanging rock only where there's open sky below (not over caves, rooms or stalks).
+        if (!hasSolidBelow(b, map.boxes)) scene.add(islandUnderside(b, rock, r));
         break;
       case 'wall':
         mesh = new THREE.Mesh(boxGeometry(b, 3), [wall, wall, wallTop, underside, wall, wall]);
@@ -125,17 +222,29 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
       case 'cover':
         mesh = new THREE.Mesh(boxGeometry(b, 2), wood);
         break;
+      case 'trunk':
+        mesh = new THREE.Mesh(boxGeometry(b, 3), [bark, bark, wallTop, underside, bark, bark]);
+        break;
+      case 'branch': // tree limbs: walkable mossy top over bark, no hanging island rock
+        mesh = new THREE.Mesh(boxGeometry(b, 3), [bark, bark, wallTop, bark, bark, bark]);
+        break;
       case 'pad':
         mesh = new THREE.Mesh(boxGeometry(b, b.max.x - b.min.x), padMat);
         padBoxes.push(b);
         pads.push(mesh, ...windSpirit(scene, b));
         break;
+      default:
+        continue;
     }
     mesh.position.set(cx, cy, cz);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
   }
+
+  const boosters = map.triggers.map((t) => (t.kind === 'boost' ? windGate(t) : puffball(t)));
+  boosters.forEach((b) => scene.add(b.obj));
+  for (const d of map.decor) scene.add(canopy(d, r));
 
   scene.add(meadow(floorTops, padBoxes, map.boxes, r));
   scene.add(cloudSea(renderer));
@@ -147,8 +256,6 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
 
   return {
     scene,
-    sun,
-    pads,
     update(time: number) {
       const pulse = 0.35 + 0.25 * Math.sin(time * 3);
       padMat.emissiveIntensity = pulse;
@@ -166,6 +273,7 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
         if (c.position.x > 700) c.position.x = -700;
       });
       motes.update(time);
+      for (const b of boosters) b.update(time);
     },
   };
 }
@@ -261,6 +369,106 @@ function windSpirit(scene: THREE.Scene, b: Box): THREE.Mesh[] {
     out.push(ring);
   }
   return out;
+}
+
+interface Animated {
+  obj: THREE.Object3D;
+  update(time: number): void;
+}
+
+/** Wind gate: a mint ring across the slab with chevrons streaming through it along the boost direction. */
+function windGate(t: Extract<Trigger, { kind: 'boost' }>): Animated {
+  const g = new THREE.Group();
+  g.position.set((t.min.x + t.max.x) / 2, (t.min.y + t.max.y) / 2, (t.min.z + t.max.z) / 2);
+  g.rotation.y = Math.atan2(-t.dir.x, -t.dir.z); // local -Z faces along the boost
+  const across = t.dir.x !== 0 ? t.max.z - t.min.z : t.max.x - t.min.x;
+  const height = t.max.y - t.min.y;
+  const r = Math.min(across, height) / 2;
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(r, 0.12, 8, 40),
+    new THREE.MeshBasicMaterial({ color: 0xc8fff0, transparent: true, opacity: 0.75, depthWrite: false }),
+  );
+  ring.scale.set(across / (2 * r), height / (2 * r), 1);
+  g.add(ring);
+  const chevronShape = new THREE.Shape();
+  chevronShape.moveTo(-0.6, 0.35).lineTo(0, -0.25).lineTo(0.6, 0.35).lineTo(0.6, 0.05).lineTo(0, -0.55).lineTo(-0.6, 0.05).closePath();
+  const chevronGeo = new THREE.ShapeGeometry(chevronShape).rotateX(-Math.PI / 2);
+  const chevrons: THREE.Mesh[] = [];
+  for (let i = 0; i < 3; i++) {
+    const m = new THREE.Mesh(
+      chevronGeo,
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    m.scale.setScalar(Math.min(2, r));
+    chevrons.push(m);
+    g.add(m);
+  }
+  return {
+    obj: g,
+    update(time) {
+      chevrons.forEach((m, i) => {
+        const k = (time * 1.2 + i / 3) % 1;
+        m.position.z = 3 - k * 6; // stream through the ring along the boost
+        (m.material as THREE.MeshBasicMaterial).opacity = Math.sin(k * Math.PI) * 0.8;
+      });
+      ring.rotation.z = Math.sin(time * 2) * 0.05;
+    },
+  };
+}
+
+/** Puffball: a squishy spotted mushroom cap that wobbles, sitting on the trigger's floor. */
+function puffball(t: Extract<Trigger, { kind: 'bounce' }>): Animated {
+  const g = new THREE.Group();
+  const size = t.max.x - t.min.x;
+  g.position.set((t.min.x + t.max.x) / 2, t.min.y, (t.min.z + t.max.z) / 2);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(size * 0.18, size * 0.24, 0.5, 14), toon({ color: 0xf6ead2 }));
+  stem.position.y = 0.25;
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(size / 2, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), toon({ color: 0xf08a8a }));
+  cap.position.y = 0.35;
+  cap.scale.y = 0.45;
+  const spot = toon({ color: 0xfff6e8 });
+  const r = rng(Math.round(g.position.x * 7 + g.position.z * 13));
+  for (let i = 0; i < 7; i++) {
+    const a = r() * Math.PI * 2;
+    const el = 0.25 + r() * 0.9;
+    const d = new THREE.Mesh(new THREE.SphereGeometry(0.12 + r() * 0.1, 8, 6), spot);
+    d.position.set(Math.cos(a) * Math.cos(el) * (size / 2), Math.sin(el) * (size / 2), Math.sin(a) * Math.cos(el) * (size / 2));
+    d.scale.y = 0.4;
+    cap.add(d);
+  }
+  cap.castShadow = stem.castShadow = true;
+  g.add(stem, cap);
+  return {
+    obj: g,
+    update(time) {
+      const w = Math.sin(time * 3 + g.position.x) * 0.04;
+      cap.scale.set(1 + w, 0.45 - w, 1 + w);
+    },
+  };
+}
+
+/** Leafy canopy over the crown: an umbrella of toon blobs plus a few at the rim (cover you can be shot through). */
+function canopy(d: Decor, r: () => number): THREE.Group {
+  const g = new THREE.Group();
+  const leaves = [toon({ color: 0x4f8a3c }), toon({ color: 0x6aa548 }), toon({ color: 0x3f7434 })];
+  const blob = new THREE.IcosahedronGeometry(1, 2);
+  const add = (x: number, y: number, z: number, s: number) => {
+    const m = new THREE.Mesh(blob, leaves[Math.floor(r() * leaves.length)]);
+    m.position.set(d.pos.x + x, d.pos.y + y, d.pos.z + z);
+    m.scale.set(s, s * 0.75, s);
+    m.castShadow = true;
+    g.add(m);
+  };
+  for (let i = 0; i < 18; i++) {
+    const a = r() * Math.PI * 2;
+    const rr = r() * d.radius * 0.9;
+    add(Math.cos(a) * rr, 6 + r() * 4, Math.sin(a) * rr, 3 + r() * 2.5);
+  }
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + r() * 0.3;
+    add(Math.cos(a) * d.radius * 0.85, 2.5 + r() * 1.5, Math.sin(a) * d.radius * 0.85, 1.6 + r());
+  }
+  return g;
 }
 
 /** Instanced grass tufts and flowers on floor tops (tiny, so they never hide players). */

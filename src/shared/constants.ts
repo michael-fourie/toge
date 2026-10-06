@@ -1,7 +1,6 @@
 // All distances in metres, times in seconds.
 
-export const TICK_RATE = 128; // movement sim rate (like a 128-tick CS server)
-export const TICK_DT = 1 / TICK_RATE;
+export const TICK_DT = 1 / 128; // movement sim rate (like a 128-tick CS server)
 
 export const NET = {
   clientSendRate: 30, // client -> server state updates per second
@@ -40,9 +39,6 @@ export const MOVE = {
   airAccel: 100, // sv_airaccelerate (MM is 12; bhop/combat-surf servers run 100+)
   airSpeedCap: 30 * U, // the 30 u/s air wishspeed cap that makes air-strafing work
 
-  airJumps: 0, // double jumps per airtime; CS has none
-  airJumpSpeed: 6.5,
-
   wallrunMinSpeed: 4,
   wallrunReach: 0.6, // how far from a wall you can be and still latch on (magnetism)
   wallrunSpeed: 11,
@@ -64,12 +60,16 @@ export const MOVE = {
   slideSlopeGravity: 1, // scale on gravity along the slope (downhill speeds you up)
   slideEyeHeight: 0.95,
 
-  shotRecoilPush: 0, // >0 shoves airborne snipers backwards when they fire. Off: it ate bhop momentum.
   maxSpeed: 45,
 };
 
 export const WEAPON = {
-  fireCooldown: 1.1,
+  // A shot is: recoil (boltDelay) -> a quick bolt cycle (boltTime). The server uses fireCooldown as its rate limit.
+  boltDelay: 0.1,
+  boltTime: 0.5,
+  fireCooldown: 0.62,
+  magSize: 10, // AWP: 10 in the mag, unlimited reserve (combat-surf style)
+  reloadTime: 1.7, // mag swap; +boltTime when reloading from empty
   scopedFov: 22,
   hipSpread: 0.035, // radians, no-scopes are a gamble
   range: 500,

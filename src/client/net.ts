@@ -7,6 +7,7 @@ export class Net {
   id = 0;
   private ws: WebSocket | null = null;
   private listeners = new Set<Listener>();
+  private pending: Promise<void> | null = null; // one in-flight connect, shared by concurrent callers
   onClose?: () => void;
 
   get connected() {
@@ -18,6 +19,11 @@ export class Net {
       this.send({ t: 'hello', name });
       return Promise.resolve();
     }
+    this.pending ??= this.open(name).finally(() => (this.pending = null));
+    return this.pending;
+  }
+
+  private open(name: string): Promise<void> {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws`);
     this.ws = ws;

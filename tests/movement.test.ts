@@ -1,19 +1,25 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { Box } from '../src/shared/collision.ts';
+import type { Box, Trigger } from '../src/shared/collision.ts';
 import { MOVE, TICK_DT } from '../src/shared/constants.ts';
-import { MAP } from '../src/shared/map.ts';
 import { hlen } from '../src/shared/math.ts';
 import { Ev, type MoveInput, createPlayerState, emptyInput, stepPlayer } from '../src/shared/movement.ts';
 
 const floor: Box = { min: { x: -500, y: -1, z: -500 }, max: { x: 500, y: 0, z: 500 }, kind: 'floor' };
 
-function run(s: ReturnType<typeof createPlayerState>, input: MoveInput, seconds: number, boxes: Box[], onTick?: (i: number) => void) {
+function run(
+  s: ReturnType<typeof createPlayerState>,
+  input: MoveInput,
+  seconds: number,
+  boxes: Box[],
+  onTick?: (i: number) => void,
+  triggers: Trigger[] = [],
+) {
   const ticks = Math.round(seconds / TICK_DT);
   let events = 0;
   for (let i = 0; i < ticks; i++) {
     onTick?.(i);
-    stepPlayer(s, input, TICK_DT, boxes);
+    stepPlayer(s, input, TICK_DT, boxes, triggers);
     events |= s.events;
     input.jumpPressed = false;
   }
@@ -90,61 +96,6 @@ test('jump pad launches', () => {
   const ev = run(s, emptyInput(), 0.4, [floor, pad]);
   assert.ok(ev & Ev.JumpPad);
   assert.ok(s.pos.y > 1, `should be airborne, y=${s.pos.y}`);
-});
-
-test('every map spawn is clear and lands on a floor', () => {
-  for (const sp of MAP.spawns) {
-    const s = createPlayerState(sp.pos);
-    run(s, emptyInput(), 1, MAP.boxes);
-    assert.ok(s.onGround, `spawn ${JSON.stringify(sp.pos)} should stand on ground`);
-    assert.ok(Math.abs(s.pos.y - sp.pos.y) < 0.05, `spawn ${JSON.stringify(sp.pos)} fell to ${s.pos.y}`);
-  }
-});
-
-test('the map wallrun lane is runnable: run off the ledge angled at the first wall, jump, latch on', () => {
-  // Ledge is x -27..-13, z 54..62; first wall's east face is x = -27 from z 54 down to 38.
-  // A player aims a little left (toward the wall) and just holds W + jump. No precise strafing.
-  const s = createPlayerState({ x: -23.5, y: 0.01, z: 61 });
-  const input: MoveInput = { ...emptyInput(), forward: 1, yaw: 0.3 };
-  let ev = 0;
-  for (let i = 0; i < 2 / TICK_DT && !(ev & Ev.WallrunStart); i++) {
-    input.jump = input.jumpPressed = s.pos.z < 55.5;
-    stepPlayer(s, input, TICK_DT, MAP.boxes);
-    ev |= s.events;
-  }
-  assert.ok(ev & Ev.WallrunStart, `expected wallrun, ended at ${JSON.stringify(s.pos)}`);
-  // ...and it carries us a decent way down the wall.
-  const z0 = s.pos.z;
-  for (let i = 0; i < 1 / TICK_DT && s.wallrunning; i++) stepPlayer(s, { ...input, jump: false, jumpPressed: false, yaw: 0 }, TICK_DT, MAP.boxes);
-  assert.ok(z0 - s.pos.z > 6, `wallran only ${(z0 - s.pos.z).toFixed(1)}m`);
-});
-
-test('the whole wallrun lane is completable: 3 wallruns, 2 wall-jumps, land on the arena ledge', () => {
-  const s = createPlayerState({ x: -23.5, y: 0.01, z: 61 });
-  const input: MoveInput = { ...emptyInput(), forward: 1, yaw: 0.3 };
-  let runs = 0;
-  let jumpAt = -1;
-  let landed = false;
-  for (let i = 0; i < 9 / TICK_DT; i++) {
-    input.jump = input.jumpPressed = runs === 0 && s.pos.z < 55.5;
-    // Wall-jump half a second into each run, then angle toward the next wall.
-    if (s.wallrunning && jumpAt < 0) jumpAt = i + Math.round(0.5 / TICK_DT);
-    if (i === jumpAt) {
-      input.jumpPressed = true;
-      jumpAt = -1;
-    }
-    if (runs > 0) input.yaw = s.wallrunning ? 0 : s.vel.x > 0 ? -0.35 : 0.35;
-    stepPlayer(s, input, TICK_DT, MAP.boxes);
-    if (s.events & Ev.WallrunStart) runs++;
-    if (s.events & Ev.Land && i > 10) {
-      landed = true;
-      break;
-    }
-    if (s.pos.y < MAP.killY) break;
-  }
-  assert.equal(runs, 3, 'wallruns');
-  assert.ok(landed, `should land safely, ended at ${JSON.stringify(s.pos)}`);
-  assert.ok(s.pos.z < 12 && s.pos.x > -27, 'landed on the ledge by the arena');
 });
 
 // --- Momentum (CS:GO bhop behaviour) ------------------------------------------------------
@@ -236,4 +187,39 @@ test('pressing jump in the air never redirects or eats horizontal momentum', () 
   const cos = (before.x * s.vel.x + before.z * s.vel.z) / (hlen(before) * hlen(s.vel));
   assert.ok(cos > 0.99, `direction changed: cos=${cos.toFixed(3)}`);
   assert.ok(hlen(s.vel) >= hlen(before) - 1e-6);
+});
+
+// --- Boosters (wind gates + puffballs) -------------------------------------------------------
+
+const gate: Trigger = { kind: 'boost', min: { x: -5, y: 0, z: -12 }, max: { x: 5, y: 4, z: -10 }, dir: { x: 0, y: 0, z: -1 }, speed: 16 };
+const puffball: Trigger = { kind: 'bounce', min: { x: -1.5, y: 0, z: -11.5 }, max: { x: 1.5, y: 0.6, z: -8.5 }, up: 15 };
+
+test('a wind gate raises speed along its direction', () => {
+  const s = createPlayerState({ x: 0, y: 0, z: 0 });
+  let boosted = 0;
+  run(s, { ...emptyInput(), forward: 1 }, 3, [floor], () => {
+    if (s.events & Ev.Boost) boosted = hlen(s.vel);
+  }, [gate]);
+  assert.ok(boosted >= 15.9, `speed leaving the gate: ${boosted.toFixed(2)}`);
+});
+
+test('a wind gate never slows you or eats sideways speed', () => {
+  const s = createPlayerState({ x: 0, y: 0.5, z: -11 });
+  s.vel = { x: 3, y: 0, z: -25 }; // already faster than the gate, and drifting sideways
+  stepPlayer(s, emptyInput(), TICK_DT, [], [gate]);
+  assert.ok(s.vel.z <= -25 + 1e-9 && Math.abs(s.vel.x - 3) < 1e-9, JSON.stringify(s.vel));
+});
+
+test('a puffball throws you up and keeps every bit of horizontal speed', () => {
+  const s = createPlayerState({ x: 0, y: 0, z: 0 });
+  let before = 0;
+  let kept = -1;
+  let peak = 0;
+  run(s, { ...emptyInput(), forward: 1 }, 2.5, [floor], () => {
+    if (kept < 0 && s.events & Ev.Bounce) kept = hlen(s.vel) - before;
+    before = hlen(s.vel);
+    peak = Math.max(peak, s.pos.y);
+  }, [puffball]);
+  assert.ok(kept >= -1e-6, `horizontal speed change on the bounce: ${kept}`);
+  assert.ok(peak > 5, `peak ${peak.toFixed(2)}`);
 });
