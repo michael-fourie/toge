@@ -468,6 +468,8 @@ export class Game {
       { x: 0, y: 4, z: -58 }, // far Windway runway
       { x: 35, y: -2, z: -21 }, // far gorge exit terrace
       { x: 0, y: 12, z: -98 }, // far harbour
+      { x: -14, y: 15, z: -55 }, // far Mill House roof
+      { x: 20, y: 10, z: -51 }, // far Cliff House roof
     ];
     const colors = [0xc9a27e, 0x9bb7d4, 0xd9a3a0, 0xa9c48f]; // soft scarecrow tones
     spots.forEach((base, i) =>

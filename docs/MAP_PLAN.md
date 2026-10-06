@@ -14,7 +14,7 @@ A replacement for Skyhop. The goal is a map that *flows*: every route rewards mo
 | Thing | Look | Behaviour |
 | --- | --- | --- |
 | **Wind gate** (speed booster) | Mint wind ring with chevrons streaming through it | Non-solid trigger. Raises your speed *along its direction* up to `speed`. It never slows you and never removes sideways speed, so it's safe for momentum. |
-| **Puffball** (jump booster) | Giant springy mushroom cap | Non-solid trigger on a floor. Sets upward speed to `up`, keeps all horizontal speed, and ends any slide or wallrun. |
+| **Puffball** (jump booster) | Giant springy mushroom cap | Non-solid trigger on a floor. Raises upward speed to `up` and horizontal speed *along the way you're already moving* to `push` (straight up if you're standing still). Never slows you. Ends any slide or wallrun. |
 | Launch pad (existing) | Mint swirl pad | Aimed throw to a target (`padTo`). Used for the few precise routes, like the canopy crown. |
 | Tree trunk | Bark | Solid like a wall, and you can wallrun around it. |
 | Canopy (decor) | Leafy toon blobs | Visual only. Players inside it are hidden from view but can still be shot through it. |
@@ -51,9 +51,23 @@ Both triggers are idempotent while you're inside them (a "set at least" rule), s
 
 Kill floor: y −40 (the cloud sea).
 
+## Round 2 additions
+
+| Addition | Where (side A; mirrored on side B) | Purpose |
+| --- | --- | --- |
+| **Mill House** | Island x 8..20, z 46..70 (top 3), bridged down from the Windway runway | 3 storeys + grassy roof. Windows on every floor overlook the Windway, the Ruins and the tree; balcony faces the centre. Stair ramps alternate walls through floor holes; the last comes up through a roof hatch behind a parapet. |
+| **Cliff House** | Island x −26..−12, z 44..62 (top 2), walkway from the runway | 2 storeys + roof. Balcony hangs over the Surf Gorge for picking off surfers. Crates outside for cover. |
+| **Mill Chute** (surf) | A-frame x 9..17, z 28..45 | Gate off the Mill island's south edge, surf down to the centre island. |
+| **Gorge Rail** (surf) | A-frame along X at z 33, x −22..−8 | Combat surf just off the centre's north edge; a wind gate on the edge flings you onto it. |
+| **Ruined walls** | Centre island: an L-corner at (8..14, 14..19) and a lone wall at x −17 | Break up the island's long sightlines. |
+| **More wind gates** | Gorge ledge (launch onto the surf), Ruins corridor, Ruins terrace, Mill Chute entry, centre north edge | Keep speed flowing between the lanes and onto the new surfs. |
+| **Mill puffball** | Undercliff (5.5, 49.5) | Run +X across it to hop up onto the Mill House island. |
+
+Fix: surf (and slide) ramps sometimes rendered inside-out. The ramp mesh wound each triangle "away from the centre" of its bounding box, but for a wedge that point lies exactly on the slope, so the slope's winding was a coin toss and its faces got culled (you saw the brown inner faces). It now uses the wedge's centroid.
+
 ## Lessons from building it
 
-- **Straight-up puffballs next to an overhang don't work.** Fast runners reach the edge while still rising and bonk the underside. Source air control adds at most 0.76 m/s from standstill, so you can't steer onto the ledge either. Use aimed launch pads (`padTo`) for ledges and branches, and keep puffballs in open air.
+- **Straight-up puffballs next to an overhang don't work** (round 1; puffballs now also push you forward, which helps, but overhangs still need launch pads). Fast runners reach the edge while still rising and bonk the underside. Source air control adds at most 0.76 m/s from standstill, so you can't steer onto the ledge either. Use aimed launch pads (`padTo`) for ledges and branches, and keep puffballs in open air.
 - **Every lane must physically connect to the island.** The ruins approach needed a terrace to join the island, which a scripted walk test caught.
 
 ## Verification

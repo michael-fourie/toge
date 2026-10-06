@@ -293,12 +293,25 @@ function applyTriggers(s: PlayerState, input: MoveInput, triggers: readonly Trig
         vel.z += t.dir.z * (t.speed - along);
       }
       if (s.inTrigger !== t) s.events |= Ev.Boost;
-    } else if (vel.y < t.up) {
-      vel.y = t.up;
-      s.onGround = false;
-      if (s.sliding) endSlide(s, input.slide);
-      endWallrun(s);
-      if (s.inTrigger !== t) s.events |= Ev.Bounce;
+    } else {
+      // Puffball: up, plus a shove along whatever direction you're already moving.
+      let bounced = false;
+      if (vel.y < t.up) {
+        vel.y = t.up;
+        bounced = true;
+      }
+      const h = Math.hypot(vel.x, vel.z);
+      if (h > 0.5 && h < t.push) {
+        vel.x *= t.push / h;
+        vel.z *= t.push / h;
+        bounced = true;
+      }
+      if (bounced) {
+        s.onGround = false;
+        if (s.sliding) endSlide(s, input.slide);
+        endWallrun(s);
+        if (s.inTrigger !== t) s.events |= Ev.Bounce;
+      }
     }
   }
   s.inTrigger = inside;

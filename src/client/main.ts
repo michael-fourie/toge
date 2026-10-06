@@ -7,6 +7,7 @@ import { lobby } from './menu/lobby.ts';
 import { practice } from './menu/practice.ts';
 import { type Ctx, type Joined, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
 import { title } from './menu/title.ts';
+import { startSkirmish } from './menu/skirmish.ts';
 import { SKY_BACKDROP, playerName } from './menu/ui.ts';
 import { Net } from './net.ts';
 import { loadSettings } from './settings.ts';
@@ -23,6 +24,7 @@ function stage(): HTMLElement {
   let el = app.querySelector<HTMLElement>('.menu-stage');
   if (!el) {
     app.innerHTML = `<div class="menu">${SKY_BACKDROP}<div class="menu-stage"></div></div>`;
+    startSkirmish(app.querySelector('canvas.skirmish')!);
     el = app.querySelector<HTMLElement>('.menu-stage')!;
   }
   return el;
@@ -73,6 +75,7 @@ function showLoading(): () => void {
   el.className = 'loading';
   el.innerHTML = `${SKY_BACKDROP}<div class="loading-card"><div class="leaf"></div><p>${LOADING_LINES[Math.floor(Math.random() * LOADING_LINES.length)]}</p></div>`;
   document.body.appendChild(el);
+  startSkirmish(el.querySelector('canvas.skirmish')!);
   const shownAt = performance.now();
   // Hold briefly so it never flashes, then fade away.
   return () => {

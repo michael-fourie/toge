@@ -103,7 +103,9 @@ function rampGeometry(b: Box, tile: number): THREE.BufferGeometry {
   const D = P(L, y1, w0);
   const E = P(L, y0, w0);
   const F = P(L, y0, w1);
-  const centre = new THREE.Vector3((b.min.x + b.max.x) / 2, (y0 + y1) / 2, (b.min.z + b.max.z) / 2);
+  // Centroid of the wedge's six corners: strictly inside the solid. (The bounding-box centre lies
+  // exactly on the slope, which made the slope's winding a coin toss and culled the surf faces.)
+  const centre = [A, B, C, D, E, F].reduce((acc, p) => acc.add(p), new THREE.Vector3()).divideScalar(6);
 
   const pos: number[] = [];
   const uv: number[] = [];

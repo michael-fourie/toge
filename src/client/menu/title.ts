@@ -1,7 +1,7 @@
 import type { Render } from './router.ts';
 import { $, esc, saveName, storedName } from './ui.ts';
 
-// Small storybook illustrations for the three doors.
+// Small storybook icons for the three buttons.
 const ICONS = {
   practice: `<svg viewBox="0 0 64 64" aria-hidden="true">
       <circle cx="32" cy="34" r="22" fill="#fbf4e2" stroke="#d9584a" stroke-width="4"/>
@@ -19,11 +19,10 @@ const ICONS = {
       <path d="M6 58 q10 -8 22 -10" stroke="#fffdf3" stroke-width="3" fill="none" stroke-dasharray="4 5" stroke-linecap="round"/></svg>`,
 };
 
-const door = (name: 'practice' | 'host' | 'join', title: string, blurb: string) => `
+const door = (name: 'practice' | 'host' | 'join', title: string) => `
   <button class="door door-${name}" data-go="${name}">
     <span class="door-art">${ICONS[name]}</span>
     <b>${title}</b>
-    <span>${blurb}</span>
   </button>`;
 
 export const title: Render = (root, ctx, screen) => {
@@ -36,9 +35,9 @@ export const title: Render = (root, ctx, screen) => {
         <i aria-hidden="true">✎</i>
       </label>
       <nav class="doors" aria-label="Play">
-        ${door('practice', 'Practice', 'Fly solo. Bhop, surf and snipe the scarecrows.')}
-        ${door('host', 'Host', 'Open a lobby and share a 4-letter code.')}
-        ${door('join', 'Join', "Hop into a friend's sky.")}
+        ${door('practice', 'Practice')}
+        ${door('host', 'Host')}
+        ${door('join', 'Join')}
       </nav>
       <p class="notice" role="status">${screen.notice ? esc(screen.notice) : ''}</p>
       <footer class="menu-foot"><button class="link" data-go="help">How to play</button><span>·</span><span>prototype</span></footer>

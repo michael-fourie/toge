@@ -82,11 +82,14 @@ function gate(x0: number, y0: number, z0: number, x1: number, y1: number, z1: nu
   return { kind: 'boost', min: { x: x0, y: y0, z: z0 }, max: { x: x1, y: y1, z: z1 }, dir: DIRS[dir], speed };
 }
 
-/** Puffball (jump booster) sitting on a floor; `height` is how high it throws you. */
-function puff(x: number, floorY: number, z: number, height: number, size = 3): Trigger {
+/**
+ * Puffball (jump booster) sitting on a floor. `height` is how high it throws you; `push` is the
+ * horizontal speed it throws you at along the way you were already moving.
+ */
+function puff(x: number, floorY: number, z: number, height: number, push = 7, size = 3): Trigger {
   const h = size / 2;
   const up = Math.sqrt(2 * MOVE.gravity * height);
-  return { kind: 'bounce', min: { x: x - h, y: floorY, z: z - h }, max: { x: x + h, y: floorY + 0.6, z: z + h }, up };
+  return { kind: 'bounce', min: { x: x - h, y: floorY, z: z - h }, max: { x: x + h, y: floorY + 0.6, z: z + h }, up, push };
 }
 
 // Rotate 180° about Y: the map is point-symmetric so both halves play identically.
@@ -128,6 +131,84 @@ function shrine(cx: number, floorY: number, cz: number, size: number, height: nu
     out.push(span(x0, winLo, cz + win, x1, winHi, cz + h - t / 2, 'wall'));
   }
   out.push(span(cx - h - 0.4, y1, cz - h - 0.4, cx + h + 0.4, y1 + 0.6, cz + h + 0.4, 'floor')); // standable roof
+  return out;
+}
+
+type Side = '+x' | '-x' | '+z' | '-z';
+
+/**
+ * A multi-storey house on a floor at `floorY`, footprint x0..x1 by z0..z1 (depth along Z must be
+ * >= 10 for the stair ramps). Each storey is 4m: sandstone walls with a sniping window on every side,
+ * doorways on the ground floor (`doors`), and optionally a balcony off the first floor. Inside,
+ * walkable ramps alternate between the west and east walls, each rising through a hole in the floor
+ * above; the last one comes up through a hatch onto a grassy roof ringed by a chest-high parapet.
+ */
+function house(x0: number, z0: number, x1: number, z1: number, floorY: number, floors: number, doors: Side[], balcony?: Side): Box[] {
+  const H = 4; // storey height
+  const t = 0.5; // wall thickness
+  const out: Box[] = [];
+  const ix0 = x0 + t;
+  const ix1 = x1 - t;
+  const iz0 = z0 + t;
+  const iz1 = z1 - t;
+  const stair = 2.2; // stair ramp width
+  const zA = iz0 + 1.2; // ramps rise from zA to zB (~31°); the 1.2m before zA is where you step on
+  const zB = zA + 6.5;
+  const strip = (k: number): [number, number] => (k % 2 === 0 ? [ix0, ix0 + stair] : [ix1 - stair, ix1]);
+  const sideMid = (zB + iz1) / 2;
+
+  for (let k = 0; k < floors; k++) {
+    const y = floorY + k * H;
+    // Walls, one storey at a time, each with a doorway or a window punched through its middle.
+    for (const side of ['+x', '-x', '+z', '-z'] as Side[]) {
+      const door = (k === 0 && doors.includes(side)) || (k === 1 && balcony === side);
+      const [oy0, oy1, half] = door ? [y, y + 2.8, 1.1] : [y + 1.2, y + 2.3, 0.9];
+      const alongX = side === '+z' || side === '-z';
+      const a0 = alongX ? x0 : z0;
+      const a1 = alongX ? x1 : z1;
+      // East/west walls have a stair ramp running along them, so their openings sit at the landing end.
+      const mid = alongX ? (x0 + x1) / 2 : sideMid;
+      const w0 = side === '+x' ? x1 - t : side === '-x' ? x0 : side === '+z' ? z1 - t : z0;
+      const piece = (b0: number, b1: number, py0: number, py1: number) => {
+        if (b1 - b0 < 0.01 || py1 - py0 < 0.01) return;
+        out.push(alongX ? span(b0, py0, w0, b1, py1, w0 + t, 'wall') : span(w0, py0, b0, w0 + t, py1, b1, 'wall'));
+      };
+      piece(a0, mid - half, y, y + H);
+      piece(mid + half, a1, y, y + H);
+      piece(mid - half, mid + half, y, oy0);
+      piece(mid - half, mid + half, oy1, y + H);
+    }
+    // Stair ramp up to the next level.
+    const [sx0, sx1] = strip(k);
+    out.push(wedge('ramp', sx0, y, zA, sx1, y + H, zB, { axis: 'z', rise: 1 }));
+    // The next level's floor (or the roof), with a hole over this storey's ramp.
+    const top = y + H;
+    const kind: BoxKind = k === floors - 1 ? 'floor' : 'cover'; // timber floors inside, a grassy roof on top
+    const pad = k === floors - 1 ? 0.3 : 0; // the roof overhangs the walls a touch
+    if (sx0 === ix0) out.push(span(sx1, top - 0.4, iz0 - pad, ix1 + pad, top, iz1 + pad, kind));
+    else out.push(span(ix0 - pad, top - 0.4, iz0 - pad, sx0, top, iz1 + pad, kind));
+    out.push(span(sx0 - (sx0 === ix0 ? pad : 0), top - 0.4, zB, sx1 + (sx1 === ix1 ? pad : 0), top, iz1 + pad, kind));
+  }
+  // Roof parapet: chest-high cover all round.
+  const roofY = floorY + floors * H;
+  out.push(span(x0 - 0.3, roofY, z0 - 0.3, x1 + 0.3, roofY + 1.1, z0 + 0.2, 'cover'));
+  out.push(span(x0 - 0.3, roofY, z1 - 0.2, x1 + 0.3, roofY + 1.1, z1 + 0.3, 'cover'));
+  out.push(span(x0 - 0.3, roofY, z0 + 0.2, x0 + 0.2, roofY + 1.1, z1 - 0.2, 'cover'));
+  out.push(span(x1 - 0.2, roofY, z0 + 0.2, x1 + 0.3, roofY + 1.1, z1 - 0.2, 'cover'));
+  // Balcony: a timber deck off the first floor with a rail.
+  if (balcony) {
+    const y = floorY + H;
+    const d = 2.5;
+    const [b0, b1] = balcony === '+x' || balcony === '-x' ? [sideMid - 2.5, sideMid + 2.5] : [(x0 + x1) / 2 - 3, (x0 + x1) / 2 + 3];
+    const deck = (e0: number, e1: number) =>
+      balcony === '+x' || balcony === '-x' ? span(e0, y - 0.4, b0, e1, y, b1, 'cover') : span(b0, y - 0.4, e0, b1, y, e1, 'cover');
+    const rail = (e0: number, e1: number) =>
+      balcony === '+x' || balcony === '-x' ? span(e0, y, b0, e1, y + 1.0, b1, 'cover') : span(b0, y, e0, b1, y + 1.0, e1, 'cover');
+    if (balcony === '+x') out.push(deck(x1, x1 + d), rail(x1 + d - 0.3, x1 + d));
+    if (balcony === '-x') out.push(deck(x0 - d, x0), rail(x0 - d, x0 - d + 0.3));
+    if (balcony === '+z') out.push(deck(z1, z1 + d), rail(z1 + d - 0.3, z1 + d));
+    if (balcony === '-z') out.push(deck(z0 - d, z0), rail(z0 - d, z0 - d + 0.3));
+  }
   return out;
 }
 
@@ -193,6 +274,23 @@ function buildWindward(): MapData {
     span(28.4, 0, 24.4, 29.6, 9, 25.6, 'wall'),
     span(26, 10, 22, 32, 11.2, 22.6, 'cover'),
     padTo(24, 0, 36, { x: 29, y: 10, z: 26 }, 2),
+
+    // Mill House (between the Windway and the Ruins): a 3-storey house on its own island, bridged from
+    // the runway. Windows on every floor overlook both lanes; a balcony and the roof look at the tree.
+    span(8, 2, 46, 20, 3, 70, 'floor'), // island, top 3
+    wedge('ramp', 5, 3, 53, 8, 4, 57, { axis: 'x', rise: -1 }), // bridge down from the runway (top 4)
+    ...house(10, 50, 18, 60, 3, 3, ['-x', '-z'], '-z'),
+    ...surfFrame('z', 13, 2.5, 28, 45, 4), // Mill Chute: drop off the island's south edge and surf to the centre
+
+    // Cliff House (between the Gorge and the Windway): 2 storeys, a balcony over the gorge for picking off surfers.
+    span(-26, 1, 44, -12, 2, 62, 'floor'), // island, top 2
+    wedge('ramp', -12, 2, 50, -5, 4, 54, { axis: 'x', rise: 1 }), // walkway down from the runway
+    ...house(-24, 46, -16, 56, 2, 2, ['+x', '-z'], '-x'),
+    box(-14, 2.75, 59, 1.5, 1.5, 1.5, 'cover'),
+    box(-19, 2.6, 60, 1.2, 1.2, 1.2, 'cover'),
+
+    // Gorge Rail: a combat-surf A-frame running along X just off the centre island's north edge.
+    ...surfFrame('x', 33, 1, -22, -8, 4),
   ];
 
   const halfTriggers: Trigger[] = [
@@ -204,10 +302,19 @@ function buildWindward(): MapData {
     gate(-5, 4, 62.5, 5, 8, 64, '-z', 16),
     gate(-5, 3, 41, 5, 9, 42.5, '-z', 18),
     // Undercliff puffball back up onto the first stone.
-    puff(0, -5, 49.5, 8.5),
+    puff(0, -5, 49.5, 8.5), // run -Z: back onto the first stone; run +X: up onto the Mill House island
     // Surf Gorge: a gate between the A-frames, and one on the terrace into the ramp.
     gate(-42, -4, 53, -30, 10, 54.5, '-z', 18),
     gate(-32, -2, 15, -30.5, 2, 27, '+x', 12),
+    gate(-32, 12, 82.5, -26, 15, 84, '-z', 12), // gorge ledge: launch out onto the first A-frame
+    // Ruins: through the corridor, and out across the terrace toward the side surf.
+    gate(22, 0, 70.5, 32, 5, 72, '-z', 14),
+    gate(26, 0, 27, 34, 4, 28.5, '-z', 14),
+    // Mill House: off the island's south edge onto the Mill Chute.
+    gate(9, 3, 46.2, 17, 6, 47.5, '-z', 14),
+    puff(5.5, -5, 49.5, 10.5), // undercliff: run +X to hop up onto the Mill House island
+    // Centre island's north edge: fling onto the Gorge Rail.
+    gate(-20, 0, 24, -10, 4, 25.5, '+z', 12),
   ];
 
   // ---- Centre: the Great Tree island (point-symmetric: this list + its mirror). ----
@@ -221,6 +328,10 @@ function buildWindward(): MapData {
     padTo(0, 14, 13.5, { x: 0, y: 23, z: 3 }, 3), // north branch tip up into the crown
     ...shrine(14, 0, -14, 7, 4),
     ...surfFrame('z', 32, 2, -14, 14, 5), // side combat surf, a short hop off the island's edge
+    // Ruined walls breaking up the island's sightlines: an L-shaped corner and a lone wall.
+    span(8, 0, 14, 14, 3, 14.6, 'wall'),
+    span(13.4, 0, 14.6, 14, 3, 19, 'wall'),
+    span(-17, 0, -8, -16.4, 2.6, -2, 'wall'),
   ];
   const centreTriggers: Trigger[] = [
     puff(6, 0, 6, 6), // beside the trunk: bounce, catch the bark, wallrun around it

@@ -27,11 +27,12 @@ export interface Box {
  * A non-solid volume that changes your velocity while you're inside it. Both kinds only ever
  * *raise* a velocity component ("set at least"), so they never cost momentum and need no cooldown.
  * - boost (wind gate): speed along the horizontal unit `dir` is raised to `speed`.
- * - bounce (puffball): upward speed is raised to `up`; horizontal speed is untouched.
+ * - bounce (puffball): upward speed is raised to `up`, and horizontal speed *along the way you're
+ *   already moving* is raised to `push` (standing still, it throws you straight up).
  */
 export type Trigger =
   | { kind: 'boost'; min: Vec3; max: Vec3; dir: Vec3; speed: number }
-  | { kind: 'bounce'; min: Vec3; max: Vec3; up: number };
+  | { kind: 'bounce'; min: Vec3; max: Vec3; up: number; push: number };
 
 /** Does the player standing at `p` overlap the volume? */
 export function touches(p: Vec3, v: { min: Vec3; max: Vec3 }): boolean {

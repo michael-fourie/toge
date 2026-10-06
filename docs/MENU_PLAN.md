@@ -6,7 +6,7 @@ Each choice gets its own page, so the title screen has three big doors and nothi
 
 | Screen | Shows | Primary action |
 | --- | --- | --- |
-| **Title** | The "Atrous" logo over the sky and island. A "Playing as ‹name› ✎" chip, which edits the name inline and saves it. Three illustrated choice cards: Practice / Host / Join. Footer: How to play · prototype. | Pick a card |
+| **Title** | The "Atrous" logo. A "Playing as ‹name› ✎" chip, which edits the name inline and saves it. Three stacked buttons, each just an icon and a word: Practice / Host / Join. Footer: How to play · prototype. Behind it, `menu/skirmish.ts` draws bobbing islands with faded shadow-players bhopping, leaping and sniping each other at random. | Pick a button |
 | **Practice** | A short blurb (dummies, routes, the tuning panel tip), plus settings the game actually honours: mouse sensitivity and auto-bhop, both saved. | Start practice |
 | **Host** | What hosting means (4-letter code, up to 12 players, the match is always live), plus a server status pill (connecting / online / offline + retry). | Create lobby |
 | **Join** | Four big letter boxes: auto-advance, backspace goes back, paste fills all four, Enter submits. Below them, a live list of open lobbies with the code, host, players and a Join button, or "Full". | Join |

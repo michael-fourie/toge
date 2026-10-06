@@ -158,18 +158,12 @@ button.link {
     translate: 130vw 0;
   }
 }
-.isle {
+.skirmish {
   position: absolute;
-  left: 6%;
-  bottom: 10%;
-  width: min(34vw, 380px);
-  animation: bob 7s ease-in-out infinite;
-  filter: drop-shadow(0 20px 30px #3f6f9f33);
-}
-@keyframes bob {
-  50% {
-    transform: translateY(-14px) rotate(-1deg);
-  }
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 /* ---------- Menu ---------- */
@@ -300,18 +294,17 @@ input::placeholder {
   padding-right: 6px;
 }
 .doors {
-  width: 100%;
+  width: min(360px, 100%);
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
+  gap: 14px;
 }
 .door {
   position: relative;
   display: grid;
-  align-content: start;
-  justify-items: start;
-  gap: 6px;
-  padding: 26px 22px 22px;
+  grid-template-columns: 52px 1fr;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 22px 12px 18px;
   text-align: left;
   font-weight: 500;
   overflow: hidden;
@@ -320,8 +313,8 @@ input::placeholder {
 .door::before {
   content: '';
   position: absolute;
-  inset: 0 0 auto;
-  height: 7px;
+  inset: 0 auto 0 0;
+  width: 7px;
   background: var(--accent);
 }
 .door-practice {
@@ -335,22 +328,18 @@ input::placeholder {
 }
 .door:hover,
 .door:focus-visible {
-  transform: translateY(-5px) rotate(-0.4deg);
+  transform: translateX(6px) rotate(-0.4deg);
   box-shadow: 0 2px 0 #fff inset, 0 30px 60px #2a4d7a55;
 }
 .door-art svg {
-  width: 64px;
-  height: 64px;
+  display: block;
+  width: 52px;
+  height: 52px;
 }
 .door b {
   font-family: var(--display);
   font-size: 30px;
   line-height: 1.1;
-}
-.door span:last-child {
-  color: var(--ink-soft);
-  font-size: 15px;
-  line-height: 1.45;
 }
 .menu-foot {
   display: flex;
@@ -760,29 +749,10 @@ button:disabled {
 
 @media (max-width: 720px) {
   .doors {
-    grid-template-columns: 1fr;
     gap: 12px;
   }
-  .door {
-    grid-template-columns: auto 1fr;
-    column-gap: 16px;
-    padding: 18px;
-  }
-  .door-art {
-    grid-row: span 2;
-  }
-  .door-art svg {
-    width: 52px;
-    height: 52px;
-  }
   .door b {
-    font-size: 24px;
-  }
-  .door span:last-child {
-    font-size: 14px;
-  }
-  .isle {
-    opacity: 0.6;
+    font-size: 26px;
   }
   .cloud {
     scale: 0.55;
@@ -808,7 +778,6 @@ button:disabled {
 }
 @media (prefers-reduced-motion: reduce) {
   .cloud,
-  .isle,
   .screen,
   .leaf,
   .mini-leaf,

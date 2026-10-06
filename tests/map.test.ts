@@ -215,3 +215,89 @@ test('hiding spots: undercliff and tunnel are roofed, the shrines have windows',
   assert.ok(rayWorld(eye, { x: -1, y: 0, z: 0 }, MAP.boxes, 12) === 12, 'window line of sight');
   assert.ok(rayWorld({ ...eye, z: -11.5 }, { x: -1, y: 0, z: 0 }, MAP.boxes, 12) < 5, 'wall blocks');
 });
+
+/** Walk through waypoints (x, z) in order, steering straight at each; returns the final state. */
+function walk(start: Vec3, waypoints: [number, number][], seconds = 30) {
+  const s = createPlayerState(start);
+  const input: MoveInput = { ...emptyInput(), forward: 1 };
+  let i = 0;
+  play(s, input, seconds, () => {
+    const [x, z] = waypoints[i];
+    if (Math.hypot(x - s.pos.x, z - s.pos.z) < 0.35) i++;
+    if (i >= waypoints.length) return false;
+    input.yaw = Math.atan2(-(waypoints[i][0] - s.pos.x), -(waypoints[i][1] - s.pos.z));
+    return s.pos.y > MAP.killY;
+  });
+  return { s, reached: i };
+}
+
+test('Mill House: in the side door and up all three floors to the roof', () => {
+  // Ramps alternate west (x 11.6) / east (x 16.4) walls, stepped onto from the south (z 51.1).
+  const up = (x: number): [number, number][] => [[14, 59], [14, 51.1], [x, 51.1], [x, 59]];
+  const { s, reached } = walk({ x: 9, y: 3.01, z: 58.85 }, [[11.6, 58.85], ...up(11.6), ...up(16.4), ...up(11.6)]);
+  assert.equal(reached, 13, `stuck at ${JSON.stringify(s.pos)}`);
+  assert.ok(Math.abs(s.pos.y - 15) < 0.05, `on the roof: ${JSON.stringify(s.pos)}`);
+});
+
+test('Cliff House: up to the gorge balcony, then on to the roof', () => {
+  const start = { x: -15, y: 2.01, z: 54.85 };
+  const toFirst: [number, number][] = [[-17.6, 54.85], [-20, 55], [-20, 47.1], [-22.4, 47.1], [-22.4, 55]];
+  const balcony = walk(start, [...toFirst, [-25.3, 54.85]]);
+  assert.ok(Math.abs(balcony.s.pos.y - 6) < 0.05 && balcony.s.pos.x < -24, `on the balcony: ${JSON.stringify(balcony.s.pos)}`);
+  const roof = walk(start, [...toFirst, [-20, 55], [-20, 47.1], [-17.6, 47.1], [-17.6, 55]]);
+  assert.ok(Math.abs(roof.s.pos.y - 10) < 0.05, `on the roof: ${JSON.stringify(roof.s.pos)}`);
+});
+
+test('house windows: you can see out of every floor', () => {
+  // Mill House south wall windows (centred x 14) on floors at y 3, 7, 11, looking out toward the tree.
+  for (const y of [3, 7, 11]) {
+    const eye = { x: 14, y: y + 1.75, z: 55 };
+    assert.ok(rayWorld(eye, { x: 0, y: 0, z: -1 }, MAP.boxes, 20) === 20, `window at y ${y}`);
+  }
+});
+
+test('undercliff puffball by the Mill House: run +X and it throws you up onto the island', () => {
+  const s = createPlayerState({ x: 2.2, y: -4.99, z: 49.5 });
+  let bounced = false;
+  play(s, { ...emptyInput(), forward: 1, yaw: -Math.PI / 2 }, 3, () => {
+    if (s.events & Ev.Bounce) bounced = true;
+    return !(bounced && s.onGround);
+  });
+  assert.ok(bounced && Math.abs(s.pos.y - 3) < 0.05 && s.pos.x > 8, `ended at ${JSON.stringify(s.pos)}`);
+});
+
+test('Mill Chute: gate off the island edge, surf the A-frame, land on the centre island', () => {
+  const s = createPlayerState({ x: 11.5, y: 3.01, z: 49 });
+  const input: MoveInput = { ...emptyInput(), forward: 1 };
+  let peak = 0;
+  play(s, input, 8, () => {
+    if (s.pos.z < 45.5 && !s.onGround) {
+      // Hold D into the west face (it rises toward +X); lean a little down-ramp (-X).
+      input.forward = 0;
+      input.right = s.pos.z > 29 ? 1 : 0;
+      input.yaw = 0;
+    }
+    peak = Math.max(peak, hlen(s.vel));
+    return !(onCentreIsland(s.pos) && s.onGround) && s.pos.y > MAP.killY;
+  });
+  assert.ok(onCentreIsland(s.pos), `ended at ${JSON.stringify(s.pos)}`);
+  assert.ok(peak >= 14, `gate + chute speed ${peak.toFixed(1)}`);
+});
+
+test('Gorge Rail: the north-edge gate flings you onto the A-frame and you can ride it along X', () => {
+  const s = createPlayerState({ x: -15, y: 0.01, z: 20 });
+  const input: MoveInput = { ...emptyInput(), forward: 1, yaw: Math.PI }; // run +Z
+  let riding = 0;
+  play(s, input, 4, () => {
+    const onRail = s.pos.z > 29 && s.pos.z < 37 && s.pos.x > -22 && s.pos.x < -8 && s.pos.y > -6 && !s.onGround;
+    if (onRail) {
+      riding++;
+      // Turn to ride along -X and strafe toward the ridge (z 33), i.e. into whichever face we're on.
+      input.forward = 0;
+      input.yaw = Math.PI / 2;
+      input.right = s.pos.z > 33 ? 1 : -1;
+    }
+    return s.pos.y > MAP.killY;
+  });
+  assert.ok(riding > 0.4 / TICK_DT, `rode the rail for ${(riding * TICK_DT).toFixed(2)}s`);
+});

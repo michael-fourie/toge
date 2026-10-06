@@ -58,7 +58,7 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 - After the move, ground is classified: walkable means `normal.y >= 0.7`, and the snap-down is 18u.
 - `MOVE` is mutable on purpose; the `` ` `` lil-gui panel edits it live. Every tunable belongs in `constants.ts`, not as a magic number in logic.
 - Events come back as `s.events` bit flags (`Ev`) and drive sfx and camera effects.
-- Triggers are applied after the move. A wind gate (`boost`) raises speed along its direction; a puffball (`bounce`) raises upward speed. Both only ever *raise* velocity ("set at least"), so they can't cost momentum and need no cooldowns. Keep it that way.
+- Triggers are applied after the move. A wind gate (`boost`) raises speed along its direction; a puffball (`bounce`) raises upward speed to `up` and horizontal speed along your current heading to `push` (standing still, it's straight up). Both only ever *raise* velocity ("set at least"), so they can't cost momentum and need no cooldowns. Keep it that way.
 
 **Collision (`collision.ts`)**
 - The world is a list of `Box`: axis-aligned boxes, plus wedges when `box.ramp` is set.
@@ -67,9 +67,10 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 - Hitscan uses `rayWorld` / `rayBox` / `raySphere`.
 
 **Map (`map.ts`)**
-- Build geometry with the helpers: `box`, `span`, `wedge`, `surfFrame`, `padTo`, `shrine`. Build boosters with `gate` (wind gate) and `puff` (puffball, sized by the height it throws you).
+- Build geometry with the helpers: `box`, `span`, `wedge`, `surfFrame`, `padTo`, `shrine`, and `house` (multi-storey: walls with windows/doors, alternating stair ramps through floor holes, roof hatch + parapet, optional balcony; depth along Z must be ≥ 10). Build boosters with `gate` (wind gate) and `puff` (puffball: throw height + forward push).
 - Box kinds: `floor` (grass island with a rock underside), `branch` (bark limb, no underside), `wall`, `trunk`, `cover`, `pad`, and `ramp`/`surf` for wedges. `decor` is visual only, e.g. the canopy.
-- Use aimed pads (`padTo`) to reach ledges and branches. Straight-up puffballs are for open air. Next to an overhang or a wall you bonk it while rising and lose your forward speed.
+- Use aimed pads (`padTo`) to reach branches and overhung ledges. Puffballs now throw you forward too, so they can hop you up onto a ledge you're running at, if it's far enough away that you clear its edge on the way up (test it). Mind wind gates along a puff's flight path: they'll catch you.
+- Ramps have no step-up: you can only walk onto one from its low end, so leave a clear landing in front of it (`house` does).
 - Author one half; `mirror()` rotates it 180° for the other side.
 - Use `padTo(...)` for pads: it computes the launch from the live gravity, so retuning doesn't break pads.
 - A new `BoxKind` needs rendering in `world.ts`.

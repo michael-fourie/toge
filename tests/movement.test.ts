@@ -192,7 +192,7 @@ test('pressing jump in the air never redirects or eats horizontal momentum', () 
 // --- Boosters (wind gates + puffballs) -------------------------------------------------------
 
 const gate: Trigger = { kind: 'boost', min: { x: -5, y: 0, z: -12 }, max: { x: 5, y: 4, z: -10 }, dir: { x: 0, y: 0, z: -1 }, speed: 16 };
-const puffball: Trigger = { kind: 'bounce', min: { x: -1.5, y: 0, z: -11.5 }, max: { x: 1.5, y: 0.6, z: -8.5 }, up: 15 };
+const puffball: Trigger = { kind: 'bounce', min: { x: -1.5, y: 0, z: -11.5 }, max: { x: 1.5, y: 0.6, z: -8.5 }, up: 15, push: 9 };
 
 test('a wind gate raises speed along its direction', () => {
   const s = createPlayerState({ x: 0, y: 0, z: 0 });
@@ -210,16 +210,30 @@ test('a wind gate never slows you or eats sideways speed', () => {
   assert.ok(s.vel.z <= -25 + 1e-9 && Math.abs(s.vel.x - 3) < 1e-9, JSON.stringify(s.vel));
 });
 
-test('a puffball throws you up and keeps every bit of horizontal speed', () => {
+test('a puffball throws you up and shoves you along the way you were already moving', () => {
   const s = createPlayerState({ x: 0, y: 0, z: 0 });
-  let before = 0;
-  let kept = -1;
+  let hAtBounce = 0;
+  let dirDot = 0;
   let peak = 0;
   run(s, { ...emptyInput(), forward: 1 }, 2.5, [floor], () => {
-    if (kept < 0 && s.events & Ev.Bounce) kept = hlen(s.vel) - before;
-    before = hlen(s.vel);
+    if (!hAtBounce && s.events & Ev.Bounce) {
+      hAtBounce = hlen(s.vel);
+      dirDot = -s.vel.z / hAtBounce; // we were running toward -Z
+    }
     peak = Math.max(peak, s.pos.y);
   }, [puffball]);
-  assert.ok(kept >= -1e-6, `horizontal speed change on the bounce: ${kept}`);
+  assert.ok(Math.abs(hAtBounce - 9) < 0.01, `horizontal speed raised to push: ${hAtBounce.toFixed(2)}`);
+  assert.ok(dirDot > 0.999, 'thrown along the direction of travel');
   assert.ok(peak > 5, `peak ${peak.toFixed(2)}`);
+});
+
+test('a puffball never slows a fast runner, and standing on one goes straight up', () => {
+  const fast = createPlayerState({ x: 0, y: 0.01, z: -10 });
+  fast.vel = { x: 0, y: 0, z: -20 };
+  stepPlayer(fast, emptyInput(), TICK_DT, [floor], [puffball]);
+  assert.ok(fast.vel.z <= -20 + 1e-6 && fast.vel.y > 14, JSON.stringify(fast.vel));
+
+  const still = createPlayerState({ x: 0, y: 0.01, z: -10 });
+  stepPlayer(still, emptyInput(), TICK_DT, [floor], [puffball]);
+  assert.ok(hlen(still.vel) < 1e-6 && still.vel.y > 14, JSON.stringify(still.vel));
 });

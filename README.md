@@ -35,7 +35,7 @@ The movement is a port of CS:GO's Source `gamemovement` with combat-surf server 
 - **Momentum is kept.** There is no air friction, and a jump on the landing tick skips ground friction entirely.
 - **Air-strafing works as in CS.** You gain speed by strafing and turning together; holding W while strafing works against you.
 - **Surfing.** Slopes steeper than about 45° can be surfed.
-- **Additions not in CS:** sliding, wallruns, wind gates (speed boosters), puffball mushrooms (jump boosters), launch pads, and an 80 ms jump buffer that approximates scroll-wheel spam.
+- **Additions not in CS:** sliding, wallruns, wind gates (speed boosters), puffball mushrooms (jump boosters that also throw you the way you're moving), launch pads, and an 80 ms jump buffer that approximates scroll-wheel spam.
 
 ## Using a real AWP model
 

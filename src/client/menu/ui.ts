@@ -6,22 +6,12 @@ import { sfx } from '../sfx.ts';
 export const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 export const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
-/** Painted sky shared by the menu and the loading screen: drifting clouds and a floating island. */
+/** Painted sky shared by the menu and the loading screen: sun, drifting clouds, and the island skirmish canvas. */
 export const SKY_BACKDROP = `
   <div class="sky" aria-hidden="true">
     <div class="sun"></div>
     <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div><div class="cloud c4"></div>
-    <svg class="isle" viewBox="0 0 320 300">
-      <path d="M40 120 Q160 92 280 120 L250 150 Q215 250 165 292 Q140 230 92 190 Q60 160 40 120Z" fill="#a98c6c"/>
-      <path d="M92 190 Q140 232 165 292 Q170 230 150 180Z" fill="#8a6f55" opacity=".7"/>
-      <path d="M36 118 Q160 86 284 118 Q280 132 250 136 Q160 120 70 138 Q40 134 36 118Z" fill="#7fb24e"/>
-      <rect x="196" y="40" width="9" height="74" rx="3" fill="#7a5236"/>
-      <circle cx="200" cy="44" r="30" fill="#4f8a3c"/><circle cx="178" cy="62" r="22" fill="#6aa548"/>
-      <circle cx="224" cy="60" r="24" fill="#3f7434"/><circle cx="204" cy="26" r="18" fill="#6aa548"/>
-      <rect x="92" y="78" width="10" height="44" fill="#efdcbc"/><rect x="88" y="74" width="18" height="6" fill="#e3c79c"/>
-      <rect x="120" y="92" width="10" height="28" fill="#efdcbc"/>
-      <path d="M246 134 q4 40 -2 90" stroke="#e9f6ff" stroke-width="5" fill="none" opacity=".8" stroke-linecap="round"/>
-    </svg>
+    <canvas class="skirmish"></canvas>
     <div class="cloud c5"></div>
   </div>`;
 
