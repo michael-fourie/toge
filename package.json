@@ -1,0 +1,35 @@
+{
+  "name": "atrous",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser multiplayer movement-shooter prototype: bhop, wallrun, snipe.",
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:client": "vite",
+    "build": "tsc --noEmit && vite build",
+    "start": "cross-env NODE_ENV=production tsx src/server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/movement.test.ts tests/slide.test.ts tests/map.test.ts",
+    "smoke": "tsx tests/lobby.smoke.ts"
+  },
+  "engines": {
+    "node": ">=18.18"
+  },
+  "dependencies": {
+    "lil-gui": "^0.21.0",
+    "three": "^0.186.1",
+    "tsx": "^4.23.15",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.2",
+    "concurrently": "^9.2.4",
+    "cross-env": "^10.1.0",
+    "typescript": "~5.9",
+    "vite": "^6.4.3"
+  }
+}
