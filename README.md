@@ -12,6 +12,8 @@ npm run build && npm start   # production: one server serves client + websocket 
 
 Requires Node ≥ 18.18. Node 22 LTS is recommended, and also unlocks Vite 8.
 
+**The map, Windward:** two harbour islands face each other across a great tree. Three lanes lead to the middle: a slide-and-bhop Windway, a Surf Gorge, and walled Old Ruins. Along the way are multi-storey houses with sniping windows, extra surfs, wind gates (speed boosters) and puffball mushrooms (jump boosters).
+
 **Practice** runs offline against target dummies. **Host** creates a lobby with a 4-letter code. Others join with that code, from the lobby list, or with `/?join=CODE`.
 
 ## Controls

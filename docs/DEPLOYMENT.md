@@ -29,7 +29,7 @@
   - Client → server: `state` messages at **30 Hz**.
   - Server → each client: `snapshot` at **20 Hz** (JSON, one entry per living player).
   - Up to **12 players per lobby**.
-- The client connects to `` `${proto}://${location.host}/ws` `` (`src/client/net.ts:22`), so today client and server must share an origin.
+- The client connects to `` `${proto}://${location.host}/ws` `` (in `Net.open`, `src/client/net.ts`), so today client and server must share an origin.
 
 ### Bandwidth math (the number that decides hosting)
 
@@ -193,7 +193,7 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=/home/ubuntu/atrous
-Environment=NODE_ENV=production PORT=3001
+Environment=PORT=3001
 ExecStart=/usr/bin/npx tsx src/server/index.ts
 Restart=always
 RestartSec=2

@@ -59,6 +59,7 @@ Known limitation: while you sit in the room, your bean stands idle at its spawn 
 | File | Contents |
 | --- | --- |
 | `ui.ts` | backdrop, page shell, escaping, name storage |
+| `skirmish.ts` | the animated backdrop: bobbing islands and faded shadow-players bhopping and sniping (2D canvas) |
 | `router.ts` | the history-backed screen router |
 | `title.ts`, `practice.ts`, `host.ts`, `join.ts`, `lobby.ts`, `help.ts` | one file per screen |
 

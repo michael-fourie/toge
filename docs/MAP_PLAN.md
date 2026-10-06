@@ -1,6 +1,6 @@
 # Map plan: "Windward"
 
-A replacement for Skyhop. The goal is a map that *flows*: every route rewards momentum, and every lane teaches a different mechanic. All lanes converge on one memorable centrepiece, with height used for both sniping and escape.
+The goal is a map that *flows*: every route rewards momentum, and every lane teaches a different mechanic. All lanes converge on one memorable centrepiece, with height used for both sniping and escape.
 
 ## Feel
 

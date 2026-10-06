@@ -36,7 +36,8 @@ src/shared/   runs on client AND server. No three.js, no DOM. Deterministic.
 src/server/   index.ts (http static + ws, lobby codes), lobby.ts (room, 20 Hz snapshots, kills, respawns)
 src/client/
   main.ts       boots the menu router; loading screen; starts a Game (practice or online)
-  menu/         one file per screen (title, practice, host, join, lobby room, help) + router.ts + ui.ts
+  menu/         one file per screen (title, practice, host, join, lobby room, help) + router.ts, ui.ts,
+                skirmish.ts (the animated island backdrop)
   settings.ts   saved player settings (name, sensitivity, auto-bhop) in localStorage
   game.ts       the Game: loop, fixed-tick sim + render interpolation, weapon state, remotes, net, camera
   world.ts      renders MAP by box.kind (+ sky, clouds, scenery). textures.ts = procedural canvas textures
@@ -69,10 +70,9 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 **Map (`map.ts`)**
 - Build geometry with the helpers: `box`, `span`, `wedge`, `surfFrame`, `padTo`, `shrine`, and `house` (multi-storey: walls with windows/doors, alternating stair ramps through floor holes, roof hatch + parapet, optional balcony; depth along Z must be ≥ 10). Build boosters with `gate` (wind gate) and `puff` (puffball: throw height + forward push).
 - Box kinds: `floor` (grass island with a rock underside), `branch` (bark limb, no underside), `wall`, `trunk`, `cover`, `pad`, and `ramp`/`surf` for wedges. `decor` is visual only, e.g. the canopy.
-- Use aimed pads (`padTo`) to reach branches and overhung ledges. Puffballs now throw you forward too, so they can hop you up onto a ledge you're running at, if it's far enough away that you clear its edge on the way up (test it). Mind wind gates along a puff's flight path: they'll catch you.
+- Use aimed pads (`padTo`) for branches and overhung ledges: the launch is computed from the live gravity, so retuning doesn't break them. Puffballs throw you forward, so they can hop you onto a ledge you're running at, if it's far enough away that you clear its edge on the way up (test it). Mind wind gates along a puff's flight path: they'll catch you.
 - Ramps have no step-up: you can only walk onto one from its low end, so leave a clear landing in front of it (`house` does).
 - Author one half; `mirror()` rotates it 180° for the other side.
-- Use `padTo(...)` for pads: it computes the launch from the live gravity, so retuning doesn't break pads.
 - A new `BoxKind` needs rendering in `world.ts`.
 - After map changes, check:
   - `map.test.ts`: spawns, every pad landing, and a scripted traversal of every route. Map-specific tests live only there.
@@ -107,11 +107,11 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 - No new dependencies without a strong reason. Current runtime deps: `three`, `ws`, `lil-gui`, `tsx`.
 - Every movement or physics change gets a test. In particular, momentum must be preserved (see the "Momentum" block in `movement.test.ts`).
 - Prefer small exact edits. When several agents or sessions work in parallel, give each one clear file ownership and keep each test area in its own file.
-- Don't commit unless asked.
+- Don't commit unless asked. The remote is `origin` → github.com/michael-fourie/atrous (private); the working branch is `combat-fps-sniping-game`.
 
 ## Verifying in the browser
 
-- In dev, `window.__game` is the running Game.
+- In dev, `window.__game` is the running Game. To skip the menu, create one directly: `const { Game } = await import('/src/client/game.ts'); app.innerHTML = ''; new Game({ container: app, name: 'x', onExit() {} })`.
 - Set `g.input.locked = true; g.hud.setPaused(false)` to play without pointer lock.
 - Automation tabs are often **hidden**, which pauses rAF. Drive frames yourself: `let T = performance.now(); g.last = T; for (...) { T += 1000/60; g.frame(T); }`.
 - Simulate keys with `document.dispatchEvent(new KeyboardEvent('keydown', {code: 'KeyW'}))`.
