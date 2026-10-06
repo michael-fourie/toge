@@ -1,7 +1,7 @@
 import { type Vec3 } from './math.ts';
 import { PLAYER } from './constants.ts';
 
-export type BoxKind = 'floor' | 'branch' | 'wall' | 'trunk' | 'pad' | 'cover' | 'ramp' | 'surf';
+export type BoxKind = 'floor' | 'branch' | 'wall' | 'trunk' | 'pad' | 'cover' | 'ramp' | 'surf' | 'hook';
 
 /**
  * A wedge: the solid part of its bounding box that lies below a sloped top face.

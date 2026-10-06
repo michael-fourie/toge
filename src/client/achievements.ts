@@ -13,6 +13,8 @@ export interface ShotContext {
   sliding: boolean;
   speed: number;
   distance: number;
+  /** Grapple state when the shot was taken: rope on a surface, or hooked into the very player you shot. */
+  rope: 'none' | 'surface' | 'target';
 }
 
 export interface Feat {
@@ -38,6 +40,8 @@ export function featsFor(s: ShotContext): Feat[] {
   if (!s.scoped) out.push({ label: 'NO-SCOPE', tier: 2 });
   if (s.wallrunning) out.push({ label: 'WALLRUN', tier: 2 });
   else if (s.airTime >= FEAT.airTime) out.push({ label: 'AIRBORNE', tier: 2 });
+  if (s.rope === 'target') out.push({ label: 'REELED IN', tier: 3 });
+  else if (s.rope === 'surface') out.push({ label: 'YANKED', tier: 2 });
   if (s.sliding) out.push({ label: 'SLIDING', tier: 1 });
   if (s.speed >= FEAT.speed) out.push({ label: 'MACH', tier: 2 });
   if (s.distance >= FEAT.longShot) out.push({ label: 'LONG SHOT', tier: 2 });

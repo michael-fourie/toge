@@ -59,6 +59,8 @@ export const MOVE = {
   grappleMissCooldown: 0.5, // a whiff costs less
   grappleArrive: 2, // within this of the anchor the rope lets go and you keep flying
   grappleMaxTime: 4, // a rope can't hold longer than this
+  grappleTargetRadius: 0.7, // a player's chest is this big a target for the rope: hook someone and zip to them
+  grappleSnap: 0.14, // radians (~8 degrees): hooks (brass rings in the sky) catch the rope from this close to your aim
 
   // Air jumps. Both only ever *raise* upward speed (and a wall kick adds push), so they never cost momentum.
   airJumps: 1, // extra mid-air jumps per airtime (the double jump); a wall jump refreshes it, landing resets it

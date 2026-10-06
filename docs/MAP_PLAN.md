@@ -82,3 +82,7 @@ Survival reuses Windward. Players start (and are revived) back to back around th
 ## Spawns
 
 Battle spawns are 29 spots spread over the whole map (both harbours, centre island, gorge, ruins, mills, undercliffs), found by farthest-point sampling over every spot you can stand on, and each faces the middle. There is no spawn zone to camp. `src/shared/spawn.ts` picks one at random among the good ones: at least 30 m from every living player, out of their line of sight (within 90 m), and not one of the last 8 used. If nothing qualifies it relaxes those rules in order and finally takes the farthest spot. Survival keeps its own back-to-back spawns around the tree. Tests: `tests/spawn.test.ts`.
+
+## Grapple hooks
+
+Eight brass rings float over the map (3 per half over the lanes at y 11-13, 1 above the canopy per side at y 44, reached from the north branch). They are tiny solid `hook` boxes with a glowing marker drawn over foliage. The grapple (E) snaps to one if it is within about 8° of your aim, in line of sight and in rope range (40 m), so they work as shortcuts to the middle and a rescue if you fall. `map.test.ts` checks they are free-floating and reachable from a floor.

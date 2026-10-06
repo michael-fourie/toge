@@ -1,4 +1,4 @@
-import { type Box, type Trigger, moveAndCollide, newContacts, probeGround, probeWall, rayWorld, snapToGround, touches } from './collision.ts';
+import { type Box, type Trigger, moveAndCollide, newContacts, probeGround, probeWall, rayWorld, raySphere, snapToGround, touches } from './collision.ts';
 import { MOVE, PLAYER } from './constants.ts';
 import { type Vec3, addScaled, copy, dot, hlen, lookDir, set, v3, yawForward, yawRight } from './math.ts';
 
@@ -11,6 +11,13 @@ export interface MoveInput {
   yaw: number;
   pitch: number; // aims the grapple
   grapplePressed: boolean; // went down since the last tick
+  /** Chest points of players the rope can latch onto (the rope follows them while attached). */
+  grappleTargets?: readonly GrappleTarget[];
+}
+
+export interface GrappleTarget {
+  id: number;
+  pos: Vec3;
 }
 
 export const emptyInput = (): MoveInput => ({
@@ -52,6 +59,8 @@ export interface PlayerState {
   wallCooldown: number;
   /** Where the grapple rope is anchored while attached. */
   grapple: Vec3 | null;
+  /** Set when the rope is hooked into a player (the anchor then follows them). */
+  grappleTarget: number | null;
   grappleTime: number;
   grappleCooldown: number;
   /** Mid-air jumps left this airtime (double jump). */
@@ -88,6 +97,7 @@ export function createPlayerState(pos: Vec3 = v3()): PlayerState {
     wallCooldown: 0,
     jumpBuffer: 0,
     grapple: null,
+    grappleTarget: null,
     grappleTime: 0,
     grappleCooldown: 0,
     airJumps: MOVE.airJumps,
@@ -159,28 +169,73 @@ function endWallrun(s: PlayerState) {
 function releaseGrapple(s: PlayerState) {
   if (!s.grapple) return;
   s.grapple = null;
+  s.grappleTarget = null;
   s.grappleCooldown = MOVE.grappleCooldown;
   s.events |= Ev.GrappleEnd;
+}
+
+/** What the rope would catch: a player (zip to them), a hook in the sky (aim-assisted), or the first surface. */
+export interface GrappleCatch {
+  point: Vec3;
+  target: number | null;
+}
+
+/** Shared with the HUD so "ready" lights up exactly when E would catch something. */
+export function findGrapple(o: Vec3, d: Vec3, boxes: readonly Box[], targets: readonly GrappleTarget[] = []): GrappleCatch | null {
+  const range = MOVE.grappleRange;
+  const tWorld = rayWorld(o, d, boxes, range);
+  let best: (GrappleCatch & { t: number }) | null =
+    tWorld < range ? { point: { x: o.x + d.x * (tWorld - 0.05), y: o.y + d.y * (tWorld - 0.05), z: o.z + d.z * (tWorld - 0.05) }, target: null, t: tWorld } : null;
+  for (const t of targets) {
+    const ts = raySphere(o, d, t.pos, MOVE.grappleTargetRadius, best ? best.t : range);
+    if (ts >= 0 && (!best || ts < best.t)) best = { point: { ...t.pos }, target: t.id, t: ts };
+  }
+  if (best?.target != null) return best;
+  // Hooks (brass rings floating in the sky) are small and far away, so they pull the rope in from a cone around your aim.
+  let bestAngle = MOVE.grappleSnap;
+  let hook: Vec3 | null = null;
+  for (const b of boxes) {
+    if (b.kind !== 'hook') continue;
+    const c = { x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2, z: (b.min.z + b.max.z) / 2 };
+    const vx = c.x - o.x;
+    const vy = c.y - o.y;
+    const vz = c.z - o.z;
+    const dist = Math.hypot(vx, vy, vz);
+    if (dist > range || dist < 1) continue;
+    const angle = Math.acos(Math.min(1, (vx * d.x + vy * d.y + vz * d.z) / dist));
+    if (angle >= bestAngle) continue;
+    const dir = { x: vx / dist, y: vy / dist, z: vz / dist };
+    if (rayWorld(o, dir, boxes, dist) < dist - 0.6) continue; // something is in the way
+    bestAngle = angle;
+    hook = c;
+  }
+  return hook ? { point: hook, target: null } : best;
 }
 
 /** Shoots the rope along the look direction; it only catches within `grappleRange`. */
 function fireGrapple(s: PlayerState, input: MoveInput, boxes: readonly Box[]) {
   const o = { x: s.pos.x, y: s.pos.y + (s.sliding ? MOVE.slideEyeHeight : PLAYER.eyeHeight), z: s.pos.z };
-  const d = lookDir(input.yaw, input.pitch);
-  const t = rayWorld(o, d, boxes, MOVE.grappleRange);
-  if (t >= MOVE.grappleRange) {
+  const hit = findGrapple(o, lookDir(input.yaw, input.pitch), boxes, input.grappleTargets);
+  if (!hit) {
     s.grappleCooldown = MOVE.grappleMissCooldown;
     s.events |= Ev.GrappleMiss;
     return;
   }
-  s.grapple = { x: o.x + d.x * (t - 0.05), y: o.y + d.y * (t - 0.05), z: o.z + d.z * (t - 0.05) };
+  s.grapple = hit.point;
+  s.grappleTarget = hit.target;
   s.grappleTime = 0;
   endWallrun(s);
   s.events |= Ev.GrappleHit;
 }
 
 /** Reels you toward the anchor. Only raises speed along the rope, so it can never cost momentum. */
-function pullGrapple(s: PlayerState, boxes: readonly Box[], dt: number) {
+function pullGrapple(s: PlayerState, input: MoveInput, boxes: readonly Box[], dt: number) {
+  if (s.grappleTarget !== null) {
+    // Hooked into a player: the anchor follows them, and the rope lets go if they vanish.
+    const t = input.grappleTargets?.find((x) => x.id === s.grappleTarget);
+    if (!t) return releaseGrapple(s);
+    s.grapple = { ...t.pos };
+  }
   const a = s.grapple!;
   s.grappleTime += dt;
   const cx = s.pos.x;
@@ -278,7 +333,7 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
     if (jumpPressed) {
       releaseGrapple(s); // hop off the line, keeping everything you had
       if (!s.onGround) jumpPressed = false; // that press was the release, not a double jump
-    } else pullGrapple(s, boxes, dt);
+    } else pullGrapple(s, input, boxes, dt);
   }
 
   // --- Jumps -------------------------------------------------------------

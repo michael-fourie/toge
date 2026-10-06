@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { FEAT, type ShotContext, SpinMeter, Streak, featsFor } from '../src/client/achievements.ts';
 
-const plain: ShotContext = { headshot: false, scoped: true, spin: 0, airTime: 0, wallrunning: false, sliding: false, speed: 5, distance: 20 };
+const plain: ShotContext = { headshot: false, scoped: true, spin: 0, airTime: 0, wallrunning: false, sliding: false, speed: 5, distance: 20, rope: 'none' };
 const labels = (s: Partial<ShotContext>) => featsFor({ ...plain, ...s }).map((f) => f.label);
 
 test('a plain scoped body shot earns nothing', () => {
@@ -12,6 +12,11 @@ test('a plain scoped body shot earns nothing', () => {
 test('feats compound, in reading order: 360 NO-SCOPE ... HEADSHOT', () => {
   assert.deepEqual(labels({ spin: Math.PI * 2, scoped: false, headshot: true }), ['360', 'NO-SCOPE', 'HEADSHOT']);
   assert.deepEqual(labels({ wallrunning: true, airTime: 3, speed: 20, distance: 80, headshot: true }), ['WALLRUN', 'MACH', 'LONG SHOT', 'HEADSHOT']);
+});
+
+test('a kill while on the rope is YANKED, and one on the player you hooked is REELED IN', () => {
+  assert.deepEqual(labels({ rope: 'surface' }), ['YANKED']);
+  assert.deepEqual(labels({ rope: 'target', headshot: true }), ['REELED IN', 'HEADSHOT']);
 });
 
 test('an ordinary bhop hop is not AIRBORNE; a big flight is', () => {

@@ -62,6 +62,11 @@ function surfFrame(along: 'x' | 'z', ridge: number, ridgeY: number, from: number
   return [make(ridge - halfWidth, ridge, 1), make(ridge, ridge + halfWidth, -1)];
 }
 
+/** A grapple hook: a brass ring floating in the sky. Solid but tiny; the rope is aim-assisted toward it (see findGrapple). */
+function hook(x: number, y: number, z: number): Box {
+  return box(x, y, z, 0.9, 0.9, 0.9, 'hook');
+}
+
 /** Launch pad on a floor at (x, floorY, z) that throws you onto `to`. */
 function padTo(x: number, floorY: number, z: number, to: Vec3, apex: number, size = 2.5): Box {
   const pad = box(x, floorY + 0.1, z, size, 0.2, size, 'pad');
@@ -227,6 +232,10 @@ function buildWindward(): MapData {
     span(5, 12, 90.5, 10, 14.2, 91.3, 'wall'),
     span(16, 12, 90.5, 20, 14.2, 91.3, 'wall'),
     box(-12, 12.6, 100, 1.2, 1.2, 1.2, 'cover'),
+    // Grapple hooks over the lanes: shortcuts to the middle, and a rescue if you fall off.
+    hook(0, 12, 31),
+    hook(-34, 13, 40),
+    hook(30, 11, 30),
     box(11, 12.75, 98, 1.5, 1.5, 1.5, 'cover'),
 
     // Windway (centre lane): slide ramp -> runway -> bhop stones. The undercliff below catches misses.
@@ -325,6 +334,7 @@ function buildWindward(): MapData {
     span(8, 0, 14, 14, 3, 14.6, 'wall'),
     span(13.4, 0, 14.6, 14, 3, 19, 'wall'),
     span(-17, 0, -8, -16.4, 2.6, -2, 'wall'),
+    hook(0, 44, 7), // above the canopy (hidden in the leaves any lower), reached from the north branch: grapple up, drop onto the sniper nest
   ];
   const centreTriggers: Trigger[] = [
     puff(6, 0, 6, 6), // beside the trunk: bounce, catch the bark, wallrun around it

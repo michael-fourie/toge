@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { Box } from '../src/shared/collision.ts';
 import { MOVE, TICK_DT } from '../src/shared/constants.ts';
 import { hlen } from '../src/shared/math.ts';
-import { Ev, type MoveInput, type PlayerState, createPlayerState, emptyInput, stepPlayer } from '../src/shared/movement.ts';
+import { Ev, type MoveInput, type PlayerState, createPlayerState, emptyInput, findGrapple, stepPlayer } from '../src/shared/movement.ts';
 
 const floor: Box = { min: { x: -500, y: -1, z: -500 }, max: { x: 500, y: 0, z: 500 }, kind: 'floor' };
 /** A tall wall facing +Z at the given distance in front of the origin (the player looks down -Z at yaw 0). */
@@ -131,4 +131,47 @@ test('the rope lets go if something gets in the way', () => {
   const blocker: Box = { min: { x: -50, y: -1, z: s.pos.z - 8 }, max: { x: 50, y: 60, z: s.pos.z - 6 }, kind: 'wall' };
   const ev = tick(s, input, [...boxes, blocker]);
   assert.ok(ev & Ev.GrappleEnd, 'rope cut by the wall in between');
+});
+
+test('the rope can hook a player in front of a wall and follows them as they move', () => {
+  const boxes = [floor, wallAt(38)];
+  const s = createPlayerState({ x: 0, y: 0, z: 0 });
+  const target = { id: 7, pos: { x: 0, y: 1.6 - 0.62, z: -20 } }; // chest height at eye level of a look straight ahead
+  const input: MoveInput = { ...shoot(), grappleTargets: [target] };
+  tick(s, input, boxes);
+  assert.equal(s.grappleTarget, 7, 'hooked the player, not the wall behind them');
+  // They run sideways; the anchor tracks them.
+  for (let i = 0; i < 30; i++) {
+    target.pos.x += 0.05;
+    tick(s, input, boxes);
+  }
+  assert.ok(s.grapple && Math.abs(s.grapple.x - target.pos.x) < 1e-9, 'anchor follows the target');
+  assert.ok(s.vel.x > 0, 'pulled toward where they went');
+  // They vanish (die / leave): the rope lets go.
+  input.grappleTargets = [];
+  const ev = tick(s, input, boxes);
+  assert.ok(ev & Ev.GrappleEnd);
+  assert.equal(s.grappleTarget, null);
+});
+
+test('hooks in the sky catch the rope from a cone around your aim, not from anywhere', () => {
+  const hook: Box = { min: { x: -0.45, y: 19.55, z: -30.45 }, max: { x: 0.45, y: 20.45, z: -29.55 }, kind: 'hook' };
+  const eye = { x: 0, y: 1.62, z: 0 };
+  const toward = (dx: number, dy: number) => {
+    const l = Math.hypot(dx, dy, 30);
+    return { x: dx / l, y: dy / l, z: -30 / l };
+  };
+  const aimed = toward(0, 18.4);
+  assert.ok(findGrapple(eye, aimed, [floor, hook]), 'dead on');
+  // ~5 degrees off is still caught; ~25 degrees off is not.
+  const near = { x: Math.sin(0.09), y: aimed.y, z: aimed.z };
+  const nl = Math.hypot(near.x, near.y, near.z);
+  assert.ok(findGrapple(eye, { x: near.x / nl, y: near.y / nl, z: near.z / nl }, [floor, hook]), 'close to the aim');
+  assert.equal(findGrapple(eye, { x: Math.sin(0.45), y: 0.2, z: -0.9 }, [floor, hook]), null, 'far from the aim: open sky, nothing caught');
+  // Out of rope range.
+  const far: Box = { min: { x: -0.45, y: 19.55, z: -60.45 }, max: { x: 0.45, y: 20.45, z: -59.55 }, kind: 'hook' };
+  assert.equal(findGrapple(eye, toward(0, 18.4), [floor, far]), null);
+  // Blocked by a wall in between.
+  const blocked = findGrapple(eye, aimed, [floor, hook, { min: { x: -50, y: -1, z: -20 }, max: { x: 50, y: 60, z: -19 }, kind: 'wall' }]);
+  assert.ok(blocked && blocked.point.z >= -20, 'a wall in between catches the rope instead of the hook behind it');
 });

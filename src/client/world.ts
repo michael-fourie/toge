@@ -195,6 +195,7 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
   const pads: THREE.Object3D[] = [];
   const floorTops: Box[] = [];
   const padBoxes: Box[] = [];
+  const hooks: Animated[] = [];
   const r = rng(5);
 
   for (const b of map.boxes) {
@@ -235,6 +236,9 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
         padBoxes.push(b);
         pads.push(mesh, ...windSpirit(scene, b));
         break;
+      case 'hook':
+        hooks.push(hookRing(cx, cy, cz, rock));
+        continue;
       default:
         continue;
     }
@@ -244,7 +248,7 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
     scene.add(mesh);
   }
 
-  const boosters = map.triggers.map((t) => (t.kind === 'boost' ? windGate(t) : puffball(t)));
+  const boosters = [...map.triggers.map((t) => (t.kind === 'boost' ? windGate(t) : puffball(t))), ...hooks];
   boosters.forEach((b) => scene.add(b.obj));
   for (const d of map.decor) scene.add(canopy(d, r));
 
@@ -396,6 +400,31 @@ function windGate(t: Extract<Trigger, { kind: 'boost' }>): Animated {
       const pulse = Math.sin(time * 2.4 + g.position.x + g.position.z);
       mat.opacity = 0.7 + pulse * 0.15;
       ring.scale.set((across / (2 * r)) * (1 + pulse * 0.012), (height / (2 * r)) * (1 + pulse * 0.012), 1);
+    },
+  };
+}
+
+/** Grapple hook: a brass ring on a little floating rock, glowing so you can spot it from across the map. */
+function hookRing(x: number, y: number, z: number, rockMat: THREE.Material): Animated {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const stone = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 0), rockMat);
+  stone.position.y = -0.3;
+  const brass = new THREE.MeshBasicMaterial({ color: 0xe4b04a });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.07, 8, 24), brass);
+  const glow = new THREE.Mesh(
+    new THREE.SphereGeometry(1.6, 16, 10),
+    // Drawn over everything (even foliage) so hooks can always be spotted.
+    new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.16, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }),
+  );
+  glow.renderOrder = 10;
+  g.add(stone, ring, glow);
+  return {
+    obj: g,
+    update(time) {
+      g.position.y = y + Math.sin(time * 1.4 + x) * 0.12;
+      ring.rotation.y = time * 1.2;
+      (glow.material as THREE.MeshBasicMaterial).opacity = 0.14 + Math.sin(time * 2.2 + z) * 0.05;
     },
   };
 }

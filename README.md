@@ -44,7 +44,7 @@ Kills earn mini achievements, and several at once **stack** into one combo with 
 | --- | --- |
 | WASD | Move. In the air, let go of W, hold A or D and turn the mouse the same way to gain speed (air-strafing). |
 | Space / mouse wheel | Jump. Hold Space to auto-bhop; you keep all your speed on every hop. Tap again in the air for a double jump. |
-| E | Grapple: aim at any surface within 40 m and the rope reels you toward it (Space lets go and keeps your speed; 1.5 s recharge). |
+| E | Grapple: aim at any surface within 40 m and the rope reels you toward it (Space lets go and keeps your speed; 1.5 s recharge). Hook another player to zip to them, or aim near a glowing brass ring in the sky: it grabs the rope. Kills while roped score YANKED, and REELED IN if you're hooked on the victim. |
 | Shift (hold) | Slide. Hold it in the air to slide the moment you land. Jumping out of a slide keeps your speed. |
 | Run along a wall in the air | Wallrun. Space wall-jumps off it; tapping Space next to any wall kicks off it too (once per wall until you land), and refreshes the double jump. |
 | Steep blue ramps | Surf: strafe into the ramp to ride it. |

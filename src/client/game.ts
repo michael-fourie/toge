@@ -4,7 +4,7 @@ import { PLAYER, MOVE, NET, RESPAWN_SECONDS, SURVIVAL, TICK_DT, WEAPON } from '.
 import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
 import { MAP } from '../shared/map.ts';
 import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/math.ts';
-import { Ev, type PlayerState, createPlayerState, emptyInput, stepPlayer } from '../shared/movement.ts';
+import { Ev, type GrappleTarget, type PlayerState, createPlayerState, emptyInput, findGrapple, stepPlayer } from '../shared/movement.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import {
   type ClientMsg,
@@ -240,6 +240,7 @@ export class Game {
     while (this.acc >= TICK_DT && ticks++ < 20) {
       copy(this.prevPos, this.me.pos);
       const fallSpeed = -this.me.vel.y;
+      this.moveInput.grappleTargets = this.grappleTargets();
       stepPlayer(this.me, this.input.sample(this.moveInput), TICK_DT, MAP.boxes, MAP.triggers);
       this.onMoveEvents(this.me.events, fallSpeed);
       this.airTime = this.me.onGround ? 0 : this.airTime + TICK_DT;
@@ -388,6 +389,7 @@ export class Game {
         sliding: this.me.sliding,
         speed: hlen(this.me.vel),
         distance: best,
+        rope: this.me.grapple ? (this.me.grappleTarget === hit.id && !hit.zombie ? 'target' : 'surface') : 'none',
       };
       this.lastHit = { ...hit, ctx };
     }
@@ -846,7 +848,16 @@ export class Game {
     if (this.me.grappleCooldown > 0) return 'off';
     const c = this.camera.position;
     const d = lookDir(this.input.yaw, this.input.pitch);
-    return rayWorld({ x: c.x, y: c.y, z: c.z }, d, MAP.boxes, MOVE.grappleRange) < MOVE.grappleRange ? 'ready' : 'off';
+    return findGrapple({ x: c.x, y: c.y, z: c.z }, d, MAP.boxes, this.grappleTargets()) ? 'ready' : 'off';
+  }
+
+  /** Players the rope can hook (chest height): hit one and you zip to them. */
+  private grappleTargets(): GrappleTarget[] {
+    const out: GrappleTarget[] = [];
+    for (const r of this.remotes.values()) {
+      if (r.info.alive && r.avatar.root.visible) out.push({ id: r.info.id, pos: { x: r.pos.x, y: r.pos.y + 1.0, z: r.pos.z } });
+    }
+    return out;
   }
 
   private onKey(code: string, down: boolean) {
@@ -928,7 +939,7 @@ export class Game {
 
 const arr = (p: V3): Vec3 => ({ x: p[0], y: p[1], z: p[2] });
 /** A shot with nothing special about it, for kills we can't match to a shot of ours. */
-const PLAIN_SHOT: ShotContext = { headshot: false, scoped: true, spin: 0, airTime: 0, wallrunning: false, sliding: false, speed: 0, distance: 10 };
+const PLAIN_SHOT: ShotContext = { headshot: false, scoped: true, spin: 0, airTime: 0, wallrunning: false, sliding: false, speed: 0, distance: 10, rope: 'none' };
 const pick = <T>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
 function lerpAngle(a: number, b: number, t: number) {
   let d = (b - a) % (Math.PI * 2);

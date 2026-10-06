@@ -311,3 +311,22 @@ test('Gorge Rail: the north-edge gate flings you onto the A-frame and you can ri
   });
   assert.ok(riding > 0.4 / TICK_DT, `rode the rail for ${(riding * TICK_DT).toFixed(2)}s`);
 });
+
+test('grapple hooks are free-floating, clear of other geometry, and within rope reach of somewhere you can stand', () => {
+  const hooks = MAP.boxes.filter((b) => b.kind === 'hook');
+  assert.ok(hooks.length >= 6, `${hooks.length} hooks`);
+  const others = MAP.boxes.filter((b) => b.kind !== 'hook');
+  for (const h of hooks) {
+    const c = { x: (h.min.x + h.max.x) / 2, y: (h.min.y + h.max.y) / 2, z: (h.min.z + h.max.z) / 2 };
+    const overlaps = (b: Box) =>
+      h.min.x - 0.3 < b.max.x && h.max.x + 0.3 > b.min.x && h.min.y - 0.3 < b.max.y && h.max.y + 0.3 > b.min.y && h.min.z - 0.3 < b.max.z && h.max.z + 0.3 > b.min.z;
+    assert.ok(!others.some(overlaps), `hook at ${JSON.stringify(c)} touches geometry`);
+    const reach = others.some((b) => {
+      if (!['floor', 'branch'].includes(b.kind) || b.ramp) return false;
+      const px = Math.max(b.min.x, Math.min(c.x, b.max.x));
+      const pz = Math.max(b.min.z, Math.min(c.z, b.max.z));
+      return Math.hypot(px - c.x, b.max.y - c.y, pz - c.z) <= 36;
+    });
+    assert.ok(reach, `hook at ${JSON.stringify(c)} can't be reached from any floor`);
+  }
+});
