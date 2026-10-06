@@ -1,6 +1,6 @@
-# Atrous
+# Gambol
 
-A silly browser multiplayer movement shooter set on Ghibli-style sky islands: **bhop, surf, slide, wallrun, snipe**. It's in the spirit of CS:GO Combat Surf. It's a prototype, focused on movement feel.
+A silly browser multiplayer movement shooter set on Ghibli-style sky islands: **bhop, surf, slide, wallrun, snipe**. It's in the spirit of CS:GO Combat Surf.
 
 ```bash
 npm install

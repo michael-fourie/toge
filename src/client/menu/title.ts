@@ -1,4 +1,5 @@
 import type { Render } from './router.ts';
+import { mountLogo } from './logo.ts';
 import { $, esc, saveName, storedName } from './ui.ts';
 
 // Small storybook icons for the three buttons.
@@ -28,7 +29,7 @@ const door = (name: 'practice' | 'host' | 'join', title: string) => `
 export const title: Render = (root, ctx, screen) => {
   root.innerHTML = `
     <main class="screen title-screen">
-      <h1 class="logo" tabindex="-1">Atrous<span>a sky-island bhop &amp; snipe</span></h1>
+      <h1 class="logo" tabindex="-1" aria-label="Gambol"><canvas aria-hidden="true"></canvas></h1>
       <label class="name-chip">
         <span>Playing as</span>
         <input id="name" maxlength="16" placeholder="your name" autocomplete="nickname" spellcheck="false" value="${esc(storedName())}" />
@@ -40,7 +41,7 @@ export const title: Render = (root, ctx, screen) => {
         ${door('join', 'Join')}
       </nav>
       <p class="notice" role="status">${screen.notice ? esc(screen.notice) : ''}</p>
-      <footer class="menu-foot"><button class="link" data-go="help">How to play</button><span>·</span><span>prototype</span></footer>
+      <footer class="menu-foot"><button class="link" data-go="help">How to play</button></footer>
     </main>`;
 
   const nameInput = $<HTMLInputElement>(root, '#name');
@@ -52,4 +53,5 @@ export const title: Render = (root, ctx, screen) => {
   // A notice is shown once; don't replay it when navigating back here later.
   if (screen.notice) history.replaceState({ ...screen, notice: undefined }, '');
   $(root, '.door-practice').focus();
+  return mountLogo($(root, '.logo canvas') as HTMLCanvasElement);
 };

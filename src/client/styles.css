@@ -256,15 +256,10 @@ input::placeholder {
   text-shadow: 0 2px 0 #fffdf3, 0 10px 40px #fffdf3aa;
   outline: none;
 }
-.logo span {
+.logo canvas {
   display: block;
-  font-family: var(--body);
-  font-size: clamp(13px, 1.6vw, 17px);
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--ink-soft);
-  margin-top: 12px;
-  text-shadow: none;
+  width: min(92vw, 860px);
+  margin: 0 auto;
 }
 .name-chip {
   display: inline-flex;
@@ -382,8 +377,7 @@ input::placeholder {
   font-size: 16px;
   line-height: 1.55;
 }
-.tips,
-.facts {
+.tips {
   margin: 0;
   padding: 14px 16px 14px 34px;
   background: #f4ead2;

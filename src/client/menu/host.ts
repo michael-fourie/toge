@@ -4,15 +4,14 @@ import type { Render } from './router.ts';
 import { $, SERVER_PILL, goOnline, playerName, sheet } from './ui.ts';
 
 export const MODES: Record<GameMode, { name: string; blurb: string }> = {
-  battle: { name: 'Battle', blurb: 'Free-for-all. One AWP each, one shot, one kill.' },
-  survival: { name: 'Survival', blurb: 'Co-op against rounds of zombies. Every round brings more of them, a bit faster and tougher.' },
+  battle: { name: 'Battle', blurb: 'Free-for-all snipers' },
+  survival: { name: 'Survival', blurb: 'Co-op vs zombie rounds' },
 };
 
 export const host: Render = (root, ctx) => {
   root.innerHTML = sheet(
     'Host a game',
     `
-    <p class="lead">Open a lobby and you'll get a 4-letter code to share. Friends join with the code or an invite link.</p>
     <fieldset class="modes">
       <legend class="small-caps">Game type</legend>
       ${(Object.keys(MODES) as GameMode[])
@@ -25,10 +24,7 @@ export const host: Render = (root, ctx) => {
         )
         .join('')}
     </fieldset>
-    <ul class="facts">
-      <li><b>Up to ${NET.maxPlayersPerLobby}</b> players per sky</li>
-      <li><b>Always live:</b> the match runs from the moment it opens, so people drop in and out freely</li>
-    </ul>
+    <p class="hint">Up to ${NET.maxPlayersPerLobby} players. Share the code to invite friends.</p>
     ${SERVER_PILL}
     <p class="notice" role="alert"></p>
     <div class="cta"><button class="primary big" id="create">Create lobby</button></div>`,
