@@ -30,7 +30,7 @@ export interface WeaponModel {
 const LENGTH_FRONT = -0.95; // muzzle tip
 const LENGTH_BACK = 0.45; // butt pad
 const BOLT_AXIS = new THREE.Vector3(0, 0.038, 0.03);
-const MAG_WELL = new THREE.Vector3(0, -0.035, -0.12);
+const MAG_WELL = new THREE.Vector3(0, 0, -0.12); // top of the magazine sits flush in the receiver's underside (y≈0.001)
 const ANCHORS = {
   grip: new THREE.Vector3(0.03, -0.075, 0.085),
   handguard: new THREE.Vector3(0, -0.05, -0.4),
@@ -106,6 +106,9 @@ export function buildProceduralAwp(accent: number): WeaponModel {
   const arm = add(new THREE.CylinderGeometry(0.0055, 0.0055, 0.05, 8), m.metalLight, 0.028, -0.01, 0.06, boltPivot);
   arm.rotation.z = Math.PI / 2 + 0.35;
   const knob = add(new THREE.SphereGeometry(0.014, 12, 10), m.metal, 0.052, -0.02, 0.06, boltPivot);
+
+  // Magwell housing (fixed) so the magazine visibly seats into the receiver instead of hanging below it.
+  add(rbox(0.052, 0.022, 0.09, 0.006), m.metal, 0, -0.008, MAG_WELL.z);
 
   // Magazine (animated on reload).
   const magPivot = new THREE.Group();
