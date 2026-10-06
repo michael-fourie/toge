@@ -996,10 +996,51 @@ button:disabled {
   padding: 6px 12px;
   border-radius: 20px;
 }
-.killfeed {
+.topright {
   position: absolute;
   right: 16px;
   top: 14px;
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+  pointer-events: none;
+}
+.livescore {
+  display: none;
+  min-width: 150px;
+  max-width: 220px;
+  padding: 6px 10px;
+  background: #fbf4e2dd;
+  color: var(--ink);
+  border-radius: 12px;
+  font-size: 13px;
+  box-shadow: 0 4px 12px #2a3e5a30;
+}
+.livescore.show {
+  display: block;
+}
+.livescore div {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.livescore i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.livescore span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.livescore .me {
+  color: var(--meadow-dark);
+  font-weight: 900;
+}
+.killfeed {
   display: grid;
   gap: 6px;
   justify-items: end;

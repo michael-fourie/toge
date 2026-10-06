@@ -768,6 +768,7 @@ export class Game {
     this.hud.death(this.deathText, this.deathSubtitle());
     this.hud.health(this.horde ? this.hp : null, SURVIVAL.playerHp);
     this.hud.wave(this.waveText());
+    this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId);
     this.hud.scoreboard(this.showScores ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.dummy).map((r) => r.info)] : null, this.selfId);
   }
 

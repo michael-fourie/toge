@@ -32,7 +32,7 @@ export class Hud {
       <div class="ammo"><b>10</b><small>/ 10</small><span>reloading…</span></div>
       <div class="credit"></div>
       <div class="lobby-tag">${esc(lobbyLabel)}</div>
-      <div class="killfeed"></div>
+      <div class="topright"><div class="livescore"></div><div class="killfeed"></div></div>
       <div class="center-msg"></div>
       <div class="feats"></div>
       <div class="wave"></div>
@@ -183,6 +183,18 @@ export class Hud {
     if (sub === null) return;
     this.q('.death h2').textContent = text;
     this.q('.death p').textContent = sub;
+  }
+
+  /** Always-on top-right standings (online only; null hides). Rebuilt only when the numbers change. */
+  liveScores(players: PlayerInfo[] | null, selfId: number) {
+    const el = this.q('.livescore');
+    el.classList.toggle('show', !!players?.length);
+    if (!players) return;
+    const html = [...players]
+      .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
+      .map((p) => `<div class="${p.id === selfId ? 'me' : ''}"><i style="background:${hex(p.color)}"></i><span>${esc(p.name)}</span><b>${p.kills}</b></div>`)
+      .join('');
+    if (el.innerHTML !== html) el.innerHTML = html;
   }
 
   scoreboard(players: PlayerInfo[] | null, selfId: number) {
