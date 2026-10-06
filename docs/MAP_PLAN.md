@@ -13,7 +13,7 @@ The goal is a map that *flows*: every route rewards momentum, and every lane tea
 
 | Thing | Look | Behaviour |
 | --- | --- | --- |
-| **Wind gate** (speed booster) | Mint wind ring with chevrons streaming through it | Non-solid trigger. Raises your speed *along its direction* up to `speed`. It never slows you and never removes sideways speed, so it's safe for momentum. |
+| **Wind gate** (speed booster) | Plain glowing mint ring | Non-solid trigger. Raises your speed up to `speed` in whichever direction you cross it. It never slows you and never removes sideways speed, so it's safe for momentum. |
 | **Puffball** (jump booster) | Giant springy mushroom cap | Non-solid trigger on a floor. Raises upward speed to `up` and horizontal speed *along the way you're already moving* to `push` (straight up if you're standing still). Never slows you. Ends any slide or wallrun. |
 | Launch pad (existing) | Mint swirl pad | Aimed throw to a target (`padTo`). Used for the few precise routes, like the canopy crown. |
 | Tree trunk | Bark | Solid like a wall, and you can wallrun around it. |

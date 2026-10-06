@@ -378,43 +378,24 @@ interface Animated {
   update(time: number): void;
 }
 
-/** Wind gate: a mint ring across the slab with chevrons streaming out of it both ways (it boosts whichever way you cross). */
+/** Wind gate: a glowing mint ring across the slab, nothing else (it boosts whichever way you cross). */
 function windGate(t: Extract<Trigger, { kind: 'boost' }>): Animated {
   const g = new THREE.Group();
   g.position.set((t.min.x + t.max.x) / 2, (t.min.y + t.max.y) / 2, (t.min.z + t.max.z) / 2);
-  g.rotation.y = Math.atan2(-t.dir.x, -t.dir.z); // local -Z faces along the boost
+  g.rotation.y = Math.atan2(-t.dir.x, -t.dir.z); // ring faces along the gate's axis
   const across = t.dir.x !== 0 ? t.max.z - t.min.z : t.max.x - t.min.x;
   const height = t.max.y - t.min.y;
   const r = Math.min(across, height) / 2;
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(r, 0.12, 8, 40),
-    new THREE.MeshBasicMaterial({ color: 0xc8fff0, transparent: true, opacity: 0.75, depthWrite: false }),
-  );
+  const mat = new THREE.MeshBasicMaterial({ color: 0xc8fff0, transparent: true, opacity: 0.8, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.16, 8, 40), mat);
   ring.scale.set(across / (2 * r), height / (2 * r), 1);
   g.add(ring);
-  const chevronShape = new THREE.Shape();
-  chevronShape.moveTo(-0.6, 0.35).lineTo(0, -0.25).lineTo(0.6, 0.35).lineTo(0.6, 0.05).lineTo(0, -0.55).lineTo(-0.6, 0.05).closePath();
-  const chevronGeo = new THREE.ShapeGeometry(chevronShape).rotateX(-Math.PI / 2);
-  const chevrons: THREE.Mesh[] = [];
-  for (let i = 0; i < 6; i++) {
-    const m = new THREE.Mesh(
-      chevronGeo,
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }),
-    );
-    m.scale.setScalar(Math.min(2, r));
-    if (i >= 3) m.rotation.y = Math.PI; // second stream points the other way
-    chevrons.push(m);
-    g.add(m);
-  }
   return {
     obj: g,
     update(time) {
-      chevrons.forEach((m, i) => {
-        const k = (time * 1.2 + (i % 3) / 3) % 1;
-        m.position.z = (i < 3 ? -1 : 1) * k * 3; // stream out of the ring in both directions
-        (m.material as THREE.MeshBasicMaterial).opacity = Math.sin(k * Math.PI) * 0.8;
-      });
-      ring.rotation.z = Math.sin(time * 2) * 0.05;
+      const pulse = Math.sin(time * 2.4 + g.position.x + g.position.z);
+      mat.opacity = 0.7 + pulse * 0.15;
+      ring.scale.set((across / (2 * r)) * (1 + pulse * 0.012), (height / (2 * r)) * (1 + pulse * 0.012), 1);
     },
   };
 }
