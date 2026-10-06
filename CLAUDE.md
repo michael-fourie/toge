@@ -50,6 +50,7 @@ src/client/
   viewmodel.ts  first-person rifle + hands, all animation keyframed in code
   weapon/       awp.ts (procedural AWP + optional GLB loader/fitter), hands.ts (Arm)
   rope.ts       grapple rope + hook meshes
+  speedfx.ts    wind streaks overlay that scale with speed (hud.ts owns it); sfx.setWind adds the rushing-wind loop
   avatar.ts     chibi anime players (look seeded from name+colour, ink outlines, canvas faces), a zombie variant
                 (poseZombie) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
 dev/viewmodel.html  dev-only lab for tuning the rifle/hands (Vite serves it; not part of the build)

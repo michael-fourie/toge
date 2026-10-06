@@ -56,8 +56,31 @@ function burst(dur: number, vol: number, freq: number, q = 0.8, type: BiquadFilt
   s.stop(t + dur);
 }
 
+let wind: { gain: GainNode; filter: BiquadFilterNode } | null = null;
+
 export const sfx = {
   unlock: () => audio(),
+  /** Rushing wind that grows with speed: k in 0..1 (0 = silent). Call every frame; it smooths itself. */
+  setWind(k: number) {
+    const a = audio();
+    if (!a) return;
+    if (!wind) {
+      const src = a.createBufferSource();
+      src.buffer = noise;
+      src.loop = true;
+      const filter = a.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.Q.value = 0.7;
+      const gain = a.createGain();
+      gain.gain.value = 0;
+      src.connect(filter).connect(gain).connect(master);
+      src.start();
+      wind = { gain, filter };
+    }
+    const t = a.currentTime;
+    wind.gain.gain.setTargetAtTime(k * k * 0.45, t, 0.12);
+    wind.filter.frequency.setTargetAtTime(350 + k * 1700, t, 0.12);
+  },
   shoot() {
     burst(0.35, 1.0, 2400);
     tone('square', 140, 40, 0.25, 0.5);

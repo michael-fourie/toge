@@ -1,5 +1,7 @@
+import { MOVE } from '../shared/constants.ts';
 import type { PlayerInfo } from '../shared/protocol.ts';
 import type { Feat } from './achievements.ts';
+import { SpeedFx } from './speedfx.ts';
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
@@ -12,6 +14,7 @@ export class Hud {
   private speedBar: HTMLElement;
   private wallrunChip: HTMLElement;
   private grappleChip: HTMLElement;
+  private fx: SpeedFx;
   private boltBar: HTMLElement;
   private centerTimer = 0;
   private hitTimer = 0;
@@ -65,6 +68,7 @@ export class Hud {
     this.boltBar = this.q('.bolt i');
     this.wallrunChip = this.q('.chip.wallrun');
     this.grappleChip = this.q('.chip.grapple');
+    this.fx = new SpeedFx(this.root);
     this.q('.resume').addEventListener('click', () => this.onResume?.());
     this.q('.leave').addEventListener('click', () => this.onLeave?.());
   }
@@ -83,9 +87,15 @@ export class Hud {
     this.grappleChip.classList.toggle('active', state === 'attached');
   }
 
+  /** A quick burst of wind streaks (wall jump, grapple hook, gate). */
+  punch(amount?: number) {
+    this.fx.punch(amount);
+  }
+
   update(dt: number, speed: number, wallrun: boolean, bolt: number) {
     this.speedEl.textContent = speed.toFixed(1);
-    const k = Math.min(1, speed / 50);
+    this.fx.update(dt, speed, !this.root.classList.contains('paused') && !this.root.classList.contains('scoped'));
+    const k = Math.min(1, speed / MOVE.maxSpeed);
     this.speedBar.style.width = `${k * 100}%`;
     // Cream at walking pace, warming to sunset coral as you build speed.
     this.speedEl.style.color = `hsl(${44 - k * 34}, ${75 + k * 20}%, ${95 - k * 28}%)`;
@@ -221,6 +231,7 @@ export class Hud {
   }
 
   dispose() {
+    this.fx.dispose();
     this.root.remove();
   }
 }

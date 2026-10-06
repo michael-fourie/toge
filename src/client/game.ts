@@ -24,6 +24,7 @@ import { Horde } from './horde.ts';
 import { Hud } from './hud.ts';
 import { Input } from './input.ts';
 import { Rope } from './rope.ts';
+import { SpeedFx } from './speedfx.ts';
 import type { Net } from './net.ts';
 import { sfx } from './sfx.ts';
 import { ViewModel } from './viewmodel.ts';
@@ -266,9 +267,20 @@ export class Game {
     }
     if (ev & Ev.WallrunStart) sfx.wallrun();
     if (ev & Ev.SlideStart) sfx.slide();
-    if (ev & Ev.WallJump) sfx.wallJump();
-    if (ev & Ev.AirJump) sfx.airJump();
-    if (ev & Ev.GrappleHit) sfx.grappleHit();
+    if (ev & Ev.WallJump) {
+      sfx.wallJump();
+      this.fovKick = Math.max(this.fovKick, 6);
+      this.hud.punch(0.5);
+    }
+    if (ev & Ev.AirJump) {
+      sfx.airJump();
+      this.fovKick = Math.max(this.fovKick, 3);
+    }
+    if (ev & Ev.GrappleHit) {
+      sfx.grappleHit();
+      this.fovKick = Math.max(this.fovKick, 7);
+      this.hud.punch(0.7);
+    }
     if (ev & Ev.GrappleEnd) sfx.grappleRelease();
     if (ev & Ev.GrappleMiss) {
       sfx.grappleMiss();
@@ -280,6 +292,7 @@ export class Game {
     if (ev & Ev.JumpPad) sfx.pad();
     if (ev & Ev.Bounce) sfx.bounce();
     if (ev & Ev.Boost) {
+      this.hud.punch(0.6);
       sfx.boost();
       this.fovKick = 10;
     }
@@ -785,7 +798,7 @@ export class Game {
     const speed = hlen(this.me.vel);
     const slideKick = this.me.sliding ? 5 : 0;
     this.fovKick = Math.max(0, this.fovKick - dt * 20);
-    const targetFov = this.scoped ? WEAPON.scopedFov : BASE_FOV + slideKick + this.fovKick + Math.min(14, Math.max(0, speed - MOVE.maxGroundSpeed) * 0.6);
+    const targetFov = this.scoped ? WEAPON.scopedFov : BASE_FOV + slideKick + this.fovKick + Math.min(24, Math.max(0, speed - MOVE.maxGroundSpeed) * 0.5);
     cam.fov += (targetFov - cam.fov) * Math.min(1, dt * (this.scoped ? 25 : 6));
     cam.updateProjectionMatrix();
     this.input.sensitivityScale = this.scoped ? WEAPON.scopedFov / BASE_FOV : 1;
@@ -817,6 +830,7 @@ export class Game {
     this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, this.bolt / WEAPON.fireCooldown);
     this.hud.ammo(this.ammo, WEAPON.magSize, this.reloading > 0);
     this.hud.grapple(this.grappleState());
+    sfx.setWind(this.alive && !this.hud.root.classList.contains('paused') ? SpeedFx.strength(hlen(this.me.vel)) : 0);
     this.hud.setCredit(this.vm.credit);
     this.hud.death(this.deathText, this.deathSubtitle());
     this.hud.health(this.horde ? this.hp : null, SURVIVAL.playerHp);
@@ -893,6 +907,7 @@ export class Game {
   };
 
   exit(reason?: string) {
+    sfx.setWind(0);
     cancelAnimationFrame(this.raf);
     removeEventListener('resize', this.resize);
     this.unsubscribe?.();
