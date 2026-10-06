@@ -6,7 +6,7 @@ Atrous: a browser multiplayer movement shooter. Think CS:GO Combat Surf with bho
 
 1. **Momentum is sacred.** Movement must feel like CS:GO bhop. Never add anything that eats speed on its own: no air friction, no friction on the jump tick, no "redirect" mechanics. Air jumps and shot-recoil push were removed for exactly this.
 2. **Keep it simple.** Small files, plain code, few dependencies. Delete dead code rather than leaving it switched off. If a feature is off by default and nobody uses it, remove it.
-3. **Fun and silly.** Googly-eyed beans, flung corpses, YEET popups. Keep that tone.
+3. **Fun and silly.** Chibi anime snipers with streaming scarves and X_X faces when killed, flung corpses, YEET popups. Keep that tone.
 4. **Ghibli look.** Soft cel shading, warm painterly palette, and procedural textures (no image assets). Gameplay readability comes first: floors, walls, cover, pads, slide ramps and surf ramps must each look distinct.
 
 ## Commands
@@ -43,7 +43,7 @@ src/client/
   world.ts      renders MAP by box.kind (+ sky, clouds, scenery). textures.ts = procedural canvas textures
   viewmodel.ts  first-person rifle + hands, all animation keyframed in code
   weapon/       awp.ts (procedural AWP + optional GLB loader/fitter), hands.ts (Arm)
-  avatar.ts     remote player beans + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
+  avatar.ts     chibi anime players (look seeded from name+colour, ink outlines, canvas faces) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
 dev/viewmodel.html  dev-only lab for tuning the rifle/hands (Vite serves it; not part of the build)
 public/models/      optional awp.glb (see README)
 tests/        movement.test.ts + slide.test.ts (map-agnostic physics), map.test.ts (ramps + every Windward route)
