@@ -23,6 +23,7 @@ import { Avatar, Corpses } from './avatar.ts';
 import { Horde } from './horde.ts';
 import { Hud } from './hud.ts';
 import { Input } from './input.ts';
+import { Rope } from './rope.ts';
 import type { Net } from './net.ts';
 import { sfx } from './sfx.ts';
 import { ViewModel } from './viewmodel.ts';
@@ -101,6 +102,13 @@ export class Game {
   private sendAcc = 0;
   private lastSent = '';
   private recentSpawns: number[] = [];
+  private tmpA = new THREE.Vector3();
+  private tmpB = new THREE.Vector3();
+
+  // Grapple ropes: ours, a brief flash for a miss, and one per remote player.
+  private ropeSelf: Rope;
+  private ropeMiss = { t: 0, end: new THREE.Vector3() };
+  private remoteRopes = new Map<number, Rope>();
 
   private scoped = false;
   private bolt = 0; // seconds until the next shot is chambered
@@ -147,6 +155,7 @@ export class Game {
 
     this.world = buildWorld(MAP, this.renderer);
     this.corpses = new Corpses(this.world.scene);
+    this.ropeSelf = new Rope(this.world.scene);
     if (this.mode === 'survival') {
       this.horde = new Horde(this.world.scene);
       this.wave = joined?.wave ?? null;
@@ -213,6 +222,7 @@ export class Game {
     this.updateTracers(dt);
     this.world.update(this.time);
     this.updateCamera(dt);
+    this.updateRopes(dt);
     this.updateHud(dt);
 
     this.renderer.clear();
@@ -258,6 +268,15 @@ export class Game {
     if (ev & Ev.SlideStart) sfx.slide();
     if (ev & Ev.WallJump) sfx.wallJump();
     if (ev & Ev.AirJump) sfx.airJump();
+    if (ev & Ev.GrappleHit) sfx.grappleHit();
+    if (ev & Ev.GrappleEnd) sfx.grappleRelease();
+    if (ev & Ev.GrappleMiss) {
+      sfx.grappleMiss();
+      const d = lookDir(this.input.yaw, this.input.pitch);
+      const o = this.me.pos;
+      this.ropeMiss.end.set(o.x + d.x * MOVE.grappleRange, o.y + this.eyeHeight + d.y * MOVE.grappleRange, o.z + d.z * MOVE.grappleRange);
+      this.ropeMiss.t = 0.18;
+    }
     if (ev & Ev.JumpPad) sfx.pad();
     if (ev & Ev.Bounce) sfx.bounce();
     if (ev & Ev.Boost) {
@@ -515,6 +534,8 @@ export class Game {
   }
 
   private removeRemote(id: number) {
+    this.remoteRopes.get(id)?.dispose();
+    this.remoteRopes.delete(id);
     this.remotes.get(id)?.avatar.dispose();
     this.remotes.delete(id);
   }
@@ -528,6 +549,7 @@ export class Game {
       }
       const buf = r.buffer;
       while (buf.length > 2 && buf[1].t <= renderT) buf.shift();
+      if (!r.info.alive) this.remoteRopes.get(r.info.id)?.set(this.tmpA, null);
       if (!buf.length || !r.info.alive) continue;
       let a = buf[0];
       let b = buf[buf.length > 1 ? 1 : 0];
@@ -544,6 +566,9 @@ export class Game {
         const rgt = yawRight(r.yaw);
         side = Math.sign(rgt.x * e.v[0] + rgt.z * e.v[2]) || 0;
       }
+      const rope = this.remoteRopes.get(r.info.id) ?? new Rope(this.world.scene);
+      this.remoteRopes.set(r.info.id, rope);
+      rope.set(this.tmpA.set(r.pos.x, r.pos.y + 1.2, r.pos.z), e.g ? this.tmpB.set(e.g[0], e.g[1], e.g[2]) : null);
       r.avatar.root.visible = true;
       r.avatar.pose(r.pos.x, r.pos.y, r.pos.z, r.yaw, pitch, side, this.time, (e.f & StateFlag.Sliding) !== 0);
     }
@@ -612,6 +637,7 @@ export class Game {
       pitch: round3(this.input.pitch),
       f: (m.wallrunning ? StateFlag.Wallrun : 0) | (m.sliding ? StateFlag.Sliding : 0),
     };
+    if (m.grapple) msg.g = [round3(m.grapple.x), round3(m.grapple.y), round3(m.grapple.z)];
     // The server keeps our last state, so standing still costs nothing (every message is a billed request on Cloudflare).
     const key = JSON.stringify(msg);
     if (key === this.lastSent) return;
@@ -768,16 +794,45 @@ export class Game {
     this.vm.update(dt, speed, this.me.onGround, lx, ly, this.roll);
   }
 
+  /** Our rope runs from just below the camera (where the hand holds the reel) to the anchor. */
+  private updateRopes(dt: number) {
+    if (!this.alive) {
+      this.ropeSelf.set(this.tmpA, null);
+      return;
+    }
+    this.camera.updateMatrixWorld();
+    const start = this.tmpA.set(0.2, -0.28, -0.45).applyMatrix4(this.camera.matrixWorld);
+    const g = this.me.grapple;
+    if (g) this.ropeSelf.set(start, this.tmpB.set(g.x, g.y, g.z));
+    else if (this.ropeMiss.t > 0) {
+      this.ropeMiss.t -= dt;
+      // A short line shooting out and fading, so a whiff is visible.
+      const k = Math.min(1, 1 - this.ropeMiss.t / 0.18);
+      this.ropeSelf.set(start, this.tmpB.copy(start).lerp(this.ropeMiss.end, k), false);
+    } else this.ropeSelf.set(start, null);
+  }
+
   private updateHud(dt: number) {
     this.hud.setScoped(this.scoped && this.alive);
     this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, this.bolt / WEAPON.fireCooldown);
     this.hud.ammo(this.ammo, WEAPON.magSize, this.reloading > 0);
+    this.hud.grapple(this.grappleState());
     this.hud.setCredit(this.vm.credit);
     this.hud.death(this.deathText, this.deathSubtitle());
     this.hud.health(this.horde ? this.hp : null, SURVIVAL.playerHp);
     this.hud.wave(this.waveText());
     this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId);
     this.hud.scoreboard(this.showScores ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.dummy).map((r) => r.info)] : null, this.selfId);
+  }
+
+  /** 'ready' lights up when pressing E right now would catch something. */
+  private grappleState(): 'off' | 'ready' | 'attached' {
+    if (!this.alive) return 'off';
+    if (this.me.grapple) return 'attached';
+    if (this.me.grappleCooldown > 0) return 'off';
+    const c = this.camera.position;
+    const d = lookDir(this.input.yaw, this.input.pitch);
+    return rayWorld({ x: c.x, y: c.y, z: c.z }, d, MAP.boxes, MOVE.grappleRange) < MOVE.grappleRange ? 'ready' : 'off';
   }
 
   private onKey(code: string, down: boolean) {

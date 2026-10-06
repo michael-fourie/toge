@@ -50,6 +50,16 @@ export const MOVE = {
   wallJumpOut: 4, // minimum push off the wall; hitting it faster bounces the whole into-wall speed back out
   wallJumpBoost: 2, // extra speed along the way you're already travelling
 
+  // Grapple (E). A rope pulls you toward the surface you hit: it only ever raises your speed along the rope
+  // (like a wind gate), never slows you, and friction is off while it's taut.
+  grappleRange: 40, // a 40 m rope: roughly the width of the centre island, so one pull crosses a lane gap but not the map
+  grappleSpeed: 30, // pull until you're moving this fast toward the anchor
+  grappleAccel: 90, // how hard it reels you in (m/s^2); gravity is ~20
+  grappleCooldown: 1.5, // seconds after letting go (or reaching the anchor) before the next shot
+  grappleMissCooldown: 0.5, // a whiff costs less
+  grappleArrive: 2, // within this of the anchor the rope lets go and you keep flying
+  grappleMaxTime: 4, // a rope can't hold longer than this
+
   // Air jumps. Both only ever *raise* upward speed (and a wall kick adds push), so they never cost momentum.
   airJumps: 1, // extra mid-air jumps per airtime (the double jump); a wall jump refreshes it, landing resets it
   airJumpSpeed: 301.993 * U, // same launch as a ground jump

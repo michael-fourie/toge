@@ -1,4 +1,4 @@
-import { NET, RESPAWN_SECONDS, SURVIVAL, WEAPON } from '../shared/constants.ts';
+import { MOVE, NET, RESPAWN_SECONDS, SURVIVAL, WEAPON } from '../shared/constants.ts';
 import { MAP } from '../shared/map.ts';
 import type { ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
@@ -123,6 +123,7 @@ export class Lobby {
         m.state.yaw = msg.yaw;
         m.state.pitch = msg.pitch;
         m.state.f = msg.f;
+        m.state.g = validAnchor(msg.g, msg.p);
         return;
       case 'shoot':
         this.onShoot(m, msg);
@@ -169,6 +170,7 @@ export class Lobby {
     m.state.p = spawn.p;
     m.state.v = [0, 0, 0];
     m.state.yaw = spawn.yaw;
+    m.state.g = undefined;
     this.broadcast({ t: 'respawn', id: m.info.id, p: spawn.p, yaw: spawn.yaw });
   }
 
@@ -219,6 +221,12 @@ export class Lobby {
       if (m.info.id !== except && m.client.ws.readyState === OPEN) m.client.ws.send(data);
     }
   }
+}
+
+/** A grapple anchor is only relayed if it's a real point within rope reach of the player. */
+function validAnchor(g: V3 | undefined, p: V3): V3 | undefined {
+  if (!Array.isArray(g) || g.length !== 3 || !g.every(Number.isFinite)) return undefined;
+  return Math.hypot(g[0] - p[0], g[1] - p[1], g[2] - p[2]) <= MOVE.grappleRange * 1.5 ? g : undefined;
 }
 
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];

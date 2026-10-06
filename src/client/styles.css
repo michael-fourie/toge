@@ -985,6 +985,13 @@ button:disabled {
 .chip.wallrun.on {
   background: var(--sun);
 }
+.chip.grapple.on {
+  background: #c8fff0;
+}
+.chip.grapple.active {
+  color: var(--ink);
+  background: var(--sun);
+}
 .lobby-tag {
   position: absolute;
   left: 16px;

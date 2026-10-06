@@ -70,6 +70,12 @@ export const sfx = {
   land: (hard: number) => burst(0.08 + hard * 0.08, 0.15 + hard * 0.3, 300),
   wallrun: () => burst(0.35, 0.18, 1400, 2, 'bandpass'),
   wallJump: () => tone('triangle', 300, 700, 0.12, 0.2),
+  grappleHit() {
+    tone('square', 900, 500, 0.05, 0.14); // hook bites
+    burst(0.1, 0.2, 2200, 1, 'bandpass');
+  },
+  grappleMiss: () => burst(0.25, 0.16, 1800, 1.4, 'bandpass'),
+  grappleRelease: () => tone('sine', 520, 260, 0.1, 0.08),
   airJump: () => tone('sine', 380, 640, 0.1, 0.14), // a soft puff, higher than the ground jump
   slide() {
     burst(0.45, 0.22, 700, 1.2, 'bandpass'); // grassy swish

@@ -6,6 +6,7 @@ const KEYS: [string, string][] = [
   ['Space / wheel', 'Jump. Hold to bhop; every hop keeps your speed. Tap again in the air for a double jump.'],
   ['Shift', 'Slide. Hold it in the air to slide the moment you land.'],
   ['Walls', 'Run along one in the air to wallrun, or tap Space beside one to kick off it (a new wall each time, and it refreshes your double jump).'],
+  ['E', 'Grapple. Aim at a surface within 40 m and the rope reels you in; Space lets go and you keep your speed. 1.5 s to recharge.'],
   ['Blue ramps', 'Surf. Strafe into the slope to ride it.'],
   ['Left / right mouse', 'Shoot / hold to scope. No-scopes spray.'],
   ['R', 'Reload (automatic when empty).'],

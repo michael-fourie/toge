@@ -49,6 +49,7 @@ src/client/
   world.ts      renders MAP by box.kind (+ sky, clouds, scenery). textures.ts = procedural canvas textures
   viewmodel.ts  first-person rifle + hands, all animation keyframed in code
   weapon/       awp.ts (procedural AWP + optional GLB loader/fitter), hands.ts (Arm)
+  rope.ts       grapple rope + hook meshes
   avatar.ts     chibi anime players (look seeded from name+colour, ink outlines, canvas faces), a zombie variant
                 (poseZombie) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
 dev/viewmodel.html  dev-only lab for tuning the rifle/hands (Vite serves it; not part of the build)
@@ -67,6 +68,7 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 - After the move, ground is classified: walkable means `normal.y >= 0.7`, and the snap-down is 18u.
 - `MOVE` is mutable on purpose; the `` ` `` lil-gui panel edits it live. Every tunable belongs in `constants.ts`, not as a magic number in logic.
 - Events come back as `s.events` bit flags (`Ev`) and drive sfx and camera effects.
+- The grapple (E) is also in `stepPlayer` (`fireGrapple` / `pullGrapple`): a ray along the look direction, range `MOVE.grappleRange` (40 m: about the width of the centre island, so one pull crosses a lane gap but not the map). While attached it raises your speed along the rope up to `grappleSpeed` (a "set at least", like a gate, so it never slows a rope aimed where you're heading), skips ground friction, and lets go on arrival, on Space (keeping all speed), when something blocks the line, or after `grappleMaxTime`. Cooldown after release. `MoveInput` carries `pitch` and `grapplePressed` for it; the anchor travels in the state message (`g`) so others see the rope.
 - Triggers are applied after the move. A wind gate (`boost`) raises speed along whichever way you cross it (±its direction; standing still, the way you face); a puffball (`bounce`) raises upward speed to `up` and horizontal speed along your current heading to `push` (standing still, it's straight up). Both only ever *raise* velocity ("set at least"), so they can't cost momentum and need no cooldowns. Keep it that way.
 
 **Collision (`collision.ts`)**

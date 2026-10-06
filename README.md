@@ -1,6 +1,6 @@
 # Gambol
 
-A silly browser multiplayer movement shooter set on Ghibli-style sky islands: **bhop, surf, slide, wallrun, snipe**. It's in the spirit of CS:GO Combat Surf.
+A silly browser multiplayer movement shooter set on Ghibli-style sky islands: **bhop, surf, slide, wallrun, grapple, snipe**. It's in the spirit of CS:GO Combat Surf.
 
 ```bash
 npm install
@@ -44,6 +44,7 @@ Kills earn mini achievements, and several at once **stack** into one combo with 
 | --- | --- |
 | WASD | Move. In the air, let go of W, hold A or D and turn the mouse the same way to gain speed (air-strafing). |
 | Space / mouse wheel | Jump. Hold Space to auto-bhop; you keep all your speed on every hop. Tap again in the air for a double jump. |
+| E | Grapple: aim at any surface within 40 m and the rope reels you toward it (Space lets go and keeps your speed; 1.5 s recharge). |
 | Shift (hold) | Slide. Hold it in the air to slide the moment you land. Jumping out of a slide keeps your speed. |
 | Run along a wall in the air | Wallrun. Space wall-jumps off it; tapping Space next to any wall kicks off it too (once per wall until you land), and refreshes the double jump. |
 | Steep blue ramps | Surf: strafe into the ramp to ride it. |

@@ -1,6 +1,6 @@
-import { type Box, type Trigger, moveAndCollide, newContacts, probeGround, probeWall, snapToGround, touches } from './collision.ts';
-import { MOVE } from './constants.ts';
-import { type Vec3, addScaled, copy, dot, hlen, set, v3, yawForward, yawRight } from './math.ts';
+import { type Box, type Trigger, moveAndCollide, newContacts, probeGround, probeWall, rayWorld, snapToGround, touches } from './collision.ts';
+import { MOVE, PLAYER } from './constants.ts';
+import { type Vec3, addScaled, copy, dot, hlen, lookDir, set, v3, yawForward, yawRight } from './math.ts';
 
 export interface MoveInput {
   forward: number; // -1..1
@@ -9,9 +9,20 @@ export interface MoveInput {
   jumpPressed: boolean; // went down since the last tick
   slide: boolean; // held
   yaw: number;
+  pitch: number; // aims the grapple
+  grapplePressed: boolean; // went down since the last tick
 }
 
-export const emptyInput = (): MoveInput => ({ forward: 0, right: 0, jump: false, jumpPressed: false, slide: false, yaw: 0 });
+export const emptyInput = (): MoveInput => ({
+  forward: 0,
+  right: 0,
+  jump: false,
+  jumpPressed: false,
+  slide: false,
+  yaw: 0,
+  pitch: 0,
+  grapplePressed: false,
+});
 
 /** Bit flags describing what happened during a tick (for sfx, camera effects, network). */
 export const Ev = {
@@ -25,6 +36,9 @@ export const Ev = {
   Boost: 128,
   Bounce: 256,
   AirJump: 512,
+  GrappleHit: 1024,
+  GrappleMiss: 2048,
+  GrappleEnd: 4096,
 } as const;
 
 export interface PlayerState {
@@ -36,6 +50,10 @@ export interface PlayerState {
   wallrunTime: number;
   lastWallNormal: Vec3;
   wallCooldown: number;
+  /** Where the grapple rope is anchored while attached. */
+  grapple: Vec3 | null;
+  grappleTime: number;
+  grappleCooldown: number;
   /** Mid-air jumps left this airtime (double jump). */
   airJumps: number;
   /** Seconds since leaving the ground. */
@@ -69,6 +87,9 @@ export function createPlayerState(pos: Vec3 = v3()): PlayerState {
     lastWallNormal: v3(),
     wallCooldown: 0,
     jumpBuffer: 0,
+    grapple: null,
+    grappleTime: 0,
+    grappleCooldown: 0,
     airJumps: MOVE.airJumps,
     airTime: 0,
     inTrigger: null,
@@ -135,6 +156,55 @@ function endWallrun(s: PlayerState) {
   s.wallCooldown = MOVE.wallrunCooldown;
 }
 
+function releaseGrapple(s: PlayerState) {
+  if (!s.grapple) return;
+  s.grapple = null;
+  s.grappleCooldown = MOVE.grappleCooldown;
+  s.events |= Ev.GrappleEnd;
+}
+
+/** Shoots the rope along the look direction; it only catches within `grappleRange`. */
+function fireGrapple(s: PlayerState, input: MoveInput, boxes: readonly Box[]) {
+  const o = { x: s.pos.x, y: s.pos.y + (s.sliding ? MOVE.slideEyeHeight : PLAYER.eyeHeight), z: s.pos.z };
+  const d = lookDir(input.yaw, input.pitch);
+  const t = rayWorld(o, d, boxes, MOVE.grappleRange);
+  if (t >= MOVE.grappleRange) {
+    s.grappleCooldown = MOVE.grappleMissCooldown;
+    s.events |= Ev.GrappleMiss;
+    return;
+  }
+  s.grapple = { x: o.x + d.x * (t - 0.05), y: o.y + d.y * (t - 0.05), z: o.z + d.z * (t - 0.05) };
+  s.grappleTime = 0;
+  endWallrun(s);
+  s.events |= Ev.GrappleHit;
+}
+
+/** Reels you toward the anchor. Only raises speed along the rope, so it can never cost momentum. */
+function pullGrapple(s: PlayerState, boxes: readonly Box[], dt: number) {
+  const a = s.grapple!;
+  s.grappleTime += dt;
+  const cx = s.pos.x;
+  const cy = s.pos.y + 1; // chest
+  const cz = s.pos.z;
+  const dx = a.x - cx;
+  const dy = a.y - cy;
+  const dz = a.z - cz;
+  const dist = Math.hypot(dx, dy, dz);
+  const dir = { x: dx / dist, y: dy / dist, z: dz / dist };
+  const arrived = dist < MOVE.grappleArrive;
+  const tooLong = s.grappleTime > MOVE.grappleMaxTime || dist > MOVE.grappleRange * 1.25;
+  const blocked = !arrived && rayWorld({ x: cx, y: cy, z: cz }, dir, boxes, dist) < dist - 0.4;
+  if (arrived || tooLong || blocked) return releaseGrapple(s);
+  const along = s.vel.x * dir.x + s.vel.y * dir.y + s.vel.z * dir.z;
+  if (along < MOVE.grappleSpeed) {
+    const add = Math.min(MOVE.grappleAccel * dt, MOVE.grappleSpeed - along);
+    s.vel.x += dir.x * add;
+    s.vel.y += dir.y * add;
+    s.vel.z += dir.z * add;
+  }
+  if (s.onGround && dir.y > 0.05) s.onGround = false; // lifted off by the rope: no ground snapping or friction
+}
+
 function land(s: PlayerState) {
   if (!s.onGround) s.events |= Ev.Land;
   s.onGround = true;
@@ -197,12 +267,26 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
     wish.z /= wishLen;
   }
 
+  // --- Grapple -------------------------------------------------------------
+  s.grappleCooldown = Math.max(0, s.grappleCooldown - dt);
+  let jumpPressed = input.jumpPressed;
+  if (input.grapplePressed) {
+    if (s.grapple) releaseGrapple(s);
+    else if (s.grappleCooldown === 0) fireGrapple(s, input, boxes);
+  }
+  if (s.grapple) {
+    if (jumpPressed) {
+      releaseGrapple(s); // hop off the line, keeping everything you had
+      if (!s.onGround) jumpPressed = false; // that press was the release, not a double jump
+    } else pullGrapple(s, boxes, dt);
+  }
+
   // --- Jumps -------------------------------------------------------------
   // Source order of operations: the jump is checked *before* friction, and a successful
   // jump leaves the ground, so friction never runs on that tick. Jumping on the exact
   // tick you land therefore keeps 100% of your speed, whatever keys you are holding.
   s.jumpBuffer = Math.max(0, s.jumpBuffer - dt);
-  if (input.jumpPressed) s.jumpBuffer = MOVE.jumpBuffer;
+  if (jumpPressed) s.jumpBuffer = MOVE.jumpBuffer;
   const wantsJump = (MOVE.autoHop && input.jump) || s.jumpBuffer > 0;
   let jumpedFromGround = false;
   if (s.onGround && wantsJump) {
@@ -212,9 +296,9 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
     jumpedFromGround = true;
     endSlide(s, false); // slide-jump: leaves the ground before friction, so it keeps every bit of speed
     s.events |= Ev.Jump;
-  } else if (s.wallrunning && input.jumpPressed) {
+  } else if (s.wallrunning && jumpPressed) {
     wallJump(s, s.wallNormal, wish);
-  } else if (!s.onGround && input.jumpPressed && !landingSoon(s, boxes)) {
+  } else if (!s.onGround && jumpPressed && !landingSoon(s, boxes)) {
     // A fresh press in the air (never the held key, so autohop can't burn it): kick off a nearby wall, else double jump.
     const n = probeWall(s.pos, boxes, vel, MOVE.wallrunReach);
     if (n && dot(n, s.lastWallNormal) < 0.7) wallJump(s, n, wish);
@@ -247,7 +331,7 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
     }
     if (s.sliding) slideMove(s, input, wishAmount, dt);
     else {
-      if (!jumpedFromGround) applyFriction(vel, dt);
+      if (!jumpedFromGround && !s.grapple) applyFriction(vel, dt);
       accelerate(vel, wish, MOVE.maxGroundSpeed * wishAmount, MOVE.groundAccel, dt);
     }
   } else if (s.wallrunning) {

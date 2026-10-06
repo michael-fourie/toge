@@ -11,6 +11,7 @@ export class Hud {
   private speedEl: HTMLElement;
   private speedBar: HTMLElement;
   private wallrunChip: HTMLElement;
+  private grappleChip: HTMLElement;
   private boltBar: HTMLElement;
   private centerTimer = 0;
   private hitTimer = 0;
@@ -28,7 +29,7 @@ export class Hud {
       <div class="hitmarker"></div>
       <div class="bolt"><i></i></div>
       <div class="speed"><b>0</b><small>m/s</small><div class="bar"><i></i></div></div>
-      <div class="chips"><span class="chip wallrun">WALLRUN</span></div>
+      <div class="chips"><span class="chip wallrun">WALLRUN</span><span class="chip grapple">GRAPPLE [E]</span></div>
       <div class="ammo"><b>10</b><small>/ 10</small><span>reloading…</span></div>
       <div class="credit"></div>
       <div class="lobby-tag">${esc(lobbyLabel)}</div>
@@ -50,6 +51,7 @@ export class Hud {
             <dt>Space / wheel</dt><dd>jump — hold to bhop, momentum is kept</dd>
             <dt>Shift</dt><dd>slide (hold it in the air to slide on landing; jump out to keep speed)</dd>
             <dt>Run along walls</dt><dd>wallrun, Space to wall-jump</dd>
+            <dt>E</dt><dd>grapple: reels you toward what you aim at (40 m rope, 1.5 s to recharge); Space lets go and keeps your speed</dd>
             <dt>LMB / RMB</dt><dd>shoot / hold to scope</dd>
             <dt>R</dt><dd>reload (auto when empty)</dd>
             <dt>Tab</dt><dd>scores</dd>
@@ -62,6 +64,7 @@ export class Hud {
     this.speedBar = this.q('.speed .bar i');
     this.boltBar = this.q('.bolt i');
     this.wallrunChip = this.q('.chip.wallrun');
+    this.grappleChip = this.q('.chip.grapple');
     this.q('.resume').addEventListener('click', () => this.onResume?.());
     this.q('.leave').addEventListener('click', () => this.onLeave?.());
   }
@@ -72,6 +75,12 @@ export class Hud {
 
   setScoped(s: boolean) {
     this.root.classList.toggle('scoped', s);
+  }
+
+  /** Chip lights when E would catch a surface (ready) and goes warm while the rope is out (attached). */
+  grapple(state: 'off' | 'ready' | 'attached') {
+    this.grappleChip.classList.toggle('on', state === 'ready');
+    this.grappleChip.classList.toggle('active', state === 'attached');
   }
 
   update(dt: number, speed: number, wallrun: boolean, bolt: number) {

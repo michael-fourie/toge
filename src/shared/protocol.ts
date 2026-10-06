@@ -30,6 +30,8 @@ export interface NetPlayerState {
   yaw: number;
   pitch: number;
   f: number;
+  /** Grapple anchor while the rope is out, so everyone can see it. */
+  g?: V3;
 }
 
 export const StateFlag = { Wallrun: 1, Sliding: 2 } as const;
@@ -57,7 +59,7 @@ export type DeathCause = 'snipe' | 'headshot' | 'void' | 'zombie';
 
 // Client -> server
 export type ClientMsg =
-  | { t: 'state'; p: V3; v: V3; yaw: number; pitch: number; f: number }
+  | { t: 'state'; p: V3; v: V3; yaw: number; pitch: number; f: number; g?: V3 }
   | { t: 'shoot'; from: V3; to: V3; victim?: number; zombie?: number; headshot?: boolean }
   | { t: 'fell' };
 

@@ -18,6 +18,7 @@ export class Input {
 
   private keys = new Set<string>();
   private jumpQueued = false;
+  private grappleQueued = false;
   private fireQueued = false;
   /** Right mouse button currently held (hold-to-scope). Cleared on blur / lock loss / death. */
   scopeHeld = false;
@@ -31,6 +32,7 @@ export class Input {
       if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
       if (!e.repeat) {
         if (e.code === 'Space') this.jumpQueued = true;
+        if (e.code === 'KeyE') this.grappleQueued = true;
         this.onKey?.(e.code, true);
       }
       this.keys.add(e.code);
@@ -112,7 +114,10 @@ export class Input {
     out.jump = this.down('Space') || out.jumpPressed;
     out.slide = this.down('ShiftLeft') || this.down('ShiftRight');
     out.yaw = this.yaw;
+    out.pitch = this.pitch;
+    out.grapplePressed = this.grappleQueued && this.locked;
     this.jumpQueued = false;
+    this.grappleQueued = false;
     return out;
   }
 
