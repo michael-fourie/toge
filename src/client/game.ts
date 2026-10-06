@@ -423,7 +423,7 @@ export class Game {
         side = Math.sign(rgt.x * e.v[0] + rgt.z * e.v[2]) || 0;
       }
       r.avatar.root.visible = true;
-      r.avatar.pose(r.pos.x, r.pos.y, r.pos.z, r.yaw, pitch, side, this.time);
+      r.avatar.pose(r.pos.x, r.pos.y, r.pos.z, r.yaw, pitch, side, this.time, (e.f & StateFlag.Sliding) !== 0);
     }
   }
 
@@ -476,7 +476,11 @@ export class Game {
       v: [round3(m.vel.x), round3(m.vel.y), round3(m.vel.z)],
       yaw: round3(this.input.yaw),
       pitch: round3(this.input.pitch),
-      f: (m.onGround ? StateFlag.Ground : 0) | (m.wallrunning ? StateFlag.Wallrun : 0) | (this.scoped ? StateFlag.Scoped : 0),
+      f:
+        (m.onGround ? StateFlag.Ground : 0) |
+        (m.wallrunning ? StateFlag.Wallrun : 0) |
+        (this.scoped ? StateFlag.Scoped : 0) |
+        (m.sliding ? StateFlag.Sliding : 0),
     });
   }
 
@@ -613,6 +617,15 @@ export class Game {
     wall.add(MOVE, 'wallrunGravityStart', 0, 20);
     wall.add(MOVE, 'wallJumpUp', 0, 20);
     wall.add(MOVE, 'wallJumpOut', 0, 20);
+    const slide = f('Slide');
+    slide.add(MOVE, 'slideMinSpeed', 0, 15);
+    slide.add(MOVE, 'slideEndSpeed', 0, 10);
+    slide.add(MOVE, 'slideFriction', 0, 6);
+    slide.add(MOVE, 'slideBoost', 0, 10);
+    slide.add(MOVE, 'slideBoostCooldown', 0, 5);
+    slide.add(MOVE, 'slideSteer', 0, 100);
+    slide.add(MOVE, 'slideSlopeGravity', 0, 3);
+    slide.add(MOVE, 'slideEyeHeight', 0.4, 1.62);
     const misc = f('Mouse');
     misc.add(this.input, 'sensitivity', 0.0005, 0.008, 0.0001);
     gui.close();
