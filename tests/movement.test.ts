@@ -60,6 +60,24 @@ test('bhopping with air-strafing builds speed beyond ground max', () => {
   assert.ok(hlen(s.vel) > MOVE.maxGroundSpeed * 1.5, `speed after strafing=${hlen(s.vel).toFixed(2)}`);
 });
 
+test('a clean bhop chain climbs past 45 m/s and then stops at the hard cap', () => {
+  const s = createPlayerState({ x: 0, y: 0, z: 0 });
+  const input: MoveInput = { ...emptyInput(), forward: 1 };
+  run(s, input, 1, [floor]);
+  // Perfect strafing: hold jump + strafe key, yaw tracking the velocity so the wish direction is always perpendicular to it.
+  input.forward = 0;
+  input.right = 1;
+  input.jump = true;
+  let peak = 0;
+  run(s, input, 40, [{ ...floor, min: { x: -9999, y: -1, z: -9999 }, max: { x: 9999, y: 0, z: 9999 } }], () => {
+    input.yaw = Math.atan2(-s.vel.x, -s.vel.z);
+    peak = Math.max(peak, hlen(s.vel));
+  });
+  console.log(`  perfect-strafe bhop peak after 40s: ${peak.toFixed(1)} m/s`);
+  assert.ok(peak > 45, `peak=${peak.toFixed(1)}`);
+  assert.ok(hlen(s.vel) <= MOVE.maxSpeed + 1e-6);
+});
+
 test('holding jump with no strafing does not gain speed (friction skipped, but no free accel)', () => {
   const s = createPlayerState({ x: 0, y: 0, z: 0 });
   const input: MoveInput = { ...emptyInput(), forward: 1, jump: true };
@@ -182,10 +200,14 @@ test('pressing jump in the air never redirects or eats horizontal momentum', () 
   const before = { ...s.vel };
   input.forward = 0;
   input.right = 1; // holding D while spamming jump (scroll wheel) mid-air
+  // Same tick with and without the press: the press itself must not touch horizontal velocity
+  // (air-strafing from holding D is a separate, legitimate effect that the control run includes).
+  const control = structuredClone(s);
+  stepPlayer(control, { ...input, jumpPressed: false }, TICK_DT, [floor]);
   input.jumpPressed = true;
   stepPlayer(s, input, TICK_DT, [floor]);
-  const cos = (before.x * s.vel.x + before.z * s.vel.z) / (hlen(before) * hlen(s.vel));
-  assert.ok(cos > 0.99, `direction changed: cos=${cos.toFixed(3)}`);
+  assert.equal(s.vel.x, control.vel.x);
+  assert.equal(s.vel.z, control.vel.z);
   assert.ok(hlen(s.vel) >= hlen(before) - 1e-6);
 });
 

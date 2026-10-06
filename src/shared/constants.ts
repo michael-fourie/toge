@@ -37,7 +37,7 @@ export const MOVE = {
   stopSpeed: 80 * U, // sv_stopspeed
 
   airAccel: 100, // sv_airaccelerate (MM is 12; bhop/combat-surf servers run 100+)
-  airSpeedCap: 30 * U, // the 30 u/s air wishspeed cap that makes air-strafing work
+  airSpeedCap: 50 * U, // CS's air wishspeed cap (30 u/s) is what limits strafe gain; 50 means bhop climbs ~2.8x faster (speed^2 grows with cap^2)
 
   wallrunMinSpeed: 4,
   wallrunReach: 0.6, // how far from a wall you can be and still latch on (magnetism)
@@ -60,7 +60,7 @@ export const MOVE = {
   slideSlopeGravity: 1, // scale on gravity along the slope (downhill speeds you up)
   slideEyeHeight: 0.95,
 
-  maxSpeed: 45,
+  maxSpeed: 70, // hard clamp on total speed; a long clean bhop chain runs into it
 };
 
 export const WEAPON = {

@@ -61,7 +61,7 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 ## How things work
 
 **Movement (`movement.ts`)** is a port of Source `gamemovement`, ticked at 128 Hz.
-- Order per tick: check jump *before* friction (a jump leaves the ground, so no friction that tick), then friction and accel, or air-accel with the 30 u/s cap, or slide, or wallrun.
+- Order per tick: check jump *before* friction (a jump leaves the ground, so no friction that tick), then friction and accel, or air-accel with the 50 u/s cap (CS has 30; raised so bhop climbs faster, hard clamp 70 m/s), or slide, or wallrun.
 - Gravity is split half before and half after the move.
 - After the move, ground is classified: walkable means `normal.y >= 0.7`, and the snap-down is 18u.
 - `MOVE` is mutable on purpose; the `` ` `` lil-gui panel edits it live. Every tunable belongs in `constants.ts`, not as a magic number in logic.

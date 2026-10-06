@@ -76,7 +76,7 @@ export class Hud {
 
   update(dt: number, speed: number, wallrun: boolean, bolt: number) {
     this.speedEl.textContent = speed.toFixed(1);
-    const k = Math.min(1, speed / 30);
+    const k = Math.min(1, speed / 50);
     this.speedBar.style.width = `${k * 100}%`;
     // Cream at walking pace, warming to sunset coral as you build speed.
     this.speedEl.style.color = `hsl(${44 - k * 34}, ${75 + k * 20}%, ${95 - k * 28}%)`;
