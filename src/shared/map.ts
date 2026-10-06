@@ -70,7 +70,7 @@ function padTo(x: number, floorY: number, z: number, to: Vec3, apex: number, siz
 
 const DIRS = { '+x': { x: 1, y: 0, z: 0 }, '-x': { x: -1, y: 0, z: 0 }, '+z': { x: 0, y: 0, z: 1 }, '-z': { x: 0, y: 0, z: -1 } };
 
-/** Wind gate (speed booster): a thin slab across your path, from min to max corners. */
+/** Wind gate (speed booster): a thin slab across your path, from min to max corners. Boosts either way; `dir` is its axis. */
 function gate(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, dir: keyof typeof DIRS, speed: number): Trigger {
   return { kind: 'boost', min: { x: x0, y: y0, z: z0 }, max: { x: x1, y: y1, z: z1 }, dir: DIRS[dir], speed };
 }

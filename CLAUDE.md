@@ -66,7 +66,7 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 - After the move, ground is classified: walkable means `normal.y >= 0.7`, and the snap-down is 18u.
 - `MOVE` is mutable on purpose; the `` ` `` lil-gui panel edits it live. Every tunable belongs in `constants.ts`, not as a magic number in logic.
 - Events come back as `s.events` bit flags (`Ev`) and drive sfx and camera effects.
-- Triggers are applied after the move. A wind gate (`boost`) raises speed along its direction; a puffball (`bounce`) raises upward speed to `up` and horizontal speed along your current heading to `push` (standing still, it's straight up). Both only ever *raise* velocity ("set at least"), so they can't cost momentum and need no cooldowns. Keep it that way.
+- Triggers are applied after the move. A wind gate (`boost`) raises speed along whichever way you cross it (±its direction; standing still, the way you face); a puffball (`bounce`) raises upward speed to `up` and horizontal speed along your current heading to `push` (standing still, it's straight up). Both only ever *raise* velocity ("set at least"), so they can't cost momentum and need no cooldowns. Keep it that way.
 
 **Collision (`collision.ts`)**
 - The world is a list of `Box`: axis-aligned boxes, plus wedges when `box.ramp` is set.

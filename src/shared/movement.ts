@@ -313,7 +313,7 @@ function landingSoon(s: PlayerState, boxes: readonly Box[]): boolean {
   return snapToGround(probe, boxes, Math.max(0.15, -s.vel.y * MOVE.jumpBuffer)) !== null;
 }
 
-/** Wind gates and puffballs. Both only raise velocity, so momentum is never lost. */
+/** Wind gates (either direction) and puffballs. Both only raise velocity, so momentum is never lost. */
 function applyTriggers(s: PlayerState, input: MoveInput, triggers: readonly Trigger[]) {
   let inside: Trigger | null = null;
   for (const t of triggers) {
@@ -321,10 +321,14 @@ function applyTriggers(s: PlayerState, input: MoveInput, triggers: readonly Trig
     inside = t;
     const vel = s.vel;
     if (t.kind === 'boost') {
-      const along = vel.x * t.dir.x + vel.z * t.dir.z;
-      if (along < t.speed) {
-        vel.x += t.dir.x * (t.speed - along);
-        vel.z += t.dir.z * (t.speed - along);
+      // Works both ways: you're pushed the way you're already crossing it, never back. Nearly stationary: the way you face.
+      let along = vel.x * t.dir.x + vel.z * t.dir.z;
+      if (Math.abs(along) < 0.5) along = -Math.sin(input.yaw) * t.dir.x - Math.cos(input.yaw) * t.dir.z || 1;
+      const sign = along < 0 ? -1 : 1;
+      const speedAlong = (vel.x * t.dir.x + vel.z * t.dir.z) * sign;
+      if (speedAlong < t.speed) {
+        vel.x += t.dir.x * sign * (t.speed - speedAlong);
+        vel.z += t.dir.z * sign * (t.speed - speedAlong);
       }
       if (s.inTrigger !== t) s.events |= Ev.Boost;
     } else {

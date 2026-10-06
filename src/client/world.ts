@@ -378,7 +378,7 @@ interface Animated {
   update(time: number): void;
 }
 
-/** Wind gate: a mint ring across the slab with chevrons streaming through it along the boost direction. */
+/** Wind gate: a mint ring across the slab with chevrons streaming out of it both ways (it boosts whichever way you cross). */
 function windGate(t: Extract<Trigger, { kind: 'boost' }>): Animated {
   const g = new THREE.Group();
   g.position.set((t.min.x + t.max.x) / 2, (t.min.y + t.max.y) / 2, (t.min.z + t.max.z) / 2);
@@ -396,12 +396,13 @@ function windGate(t: Extract<Trigger, { kind: 'boost' }>): Animated {
   chevronShape.moveTo(-0.6, 0.35).lineTo(0, -0.25).lineTo(0.6, 0.35).lineTo(0.6, 0.05).lineTo(0, -0.55).lineTo(-0.6, 0.05).closePath();
   const chevronGeo = new THREE.ShapeGeometry(chevronShape).rotateX(-Math.PI / 2);
   const chevrons: THREE.Mesh[] = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 6; i++) {
     const m = new THREE.Mesh(
       chevronGeo,
       new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }),
     );
     m.scale.setScalar(Math.min(2, r));
+    if (i >= 3) m.rotation.y = Math.PI; // second stream points the other way
     chevrons.push(m);
     g.add(m);
   }
@@ -409,8 +410,8 @@ function windGate(t: Extract<Trigger, { kind: 'boost' }>): Animated {
     obj: g,
     update(time) {
       chevrons.forEach((m, i) => {
-        const k = (time * 1.2 + i / 3) % 1;
-        m.position.z = 3 - k * 6; // stream through the ring along the boost
+        const k = (time * 1.2 + (i % 3) / 3) % 1;
+        m.position.z = (i < 3 ? -1 : 1) * k * 3; // stream out of the ring in both directions
         (m.material as THREE.MeshBasicMaterial).opacity = Math.sin(k * Math.PI) * 0.8;
       });
       ring.rotation.z = Math.sin(time * 2) * 0.05;

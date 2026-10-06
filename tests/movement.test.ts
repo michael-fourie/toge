@@ -315,6 +315,23 @@ test('a wind gate raises speed along its direction', () => {
   assert.ok(boosted >= 15.9, `speed leaving the gate: ${boosted.toFixed(2)}`);
 });
 
+test('a wind gate boosts you the way you cross it, in either direction', () => {
+  // Running +Z (backwards through a gate whose arrow points -Z): you get thrown further +Z, not shoved back.
+  const back = createPlayerState({ x: 0, y: 0.5, z: -13 });
+  back.vel = { x: 0, y: 0, z: 6 };
+  let boostedVz = 0;
+  run(back, { ...emptyInput(), forward: -1 }, 1, [floor], () => {
+    if (back.events & Ev.Boost) boostedVz = back.vel.z;
+  }, [gate]);
+  assert.ok(boostedVz >= 15.9 - 1e-6, `vz=${boostedVz.toFixed(2)} (boosted backwards)`);
+  assert.ok(back.pos.z > -10, 'carried through the gate');
+  // Standing in it with no speed: pushed the way you face.
+  const face = createPlayerState({ x: 0, y: 0.5, z: -11 });
+  face.onGround = true;
+  stepPlayer(face, { ...emptyInput(), yaw: Math.PI }, TICK_DT, [floor], [gate]); // yaw PI looks down +Z
+  assert.ok(face.vel.z > 15, `facing +Z: vz=${face.vel.z.toFixed(2)}`);
+});
+
 test('a wind gate never slows you or eats sideways speed', () => {
   const s = createPlayerState({ x: 0, y: 0.5, z: -11 });
   s.vel = { x: 3, y: 0, z: -25 }; // already faster than the gate, and drifting sideways
