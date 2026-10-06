@@ -1,11 +1,17 @@
-import type { WebSocket } from 'ws';
 import { NET, RESPAWN_SECONDS, WEAPON } from '../shared/constants.ts';
 import { MAP } from '../shared/map.ts';
 import type { ClientMsg, DeathCause, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
 
+/** The slice of a WebSocket the lobby needs (satisfied by the Workers WebSocket). */
+export interface Socket {
+  readonly readyState: number;
+  send(data: string): void;
+}
+const OPEN = 1;
+
 export interface Client {
   id: number;
-  ws: WebSocket;
+  ws: Socket;
   name: string;
   lobby: Lobby | null;
 }
@@ -21,8 +27,11 @@ interface Member {
 // Soft storybook palette: Kiki's bow red, sky blue, mustard, meadow green, lavender, Totoro grey, ...
 const COLORS = [0xe0614f, 0x5f9fd6, 0xe8b84a, 0x76ac5a, 0xa98bd1, 0x8d96a3, 0xf2a35e, 0x4fae9f, 0xe58fa8, 0x4a6fa5, 0xb3a24f, 0xf08a6b];
 
+/** How often a live lobby re-announces itself so the directory can expire dead ones. */
+export const HEARTBEAT_SECONDS = 30;
+
 const send = (c: Client, msg: ServerMsg) => {
-  if (c.ws.readyState === c.ws.OPEN) c.ws.send(JSON.stringify(msg));
+  if (c.ws.readyState === OPEN) c.ws.send(JSON.stringify(msg));
 };
 
 /**
@@ -32,17 +41,21 @@ const send = (c: Client, msg: ServerMsg) => {
  */
 export class Lobby {
   readonly members = new Map<number, Member>();
-  hostId: number;
-  private timer: NodeJS.Timeout;
+  hostId = 0;
+  private timer: ReturnType<typeof setInterval>;
+  private ticks = 0;
 
+  /** `onChange` fires on join/leave and as a heartbeat; `onEmpty` once the last player leaves. */
   constructor(
     readonly code: string,
-    host: Client,
+    private onChange: (l: Lobby) => void,
     private onEmpty: (l: Lobby) => void,
   ) {
-    this.hostId = host.id;
     this.timer = setInterval(() => this.tick(), 1000 / NET.snapshotRate);
-    this.add(host);
+  }
+
+  get hostName() {
+    return this.members.get(this.hostId)?.info.name ?? '?';
   }
 
   get full() {
@@ -60,6 +73,7 @@ export class Lobby {
       lastShot: 0,
       respawnAt: 0,
     };
+    if (this.members.size === 0) this.hostId = client.id;
     this.broadcast({ t: 'playerJoined', player: m.info });
     this.members.set(client.id, m);
     client.lobby = this;
@@ -70,6 +84,7 @@ export class Lobby {
       players: [...this.members.values()].map((x) => x.info),
       spawn,
     });
+    this.onChange(this);
   }
 
   remove(client: Client) {
@@ -82,6 +97,7 @@ export class Lobby {
     }
     if (this.hostId === client.id) this.hostId = this.members.keys().next().value!;
     this.broadcast({ t: 'playerLeft', id: client.id, hostId: this.hostId });
+    this.onChange(this);
   }
 
   handle(client: Client, msg: ClientMsg) {
@@ -132,6 +148,7 @@ export class Lobby {
 
   private tick() {
     const now = Date.now();
+    if (++this.ticks % (NET.snapshotRate * HEARTBEAT_SECONDS) === 0) this.onChange(this);
     const players: NetPlayerState[] = [];
     for (const m of this.members.values()) {
       if (!m.info.alive && now >= m.respawnAt) {
@@ -171,7 +188,7 @@ export class Lobby {
   broadcast(msg: ServerMsg, except?: number) {
     const data = JSON.stringify(msg);
     for (const m of this.members.values()) {
-      if (m.info.id !== except && m.client.ws.readyState === m.client.ws.OPEN) m.client.ws.send(data);
+      if (m.info.id !== except && m.client.ws.readyState === OPEN) m.client.ws.send(data);
     }
   }
 }

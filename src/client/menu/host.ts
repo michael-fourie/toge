@@ -1,6 +1,6 @@
 import { NET } from '../../shared/constants.ts';
 import type { Render } from './router.ts';
-import { $, SERVER_PILL, goOnline, sheet } from './ui.ts';
+import { $, SERVER_PILL, goOnline, playerName, sheet } from './ui.ts';
 
 export const host: Render = (root, ctx) => {
   root.innerHTML = sheet(
@@ -30,7 +30,7 @@ export const host: Render = (root, ctx) => {
   create.addEventListener('click', async () => {
     create.disabled = true;
     notice.textContent = '';
-    if (await goOnline(root, ctx.net)) ctx.net.send({ t: 'host' });
+    if (await goOnline(root, ctx.net)) ctx.net.host(playerName());
     create.disabled = false;
   });
   create.focus();

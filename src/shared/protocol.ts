@@ -34,11 +34,6 @@ export type DeathCause = 'snipe' | 'headshot' | 'void';
 
 // Client -> server
 export type ClientMsg =
-  | { t: 'hello'; name: string }
-  | { t: 'list' }
-  | { t: 'host' }
-  | { t: 'join'; code: string }
-  | { t: 'leave' }
   | { t: 'state'; p: V3; v: V3; yaw: number; pitch: number; f: number }
   | { t: 'shoot'; from: V3; to: V3; victim?: number; headshot?: boolean }
   | { t: 'fell' };
@@ -46,7 +41,6 @@ export type ClientMsg =
 // Server -> client
 export type ServerMsg =
   | { t: 'welcome'; id: number }
-  | { t: 'lobbies'; lobbies: LobbyInfo[] }
   | { t: 'joined'; code: string; hostId: number; players: PlayerInfo[]; spawn: { p: V3; yaw: number } }
   | { t: 'playerJoined'; player: PlayerInfo }
   | { t: 'playerLeft'; id: number; hostId: number }

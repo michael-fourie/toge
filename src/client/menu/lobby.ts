@@ -94,7 +94,7 @@ export const lobby: Render = (root, ctx) => {
     off();
     ctx.net.onClose = undefined;
     if (!entering) {
-      ctx.net.send({ t: 'leave' });
+      ctx.net.leave();
       ctx.joined = null;
     }
   };

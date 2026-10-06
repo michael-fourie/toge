@@ -1,53 +1,65 @@
-import type { ClientMsg, ServerMsg } from '../shared/protocol.ts';
+import type { ClientMsg, LobbyInfo, ServerMsg } from '../shared/protocol.ts';
 
 type Listener = (msg: ServerMsg) => void;
 
-/** Thin typed wrapper around the game server websocket. */
+/**
+ * Typed wrapper around the game server. Each lobby is its own server-side room, so the websocket
+ * only exists while you're in one: `host()` / `join()` open it, `leave()` closes it. The lobby list is a plain fetch.
+ */
 export class Net {
   id = 0;
   private ws: WebSocket | null = null;
   private listeners = new Set<Listener>();
-  private pending: Promise<void> | null = null; // one in-flight connect, shared by concurrent callers
   onClose?: () => void;
 
   get connected() {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  connect(name: string): Promise<void> {
-    if (this.connected) {
-      this.send({ t: 'hello', name });
-      return Promise.resolve();
-    }
-    this.pending ??= this.open(name).finally(() => (this.pending = null));
-    return this.pending;
+  /** Open lobbies; also serves as the "is the server reachable" check. */
+  async lobbies(): Promise<LobbyInfo[]> {
+    const res = await fetch('/api/lobbies');
+    if (!res.ok) throw new Error('Could not reach the game server');
+    return res.json();
   }
 
-  private open(name: string): Promise<void> {
+  /** Replies arrive as `joined` or `error` messages through `on()`. */
+  host(name: string) {
+    this.open({ name });
+  }
+
+  join(name: string, code: string) {
+    this.open({ name, code });
+  }
+
+  leave() {
+    const ws = this.ws;
+    this.ws = null;
+    ws?.close();
+  }
+
+  private open(params: Record<string, string>) {
+    this.leave();
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const ws = new WebSocket(`${proto}://${location.host}/ws?${new URLSearchParams(params)}`);
     this.ws = ws;
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Timed out connecting to server')), 5000);
-      ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data) as ServerMsg;
-        if (msg.t === 'welcome') {
-          this.id = msg.id;
-          clearTimeout(timeout);
-          this.send({ t: 'hello', name });
-          resolve();
-        }
-        this.listeners.forEach((l) => l(msg));
-      };
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        reject(new Error('Could not reach the game server'));
-      };
-      ws.onclose = () => {
-        this.ws = null;
-        this.onClose?.();
-      };
-    });
+    let opened = false;
+    ws.onopen = () => (opened = true);
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data) as ServerMsg;
+      if (msg.t === 'welcome') this.id = msg.id;
+      this.emit(msg);
+    };
+    ws.onclose = () => {
+      if (this.ws !== ws) return; // we closed it ourselves
+      this.ws = null;
+      if (opened) this.onClose?.();
+      else this.emit({ t: 'error', message: 'Could not reach the game server.' });
+    };
+  }
+
+  private emit(msg: ServerMsg) {
+    this.listeners.forEach((l) => l(msg));
   }
 
   send(msg: ClientMsg) {

@@ -1,0 +1,19 @@
+{
+  "name": "atrous",
+  "main": "src/server/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist",
+    // The router uses history paths, so unknown paths serve index.html. The worker only runs for the game endpoints.
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/ws", "/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "LOBBY", "class_name": "LobbyRoom" },
+      { "name": "DIRECTORY", "class_name": "Directory" }
+    ]
+  },
+  // SQLite-backed classes are the ones available on the free plan.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LobbyRoom", "Directory"] }]
+}

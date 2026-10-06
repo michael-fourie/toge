@@ -679,7 +679,7 @@ export class Game {
     this.unsubscribe?.();
     if (this.opts.net) {
       this.opts.net.onClose = undefined;
-      this.opts.net.send({ t: 'leave' });
+      this.opts.net.leave();
     }
     this.input.dispose();
     this.hud.dispose();

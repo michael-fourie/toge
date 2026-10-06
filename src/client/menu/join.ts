@@ -1,6 +1,6 @@
 import type { LobbyInfo } from '../../shared/protocol.ts';
 import type { Render } from './router.ts';
-import { $, SERVER_PILL, esc, goOnline, replay, sheet } from './ui.ts';
+import { $, SERVER_PILL, esc, goOnline, playerName, replay, sheet } from './ui.ts';
 
 const REFRESH_MS = 3000;
 
@@ -64,7 +64,7 @@ export const join: Render = (root, ctx, screen) => {
   });
   const joinCode = async (code: string) => {
     notice.textContent = '';
-    if (await goOnline(root, ctx.net)) ctx.net.send({ t: 'join', code });
+    if (await goOnline(root, ctx.net)) ctx.net.join(playerName(), code);
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -97,10 +97,10 @@ export const join: Render = (root, ctx, screen) => {
     list.querySelectorAll<HTMLButtonElement>('button[data-code]').forEach((b) => b.addEventListener('click', () => void joinCode(b.dataset.code!)));
   };
   const refresh = async () => {
-    if (await goOnline(root, ctx.net)) ctx.net.send({ t: 'list' });
+    const lobbies = await goOnline(root, ctx.net);
+    if (lobbies) render(lobbies);
   };
   const off = ctx.net.on((m) => {
-    if (m.t === 'lobbies') render(m.lobbies);
     if (m.t === 'joined') {
       ctx.joined = m;
       ctx.go({ name: 'lobby' });
@@ -112,7 +112,7 @@ export const join: Render = (root, ctx, screen) => {
   });
   $(root, '[data-refresh]').addEventListener('click', () => void refresh());
   void refresh();
-  const timer = setInterval(() => ctx.net.connected && ctx.net.send({ t: 'list' }), REFRESH_MS);
+  const timer = setInterval(() => void refresh(), REFRESH_MS);
 
   return () => {
     off();

@@ -1,10 +1,12 @@
-// Manual smoke test against a running server: `npx tsx tests/lobby.smoke.ts`
+// Manual smoke test against a running server (`npm run dev`, or a deployed URL): `npx tsx tests/lobby.smoke.ts`
+// Set BASE to test a deployment, e.g. BASE=https://atrous.example.com
 import WebSocket from 'ws';
 import type { ServerMsg } from '../src/shared/protocol.ts';
 
-const url = process.env.WS ?? 'ws://localhost:3001/ws';
-function bot(name: string) {
-  const ws = new WebSocket(url);
+const base = process.env.BASE ?? 'http://localhost:5173';
+const wsBase = base.replace(/^http/, 'ws');
+function bot(name: string, query: string) {
+  const ws = new WebSocket(`${wsBase}/ws?name=${name}&${query}`, { headers: { Origin: base } });
   const inbox: ServerMsg[] = [];
   ws.on('message', (d) => inbox.push(JSON.parse(d.toString())));
   const wait = (t: ServerMsg['t'], ms = 4000) =>
@@ -20,19 +22,15 @@ function bot(name: string) {
   return { ws, wait, send, open: new Promise((r) => ws.on('open', r)), name };
 }
 
-const a = bot('alice');
-const b = bot('bob');
-await Promise.all([a.open, b.open]);
+const a = bot('alice', 'host=1');
+await a.open;
 const aId = ((await a.wait('welcome')) as any).id;
-const bId = ((await b.wait('welcome')) as any).id;
-a.send({ t: 'hello', name: 'alice' });
-b.send({ t: 'hello', name: 'bob' });
-a.send({ t: 'host' });
 const joinedA = (await a.wait('joined')) as Extract<ServerMsg, { t: 'joined' }>;
 console.log('hosted', joinedA.code);
-b.send({ t: 'list' });
-console.log('lobbies', JSON.stringify(((await b.wait('lobbies')) as any).lobbies));
-b.send({ t: 'join', code: joinedA.code });
+console.log('lobbies', JSON.stringify(await (await fetch(`${base}/api/lobbies`)).json()));
+const b = bot('bob', `code=${joinedA.code}`);
+await b.open;
+const bId = ((await b.wait('welcome')) as any).id;
 const joinedB = (await b.wait('joined')) as any;
 console.log('bob joined, players:', joinedB.players.map((p: any) => p.name).join(','));
 await a.wait('playerJoined');

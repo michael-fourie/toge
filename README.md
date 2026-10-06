@@ -4,13 +4,13 @@ A silly browser multiplayer movement shooter set on Ghibli-style sky islands: **
 
 ```bash
 npm install
-npm run dev      # game server :3001 + Vite client :5173 → open http://localhost:5173
+npm run dev      # Vite + the Worker running locally → open the URL it prints (http://localhost:5173)
 npm test         # physics, slide and map traversal tests
 npm run smoke    # host/join/shoot/respawn against a running server
-npm run build && npm start   # production: one server serves client + websocket on :3001
+npm run deploy   # build and publish to Cloudflare (see docs/DEPLOYMENT.md)
 ```
 
-Requires Node ≥ 18.18. Node 22 LTS is recommended, and also unlocks Vite 8.
+Requires Node ≥ 20 (Wrangler). Node 22 LTS is recommended, and also unlocks Vite 8.
 
 **The map, Windward:** two harbour islands face each other across a great tree. Three lanes lead to the middle: a slide-and-bhop Windway, a Surf Gorge, and walled Old Ruins. Along the way are multi-storey houses with sniping windows, extra surfs, wind gates (speed boosters) and puffball mushrooms (jump boosters).
 

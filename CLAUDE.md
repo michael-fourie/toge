@@ -12,16 +12,16 @@ Atrous: a browser multiplayer movement shooter. Think CS:GO Combat Surf with bho
 ## Commands
 
 ```bash
-npm run dev        # server (tsx watch, :3001) + Vite client (:5173, proxies /ws)
+npm run dev        # Vite + Cloudflare plugin: client and Worker/Durable Objects locally (:5173)
 npm test           # node:test via tsx; files are listed explicitly in package.json
-npm run typecheck  # tsc --noEmit (strict, noUnusedLocals/Parameters)
+npm run typecheck  # tsc --noEmit for client+shared, and for src/server with Workers types (strict)
 npm run build      # typecheck + vite build -> dist/
-npm start          # production: server serves dist/ and /ws on :3001
+npm run deploy     # build + wrangler deploy to Cloudflare (docs/DEPLOYMENT.md)
 npm run smoke      # tests/lobby.smoke.ts against a running server
 npx knip           # dead-code sweep; should report nothing
 ```
 
-Environment: Node **18.18**, so Vite is pinned to 6 and concurrently to 9 (newer majors need Node 20+). TypeScript is 5.9. Development is on Windows: npm scripts don't expand globs, so add each new test file to the `test` script by name.
+Environment: Node **20+** (Wrangler needs it; 22 recommended). Vite is still pinned to 6 for the Cloudflare plugin. TypeScript is 5.9. Development is on Windows: npm scripts don't expand globs, so add each new test file to the `test` script by name.
 
 ## Layout
 
@@ -33,7 +33,8 @@ src/shared/   runs on client AND server. No three.js, no DOM. Deterministic.
   collision.ts  AABB boxes + wedge ramps + non-solid Triggers: move-and-slide, probes, raycasts
   map.ts        the "Windward" map as data (boxes, triggers, decor, spawns), built from helpers; one half mirrored
   protocol.ts   JSON wire types (ClientMsg / ServerMsg), StateFlag bits
-src/server/   index.ts (http static + ws, lobby codes), lobby.ts (room, 20 Hz snapshots, kills, respawns)
+src/server/   Cloudflare Worker: worker.ts (routing), room.ts (LobbyRoom Durable Object, one per match),
+              directory.ts (Directory DO: codes + lobby list), lobby.ts (game logic: 20 Hz snapshots, kills, respawns)
 src/client/
   main.ts       boots the menu router; loading screen; starts a Game (practice or online)
   menu/         one file per screen (title, practice, host, join, lobby room, help) + router.ts, ui.ts,
@@ -104,7 +105,7 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 
 - Units are metres and seconds, Y up. CS values are written as `250 * U` with Hammer units (`U = 0.0254`) so they trace back to the cvar.
 - TypeScript is strict. Match the surrounding style: short doc comments that explain *why*, and named constants.
-- No new dependencies without a strong reason. Current runtime deps: `three`, `ws`, `lil-gui`, `tsx`.
+- No new dependencies without a strong reason. Current runtime deps: `three`, `lil-gui`. The Worker runs on Cloudflare (wrangler, @cloudflare/vite-plugin are dev deps).
 - Every movement or physics change gets a test. In particular, momentum must be preserved (see the "Momentum" block in `movement.test.ts`).
 - Prefer small exact edits. When several agents or sessions work in parallel, give each one clear file ownership and keep each test area in its own file.
 - Don't commit unless asked. The remote is `origin` → github.com/michael-fourie/atrous (private), default branch `master`.
@@ -114,7 +115,7 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 A playable prototype covering practice and online lobbies. Everything listed in README works and is covered by tests or was checked in the browser. Known gaps, roughly in priority order:
 
 - **Netcode is a prototype:** client-authoritative movement, client-side hit detection, JSON messages. The upgrade path is under Netcode above and in `docs/DEPLOYMENT.md`.
-- **Not deployed yet.** `docs/DEPLOYMENT.md` has the free-hosting plan plus the small code changes it needs: `VITE_SERVER_URL`, `/health`, `maxPayload`, an origin check, and reconnection tokens.
+- **Deployment:** Cloudflare Worker + Durable Objects on the free plan, see `docs/DEPLOYMENT.md`. Next: Google sign-in + D1 player stats, rate limiting, reconnection tokens.
 - **Lobby room:** while you sit in the room, your bean is already in the live match, idle at spawn. The fix is a server "ready" flag.
 - **Real AWP model:** the GLB loader has never run against the real Sketchfab file. That file needs a manual download (see README).
 - **Viewmodel:** during the bolt cycle the right hand covers the knob.
@@ -122,7 +123,7 @@ A playable prototype covering practice and online lobbies. Everything listed in 
   - Grass tufts aren't scattered on ramps.
   - House interiors are tested by scripted walks but have had little visual review.
   - Every box is its own mesh (~360 meshes). Merge static geometry by material if frame rate becomes an issue.
-- **Tooling:** Node 18 pins Vite 6. Moving to Node 22 would allow Vite 8.
+- **Tooling:** the Cloudflare Vite plugin is on Vite 6; Vite 8 is possible now that Node 20+ is required.
 
 Design docs in `docs/` describe the current map and menu. Update them when you change those areas.
 
