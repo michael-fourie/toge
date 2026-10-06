@@ -65,6 +65,10 @@ Kill floor: y −40 (the cloud sea).
 
 Fix: surf (and slide) ramps sometimes rendered inside-out. The ramp mesh wound each triangle "away from the centre" of its bounding box, but for a wedge that point lies exactly on the slope, so the slope's winding was a coin toss and its faces got culled (you saw the brown inner faces). It now uses the wedge's centroid.
 
+## Survival spawns
+
+Survival reuses Windward. Players start (and are revived) back to back around the Great Tree at (±9, ±9), facing out. Zombies climb up at ground level on the island's rim and on the ruins terraces (`zombieSpawns`, mirrored), preferring spots at least 12 m from every player. Zombies chase in a straight line: they hop roots and crates, detour sideways along walls, feel along edges, and pounce (a `launchTo` arc) onto ledges, branches and across gaps within 15 m. They ride launch pads but ignore wind gates and puffballs. `zombie.test.ts` checks that a zombie from every spawn reaches both player spawns.
+
 ## Lessons from building it
 
 - **Straight-up puffballs next to an overhang don't work** (round 1; puffballs now also push you forward, which helps, but overhangs still need launch pads). Fast runners reach the edge while still rising and bonk the underside. Source air control adds at most 0.76 m/s from standstill, so you can't steer onto the ledge either. Use aimed launch pads (`padTo`) for ledges and branches, and keep puffballs in open air.

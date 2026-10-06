@@ -27,7 +27,7 @@ const aId = ((await a.wait('welcome')) as any).id;
 const bId = ((await b.wait('welcome')) as any).id;
 a.send({ t: 'hello', name: 'alice' });
 b.send({ t: 'hello', name: 'bob' });
-a.send({ t: 'host' });
+a.send({ t: 'host', mode: 'battle' });
 const joinedA = (await a.wait('joined')) as Extract<ServerMsg, { t: 'joined' }>;
 console.log('hosted', joinedA.code);
 b.send({ t: 'list' });

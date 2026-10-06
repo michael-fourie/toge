@@ -1,6 +1,7 @@
 import type { Box, BoxKind, RampShape, Trigger } from './collision.ts';
 import { MOVE } from './constants.ts';
 import type { Vec3 } from './math.ts';
+import { launchTo } from './movement.ts';
 
 export interface SpawnPoint {
   pos: Vec3;
@@ -20,6 +21,10 @@ export interface MapData {
   triggers: Trigger[];
   decor: Decor[];
   spawns: SpawnPoint[];
+  /** Survival: players start round 1 (and get revived) around the Great Tree... */
+  survivalSpawns: SpawnPoint[];
+  /** ...and zombies climb up out of the clouds at the island's rim. */
+  zombieSpawns: Vec3[];
   killY: number;
 }
 
@@ -55,18 +60,6 @@ function surfFrame(along: 'x' | 'z', ridge: number, ridgeY: number, from: number
     return wedge('surf', x0, baseY, z0, x1, ridgeY, z1, { axis: across, rise });
   };
   return [make(ridge - halfWidth, ridge, 1), make(ridge, ridge + halfWidth, -1)];
-}
-
-/**
- * Launch velocity that throws a player from `from` to land at `to`, peaking `apex` metres above
- * the higher of the two. Uses the live gravity so retuning keeps pads accurate.
- */
-function launchTo(from: Vec3, to: Vec3, apex: number): Vec3 {
-  const g = MOVE.gravity;
-  const top = Math.max(from.y, to.y) + apex;
-  const vy = Math.sqrt(2 * g * (top - from.y));
-  const t = vy / g + Math.sqrt((2 * (top - to.y)) / g);
-  return { x: (to.x - from.x) / t, y: vy, z: (to.z - from.z) / t };
 }
 
 /** Launch pad on a floor at (x, floorY, z) that throws you onto `to`. */
@@ -354,12 +347,27 @@ function buildWindward(): MapData {
     { pos: { x: 7, y: 12.01, z: 96 }, yaw: 0 },
   ];
 
+  // Survival: back to the trunk, facing out; the horde comes from the rim and the ruins terrace.
+  const survivalSpawns: SpawnPoint[] = [
+    { pos: { x: -9, y: 0.01, z: 9 }, yaw: (Math.PI * 3) / 4 },
+    { pos: { x: 9, y: 0.01, z: 9 }, yaw: (-Math.PI * 3) / 4 },
+  ];
+  const zombieSpawns: Vec3[] = [
+    { x: -22, y: 0.01, z: -14 },
+    { x: 0, y: 0.01, z: 24 },
+    { x: -20, y: 0.01, z: -22 },
+    { x: 22, y: 0.01, z: 12 },
+    { x: 30, y: 0.01, z: 18 },
+  ];
+
   return {
     name: 'Windward',
     boxes: [...centre, ...half, ...half.map(mirror)],
     triggers: [...centreTriggers, ...centreTriggers.map(mirrorTrigger), ...halfTriggers, ...halfTriggers.map(mirrorTrigger)],
     decor: [{ kind: 'canopy', pos: { x: 0, y: 23, z: 0 }, radius: 13 }],
     spawns: [...spawns, ...spawns.map((s) => ({ pos: flip(s.pos), yaw: s.yaw + Math.PI }))],
+    survivalSpawns: [...survivalSpawns, ...survivalSpawns.map((s) => ({ pos: flip(s.pos), yaw: s.yaw + Math.PI }))],
+    zombieSpawns: [...zombieSpawns, ...zombieSpawns.map(flip)],
     killY: -40,
   };
 }

@@ -1,4 +1,5 @@
 import type { PlayerInfo } from '../shared/protocol.ts';
+import type { Feat } from './achievements.ts';
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
@@ -13,6 +14,7 @@ export class Hud {
   private boltBar: HTMLElement;
   private centerTimer = 0;
   private hitTimer = 0;
+  private featTimer = 0;
 
   onResume?: () => void;
   onLeave?: () => void;
@@ -32,6 +34,10 @@ export class Hud {
       <div class="lobby-tag">${esc(lobbyLabel)}</div>
       <div class="killfeed"></div>
       <div class="center-msg"></div>
+      <div class="feats"></div>
+      <div class="wave"></div>
+      <div class="hurt"></div>
+      <div class="health" hidden><b>100</b><div class="bar"><i></i></div></div>
       <div class="death"><h2></h2><p></p></div>
       <div class="scoreboard"></div>
       <div class="pause">
@@ -82,6 +88,8 @@ export class Hud {
     if (this.centerTimer <= 0) this.q('.center-msg').classList.remove('show');
     this.hitTimer -= dt;
     if (this.hitTimer <= 0) this.q('.hitmarker').classList.remove('show');
+    this.featTimer -= dt;
+    if (this.featTimer <= 0) this.q('.feats').classList.remove('show');
   }
 
   ammo(rounds: number, mag: number, reloading: boolean) {
@@ -114,6 +122,50 @@ export class Hud {
     this.centerTimer = seconds;
   }
 
+  /**
+   * A kill's feats, compounded: style feats read as one title ("360 NO-SCOPE HEADSHOT"), multi-kills and
+   * streaks ride underneath, and a combo count when more than one stacked. Chips pop in one by one.
+   */
+  feats(style: Feat[], extra: Feat[]) {
+    const el = this.q('.feats');
+    const total = style.length + extra.length;
+    const tier = (f: Feat) => `t${f.tier}`;
+    let i = 0;
+    const word = (f: Feat) => `<span class="${tier(f)}" style="animation-delay:${i++ * 0.07}s">${esc(f.label)}</span>`;
+    el.innerHTML = `
+      ${style.length ? `<div class="title">${style.map(word).join(' ')}</div>` : ''}
+      ${extra.length ? `<div class="extra">${extra.map(word).join('')}</div>` : ''}
+      ${total > 1 ? `<div class="combo" style="animation-delay:${i * 0.07}s">×${total} COMBO</div>` : ''}`;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    this.featTimer = 2.4;
+  }
+
+  /** Survival health; null hides it (Battle is one shot, one kill). */
+  health(hp: number | null, max: number) {
+    const el = this.q('.health');
+    el.hidden = hp === null;
+    if (hp === null) return;
+    this.q('.health b').textContent = String(Math.ceil(hp));
+    this.q('.health .bar i').style.width = `${(hp / max) * 100}%`;
+    el.classList.toggle('low', hp <= max * 0.3);
+  }
+
+  hurt() {
+    const el = this.q('.hurt');
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+  }
+
+  /** Survival round banner along the top; null hides it. */
+  wave(html: string | null) {
+    const el = this.q('.wave');
+    el.classList.toggle('show', html !== null);
+    if (html !== null && el.innerHTML !== html) el.innerHTML = html;
+  }
+
   killfeed(killer: PlayerInfo | undefined, victim: PlayerInfo | undefined, verb: string) {
     const feed = this.q('.killfeed');
     const row = document.createElement('div');
@@ -124,12 +176,13 @@ export class Hud {
     while (feed.children.length > 6) feed.lastElementChild!.remove();
   }
 
-  death(text: string, respawnIn: number | null) {
+  /** Death overlay; a null subtitle hides it. */
+  death(text: string, sub: string | null) {
     const el = this.q('.death');
-    el.classList.toggle('show', respawnIn !== null);
-    if (respawnIn === null) return;
+    el.classList.toggle('show', sub !== null);
+    if (sub === null) return;
     this.q('.death h2').textContent = text;
-    this.q('.death p').textContent = respawnIn > 0 ? `respawning in ${respawnIn.toFixed(1)}s` : 'respawning…';
+    this.q('.death p').textContent = sub;
   }
 
   scoreboard(players: PlayerInfo[] | null, selfId: number) {

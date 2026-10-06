@@ -11,7 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "tsx src/server/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/movement.test.ts tests/slide.test.ts tests/map.test.ts",
+    "test": "tsx --test tests/movement.test.ts tests/slide.test.ts tests/map.test.ts tests/zombie.test.ts tests/achievements.test.ts",
     "smoke": "tsx tests/lobby.smoke.ts"
   },
   "engines": {

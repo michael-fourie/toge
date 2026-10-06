@@ -46,6 +46,7 @@ function newCode(): string {
 const listLobbies = () =>
   [...lobbies.values()].map((l) => ({
     code: l.code,
+    mode: l.mode,
     host: l.members.get(l.hostId)?.info.name ?? '?',
     players: l.members.size,
     max: NET.maxPlayersPerLobby,
@@ -72,8 +73,9 @@ wss.on('connection', (ws) => {
       case 'host': {
         client.lobby?.remove(client);
         const code = newCode();
-        lobbies.set(code, new Lobby(code, client, (l) => lobbies.delete(l.code)));
-        console.log(`[lobby ${code}] hosted by ${client.name}`);
+        const mode = msg.mode === 'survival' ? 'survival' : 'battle';
+        lobbies.set(code, new Lobby(code, client, mode, (l) => lobbies.delete(l.code)));
+        console.log(`[lobby ${code}] ${mode} hosted by ${client.name}`);
         return;
       }
       case 'join': {
