@@ -18,7 +18,7 @@ type Vec = [number, number, number];
 type HairStyle = 'spiky' | 'twintails' | 'ponytail' | 'bob';
 type Mouth = 'cat' | 'smile' | 'fang';
 type Accessory = 'none' | 'catears' | 'headband' | 'bow';
-type Expr = 'open' | 'blink' | 'hype' | 'ko';
+type Expr = 'open' | 'blink' | 'hype' | 'ko' | 'zombie';
 
 const HAIR = [0x2b2433, 0x6b4430, 0xf2d27a, 0xf59ac0, 0x7cb8f0, 0xdfe3ec, 0xe0663a, 0x92dbb8, 0xa983e6];
 const SCARF = [0xd9473d, 0xf4ead2, 0xf2c14e, 0x3f8f8a, 0x2f3a5c];
@@ -31,6 +31,7 @@ const ACCESSORIES: Accessory[] = ['none', 'none', 'catears', 'headband', 'bow'];
 
 const toon = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap: toonRamp() });
 const skinMat = toon(0xf6d3b8);
+const zombieSkinMat = toon(0x9fc48a); // minty-green, more Ghibli soot-sprite than gore
 const pantsMat = toon(0x34385a);
 const shoeMat = toon(0xf2efe6);
 const shirtMat = toon(0xfaf6ec);
@@ -129,6 +130,12 @@ const GEO = {
     limb([-0.17, -0.17, -0.26], [0.07, -0.08, -0.5], 0.048),
   ),
   hands: merge(at(new THREE.SphereGeometry(0.048, 8, 6), [0.13, -0.09, -0.22]), at(new THREE.SphereGeometry(0.048, 8, 6), [0.08, -0.07, -0.52])),
+  // Zombies: both arms reaching straight out, slightly droopy, with grabby hands.
+  zombieSleeves: merge(limb([0.21, 0.02, 0.02], [0.2, -0.04, -0.42], 0.052), limb([-0.21, 0.02, 0.02], [-0.2, -0.06, -0.42], 0.052)),
+  zombieHands: merge(
+    at(new THREE.SphereGeometry(0.058, 8, 6), [0.2, -0.05, -0.47], [0, 0, 0], [1, 0.75, 1.2]),
+    at(new THREE.SphereGeometry(0.058, 8, 6), [-0.2, -0.07, -0.47], [0, 0, 0], [1, 0.75, 1.2]),
+  ),
   gunGreen: merge(
     at(new THREE.BoxGeometry(0.06, 0.13, 0.3), [0.12, -0.07, -0.1]),
     at(new THREE.BoxGeometry(0.075, 0.1, 0.46), [0.12, -0.04, -0.4]),
@@ -214,6 +221,8 @@ function accessoryParts(acc: Accessory) {
 // Looks: per-player style + materials + face textures, cached by name/colour
 
 interface Look {
+  zombie: boolean;
+  skin: THREE.Material;
   style: HairStyle;
   accessory: Accessory;
   ahoge: boolean;
@@ -225,27 +234,32 @@ interface Look {
 
 const looks = new Map<string, Look>();
 
-function lookFor(color: number, name = ''): Look {
-  const key = `${color}:${name}`;
+function lookFor(color: number, name = '', zombie = false): Look {
+  const key = `${color}:${name}:${zombie}`;
   let look = looks.get(key);
   if (look) return look;
   let h = 2166136261 ^ color;
   for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
   const r = rng(h);
   const pick = <T>(xs: T[]) => xs[Math.floor(r() * xs.length)];
-  const hair = pick(HAIR);
+  const hair = zombie ? pick([0x5d6b4f, 0x7a6f86, 0x8d8a78]) : pick(HAIR);
   const mouth = pick(MOUTHS);
   const style = pick(STYLES);
   const face = (e: Expr) =>
     new THREE.MeshBasicMaterial({ map: faceTexture(e, color, hair, mouth), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  const alive = zombie ? face('zombie') : null;
   look = {
+    zombie,
+    skin: zombie ? zombieSkinMat : skinMat,
     style,
     accessory: pick(ACCESSORIES),
     ahoge: style !== 'twintails' && r() < 0.65,
     jacket: toon(color),
     hair: toon(hair),
     scarf: toon(pick(SCARF)),
-    faces: { open: face('open'), blink: face('blink'), hype: face('hype'), ko: face('ko') },
+    faces: alive
+      ? { open: alive, blink: alive, hype: alive, ko: face('ko'), zombie: alive }
+      : { open: face('open'), blink: face('blink'), hype: face('hype'), ko: face('ko'), zombie: face('zombie') },
   };
   looks.set(key, look);
   return look;
@@ -276,8 +290,14 @@ function faceTexture(expr: Expr, iris: number, hair: number, mouth: Mouth) {
   };
   g.lineCap = g.lineJoin = 'round';
 
-  // Blush with the little diagonal hatching.
-  for (const s of [-1, 1]) {
+  // Blush with the little diagonal hatching (zombies get sleepless purple rings instead).
+  if (expr === 'zombie') {
+    for (const s of [-1, 1]) {
+      g.fillStyle = 'rgba(110,70,140,0.35)';
+      ellipse(128 + s * 52, 132, 34, 40);
+      g.fill();
+    }
+  } else for (const s of [-1, 1]) {
     const bx = 128 + s * 80;
     g.fillStyle = 'rgba(242,120,135,0.42)';
     ellipse(bx, 170, 22, 10);
@@ -334,6 +354,17 @@ function faceTexture(expr: Expr, iris: number, hair: number, mouth: Mouth) {
       line(2.5);
       ellipse(cx, cy, 22, 30, Math.PI * 0.3, Math.PI * 0.7);
       g.stroke();
+    } else if (expr === 'zombie') {
+      // Dead little eyes, mismatched: a big blank one and a small one with a pinprick pupil.
+      const r = s < 0 ? 22 : 15;
+      g.fillStyle = '#f4f7e8';
+      ellipse(cx, cy, r, r);
+      g.fill();
+      line(5);
+      g.stroke();
+      g.fillStyle = ink;
+      ellipse(cx + s * 3, cy + 2, 3.5, 3.5);
+      g.fill();
     } else if (expr === 'blink') {
       line(6);
       ellipse(cx, cy - 4, 22, 11, Math.PI * 0.1, Math.PI * 0.9);
@@ -380,7 +411,21 @@ function faceTexture(expr: Expr, iris: number, hair: number, mouth: Mouth) {
     line(3);
     g.stroke();
   };
-  if (expr === 'hype') openMouth(18, 18);
+  if (expr === 'zombie') {
+    line(4); // stitched grimace
+    g.beginPath();
+    g.moveTo(104, 186);
+    g.quadraticCurveTo(128, 178, 152, 188);
+    g.stroke();
+    line(2.5);
+    for (let i = 0; i < 5; i++) {
+      const x = 110 + i * 9;
+      g.beginPath();
+      g.moveTo(x, 177);
+      g.lineTo(x + 2, 194);
+      g.stroke();
+    }
+  } else if (expr === 'hype') openMouth(18, 18);
   else if (expr === 'ko') {
     line(3.5); // wobbly mouth + tongue out
     g.beginPath();
@@ -460,12 +505,15 @@ export class Avatar {
   private slideAmt = 0;
   private nextBlink = 1 + Math.random() * 3;
   private nameTag?: THREE.Sprite;
+  private clawT = 0; // seconds into the current swipe
+  private zombieTime = 0;
 
   constructor(
     readonly color: number,
     name?: string,
+    zombie = false,
   ) {
-    const look = (this.look = lookFor(color, name));
+    const look = (this.look = lookFor(color, name, zombie));
     this.root.add(this.lean);
     this.hips = pivot(this.lean, 0, HIP_Y, 0);
     this.upper = pivot(this.hips, 0, 0, 0);
@@ -481,7 +529,7 @@ export class Avatar {
 
     mesh(GEO.jacket, look.jacket, this.upper);
     mesh(GEO.shirt, shirtMat, this.upper, false);
-    mesh(GEO.neck, skinMat, this.upper);
+    mesh(GEO.neck, look.skin, this.upper);
     mesh(GEO.scarf, look.scarf, this.upper);
     for (const s of [-1, 1]) {
       const tail = pivot(this.upper, s * 0.045, NECK_Y, 0.12);
@@ -491,13 +539,18 @@ export class Avatar {
     }
 
     this.aim = pivot(this.upper, 0, AIM_Y, 0);
-    mesh(GEO.sleeves, look.jacket, this.aim);
-    mesh(GEO.hands, skinMat, this.aim);
-    mesh(GEO.gunGreen, gunGreenMat, this.aim);
-    mesh(GEO.gunDark, gunDarkMat, this.aim);
+    if (zombie) {
+      mesh(GEO.zombieSleeves, look.jacket, this.aim);
+      mesh(GEO.zombieHands, look.skin, this.aim);
+    } else {
+      mesh(GEO.sleeves, look.jacket, this.aim);
+      mesh(GEO.hands, look.skin, this.aim);
+      mesh(GEO.gunGreen, gunGreenMat, this.aim);
+      mesh(GEO.gunDark, gunDarkMat, this.aim);
+    }
 
     this.head = pivot(this.upper, 0, PLAYER.headCenter - HIP_Y, 0);
-    mesh(GEO.head, skinMat, this.head);
+    mesh(GEO.head, look.skin, this.head);
     this.face = mesh(GEO.face, look.faces.open, this.head, false);
     this.face.name = 'face';
     mesh(hairGeo(look.style), look.hair, this.head);
@@ -598,6 +651,28 @@ export class Avatar {
     if (time > this.nextBlink + 0.13) this.nextBlink = time + 2 + Math.random() * 3;
     const f = this.look.faces;
     this.face.material = sliding || wallSide !== 0 || hs > 13 ? f.hype : time > this.nextBlink ? f.blink : f.open;
+  }
+
+  /** Zombie pose: shamble with arms out, head lolling. Crouching = about to pounce; clawing = arms up, then swipe. */
+  poseZombie(x: number, y: number, z: number, yaw: number, time: number, crouching: boolean, clawing: boolean) {
+    this.pose(x, y, z, yaw, 0, 0, time);
+    this.clawT = clawing ? this.clawT + Math.min(0.1, time - this.zombieTime) : 0;
+    this.zombieTime = time;
+    // Wind up over the swipe's windup, arms high, then chop down.
+    const k = clamp(this.clawT / 0.45, 0, 1);
+    const swing = clawing ? (k < 0.8 ? mix(0, 1.3, k / 0.8) : mix(1.3, -0.7, (k - 0.8) / 0.2)) : 0;
+    this.aim.rotation.x = 0.1 + swing + Math.sin(time * 3.1 + this.nextBlink) * 0.06;
+    this.aim.rotation.z = Math.sin(time * 2.3) * 0.08;
+    this.head.rotation.z = 0.3 + Math.sin(time * 1.7 + this.nextBlink) * 0.12;
+    this.head.rotation.x = 0.15;
+    if (crouching) {
+      this.hips.position.y = HIP_Y - 0.3;
+      this.upper.rotation.x = -0.5;
+      this.legs.forEach((leg) => {
+        leg.hip.rotation.x = 1.1;
+        leg.knee.rotation.x = -1.9;
+      });
+    }
   }
 
   /** A copy without the name tag, for flinging across the map. Knocked out, naturally. */

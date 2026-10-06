@@ -22,7 +22,7 @@ function bot(name: string, query: string) {
   return { ws, wait, send, open: new Promise((r) => ws.on('open', r)), name };
 }
 
-const a = bot('alice', 'host=1');
+const a = bot('alice', 'mode=battle');
 await a.open;
 const aId = ((await a.wait('welcome')) as any).id;
 const joinedA = (await a.wait('joined')) as Extract<ServerMsg, { t: 'joined' }>;

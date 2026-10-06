@@ -113,4 +113,40 @@ export const sfx = {
     tone('square', 320, 260, 0.06, 0.12);
   },
   dryFire: () => tone('square', 2200, 2000, 0.02, 0.08),
+
+  // Achievements: a rising pentatonic sparkle, one note per stacked feat, plus a top note for a legendary one.
+  feats(count: number, best: number) {
+    const scale = [523, 587, 659, 784, 880, 1047, 1175, 1319, 1568];
+    for (let i = 0; i < count; i++) tone('triangle', scale[i % scale.length], scale[i % scale.length], 0.16, 0.16, i * 0.07);
+    if (best >= 3) {
+      tone('sine', 1568, 2093, 0.4, 0.12, count * 0.07);
+      tone('triangle', 2093, 2093, 0.3, 0.06, count * 0.07 + 0.05);
+    }
+  },
+
+  // Survival
+  hurt() {
+    burst(0.12, 0.5, 1800, 1.2, 'bandpass'); // scratch
+    tone('sawtooth', 220, 110, 0.18, 0.18);
+  },
+  groan(distance: number) {
+    const v = Math.max(0, 0.22 - distance / 120);
+    if (v <= 0.01) return;
+    const f = 90 + Math.random() * 40;
+    tone('sawtooth', f, f * 0.7, 0.9, v);
+    tone('sine', f * 1.5, f * 1.1, 0.9, v * 0.5, 0.05);
+  },
+  zombieDown() {
+    tone('sine', 300, 60, 0.35, 0.3); // deflating squeak
+    burst(0.15, 0.3, 500);
+  },
+  roundStart() {
+    tone('sawtooth', 110, 110, 0.5, 0.18);
+    tone('sawtooth', 104, 104, 0.5, 0.18, 0.5);
+    tone('sawtooth', 98, 70, 0.9, 0.22, 1.0);
+  },
+  roundClear() {
+    [523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, 0.22, 0.18, i * 0.1));
+  },
+  gameOver: () => [392, 330, 262, 196].forEach((f, i) => tone('triangle', f, f * 0.98, 0.35, 0.2, i * 0.22)),
 };

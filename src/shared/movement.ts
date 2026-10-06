@@ -317,6 +317,18 @@ function applyTriggers(s: PlayerState, input: MoveInput, triggers: readonly Trig
   s.inTrigger = inside;
 }
 
+/**
+ * Launch velocity that throws a body from `from` to land at `to`, peaking `apex` metres above
+ * the higher of the two. Uses the live gravity so retuning keeps pads (and zombie pounces) accurate.
+ */
+export function launchTo(from: Vec3, to: Vec3, apex: number): Vec3 {
+  const g = MOVE.gravity;
+  const top = Math.max(from.y, to.y) + apex;
+  const vy = Math.sqrt(2 * g * (top - from.y));
+  const t = vy / g + Math.sqrt((2 * (top - to.y)) / g);
+  return { x: (to.x - from.x) / t, y: vy, z: (to.z - from.z) / t };
+}
+
 function tryStartWallrun(s: PlayerState, boxes: readonly Box[]) {
   const vel = s.vel;
   if (hlen(vel) < MOVE.wallrunMinSpeed) return;

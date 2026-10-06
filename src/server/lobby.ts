@@ -1,6 +1,7 @@
-import { NET, RESPAWN_SECONDS, WEAPON } from '../shared/constants.ts';
-import { MAP } from '../shared/map.ts';
-import type { ClientMsg, DeathCause, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
+import { NET, RESPAWN_SECONDS, SURVIVAL, WEAPON } from '../shared/constants.ts';
+import { MAP, type SpawnPoint } from '../shared/map.ts';
+import type { ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
+import { Survival } from './survival.ts';
 
 /** The slice of a WebSocket the lobby needs (satisfied by the Workers WebSocket). */
 export interface Socket {
@@ -16,12 +17,14 @@ export interface Client {
   lobby: Lobby | null;
 }
 
-interface Member {
+export interface Member {
   client: Client;
   info: PlayerInfo;
   state: NetPlayerState;
   lastShot: number;
   respawnAt: number;
+  /** Survival only: zombies claw this down; Battle is one-shot-one-kill. */
+  hp: number;
 }
 
 // Soft storybook palette: Kiki's bow red, sky blue, mustard, meadow green, lavender, Totoro grey, ...
@@ -44,13 +47,16 @@ export class Lobby {
   hostId = 0;
   private timer: ReturnType<typeof setInterval>;
   private ticks = 0;
+  private survival: Survival | null;
 
   /** `onChange` fires on join/leave and as a heartbeat; `onEmpty` once the last player leaves. */
   constructor(
     readonly code: string,
+    readonly mode: GameMode,
     private onChange: (l: Lobby) => void,
     private onEmpty: (l: Lobby) => void,
   ) {
+    this.survival = mode === 'survival' ? new Survival(this) : null;
     this.timer = setInterval(() => this.tick(), 1000 / NET.snapshotRate);
   }
 
@@ -72,6 +78,7 @@ export class Lobby {
       state: { id: client.id, p: spawn.p, v: [0, 0, 0], yaw: spawn.yaw, pitch: 0, f: 0 },
       lastShot: 0,
       respawnAt: 0,
+      hp: SURVIVAL.playerHp,
     };
     if (this.members.size === 0) this.hostId = client.id;
     this.broadcast({ t: 'playerJoined', player: m.info });
@@ -80,10 +87,13 @@ export class Lobby {
     send(client, {
       t: 'joined',
       code: this.code,
+      mode: this.mode,
       hostId: this.hostId,
       players: [...this.members.values()].map((x) => x.info),
       spawn,
+      wave: this.survival?.info(),
     });
+    this.survival?.heal(m);
     this.onChange(this);
   }
 
@@ -127,6 +137,10 @@ export class Lobby {
     m.lastShot = now;
     this.broadcast({ t: 'shot', id: m.info.id, from: msg.from, to: msg.to }, m.info.id);
 
+    if (this.survival) {
+      if (msg.zombie !== undefined) this.survival.shoot(m, msg); // co-op: no friendly fire
+      return;
+    }
     if (msg.victim === undefined) return;
     const v = this.members.get(msg.victim);
     if (!v || v === m || !v.info.alive) return;
@@ -137,38 +151,43 @@ export class Lobby {
     this.kill(v, m, msg.headshot ? 'headshot' : 'snipe', dir);
   }
 
-  private kill(victim: Member, killer: Member, cause: DeathCause, dir: V3) {
+  kill(victim: Member, killer: Member, cause: DeathCause, dir: V3) {
     victim.info.alive = false;
     victim.info.deaths++;
     if (killer !== victim) killer.info.kills++;
-    victim.respawnAt = Date.now() + RESPAWN_SECONDS * 1000;
+    // In Survival you stay down until the round ends.
+    victim.respawnAt = this.survival ? Infinity : Date.now() + RESPAWN_SECONDS * 1000;
     const l = Math.hypot(...dir) || 1;
     this.broadcast({ t: 'kill', killer: killer.info.id, victim: victim.info.id, cause, dir: [dir[0] / l, dir[1] / l, dir[2] / l] });
+  }
+
+  respawn(m: Member) {
+    const spawn = this.pickSpawn();
+    m.info.alive = true;
+    m.state.p = spawn.p;
+    m.state.v = [0, 0, 0];
+    m.state.yaw = spawn.yaw;
+    this.broadcast({ t: 'respawn', id: m.info.id, p: spawn.p, yaw: spawn.yaw });
   }
 
   private tick() {
     const now = Date.now();
     if (++this.ticks % (NET.snapshotRate * HEARTBEAT_SECONDS) === 0) this.onChange(this);
+    this.survival?.tick(1 / NET.snapshotRate);
     const players: NetPlayerState[] = [];
     for (const m of this.members.values()) {
-      if (!m.info.alive && now >= m.respawnAt) {
-        const spawn = this.pickSpawn();
-        m.info.alive = true;
-        m.state.p = spawn.p;
-        m.state.v = [0, 0, 0];
-        m.state.yaw = spawn.yaw;
-        this.broadcast({ t: 'respawn', id: m.info.id, p: spawn.p, yaw: spawn.yaw });
-      }
+      if (!m.info.alive && now >= m.respawnAt) this.respawn(m);
       if (m.info.alive) players.push(m.state);
     }
-    this.broadcast({ t: 'snapshot', players });
+    this.broadcast({ t: 'snapshot', players, zombies: this.survival?.snapshot() });
   }
 
-  /** Spawn point furthest from every living player. */
+  /** Spawn point furthest from every living player (Survival: around the Great Tree). */
   private pickSpawn(): { p: V3; yaw: number } {
-    let best = MAP.spawns[0];
+    const spawns: SpawnPoint[] = this.survival ? MAP.survivalSpawns : MAP.spawns;
+    let best = spawns[0];
     let bestDist = -1;
-    for (const s of MAP.spawns) {
+    for (const s of spawns) {
       let nearest = Infinity;
       for (const m of this.members.values()) {
         if (!m.info.alive) continue;
@@ -183,6 +202,10 @@ export class Lobby {
       }
     }
     return { p: [best.pos.x, best.pos.y, best.pos.z], yaw: best.yaw };
+  }
+
+  sendTo(m: Member, msg: ServerMsg) {
+    send(m.client, msg);
   }
 
   broadcast(msg: ServerMsg, except?: number) {

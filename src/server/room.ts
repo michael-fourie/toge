@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { ClientMsg } from '../shared/protocol.ts';
+import type { ClientMsg, GameMode } from '../shared/protocol.ts';
 import { type Client, Lobby, send } from './lobby.ts';
 import type { Env } from './worker.ts';
 
@@ -13,6 +13,7 @@ export class LobbyRoom extends DurableObject<Env> {
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const code = url.searchParams.get('code')!;
+    const mode = url.searchParams.get('mode') === 'survival' ? 'survival' : 'battle';
     const name = url.searchParams.get('name') ?? '';
     const { 0: peer, 1: ws } = new WebSocketPair();
     ws.accept();
@@ -20,7 +21,7 @@ export class LobbyRoom extends DurableObject<Env> {
     const id = this.nextId++;
     const client: Client = { id, ws, name: name.slice(0, 16).trim() || `player${id}`, lobby: null };
     send(client, { t: 'welcome', id });
-    const lobby = this.open(code);
+    const lobby = this.open(code, mode);
     if (lobby.full) {
       send(client, { t: 'error', message: 'Lobby is full.' });
       ws.close(1000, 'full');
@@ -41,11 +42,12 @@ export class LobbyRoom extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: peer });
   }
 
-  private open(code: string): Lobby {
+  private open(code: string, mode: GameMode): Lobby {
     const dir = this.env.DIRECTORY.getByName('all');
     this.lobby ??= new Lobby(
       code,
-      (l) => this.ctx.waitUntil(dir.report(l.code, l.hostName, l.members.size)),
+      mode,
+      (l) => this.ctx.waitUntil(dir.report(l.code, l.mode, l.hostName, l.members.size)),
       (l) => {
         this.lobby = null;
         this.ctx.waitUntil(dir.remove(l.code));

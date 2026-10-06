@@ -1224,3 +1224,248 @@ button:disabled {
 .hud.paused .credit {
   display: block;
 }
+
+/* ---------- Feats (achievements) ---------- */
+.feats {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 24%;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  opacity: 0;
+  text-align: center;
+}
+.feats.show {
+  animation: feats-out 2.4s ease-in forwards;
+}
+@keyframes feats-out {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+}
+.feats span,
+.feats .combo {
+  display: inline-block;
+  animation: feat-pop 0.35s cubic-bezier(0.3, 1.8, 0.5, 1) both;
+}
+@keyframes feat-pop {
+  from {
+    opacity: 0;
+    transform: scale(2.2) rotate(-8deg);
+  }
+}
+.feats .title {
+  font-family: var(--display);
+  font-size: 52px;
+  line-height: 1.05;
+  text-shadow: 0 3px 0 #4a3726aa, 0 6px 24px #2a3e5a55;
+  transform: rotate(-3deg);
+}
+.feats .title span {
+  margin: 0 6px;
+}
+.feats .t1 {
+  color: #fffaf0;
+}
+.feats .t2 {
+  color: var(--sun);
+}
+.feats .t3 {
+  color: #ff9ec4;
+  text-shadow: 0 3px 0 #4a3726aa, 0 0 18px #ffd98acc;
+}
+.feats .extra {
+  display: flex;
+  gap: 8px;
+}
+.feats .extra span {
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  padding: 5px 12px;
+  border-radius: 20px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 4px 12px #2a3e5a40;
+}
+.feats .extra .t3 {
+  background: var(--kiki);
+  color: #fffaf0;
+  text-shadow: none;
+}
+.feats .combo {
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  color: var(--sun);
+  text-shadow: var(--shadow);
+}
+
+/* ---------- Survival ---------- */
+.wave {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  padding: 7px 18px;
+  border-radius: 20px;
+  background: #fbf4e2e6;
+  color: var(--ink);
+  font-size: 15px;
+  box-shadow: 0 4px 12px #2a3e5a30;
+  display: none;
+  white-space: nowrap;
+}
+.wave.show {
+  display: block;
+}
+.wave b {
+  font-family: var(--display);
+  font-size: 19px;
+  color: var(--kiki);
+  margin-right: 8px;
+}
+.wave em {
+  font-style: normal;
+  color: var(--ink-soft);
+}
+.health {
+  position: absolute;
+  left: 24px;
+  bottom: 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-shadow: var(--shadow);
+}
+.health[hidden] {
+  display: none;
+}
+.health b {
+  font-family: var(--display);
+  font-size: 40px;
+  line-height: 1;
+  min-width: 2.2ch;
+}
+.health .bar {
+  width: 150px;
+  height: 8px;
+  border-radius: 4px;
+  background: #4a372655;
+  overflow: hidden;
+}
+.health .bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--meadow), #a5d07a);
+  transition: width 0.2s;
+}
+.health.low b {
+  color: #f08a6b;
+}
+.health.low .bar i {
+  background: var(--kiki);
+}
+.hurt {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(circle, transparent 45%, #c0392b88);
+}
+.hurt.show {
+  animation: hurt 0.5s ease-out;
+}
+@keyframes hurt {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ---------- Game type picker (Host) ---------- */
+.modes {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.modes legend {
+  margin-bottom: 8px;
+}
+.mode {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px 12px 18px;
+  border-radius: 12px;
+  background: #f4ead2;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s;
+}
+.mode::before {
+  content: '';
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 5px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+.mode-battle {
+  --accent: var(--kiki);
+}
+.mode-survival {
+  --accent: var(--meadow);
+}
+.mode input {
+  position: absolute;
+  opacity: 0;
+}
+.mode b {
+  font-family: var(--display);
+  font-size: 22px;
+}
+.mode span {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+.mode:hover {
+  transform: translateY(-2px);
+}
+.mode:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--paper);
+  box-shadow: 0 6px 18px #2a3e5a25;
+}
+.mode:has(input:focus-visible) {
+  outline: 3px solid var(--sun);
+}
+.mode-tag {
+  justify-self: center;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 9px;
+  border-radius: 10px;
+  color: #fffaf0;
+  background: var(--accent);
+}
+.lobby-host .mode-tag {
+  margin-left: 6px;
+}
+@media (max-width: 480px) {
+  .modes {
+    grid-template-columns: 1fr;
+  }
+}

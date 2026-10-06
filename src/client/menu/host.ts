@@ -1,16 +1,33 @@
 import { NET } from '../../shared/constants.ts';
+import type { GameMode } from '../../shared/protocol.ts';
 import type { Render } from './router.ts';
 import { $, SERVER_PILL, goOnline, playerName, sheet } from './ui.ts';
+
+export const MODES: Record<GameMode, { name: string; blurb: string }> = {
+  battle: { name: 'Battle', blurb: 'Free-for-all. One AWP each, one shot, one kill.' },
+  survival: { name: 'Survival', blurb: 'Co-op against rounds of zombies. Every round brings more of them, a bit faster and tougher.' },
+};
 
 export const host: Render = (root, ctx) => {
   root.innerHTML = sheet(
     'Host a game',
     `
     <p class="lead">Open a lobby and you'll get a 4-letter code to share. Friends join with the code or an invite link.</p>
+    <fieldset class="modes">
+      <legend class="small-caps">Game type</legend>
+      ${(Object.keys(MODES) as GameMode[])
+        .map(
+          (m, i) => `<label class="mode mode-${m}">
+            <input type="radio" name="mode" value="${m}" ${i === 0 ? 'checked' : ''} />
+            <b>${MODES[m].name}</b>
+            <span>${MODES[m].blurb}</span>
+          </label>`,
+        )
+        .join('')}
+    </fieldset>
     <ul class="facts">
-      <li><b>Up to ${NET.maxPlayersPerLobby}</b> beans per sky</li>
+      <li><b>Up to ${NET.maxPlayersPerLobby}</b> players per sky</li>
       <li><b>Always live:</b> the match runs from the moment it opens, so people drop in and out freely</li>
-      <li><b>Free-for-all:</b> one AWP each, first to have fun wins</li>
     </ul>
     ${SERVER_PILL}
     <p class="notice" role="alert"></p>
@@ -30,7 +47,8 @@ export const host: Render = (root, ctx) => {
   create.addEventListener('click', async () => {
     create.disabled = true;
     notice.textContent = '';
-    if (await goOnline(root, ctx.net)) ctx.net.host(playerName());
+    const mode = $<HTMLInputElement>(root, 'input[name=mode]:checked').value as GameMode;
+    if (await goOnline(root, ctx.net)) ctx.net.host(playerName(), mode);
     create.disabled = false;
   });
   create.focus();

@@ -5,7 +5,7 @@ A silly browser multiplayer movement shooter set on Ghibli-style sky islands: **
 ```bash
 npm install
 npm run dev      # Vite + the Worker running locally → open the URL it prints (http://localhost:5173)
-npm test         # physics, slide and map traversal tests
+npm test         # physics, slide, map traversal, zombie AI and achievement tests
 npm run smoke    # host/join/shoot/respawn against a running server
 npm run deploy   # build and publish to Cloudflare (see docs/DEPLOYMENT.md)
 ```
@@ -15,6 +15,28 @@ Requires Node ≥ 20 (Wrangler). Node 22 LTS is recommended, and also unlocks Vi
 **The map, Windward:** two harbour islands face each other across a great tree. Three lanes lead to the middle: a slide-and-bhop Windway, a Surf Gorge, and walled Old Ruins. Along the way are multi-storey houses with sniping windows, extra surfs, wind gates (speed boosters) and puffball mushrooms (jump boosters).
 
 **Practice** runs offline against target dummies. **Host** creates a lobby with a 4-letter code. Others join with that code, from the lobby list, or with `/?join=CODE`.
+
+## Game types
+
+Pick one when hosting:
+
+- **Battle**: free-for-all, one AWP each, one shot, one kill.
+- **Survival**: co-op against rounds of zombies on the same map. You start by the Great Tree, and zombies climb out of the clouds around the island's rim. They shamble at you and claw you (you have 100 HP), hop over roots, and pounce up onto ledges and across gaps. Each round brings more of them, and they get a bit faster and tougher: from round 3 a body shot won't drop one, but a headshot still will. Clear a round and everyone is revived and healed. If everyone goes down, it's game over and you start again from round 1.
+
+## Feats and streaks
+
+Kills earn mini achievements, and several at once **stack** into one combo with a jingle (more feats, fancier jingle), e.g. **360 NO-SCOPE HEADSHOT ×3 COMBO**.
+
+| Feat | How |
+| --- | --- |
+| HEADSHOT | Hit the head |
+| NO-SCOPE | Fire without scoping |
+| 360 | Turn a full circle in the 1.5 s before the shot |
+| AIRBORNE / WALLRUN / SLIDING | Shoot after a second in the air (a normal bhop hop doesn't count), mid-wallrun, or mid-slide |
+| MACH | Moving at 15 m/s or more |
+| LONG SHOT / POINT BLANK | 60 m or further / 2.5 m or closer |
+| DOUBLE / TRIPLE / QUAD KILL | Kills within 4 s of each other |
+| KILLING SPREE, RAMPAGE, UNSTOPPABLE, GODLIKE, LEGENDARY | 3, 5, 10, 15 and 25 kills without dying |
 
 ## Controls
 

@@ -1,12 +1,24 @@
 import GUI from 'lil-gui';
 import * as THREE from 'three';
-import { PLAYER, MOVE, NET, RESPAWN_SECONDS, TICK_DT, WEAPON } from '../shared/constants.ts';
+import { PLAYER, MOVE, NET, RESPAWN_SECONDS, SURVIVAL, TICK_DT, WEAPON } from '../shared/constants.ts';
 import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
 import { MAP } from '../shared/map.ts';
 import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/math.ts';
 import { Ev, type PlayerState, createPlayerState, emptyInput, stepPlayer } from '../shared/movement.ts';
-import { type DeathCause, type NetPlayerState, type PlayerInfo, type ServerMsg, StateFlag, type V3, round3 } from '../shared/protocol.ts';
+import {
+  type DeathCause,
+  type GameMode,
+  type NetPlayerState,
+  type PlayerInfo,
+  type ServerMsg,
+  StateFlag,
+  type V3,
+  type WaveInfo,
+  round3,
+} from '../shared/protocol.ts';
+import { type ShotContext, SpinMeter, Streak, featsFor } from './achievements.ts';
 import { Avatar, Corpses } from './avatar.ts';
+import { Horde } from './horde.ts';
 import { Hud } from './hud.ts';
 import { Input } from './input.ts';
 import type { Net } from './net.ts';
@@ -43,7 +55,17 @@ interface Tracer {
 const BASE_FOV = 78; // vertical; ~106° horizontal at 16:9
 const tracerGeo = new THREE.CylinderGeometry(0.025, 0.025, 1, 6, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
 
-const verbFor: Record<DeathCause, string> = { snipe: 'sniped', headshot: '💥 HEADSHOT', void: 'fell into the void' };
+const verbFor: Record<DeathCause, string> = { snipe: 'sniped', headshot: '💥 HEADSHOT', void: 'fell into the void', zombie: 'got munched 🧟' };
+/** Stand-in for the killfeed when a zombie goes down. */
+const ZOMBIE_INFO: PlayerInfo = { id: -1, name: 'zombie', color: 0x7fae6a, kills: 0, deaths: 0, alive: false };
+const YEETS = ['YEET', 'SNIPED', 'BONK', 'GOT EM', 'SENT FLYING'];
+
+/** The last shot of ours that hit someone, so its feats can be scored when the kill is confirmed. */
+interface LastHit {
+  id: number;
+  zombie: boolean;
+  ctx: ShotContext;
+}
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -90,8 +112,23 @@ export class Game {
   private tracers: Tracer[] = [];
   private unsubscribe?: () => void;
 
+  // Feats and streaks
+  private streak = new Streak();
+  private spin = new SpinMeter();
+  private airTime = 0;
+  private lastHit: LastHit | null = null;
+
+  // Survival
+  private readonly mode: GameMode;
+  private horde: Horde | null = null;
+  private hp: number = SURVIVAL.playerHp;
+  private wave: WaveInfo | null = null;
+  private waveAt = 0; // this.time when `wave` arrived (its timer counts down from then)
+  private nextGroan = 3;
+
   constructor(private opts: GameOptions) {
     const { container, net, joined } = opts;
+    this.mode = joined?.mode ?? 'battle';
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -106,6 +143,10 @@ export class Game {
 
     this.world = buildWorld(MAP, this.renderer);
     this.corpses = new Corpses(this.world.scene);
+    if (this.mode === 'survival') {
+      this.horde = new Horde(this.world.scene);
+      this.wave = joined?.wave ?? null;
+    }
 
     // Players.
     this.selfId = net?.id ?? 0;
@@ -122,7 +163,7 @@ export class Game {
     this.me = createPlayerState(spawn.pos);
     copy(this.prevPos, this.me.pos);
 
-    this.hud = new Hud(container, joined ? `LOBBY ${joined.code}` : 'PRACTICE — shoot the dummies');
+    this.hud = new Hud(container, joined ? `${this.mode === 'survival' ? 'SURVIVAL' : 'LOBBY'} ${joined.code}` : 'PRACTICE — shoot the dummies');
     this.input = new Input(this.renderer.domElement);
     this.input.yaw = spawn.yaw;
     this.input.onLockChange = (locked) => this.hud.setPaused(!locked);
@@ -156,12 +197,14 @@ export class Game {
     this.last = now;
     this.time += dt;
 
+    this.spin.push(this.time, this.input.yaw);
     this.updateWeapon(dt);
     if (this.alive) this.simulate(dt);
     else if (!this.opts.net && this.time >= this.respawnAt) this.respawn(this.randomSpawn());
 
     if (this.opts.net) this.sendState(dt);
     this.updateRemotes();
+    this.updateHorde();
     this.corpses.update(dt);
     this.updateTracers(dt);
     this.world.update(this.time);
@@ -184,6 +227,7 @@ export class Game {
       const fallSpeed = -this.me.vel.y;
       stepPlayer(this.me, this.input.sample(this.moveInput), TICK_DT, MAP.boxes, MAP.triggers);
       this.onMoveEvents(this.me.events, fallSpeed);
+      this.airTime = this.me.onGround ? 0 : this.airTime + TICK_DT;
       this.acc -= TICK_DT;
     }
     if (this.me.pos.y < MAP.killY) {
@@ -271,28 +315,45 @@ export class Game {
     const o = { x: this.renderPos.x, y: this.renderPos.y + this.eyeHeight, z: this.renderPos.z };
 
     let best = rayWorld(o, d, MAP.boxes, WEAPON.range);
-    let victim: Remote | null = null;
+    let hit: { id: number; zombie: boolean } | null = null;
     let headshot = false;
     const hw = PLAYER.halfWidth;
-    for (const r of this.remotes.values()) {
-      if (!r.info.alive) continue;
-      const p = r.pos;
+    const targets: { id: number; pos: THREE.Vector3; zombie: boolean }[] = this.horde
+      ? [...this.horde.zombies.values()].map((z) => ({ id: z.id, pos: z.pos, zombie: true })) // co-op: shots pass through friends
+      : [...this.remotes.values()].filter((r) => r.info.alive).map((r) => ({ id: r.info.id, pos: r.pos, zombie: false }));
+    for (const { id, pos: p, zombie } of targets) {
       const th = raySphere(o, d, { x: p.x, y: p.y + PLAYER.headCenter, z: p.z }, PLAYER.headRadius + 0.04, best);
       if (th >= 0 && th < best) {
         best = th;
-        victim = r;
+        hit = { id, zombie };
         headshot = true;
       }
       const tb = rayBox(o, d, { x: p.x - hw, y: p.y, z: p.z - hw }, { x: p.x + hw, y: p.y + PLAYER.headCenter - PLAYER.headRadius, z: p.z + hw }, best);
       if (tb >= 0 && tb < best) {
         best = tb;
-        victim = r;
+        hit = { id, zombie };
         headshot = false;
       }
     }
     const end = new THREE.Vector3(o.x + d.x * best, o.y + d.y * best, o.z + d.z * best);
     const muzzle = this.camera.localToWorld(new THREE.Vector3(0.22, -0.2, -1.1));
     this.addTracer(muzzle, end, this.players.get(this.selfId)!.color);
+
+    if (hit) {
+      this.hud.hitmarker();
+      sfx.hit();
+      const ctx: ShotContext = {
+        headshot,
+        scoped: this.scoped,
+        spin: this.spin.spin(yaw),
+        airTime: this.airTime,
+        wallrunning: this.me.wallrunning,
+        sliding: this.me.sliding,
+        speed: hlen(this.me.vel),
+        distance: best,
+      };
+      this.lastHit = { ...hit, ctx };
+    }
 
     this.ammo--;
     this.vm.fire(this.ammo > 0);
@@ -301,20 +362,17 @@ export class Game {
     else this.autoReloadAt = this.time + 0.25; // last round: drop straight into a reload
     this.scoped = false; // updateWeapon re-scopes after the bolt if RMB is still held
 
-    if (victim) {
-      this.hud.hitmarker();
-      sfx.hit();
-    }
     if (this.opts.net) {
       this.opts.net.send({
         t: 'shoot',
         from: [round3(o.x), round3(o.y), round3(o.z)],
         to: [round3(end.x), round3(end.y), round3(end.z)],
-        victim: victim?.info.id,
+        victim: hit && !hit.zombie ? hit.id : undefined,
+        zombie: hit?.zombie ? hit.id : undefined,
         headshot,
       });
-    } else if (victim) {
-      this.onKill(this.selfId, victim.info.id, headshot ? 'headshot' : 'snipe', [d.x, d.y, d.z]);
+    } else if (hit) {
+      this.onKill(this.selfId, hit.id, headshot ? 'headshot' : 'snipe', [d.x, d.y, d.z]);
     }
   }
 
@@ -353,7 +411,9 @@ export class Game {
       victim.deaths++;
     }
     if (killer && killerId !== victimId) killer.kills++;
-    this.hud.killfeed(killer, victim, verbFor[cause]);
+    const mine = killerId === this.selfId && victimId !== this.selfId;
+    const feats = mine ? this.celebrate(victimId, false, cause === 'headshot') : null;
+    this.hud.killfeed(killer, victim, feats ?? verbFor[cause]);
     const d = new THREE.Vector3(...dir);
 
     if (victimId === this.selfId) {
@@ -367,10 +427,25 @@ export class Game {
         if (r.dummy) r.dummy.respawnAt = this.time + RESPAWN_SECONDS;
       }
     }
-    if (killerId === this.selfId && victimId !== this.selfId) {
-      sfx.kill();
-      this.hud.center(cause === 'headshot' ? 'HEADSHOT!' : pick(['YEET', 'SNIPED', 'BONK', 'GOT EM', 'SENT FLYING']), cause === 'headshot' ? '#ffd43b' : '#fff');
+  }
+
+  /**
+   * Our kill: score its feats (from the shot that hit, if that's the kill being confirmed) plus streak and
+   * multi-kill, then pop them on screen with a jingle. Returns the stacked title for the killfeed, if any.
+   */
+  private celebrate(id: number, zombie: boolean, headshot: boolean): string | null {
+    const h = this.lastHit;
+    const style = h && h.id === id && h.zombie === zombie ? featsFor(h.ctx) : headshot ? featsFor({ ...PLAIN_SHOT, headshot }) : [];
+    const extra = this.streak.kill(this.time);
+    sfx.kill();
+    const all = [...style, ...extra];
+    if (all.length === 0) this.hud.center(pick(YEETS));
+    else if (all.length === 1 && style[0]?.label === 'HEADSHOT') this.hud.center('HEADSHOT!', '#ffd43b'); // the classic
+    else {
+      this.hud.feats(style, extra);
+      sfx.feats(all.length, Math.max(...all.map((f) => f.tier)));
     }
+    return style.length ? style.map((f) => f.label).join(' ') : null;
   }
 
   private die(cause: DeathCause, killerId: number, dir: THREE.Vector3) {
@@ -379,9 +454,15 @@ export class Game {
     this.scoped = false;
     this.input.scopeHeld = false; // must re-press RMB after respawning
     this.respawnAt = this.time + RESPAWN_SECONDS;
+    this.streak.reset();
     sfx.death();
     const killer = this.players.get(killerId);
-    this.deathText = cause === 'void' ? 'You fell into the void' : `${cause === 'headshot' ? 'Headshot' : 'Sniped'} by ${killer?.name ?? '???'}`;
+    this.deathText =
+      cause === 'void'
+        ? 'You fell into the void'
+        : cause === 'zombie'
+          ? 'Munched by a zombie'
+          : `${cause === 'headshot' ? 'Headshot' : 'Sniped'} by ${killer?.name ?? '???'}`;
     const pos = new THREE.Vector3(this.me.pos.x, this.me.pos.y, this.me.pos.z);
     this.deathCam.copy(pos).add(new THREE.Vector3(0, PLAYER.eyeHeight, 0));
     this.deathCorpse =
@@ -458,6 +539,15 @@ export class Game {
     }
   }
 
+  private updateHorde() {
+    if (!this.horde) return;
+    this.horde.update(this.time);
+    if (this.time >= this.nextGroan) {
+      this.nextGroan = this.time + 2 + Math.random() * 3;
+      sfx.groan(this.horde.nearest(this.camera.position));
+    }
+  }
+
   private spawnDummies() {
     const spots: Vec3[] = [
       { x: -12, y: 0, z: -8 }, // centre island, beside the tree
@@ -529,8 +619,29 @@ export class Game {
       case 'snapshot': {
         const now = performance.now();
         for (const s of msg.players) this.remotes.get(s.id)?.buffer.push({ t: now, s });
+        if (msg.zombies) this.horde?.onSnapshot(msg.zombies, now);
         break;
       }
+      case 'zombieDied': {
+        const killer = this.players.get(msg.killer);
+        if (killer) killer.kills++;
+        const feats = msg.killer === this.selfId ? this.celebrate(msg.id, true, msg.headshot) : null;
+        this.hud.killfeed(killer, ZOMBIE_INFO, feats ?? (msg.headshot ? verbFor.headshot : verbFor.snipe));
+        this.horde?.kill(msg.id, new THREE.Vector3(...msg.dir), msg.headshot, this.corpses);
+        sfx.zombieDown();
+        break;
+      }
+      case 'wave':
+        this.onWave(msg.wave);
+        break;
+      case 'hp':
+        if (msg.from && msg.hp < this.hp) {
+          this.hud.hurt();
+          sfx.hurt();
+          this.landDip = Math.min(0.25, this.landDip + 0.08);
+        }
+        this.hp = msg.hp;
+        break;
       case 'shot': {
         const from = new THREE.Vector3(...msg.from);
         this.addTracer(from, new THREE.Vector3(...msg.to), this.players.get(msg.id)?.color ?? 0xffffff);
@@ -551,6 +662,42 @@ export class Game {
         break;
       }
     }
+  }
+
+  private onWave(w: WaveInfo) {
+    const was = this.wave?.phase;
+    this.wave = w;
+    this.waveAt = this.time;
+    if (w.phase === was) return;
+    if (w.phase === 'active') {
+      sfx.roundStart();
+      this.hud.center(`ROUND ${w.round}`, '#ff9ec4', 2.2);
+    } else if (w.phase === 'over') {
+      sfx.gameOver();
+      this.hud.center('GAME OVER', '#f08a6b', 3);
+    } else if (w.round > 0) {
+      sfx.roundClear();
+      this.hud.center('ROUND CLEARED!', '#ffd98a', 2.2);
+    }
+  }
+
+  /** The Survival banner: which round and how many zombies are left, or how long until the next one. */
+  private waveText(): string | null {
+    const w = this.wave;
+    if (!w) return null;
+    const secs = Math.max(0, Math.ceil(w.timer - (this.time - this.waveAt)));
+    if (w.phase === 'active') return `<b>ROUND ${w.round}</b>${w.left} zombie${w.left === 1 ? '' : 's'} left`;
+    const survived = Math.max(0, w.round - 1);
+    if (w.phase === 'over') return `<b>GAME OVER</b>survived ${survived} round${survived === 1 ? '' : 's'} <em>· again in ${secs}s</em>`;
+    if (w.round === 0) return `<b>SURVIVAL</b>the horde rises in ${secs}s`;
+    return `<b>ROUND ${w.round} CLEARED</b>next round in ${secs}s`;
+  }
+
+  private deathSubtitle(): string | null {
+    if (this.alive) return null;
+    if (this.mode === 'survival') return this.wave?.phase === 'over' ? 'The horde won this time' : 'You are down. Back when the round ends';
+    const left = Math.max(0, this.respawnAt - this.time);
+    return left > 0 ? `respawning in ${left.toFixed(1)}s` : 'respawning…';
   }
 
   // ---------------------------------------------------------------------------
@@ -611,8 +758,9 @@ export class Game {
     this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, this.bolt / WEAPON.fireCooldown);
     this.hud.ammo(this.ammo, WEAPON.magSize, this.reloading > 0);
     this.hud.setCredit(this.vm.credit);
-    if (this.alive) this.hud.death('', null);
-    else this.hud.death(this.deathText, Math.max(0, this.respawnAt - this.time));
+    this.hud.death(this.deathText, this.deathSubtitle());
+    this.hud.health(this.horde ? this.hp : null, SURVIVAL.playerHp);
+    this.hud.wave(this.waveText());
     this.hud.scoreboard(this.showScores ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.dummy).map((r) => r.info)] : null, this.selfId);
   }
 
@@ -685,6 +833,7 @@ export class Game {
     this.hud.dispose();
     this.gui.destroy();
     for (const id of [...this.remotes.keys()]) this.removeRemote(id);
+    this.horde?.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.opts.onExit(reason);
@@ -692,6 +841,8 @@ export class Game {
 }
 
 const arr = (p: V3): Vec3 => ({ x: p[0], y: p[1], z: p[2] });
+/** A shot with nothing special about it, for kills we can't match to a shot of ours. */
+const PLAIN_SHOT: ShotContext = { headshot: false, scoped: true, spin: 0, airTime: 0, wallrunning: false, sliding: false, speed: 0, distance: 10 };
 const pick = <T>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
 function lerpAngle(a: number, b: number, t: number) {
   let d = (b - a) % (Math.PI * 2);

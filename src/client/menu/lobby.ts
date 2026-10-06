@@ -1,4 +1,5 @@
 import type { PlayerInfo } from '../../shared/protocol.ts';
+import { MODES } from './host.ts';
 import type { Render } from './router.ts';
 import { $, copy, esc, hex, sheet } from './ui.ts';
 
@@ -15,6 +16,7 @@ export const lobby: Render = (root, ctx) => {
     'Lobby',
     `
     <section class="lobby-code-card" aria-label="Lobby code">
+      <span class="mode-tag mode-${j.mode}">${MODES[j.mode].name}</span>
       <span class="small-caps">Share this code</span>
       <div class="big-code" aria-label="${[...j.code].join(' ')}">${[...j.code].map((c) => `<span>${esc(c)}</span>`).join('')}</div>
       <div class="row">
@@ -26,7 +28,11 @@ export const lobby: Render = (root, ctx) => {
       <h3 id="roster-h">In this sky <span class="count"></span></h3>
       <ul class="players" aria-live="polite"></ul>
     </section>
-    <p class="hint">The match is already running. You'll spawn the moment you enter.</p>
+    <p class="hint">${
+      j.mode === 'survival'
+        ? 'The horde is already rising. You spawn by the Great Tree the moment you enter.'
+        : "The match is already running. You'll spawn the moment you enter."
+    }</p>
     <div class="cta"><button class="primary big" id="enter">Enter match</button></div>`,
     'Leave',
   );

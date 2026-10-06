@@ -76,3 +76,47 @@ export const WEAPON = {
 };
 
 export const RESPAWN_SECONDS = 2.5;
+
+/** Survival (co-op vs zombie rounds). Damage numbers are CS-ish AWP values; zombies scale up per round. */
+export const SURVIVAL = {
+  playerHp: 100,
+  bodyDamage: 115, // AWP body shot
+  headDamage: 450, // AWP headshot
+  firstRoundDelay: 6, // seconds after the lobby opens (or a game over) before round 1
+  intermission: 8, // breather between rounds; everyone is revived and healed at its start
+  gameOverSeconds: 7,
+  spawnInterval: 0.7, // one zombie climbs out of the clouds this often...
+  maxAlive: 24, // ...while fewer than this are up
+  zombiesBase: 4, // round 1 has base + perRound zombies
+  zombiesPerRound: 3,
+};
+
+/** Zombie stats and AI tuning. Per-round values grow linearly up to their caps. */
+export const ZOMBIE = {
+  hpBase: 80, // round 1: a body shot kills; from round 3 only headshots one-shot
+  hpPerRound: 18,
+  speedBase: 3.2, // m/s; players walk at 6.35 and bhop far faster, so movement is always the out
+  speedPerRound: 0.35,
+  speedMax: 7,
+  damageBase: 14,
+  damagePerRound: 3,
+  damageMax: 60,
+
+  clawRange: 1.4, // horizontal reach to start a swipe
+  clawHitRange: 2.1, // still in reach when the swipe lands
+  clawWindup: 0.45, // telegraphed: stand still and raise the claws
+  clawCooldown: 0.9,
+
+  leapRange: 15, // max horizontal distance for a pounce onto a ledge, branch or the next island
+  leapMinRange: 3, // closer than this to something above, back off first (else they bonk the underside)
+  leapMaxUp: 16,
+  leapApex: 1.6, // the arc peaks this far above the higher end
+  leapWindup: 0.4,
+  leapCooldown: 2.5,
+  hopSpeed: 7.5, // little hop over roots and crates when blocked
+  detour: 1.2, // blocked by a wall: walk sideways along it this long, alternating sides
+  stuckLeap: 2.5, // still blocked after that: pounce
+  stepUp: 1.6, // targets higher than this need a leap
+  ledgeDrop: 4, // walking off a drop deeper than this counts as a ledge
+  separation: 0.9, // zombies shove apart inside this radius
+};

@@ -1,4 +1,4 @@
-import type { ClientMsg, LobbyInfo, ServerMsg } from '../shared/protocol.ts';
+import type { ClientMsg, GameMode, LobbyInfo, ServerMsg } from '../shared/protocol.ts';
 
 type Listener = (msg: ServerMsg) => void;
 
@@ -24,8 +24,8 @@ export class Net {
   }
 
   /** Replies arrive as `joined` or `error` messages through `on()`. */
-  host(name: string) {
-    this.open({ name });
+  host(name: string, mode: GameMode) {
+    this.open({ name, mode });
   }
 
   join(name: string, code: string) {

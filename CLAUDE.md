@@ -29,25 +29,31 @@ Environment: Node **20+** (Wrangler needs it; 22 recommended). Vite is still pin
 src/shared/   runs on client AND server. No three.js, no DOM. Deterministic.
   constants.ts  every tunable: TICK_DT, NET, PLAYER, MOVE (CS:GO values in Hammer units), WEAPON
   math.ts       tiny {x,y,z} helpers (yaw 0 looks down -Z, three.js convention)
-  movement.ts   stepPlayer(): the 128 Hz player sim (bhop, air-strafe, slide, wallrun, pads)
+  movement.ts   stepPlayer(): the 128 Hz player sim (bhop, air-strafe, slide, wallrun, pads); launchTo()
+  zombie.ts     Survival zombie AI + physics (chase, claw, hop, detour, pounce); the server runs it
   collision.ts  AABB boxes + wedge ramps + non-solid Triggers: move-and-slide, probes, raycasts
   map.ts        the "Windward" map as data (boxes, triggers, decor, spawns), built from helpers; one half mirrored
   protocol.ts   JSON wire types (ClientMsg / ServerMsg), StateFlag bits
 src/server/   Cloudflare Worker: worker.ts (routing), room.ts (LobbyRoom Durable Object, one per match),
-              directory.ts (Directory DO: codes + lobby list), lobby.ts (game logic: 20 Hz snapshots, kills, respawns)
+              directory.ts (Directory DO: codes + lobby list), lobby.ts (game logic: 20 Hz snapshots, kills, respawns),
+              survival.ts (rounds, zombie spawning/sim, claws and HP, game over)
 src/client/
   main.ts       boots the menu router; loading screen; starts a Game (practice or online)
   menu/         one file per screen (title, practice, host, join, lobby room, help) + router.ts, ui.ts,
                 skirmish.ts (the animated island backdrop)
   settings.ts   saved player settings (name, sensitivity, auto-bhop) in localStorage
   game.ts       the Game: loop, fixed-tick sim + render interpolation, weapon state, remotes, net, camera
+  achievements.ts  feats (360, no-scope, headshot, ...) + streaks/multi-kills; pure, unit-tested
+  horde.ts      Survival zombies on the client: snapshot interpolation, zombie avatars, corpses
   world.ts      renders MAP by box.kind (+ sky, clouds, scenery). textures.ts = procedural canvas textures
   viewmodel.ts  first-person rifle + hands, all animation keyframed in code
   weapon/       awp.ts (procedural AWP + optional GLB loader/fitter), hands.ts (Arm)
-  avatar.ts     chibi anime players (look seeded from name+colour, ink outlines, canvas faces) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
+  avatar.ts     chibi anime players (look seeded from name+colour, ink outlines, canvas faces), a zombie variant
+                (poseZombie) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
 dev/viewmodel.html  dev-only lab for tuning the rifle/hands (Vite serves it; not part of the build)
 public/models/      optional awp.glb (see README)
-tests/        movement.test.ts + slide.test.ts (map-agnostic physics), map.test.ts (ramps + every Windward route)
+tests/        movement.test.ts + slide.test.ts (map-agnostic physics), map.test.ts (ramps + every Windward route),
+              zombie.test.ts (zombie AI, incl. every zombie spawn reaching the players), achievements.test.ts
               lobby.smoke.ts runs manually against a server
 docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (free hosting + prod multiplayer plan)
 ```
@@ -79,6 +85,13 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
   - `map.test.ts`: spawns, every pad landing, and a scripted traversal of every route. Map-specific tests live only there.
   - `spawnDummies()` spots in `game.ts`.
   - `docs/MAP_PLAN.md`.
+
+**Game types**: a lobby is `'battle'` (FFA) or `'survival'`, chosen on the Host screen and sent with `host`.
+- Survival is co-op (no friendly fire; the client only hit-tests zombies). `Survival` (server) owns rounds: intermission → active → (all cleared: revive + heal, next round) or (everyone down: game over → round 1). Dead players stay down until the round ends.
+- Zombies are server-authoritative: `stepHorde` at 60 Hz, sent as `snapshot.zombies`; shots on zombies are client-detected and sanity-checked like player hits (`shoot.zombie`). Players have HP only in Survival (`hp` message to that player). Tuning lives in `SURVIVAL` and `ZOMBIE` in constants.ts.
+- Map data: `survivalSpawns` (players) and `zombieSpawns`.
+
+**Feats** (`achievements.ts`): the shot's context is captured at fire time (`lastHit`), and scored when the kill is confirmed (immediately offline, on `kill`/`zombieDied` online). Feats from one kill stack into one combo popup (`hud.feats`) + `sfx.feats`. Streak resets on death.
 
 **Menu**
 - Each screen in `menu/` is a function that renders into a root element. `router.ts` uses history, so browser Back, ← Back and Esc all match.
@@ -119,6 +132,9 @@ A playable prototype covering practice and online lobbies. Everything listed in 
 - **Lobby room:** while you sit in the room, your bean is already in the live match, idle at spawn. The fix is a server "ready" flag.
 - **Real AWP model:** the GLB loader has never run against the real Sketchfab file. That file needs a manual download (see README).
 - **Viewmodel:** during the bolt cycle the right hand covers the knob.
+- **Survival:** zombies have no pathfinding: straight-line chase plus hops, wall detours, edge-feeling and pounces. The canopy crown (23 m) is out of pounce reach from the ground, so it's a safe camping spot. No HP regen yet (healed between rounds). Practice has no Survival mode yet; host a lobby alone to play it solo.
+- **Feats are local:** only the shooter sees the combo popup and the feat title in their killfeed. Everyone else sees a plain "sniped" row. Sending feats in `shoot` would fix that.
+- **knip** (latest) needs Node 20+, and older versions crash against TypeScript 5.9, so the dead-code sweep can't run on Node 18.
 - **Map:**
   - Grass tufts aren't scattered on ramps.
   - House interiors are tested by scripted walks but have had little visual review.

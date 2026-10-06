@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { NET } from '../shared/constants.ts';
-import type { LobbyInfo } from '../shared/protocol.ts';
+import type { GameMode, LobbyInfo } from '../shared/protocol.ts';
 import { HEARTBEAT_SECONDS } from './lobby.ts';
 
 /** Entries older than this are dead lobbies (or reservations nobody connected to). */
@@ -34,12 +34,12 @@ export class Directory extends DurableObject {
     do {
       code = Array.from({ length: 4 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
     } while (taken.has(code));
-    await this.report(code, '?', 0);
+    await this.report(code, 'battle', '?', 0);
     return code;
   }
 
-  async report(code: string, host: string, players: number): Promise<void> {
-    const entry: Entry = { code, host, players, max: NET.maxPlayersPerLobby, at: Date.now() };
+  async report(code: string, mode: GameMode, host: string, players: number): Promise<void> {
+    const entry: Entry = { code, mode, host, players, max: NET.maxPlayersPerLobby, at: Date.now() };
     await this.ctx.storage.put(code, entry);
   }
 
