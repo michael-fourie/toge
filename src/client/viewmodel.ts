@@ -264,21 +264,24 @@ export class ViewModel {
 
     if (g.hasMag) {
       g.magPivot.visible = u < 0.16 || u >= 0.5;
-      if (u >= 0.5) g.magPivot.position.y -= (1 - seg(u, 0.5, 0.64)) * 0.1; // sliding in
+      // The new mag sits 10 cm below the well while the hand brings it up, then slides in; the hand follows it.
+      if (u >= 0.32) g.magPivot.position.y -= (1 - seg(u, 0.5, 0.64)) * 0.1;
       this.cue(a, u, 0.16, 'drop', () => {
         sfx.magOut();
         this.dropMag();
       });
-      this.handMag.visible = u >= 0.36 && u < 0.5;
+      this.handMag.visible = u >= 0.32 && u < 0.5;
     }
     this.cue(a, u, 0.64, 'in', () => sfx.magIn());
     this.rig.position.y += hold(u, 0.64, 0.67, 0.67, 0.74) * 0.012; // slap
 
-    // Left hand route: forend -> mag -> down out of view -> back up with the new mag -> forend.
+    // Left hand route: forend -> mag -> down out of view -> back up with the new mag -> push it in -> forend.
+    // Every hand-off is continuous ('down' at w=0 is the same spot as 'mag' at w=1), so the hand never snaps or stalls.
     if (u < 0.16) return ['mag', seg(u, 0.02, 0.14)];
-    if (u < 0.36) return ['down', seg(u, 0.16, 0.3)];
-    if (u < 0.74) return ['mag', 1];
-    return ['mag', 1 - seg(u, 0.74, 0.88)];
+    if (u < 0.32) return ['down', seg(u, 0.16, 0.28)];
+    if (u < 0.5) return ['down', 1 - seg(u, 0.32, 0.5)];
+    if (u < 0.72) return ['mag', 1];
+    return ['mag', 1 - seg(u, 0.72, 0.88)];
   }
 
   private poseRightHand(w: number) {
@@ -296,7 +299,7 @@ export class ViewModel {
 
   private poseLeftHand(target: LeftTarget, w: number) {
     const g = this.gun;
-    const underMag = this.gunToView(this.v2.copy(g.anchors.magWell).add(UNDER_MAG));
+    const underMag = this.gunToView(this.v2.copy(g.magPivot.position).add(UNDER_MAG));
     if (target === 'down') {
       this.left.hand.position.copy(underMag).lerp(LEFT_OFFSCREEN, w);
     } else {
@@ -306,7 +309,7 @@ export class ViewModel {
     this.qa.copy(this.rig.quaternion).multiply(POSE.handguard);
     this.qb.copy(this.rig.quaternion).multiply(POSE.magGrab);
     this.left.hand.quaternion.copy(this.qa).slerp(this.qb, target === 'down' ? 1 : w);
-    this.left.curl(0.55 + Math.min(1, w) * 0.2);
+    this.left.curl(target === 'down' ? 0.75 : 0.55 + Math.min(1, w) * 0.2); // gripping the mag from the moment it's grabbed
     this.left.updateForearm();
 
     // The fresh mag rides in the left hand until it's seated.
