@@ -73,7 +73,11 @@ export class Input {
       { passive: true },
     );
     this.listen(document, 'pointerlockchange', () => {
-      this.locked = document.pointerLockElement === this.el;
+      // The browser can re-announce a lock we already hold (e.g. when it's re-requested); that must not
+      // release the movement keys, or every shot would drop W/A/D/Space and kill your momentum.
+      const locked = document.pointerLockElement === this.el;
+      if (locked === this.locked) return;
+      this.locked = locked;
       this.keys.clear();
       this.scopeHeld = false;
       this.onLockChange?.(this.locked);
@@ -86,6 +90,7 @@ export class Input {
   }
 
   async lock() {
+    if (document.pointerLockElement === this.el) return; // already locked: re-requesting would reset the keys (and every click comes through here)
     try {
       // Raw input skips OS mouse acceleration where supported.
       await (this.el.requestPointerLock as (o?: object) => Promise<void>).call(this.el, { unadjustedMovement: true });
