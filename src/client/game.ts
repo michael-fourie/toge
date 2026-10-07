@@ -20,6 +20,7 @@ import {
 } from '../shared/protocol.ts';
 import { type ShotContext, SpinMeter, Streak, featsFor } from './achievements.ts';
 import { Avatar, Corpses } from './avatar.ts';
+import { PostGame } from './postgame.ts';
 import { Horde } from './horde.ts';
 import { Hud } from './hud.ts';
 import { Input } from './input.ts';
@@ -144,6 +145,7 @@ export class Game {
   private horde: Horde | null = null;
   private hp: number = SURVIVAL.playerHp;
   private wave: WaveInfo | null = null;
+  private postgame: PostGame | null = null;
   private waveAt = 0; // this.time when `wave` arrived (its timer counts down from then)
   private nextGroan = 3;
 
@@ -187,6 +189,7 @@ export class Game {
 
     this.hud = new Hud(container, joined ? `${this.mode === 'survival' ? 'SURVIVAL' : 'LOBBY'} ${joined.code}` : 'PRACTICE — shoot the dummies');
     this.input = new Input(this.renderer.domElement);
+    if (net && this.mode === 'survival') this.postgame = new PostGame(container, this.selfId, { onAgain: () => { net.send({ t: 'again' }); void this.input.lock(); }, onHome: () => this.exit() });
     this.input.yaw = spawn.yaw;
     this.input.onLockChange = (locked) => this.hud.setPaused(!locked);
     this.input.onKey = (code, down) => this.onKey(code, down);
@@ -764,6 +767,9 @@ export class Game {
         sfx.zombieDown();
         break;
       }
+      case 'postgame':
+        this.postgame?.update(msg.rounds, msg.rows, msg.waiting, (this.wave?.timer ?? 0) - (this.time - this.waveAt), this.time);
+        break;
       case 'wave':
         this.onWave(msg.wave);
         break;
@@ -803,13 +809,14 @@ export class Game {
     const was = this.wave?.phase;
     this.wave = w;
     this.waveAt = this.time;
+    if (w.phase !== 'over') this.postgame?.hide();
     if (w.phase === was) return;
     if (w.phase === 'active') {
       sfx.roundStart();
       this.hud.center(`ROUND ${w.round}`, '#ff9ec4', 2.2);
     } else if (w.phase === 'over') {
       sfx.gameOver();
-      this.hud.center('GAME OVER', '#f08a6b', 3);
+      if (!this.postgame) this.hud.center('GAME OVER', '#f08a6b', 3);
     } else if (w.round > 0) {
       sfx.roundClear();
       this.hud.center('ROUND CLEARED!', '#ffd98a', 2.2);
@@ -823,7 +830,7 @@ export class Game {
     const secs = Math.max(0, Math.ceil(w.timer - (this.time - this.waveAt)));
     if (w.phase === 'active') return `<b>ROUND ${w.round}</b>${w.left} zombie${w.left === 1 ? '' : 's'} left`;
     const survived = Math.max(0, w.round - 1);
-    if (w.phase === 'over') return `<b>GAME OVER</b>survived ${survived} round${survived === 1 ? '' : 's'} <em>· again in ${secs}s</em>`;
+    if (w.phase === 'over') return `<b>GAME OVER</b>survived ${survived} round${survived === 1 ? '' : 's'}`;
     if (w.round === 0) return `<b>SURVIVAL</b>the horde rises in ${secs}s`;
     return `<b>ROUND ${w.round} CLEARED</b>next round in ${secs}s`;
   }
@@ -918,6 +925,7 @@ export class Game {
     this.hud.killcam(this.killcam ? this.deathText : null);
     this.hud.health(this.horde ? this.hp : null, SURVIVAL.playerHp);
     this.hud.wave(this.waveText());
+    this.postgame?.tick(this.time);
     this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId);
     this.hud.scoreboard(this.showScores ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.dummy).map((r) => r.info)] : null, this.selfId);
   }
@@ -1009,6 +1017,7 @@ export class Game {
     }
     this.input.dispose();
     this.hud.dispose();
+    this.postgame?.dispose();
     this.gui.destroy();
     for (const id of [...this.remotes.keys()]) this.removeRemote(id);
     this.horde?.dispose();

@@ -101,7 +101,7 @@ export const SURVIVAL = {
   headDamage: 450, // AWP headshot
   firstRoundDelay: 6, // seconds after the lobby opens (or a game over) before round 1
   intermission: 8, // breather between rounds; everyone is revived and healed at its start
-  gameOverSeconds: 7,
+  gameOverSeconds: 90, // post-game screen: restart anyway after this long
   spawnInterval: 0.7, // one zombie climbs out of the clouds this often...
   maxAlive: 24, // ...while fewer than this are up
   zombiesBase: 4, // round 1 has base + perRound zombies

@@ -92,7 +92,7 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
   - `docs/MAP_PLAN.md`.
 
 **Game types**: a lobby is `'battle'` (FFA) or `'survival'`, chosen on the Host screen and sent with `host`.
-- Survival is co-op (no friendly fire; the client only hit-tests zombies). `Survival` (server) owns rounds: intermission → active → (all cleared: revive + heal, next round) or (everyone down: game over → round 1). Dead players stay down until the round ends.
+- Survival is co-op (no friendly fire; the client only hit-tests zombies). `Survival` (server) owns rounds: intermission → active → (all cleared: revive + heal, next round) or (everyone down: game over → post-game board, shared/postgame.ts; restarts at round 1 when all present players send 'again' or after SURVIVAL.gameOverSeconds). Dead players stay down until the round ends.
 - Zombies are server-authoritative: `stepHorde` at 60 Hz, sent as `snapshot.zombies`; shots on zombies are client-detected and sanity-checked like player hits (`shoot.zombie`). Players have HP only in Survival (`hp` message to that player). Tuning lives in `SURVIVAL` and `ZOMBIE` in constants.ts.
 - Map data: `survivalSpawns` (players) and `zombieSpawns`.
 

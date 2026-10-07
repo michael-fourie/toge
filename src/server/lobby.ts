@@ -101,6 +101,7 @@ export class Lobby {
 
   remove(client: Client) {
     if (!this.members.delete(client.id)) return;
+    this.survival?.left(client.id);
     client.lobby = null;
     if (this.members.size === 0) {
       clearInterval(this.timer);
@@ -127,6 +128,9 @@ export class Lobby {
         return;
       case 'shoot':
         this.onShoot(m, msg);
+        return;
+      case 'again':
+        this.survival?.again(m);
         return;
       case 'fell':
         if (m.info.alive) this.kill(m, m, 'void', [0, 1, 0]);

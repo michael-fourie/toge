@@ -55,13 +55,24 @@ export interface WaveInfo {
   timer: number;
 }
 
+/** One line of the Survival post-game board. `gone` players left mid-run but keep their kills. */
+export interface PostRow {
+  id: number;
+  name: string;
+  color: number;
+  kills: number;
+  ready: boolean;
+  gone: boolean;
+}
+
 export type DeathCause = 'snipe' | 'headshot' | 'void' | 'zombie';
 
 // Client -> server
 export type ClientMsg =
   | { t: 'state'; p: V3; v: V3; yaw: number; pitch: number; f: number; g?: V3 }
   | { t: 'shoot'; from: V3; to: V3; victim?: number; zombie?: number; headshot?: boolean }
-  | { t: 'fell' };
+  | { t: 'fell' }
+  | { t: 'again' }; // Survival post-game: ready for another run
 
 // Server -> client
 export type ServerMsg =
@@ -76,6 +87,7 @@ export type ServerMsg =
   // Survival
   | { t: 'wave'; wave: WaveInfo }
   | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3 }
+  | { t: 'postgame'; rounds: number; rows: PostRow[]; waiting: number } // game-over board, resent when readiness changes
   | { t: 'hp'; hp: number; from?: V3 } // only to the player concerned; `from` is where the claw came from
   | { t: 'error'; message: string };
 

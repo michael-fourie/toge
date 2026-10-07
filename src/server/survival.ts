@@ -1,5 +1,6 @@
 import { SURVIVAL } from '../shared/constants.ts';
 import { MAP } from '../shared/map.ts';
+import { type RunRecord, buildRows, shouldRestart, waitingFor } from '../shared/postgame.ts';
 import { type ClientMsg, type NetZombie, type V3, type WaveInfo, type WavePhase, ZombieFlag, round3 } from '../shared/protocol.ts';
 import { type Zombie, type ZombieTarget, createZombie, stepHorde } from '../shared/zombie.ts';
 import type { Lobby, Member } from './lobby.ts';
@@ -9,7 +10,8 @@ const SAFE_SPAWN = 12; // zombies prefer to climb up at least this far from ever
 
 /**
  * Survival rounds for one lobby: an intermission, then a round of zombies that ends when they're all
- * dead (next round, everyone revived and healed) or everyone is down (game over, back to round 1).
+ * dead (next round, everyone revived and healed) or everyone is down (game over: the post-game board stays up
+ * until everyone present pressed Play again, or the timeout, then back to round 1).
  * Dead players stay down until the round ends. Zombies are simulated here and sent in snapshots.
  */
 export class Survival {
@@ -21,6 +23,9 @@ export class Survival {
   private zombies: Zombie[] = [];
   private nextId = 1;
   private simAcc = 0;
+  /** Zombie kills this run, per player; players who leave keep their line. Cleared on restart. */
+  private run = new Map<number, RunRecord>();
+  private ready = new Set<number>();
 
   constructor(private lobby: Lobby) {}
 
@@ -42,10 +47,9 @@ export class Survival {
     if (this.phase === 'active') this.spawn(dt);
     else {
       this.timer -= dt;
-      if (this.timer <= 0) {
-        if (this.phase === 'over') this.reset();
-        else this.startRound();
-      }
+      if (this.phase === 'over') {
+        if (shouldRestart(this.present(), this.ready, this.timer)) this.reset();
+      } else if (this.timer <= 0) this.startRound();
     }
     this.simulate(dt);
     if (this.phase !== 'active') return;
@@ -66,12 +70,28 @@ export class Survival {
     if (z.hp > 0) return;
     this.zombies.splice(this.zombies.indexOf(z), 1);
     m.info.kills++;
+    this.record(m).kills++;
     this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot: !!msg.headshot, dir: unit(sub(msg.to, msg.from)) });
     this.broadcastWave();
   }
 
+  /** Post-game: this player wants another run. */
+  again(m: Member) {
+    if (this.phase !== 'over') return;
+    this.ready.add(m.info.id);
+    this.broadcastPostgame();
+  }
+
+  /** A player left the lobby (Home, or disconnected): stop waiting for them. */
+  left(id: number) {
+    this.ready.delete(id);
+    if (this.phase === 'over') this.broadcastPostgame();
+  }
+
   /** A player who joins mid-round starts healthy. */
   heal(m: Member) {
+    this.record(m);
+    if (this.phase === 'over') this.broadcastPostgame();
     m.hp = SURVIVAL.playerHp;
     this.lobby.sendTo(m, { t: 'hp', hp: m.hp });
   }
@@ -83,8 +103,33 @@ export class Survival {
     this.setPhase('active', 0);
   }
 
+  private record(m: Member): RunRecord {
+    let r = this.run.get(m.info.id);
+    if (!r) this.run.set(m.info.id, (r = { name: m.info.name, color: m.info.color, kills: 0 }));
+    return r;
+  }
+
+  private present() {
+    return new Set(this.lobby.members.keys());
+  }
+
+  private broadcastPostgame() {
+    const present = this.present();
+    this.lobby.broadcast({
+      t: 'postgame',
+      rounds: Math.max(0, this.round - 1),
+      rows: buildRows(this.run, present, this.ready),
+      waiting: waitingFor(present, this.ready),
+    });
+  }
+
   private reset() {
     this.round = 0;
+    this.ready.clear();
+    for (const id of [...this.run.keys()]) {
+      if (this.lobby.members.has(id)) this.run.get(id)!.kills = 0;
+      else this.run.delete(id);
+    }
     this.zombies = [];
     this.toSpawn = 0;
     this.reviveAll();
@@ -102,6 +147,10 @@ export class Survival {
     this.phase = phase;
     this.timer = timer;
     this.broadcastWave();
+    if (phase === 'over') {
+      for (const m of this.lobby.members.values()) this.record(m);
+      this.broadcastPostgame();
+    }
   }
 
   private broadcastWave() {

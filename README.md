@@ -21,7 +21,7 @@ Requires Node ≥ 20 (Wrangler). Node 22 LTS is recommended, and also unlocks Vi
 Pick one when hosting:
 
 - **Battle**: free-for-all, one AWP each, one shot, one kill.
-- **Survival**: co-op against rounds of zombies on the same map. You start by the Great Tree, and zombies climb out of the clouds around the island's rim. They shamble at you and claw you (you have 100 HP), hop over roots, and pounce up onto ledges and across gaps. Each round brings more of them, and they get a bit faster and tougher: from round 3 a body shot won't drop one, but a headshot still will. Clear a round and everyone is revived and healed. If everyone goes down, it's game over and you start again from round 1.
+- **Survival**: co-op against rounds of zombies on the same map. You start by the Great Tree, and zombies climb out of the clouds around the island's rim. They shamble at you and claw you (you have 100 HP), hop over roots, and pounce up onto ledges and across gaps. Each round brings more of them, and they get a bit faster and tougher: from round 3 a body shot won't drop one, but a headshot still will. Clear a round and everyone is revived and healed. If everyone goes down, a post-game screen ranks everyone by zombie kills (MVP crown for the top scorer); press Play again to start over from round 1 once everyone is ready (or after 90 s), or Home to leave.
 
 ## Feats and streaks
 
