@@ -88,14 +88,15 @@ function buildSparrow(accent: number): GunRig {
   add(rbox(0.006, 0.02, 0.006, 0.002), m.dark, 0, -0.012, -0.002);
   const hammer = pivot(root, 0, 0.044, 0.012);
   add(rbox(0.008, 0.016, 0.008, 0.002), m.dark, 0, 0.006, 0.004, hammer);
-  const mag = pivot(root, 0, -0.04, 0.046);
+  const mag = pivot(root, 0, -0.04, 0.034); // in line with the grip, so none of it pokes out the back
   mag.rotation.x = -0.18;
-  add(rbox(0.026, 0.1, 0.036, 0.004), m.dark, 0, -0.05, 0, mag);
-  add(rbox(0.034, 0.009, 0.044, 0.003), m.steel, 0, -0.103, 0, mag);
-  return rig(root, { slide, hammer, mag }, anchors([0.014, -0.045, 0.045], [-0.004, -0.13, 0.05], [0, -0.04, 0.046], [0, 0.034, -0.205], [0.018, 0.045, -0.05]));
+  add(rbox(0.026, 0.064, 0.036, 0.004), m.dark, 0, -0.032, 0, mag); // inside the grip: only its baseplate shows
+  add(rbox(0.034, 0.009, 0.05, 0.003), m.dark, 0, -0.068, 0, mag);
+  return rig(root, { slide, hammer, mag }, anchors([0.014, -0.045, 0.045], [-0.03, -0.072, 0.03], [0, -0.04, 0.034], [0, 0.034, -0.205], [0.018, 0.045, -0.05]));
 }
 
 const sparrow: GunAnim = {
+  support: 'wrap',
   cycle: null,
   kick: { back: 0.035, flip: 0.12 },
   flash: 0xfff1c4,
@@ -161,10 +162,11 @@ function buildMarshal(accent: number): GunRig {
     add(cyl(0.0058, 0.0058, 0.04, 8), m.brass, Math.cos(a) * 0.016, Math.sin(a) * 0.016, -0.02, loader);
   }
   loader.visible = false;
-  return rig(root, { cylinder, crane, rounds, hammer, loader, mag: cylinder }, anchors([0.016, -0.045, 0.06], [0.0, -0.12, 0.06], [0, 0.012, -0.045], [0, 0.032, -0.31], [0, 0.0, -0.045]));
+  return rig(root, { cylinder, crane, rounds, hammer, loader, mag: cylinder }, anchors([0.016, -0.045, 0.06], [-0.032, -0.075, 0.045], [0, 0.012, -0.045], [0, 0.032, -0.31], [0, 0.0, -0.045]));
 }
 
 const marshal: GunAnim = {
+  support: 'wrap',
   cycle: null,
   kick: { back: 0.07, flip: 0.34 },
   flash: 0xffd9a0,

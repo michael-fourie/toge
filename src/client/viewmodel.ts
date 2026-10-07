@@ -291,6 +291,10 @@ export class ViewModel {
     // The gun's own motion.
     const p = this.plan;
     p.reset();
+    if (anim.support) {
+      p.lPose = anim.support;
+      p.lCurl = 0.95;
+    }
     anim.rest(g);
     const kit = this.kit;
     if (a?.kind === 'reload') {

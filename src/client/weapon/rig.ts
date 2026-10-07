@@ -17,7 +17,7 @@ export interface GunRig {
   root: THREE.Group;
   parts: Record<string, THREE.Object3D>;
   anchors: {
-    /** Where the right hand holds the grip, and where the left rests (the forend, or under the grip of a pistol). */
+    /** Where the right hand holds the grip, and where the left rests (the forend, or wrapped round a handgun's grip). */
     grip: THREE.Vector3;
     fore: THREE.Vector3;
     muzzle: THREE.Vector3;
@@ -29,7 +29,7 @@ export interface GunRig {
   credit?: string;
 }
 
-export type HandPose = 'grip' | 'fore' | 'knob' | 'mag' | 'pinch';
+export type HandPose = 'grip' | 'fore' | 'knob' | 'mag' | 'pinch' | 'wrap';
 
 const q = (x: number, y: number, z: number) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z));
 /** Hand orientations in gun space. The palm's normal is -Y and the fingers point -Z in the hand's own frame. */
@@ -39,6 +39,7 @@ export const POSES: Record<HandPose, THREE.Quaternion> = {
   knob: q(-0.5, 0.3, -Math.PI / 2 - 0.3), // pinching a knob or lever from the right
   mag: q(0.2, 0, Math.PI),
   pinch: q(0.35, 0, Math.PI),
+  wrap: q(0.45, 0, Math.PI / 2), // the left hand on a handgun: palm against the left of the grip, fingers over the right hand's
 };
 
 /** One frame's wishes from a gun's animation: where each hand goes (gun space), and how the whole gun is nudged. */
@@ -110,6 +111,8 @@ export interface GunAnim {
   fire(rig: GunRig, t: number, p: Plan, k: Kit): void;
   /** The reload, u = 0..1 over its whole duration. */
   reload(rig: GunRig, u: number, p: Plan, k: Kit): void;
+  /** How the left hand rests on the gun when no animation moves it (default: 'fore', cradling the forend). */
+  support?: HandPose;
   /** Camera position and rotation of the gun at rest, and when aiming down the sights. */
   hip: { pos: THREE.Vector3; rot: THREE.Euler };
   ads: { pos: THREE.Vector3; rot: THREE.Euler };
