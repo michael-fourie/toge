@@ -1,6 +1,7 @@
 import { NET } from '../../shared/constants.ts';
 import { KILL_LIMIT, TEAMS } from '../../shared/teams.ts';
-import type { GameMode } from '../../shared/protocol.ts';
+import { BATTLE_MAPS, BATTLE_MAP_IDS, randomBattleMap } from '../../shared/maps.ts';
+import type { BattleMap, GameMode } from '../../shared/protocol.ts';
 import type { Render } from './router.ts';
 import { $, SERVER_PILL, goOnline, playerName, sheet } from './ui.ts';
 
@@ -38,6 +39,21 @@ export const host: Render = (root, ctx, screen) => {
         <span>${TEAMS[0].name} vs ${TEAMS[1].name}. Pick a side in the lobby, or shuffle</span>
       </label>
     </fieldset>
+    <fieldset class="modes formats" id="maps">
+      <legend class="small-caps">Battle map</legend>
+      ${BATTLE_MAP_IDS.map(
+        (id) => `<label class="mode">
+          <input type="radio" name="map" value="${id}" />
+          <b>${BATTLE_MAPS[id].name}</b>
+          <span>${BATTLE_MAPS[id].blurb}</span>
+        </label>`,
+      ).join('')}
+      <label class="mode">
+        <input type="radio" name="map" value="random" checked />
+        <b>🎲 Random</b>
+        <span>A surprise arena each time you host</span>
+      </label>
+    </fieldset>
     <p class="hint">First to ${KILL_LIMIT} kills wins the match. Up to ${NET.maxPlayersPerLobby} players. Share the code to invite friends.</p>
     ${SERVER_PILL}
     <p class="notice" role="alert"></p>
@@ -45,7 +61,10 @@ export const host: Render = (root, ctx, screen) => {
   );
 
   const formats = $(root, '#formats');
-  const syncFormats = () => (formats.hidden = $<HTMLInputElement>(root, 'input[name=mode]:checked').value !== 'battle');
+  const maps = $(root, '#maps');
+  const syncFormats = () => {
+    formats.hidden = maps.hidden = $<HTMLInputElement>(root, 'input[name=mode]:checked').value !== 'battle';
+  };
   root.querySelectorAll('input[name=mode]').forEach((i) => i.addEventListener('change', syncFormats));
   syncFormats();
   const notice = $(root, '.notice');
@@ -63,7 +82,9 @@ export const host: Render = (root, ctx, screen) => {
     notice.textContent = '';
     const mode = $<HTMLInputElement>(root, 'input[name=mode]:checked').value as GameMode;
     const teams = mode === 'battle' && $<HTMLInputElement>(root, 'input[name=format]:checked').value === 'teams';
-    if (await goOnline(root, ctx.net)) ctx.net.host(playerName(), mode, teams);
+    const pick = $<HTMLInputElement>(root, 'input[name=map]:checked').value;
+    const map = pick === 'random' ? randomBattleMap() : (pick as BattleMap); // chosen here so every player gets the same arena
+    if (await goOnline(root, ctx.net)) ctx.net.host(playerName(), mode, teams, map);
     create.disabled = false;
   });
   create.focus();

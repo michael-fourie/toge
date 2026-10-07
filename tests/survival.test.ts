@@ -25,7 +25,7 @@ interface Internals {
 
 function setup(players = 1) {
   const sent: ServerMsg[][] = [];
-  const lobby = new Lobby('TEST', 'survival', false, () => {}, () => {});
+  const lobby = new Lobby('TEST', 'survival', false, 'windward', () => {}, () => {});
   const clients = Array.from({ length: players }, (_, i) => {
     sent.push([]);
     return { id: i + 1, ws: { readyState: 1, send: (d: string) => sent[i].push(JSON.parse(d)) }, name: `p${i + 1}`, lobby: null };

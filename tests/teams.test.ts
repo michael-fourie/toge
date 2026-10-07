@@ -34,7 +34,7 @@ test('first to the kill limit wins: a player in free-for-all, a team total in te
 
 function arena(teams: boolean, n = 4) {
   const inbox = new Map<number, ServerMsg[]>();
-  const lobby = new Lobby('TEAM', 'battle', teams, () => {}, () => {});
+  const lobby = new Lobby('TEAM', 'battle', teams, 'windward', () => {}, () => {});
   const clients = Array.from({ length: n }, (_, i) => {
     const id = i + 1;
     inbox.set(id, []);

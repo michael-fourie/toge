@@ -1,3 +1,4 @@
+import { BATTLE_MAPS } from '../../shared/maps.ts';
 import type { PlayerInfo } from '../../shared/protocol.ts';
 import { KILL_LIMIT, TEAMS } from '../../shared/teams.ts';
 import { MODES } from './host.ts';
@@ -17,7 +18,7 @@ export const lobby: Render = (root, ctx) => {
     'Lobby',
     `
     <section class="lobby-code-card" aria-label="Lobby code">
-      <span class="mode-tag mode-${j.mode}">${MODES[j.mode].name}${j.teams ? ' · Teams' : ''}</span>
+      <span class="mode-tag mode-${j.mode}">${MODES[j.mode].name}${j.teams ? ' · Teams' : ''}${j.map ? ` · ${BATTLE_MAPS[j.map].name}` : ''}</span>
       <span class="small-caps">Share this code</span>
       <div class="big-code" aria-label="${[...j.code].join(' ')}">${[...j.code].map((c) => `<span>${esc(c)}</span>`).join('')}</div>
       <div class="row">

@@ -5,6 +5,9 @@ import type { Slot, WeaponId } from './weapons.ts';
 
 export type V3 = [number, number, number];
 
+/** The Battle arenas (shared/maps.ts). */
+export type BattleMap = 'windward' | 'rustworks';
+
 /** Battle: free-for-all snipers. Survival: co-op against rounds of zombies. */
 export type GameMode = 'battle' | 'survival';
 
@@ -13,6 +16,8 @@ export interface LobbyInfo {
   mode: GameMode;
   /** Battle only: two teams instead of free-for-all. */
   teams?: boolean;
+  /** Battle only: which arena. */
+  map?: BattleMap;
   host: string;
   players: number;
   max: number;
@@ -114,7 +119,7 @@ export type ClientMsg =
 // Server -> client
 export type ServerMsg =
   | { t: 'welcome'; id: number }
-  | { t: 'joined'; code: string; mode: GameMode; hostId: number; teams?: boolean; players: PlayerInfo[]; spawn: { p: V3; yaw: number }; wave?: WaveInfo }
+  | { t: 'joined'; code: string; mode: GameMode; hostId: number; teams?: boolean; map?: BattleMap; players: PlayerInfo[]; spawn: { p: V3; yaw: number }; wave?: WaveInfo }
   | { t: 'playerJoined'; player: PlayerInfo }
   | { t: 'playerLeft'; id: number; hostId: number }
   | { t: 'snapshot'; players: NetPlayerState[]; zombies?: NetZombie[] }

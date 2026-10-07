@@ -35,7 +35,7 @@ const PALETTE = {
 const SUN_DIR = new THREE.Vector3(55, 70, 30).normalize();
 
 /** Box geometry with UVs in world metres ÷ tile. With anchorTop, side faces put v=1 at the top edge. */
-function boxGeometry(b: Box, tile: number, anchorTop = false): THREE.BoxGeometry {
+export function boxGeometry(b: Box, tile: number, anchorTop = false): THREE.BoxGeometry {
   const sx = b.max.x - b.min.x;
   const sy = b.max.y - b.min.y;
   const sz = b.max.z - b.min.z;
@@ -158,7 +158,7 @@ export interface World {
   update(time: number): void;
 }
 
-/** The daylight sky islands (Practice and Battle). Survival is the Foundry, at night: see foundryworld.ts. */
+/** The daylight sky islands (Windward). Rustworks is rustworld.ts; Survival is the Foundry, at night: foundryworld.ts. */
 export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
   const scene = new THREE.Scene();
   const P = PALETTE;
@@ -364,7 +364,7 @@ function islandUnderside(b: Box, mat: THREE.Material, r: () => number): THREE.Me
 }
 
 /** Rising translucent rings above a pad: the wind spirit that throws you. */
-function windSpirit(scene: THREE.Scene, b: Box): THREE.Mesh[] {
+export function windSpirit(scene: THREE.Scene, b: Box): THREE.Mesh[] {
   const out: THREE.Mesh[] = [];
   const size = b.max.x - b.min.x;
   for (let i = 0; i < 3; i++) {
@@ -381,13 +381,13 @@ function windSpirit(scene: THREE.Scene, b: Box): THREE.Mesh[] {
   return out;
 }
 
-interface Animated {
+export interface Animated {
   obj: THREE.Object3D;
   update(time: number): void;
 }
 
 /** Wind gate: a glowing mint ring across the slab, nothing else (it boosts whichever way you cross). */
-function windGate(t: Extract<Trigger, { kind: 'boost' }>): Animated {
+export function windGate(t: Extract<Trigger, { kind: 'boost' }>): Animated {
   const g = new THREE.Group();
   g.position.set((t.min.x + t.max.x) / 2, (t.min.y + t.max.y) / 2, (t.min.z + t.max.z) / 2);
   g.rotation.y = Math.atan2(-t.dir.x, -t.dir.z); // ring faces along the gate's axis
@@ -409,7 +409,7 @@ function windGate(t: Extract<Trigger, { kind: 'boost' }>): Animated {
 }
 
 /** Grapple hook: a brass ring on a little floating rock, glowing so you can spot it from across the map. */
-function hookRing(x: number, y: number, z: number, rockMat: THREE.Material): Animated {
+export function hookRing(x: number, y: number, z: number, rockMat: THREE.Material): Animated {
   const g = new THREE.Group();
   g.position.set(x, y, z);
   const stone = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 0), rockMat);
@@ -432,7 +432,7 @@ function hookRing(x: number, y: number, z: number, rockMat: THREE.Material): Ani
 }
 
 /** Puffball: a squishy spotted mushroom cap that wobbles, sitting on the trigger's floor. */
-function puffball(t: Extract<Trigger, { kind: 'bounce' }>): Animated {
+export function puffball(t: Extract<Trigger, { kind: 'bounce' }>): Animated {
   const g = new THREE.Group();
   const size = t.max.x - t.min.x;
   g.position.set((t.min.x + t.max.x) / 2, t.min.y, (t.min.z + t.max.z) / 2);

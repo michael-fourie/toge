@@ -11,7 +11,7 @@ export interface SpawnPoint {
 
 /** Purely visual set dressing (no collision). */
 export interface Decor {
-  kind: 'canopy';
+  kind: 'canopy' | 'stack';
   pos: Vec3;
   radius: number;
 }
@@ -49,7 +49,7 @@ export function wedge(kind: 'ramp' | 'surf', x0: number, y0: number, z0: number,
  * A surf "A-frame" over the void, like CS surf: two steep faces meeting at a ridge.
  * The ridge runs along `along`; `slopeDeg` is each face's angle from horizontal.
  */
-function surfFrame(along: 'x' | 'z', ridge: number, ridgeY: number, from: number, to: number, halfWidth: number, slopeDeg = 55): Box[] {
+export function surfFrame(along: 'x' | 'z', ridge: number, ridgeY: number, from: number, to: number, halfWidth: number, slopeDeg = 55): Box[] {
   const baseY = ridgeY - halfWidth * Math.tan((slopeDeg * Math.PI) / 180);
   const across: 'x' | 'z' = along === 'z' ? 'x' : 'z';
   const lo = Math.min(from, to);
@@ -62,12 +62,12 @@ function surfFrame(along: 'x' | 'z', ridge: number, ridgeY: number, from: number
 }
 
 /** A grapple hook: a brass ring floating in the sky. Solid but tiny; the rope is aim-assisted toward it (see findGrapple). */
-function hook(x: number, y: number, z: number): Box {
+export function hook(x: number, y: number, z: number): Box {
   return box(x, y, z, 0.9, 0.9, 0.9, 'hook');
 }
 
 /** Launch pad on a floor at (x, floorY, z) that throws you onto `to`. */
-function padTo(x: number, floorY: number, z: number, to: Vec3, apex: number, size = 2.5): Box {
+export function padTo(x: number, floorY: number, z: number, to: Vec3, apex: number, size = 2.5): Box {
   const pad = box(x, floorY + 0.1, z, size, 0.2, size, 'pad');
   return { ...pad, launch: launchTo({ x, y: floorY + 0.2, z }, to, apex) };
 }
@@ -75,7 +75,7 @@ function padTo(x: number, floorY: number, z: number, to: Vec3, apex: number, siz
 const DIRS = { '+x': { x: 1, y: 0, z: 0 }, '-x': { x: -1, y: 0, z: 0 }, '+z': { x: 0, y: 0, z: 1 }, '-z': { x: 0, y: 0, z: -1 } };
 
 /** Wind gate (speed booster): a thin slab across your path, from min to max corners. Boosts either way; `dir` is its axis. */
-function gate(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, dir: keyof typeof DIRS, speed: number): Trigger {
+export function gate(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, dir: keyof typeof DIRS, speed: number): Trigger {
   return { kind: 'boost', min: { x: x0, y: y0, z: z0 }, max: { x: x1, y: y1, z: z1 }, dir: DIRS[dir], speed };
 }
 
@@ -83,7 +83,7 @@ function gate(x0: number, y0: number, z0: number, x1: number, y1: number, z1: nu
  * Puffball (jump booster) sitting on a floor. `height` is how high it throws you; `push` is the
  * horizontal speed it throws you at along the way you were already moving.
  */
-function puff(x: number, floorY: number, z: number, height: number, push = 7, size = 3): Trigger {
+export function puff(x: number, floorY: number, z: number, height: number, push = 7, size = 3): Trigger {
   const h = size / 2;
   const up = Math.sqrt(2 * MOVE.gravity * height);
   return { kind: 'bounce', min: { x: x - h, y: floorY, z: z - h }, max: { x: x + h, y: floorY + 0.6, z: z + h }, up, push };
@@ -94,10 +94,10 @@ const flip = (v: Vec3): Vec3 => ({ x: -v.x, y: v.y, z: -v.z });
 function flipBounds<T extends { min: Vec3; max: Vec3 }>(b: T): T {
   return { ...b, min: { x: -b.max.x, y: b.min.y, z: -b.max.z }, max: { x: -b.min.x, y: b.max.y, z: -b.min.z } };
 }
-function mirror(b: Box): Box {
+export function mirror(b: Box): Box {
   return { ...flipBounds(b), launch: b.launch && flip(b.launch), ramp: b.ramp && { axis: b.ramp.axis, rise: -b.ramp.rise as 1 | -1 } };
 }
-const mirrorTrigger = (t: Trigger): Trigger => (t.kind === 'boost' ? { ...flipBounds(t), dir: flip(t.dir) } : flipBounds(t));
+export const mirrorTrigger = (t: Trigger): Trigger => (t.kind === 'boost' ? { ...flipBounds(t), dir: flip(t.dir) } : flipBounds(t));
 
 /**
  * A little stone shrine: 4 walls with doorways on the ±Z sides, sniping windows on the ±X sides,
@@ -140,7 +140,7 @@ type Side = '+x' | '-x' | '+z' | '-z';
  * walkable ramps alternate between the west and east walls, each rising through a hole in the floor
  * above; the last one comes up through a hatch onto a grassy roof ringed by a chest-high parapet.
  */
-function house(x0: number, z0: number, x1: number, z1: number, floorY: number, floors: number, doors: Side[], balcony?: Side): Box[] {
+export function house(x0: number, z0: number, x1: number, z1: number, floorY: number, floors: number, doors: Side[], balcony?: Side): Box[] {
   const H = 4; // storey height
   const t = 0.5; // wall thickness
   const out: Box[] = [];

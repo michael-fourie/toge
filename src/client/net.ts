@@ -1,6 +1,6 @@
 import { stash } from './inventoryStore.ts';
 import { storedSkinCode } from './skinStore.ts';
-import type { ClientMsg, GameMode, LobbyInfo, ServerMsg } from '../shared/protocol.ts';
+import type { BattleMap, ClientMsg, GameMode, LobbyInfo, ServerMsg } from '../shared/protocol.ts';
 
 type Listener = (msg: ServerMsg) => void;
 
@@ -26,8 +26,8 @@ export class Net {
   }
 
   /** Replies arrive as `joined` or `error` messages through `on()`. */
-  host(name: string, mode: GameMode, teams = false) {
-    this.open(teams ? { name, mode, teams: '1' } : { name, mode });
+  host(name: string, mode: GameMode, teams = false, map?: BattleMap) {
+    this.open({ name, mode, ...(teams && { teams: '1' }), ...(map && mode === 'battle' && { map }) });
   }
 
   join(name: string, code: string) {

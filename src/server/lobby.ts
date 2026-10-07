@@ -2,7 +2,7 @@ import { GRENADE, KNIFE, MOVE, NET, RESPAWN_SECONDS, SURVIVAL, WEAPON } from '..
 import { blastTargets } from '../shared/grenade.ts';
 import type { MapData } from '../shared/map.ts';
 import { mapFor } from '../shared/maps.ts';
-import type { ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
+import type { BattleMap, ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
 import { type Gear, encodeGear } from '../shared/items.ts';
 import { JACKETS, type Skin, encodeSkin } from '../shared/skin.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
@@ -63,7 +63,7 @@ export class Lobby {
   private survival: Survival | null;
   /** Battle: set once someone reaches the kill limit; the next match starts when it passes. */
   private overAt = 0;
-  private readonly map: MapData;
+  private readonly data: MapData;
 
   /** `onChange` fires on join/leave and as a heartbeat; `onEmpty` once the last player leaves. */
   constructor(
@@ -71,10 +71,12 @@ export class Lobby {
     readonly mode: GameMode,
     /** Battle only: two teams instead of free-for-all. */
     readonly teams: boolean,
+    /** Battle: which arena. */
+    readonly map: BattleMap,
     private onChange: (l: Lobby) => void,
     private onEmpty: (l: Lobby) => void,
   ) {
-    this.map = mapFor(mode);
+    this.data = mapFor(mode, map);
     this.survival = mode === 'survival' ? new Survival(this) : null;
     this.timer = setInterval(() => this.tick(), 1000 / NET.snapshotRate);
   }
@@ -113,6 +115,7 @@ export class Lobby {
       mode: this.mode,
       hostId: this.hostId,
       teams: this.teams || undefined,
+      map: this.mode === 'battle' ? this.map : undefined,
       players: [...this.members.values()].map((x) => x.info),
       spawn,
       wave: this.survival?.info(),
@@ -214,7 +217,7 @@ export class Lobby {
     const center = { x: p[0], y: p[1], z: p[2] };
     if (this.survival) return this.survival.blast(m, center);
     const targets = [...this.members.values()].filter((v) => v !== m && v.info.alive && !sameTeam(v.info, m.info)).map((v) => ({ id: v.info.id, pos: { x: v.state.p[0], y: v.state.p[1], z: v.state.p[2] } }));
-    for (const id of blastTargets(center, targets, this.map.boxes)) {
+    for (const id of blastTargets(center, targets, this.data.boxes)) {
       const v = this.members.get(id)!;
       this.kill(v, m, 'grenade', [v.state.p[0] - p[0], v.state.p[1] + 1 - p[1] + 0.8, v.state.p[2] - p[2]]);
     }
@@ -301,7 +304,7 @@ export class Lobby {
   private pickSpawn(): { p: V3; yaw: number } {
     const living = [...this.members.values()].filter((m) => m.info.alive);
     if (this.survival) {
-      const starts = this.map.spawns;
+      const starts = this.data.spawns;
       let best = starts[0];
       let bestDist = -1;
       for (const s of starts) {
@@ -315,10 +318,10 @@ export class Lobby {
       return { p: [best.pos.x, best.pos.y, best.pos.z], yaw: best.yaw };
     }
     const enemies = living.map((m) => ({ x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] }));
-    const i = pickSpawn(this.map.spawns, enemies, this.recentSpawns, this.map.boxes);
+    const i = pickSpawn(this.data.spawns, enemies, this.recentSpawns, this.data.boxes);
     this.recentSpawns.push(i);
     if (this.recentSpawns.length > RECENT_SPAWNS) this.recentSpawns.shift();
-    const best = this.map.spawns[i];
+    const best = this.data.spawns[i];
     return { p: [best.pos.x, best.pos.y, best.pos.z], yaw: best.yaw };
   }
 

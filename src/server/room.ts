@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { ClientMsg, GameMode } from '../shared/protocol.ts';
+import { isBattleMap } from '../shared/maps.ts';
+import type { BattleMap, ClientMsg, GameMode } from '../shared/protocol.ts';
 import { decodeGear } from '../shared/items.ts';
 import { decodeSkin } from '../shared/skin.ts';
 import { type Client, Lobby, send } from './lobby.ts';
@@ -17,6 +18,8 @@ export class LobbyRoom extends DurableObject<Env> {
     const code = url.searchParams.get('code')!;
     const mode = url.searchParams.get('mode') === 'survival' ? 'survival' : 'battle';
     const teams = mode === 'battle' && url.searchParams.get('teams') === '1';
+    const mapParam = url.searchParams.get('map');
+    const map = mode === 'battle' && isBattleMap(mapParam) ? mapParam : 'windward';
     const name = url.searchParams.get('name') ?? '';
     const { 0: peer, 1: ws } = new WebSocketPair();
     ws.accept();
@@ -26,7 +29,7 @@ export class LobbyRoom extends DurableObject<Env> {
     const gear = decodeGear(url.searchParams.get('gear')) ?? undefined; // forged ids just mean nothing worn
     const client: Client = { id, ws, name: name.slice(0, 16).trim() || `player${id}`, skin, gear, lobby: null };
     send(client, { t: 'welcome', id });
-    const lobby = this.open(code, mode, teams);
+    const lobby = this.open(code, mode, teams, map);
     if (lobby.full) {
       send(client, { t: 'error', message: 'Lobby is full.' });
       ws.close(1000, 'full');
@@ -47,13 +50,14 @@ export class LobbyRoom extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: peer });
   }
 
-  private open(code: string, mode: GameMode, teams: boolean): Lobby {
+  private open(code: string, mode: GameMode, teams: boolean, map: BattleMap): Lobby {
     const dir = this.env.DIRECTORY.getByName('all');
     this.lobby ??= new Lobby(
       code,
       mode,
       teams,
-      (l) => this.ctx.waitUntil(dir.report(l.code, l.mode, l.teams, l.hostName, l.members.size)),
+      map,
+      (l) => this.ctx.waitUntil(dir.report(l.code, l.mode, l.teams, l.map, l.hostName, l.members.size)),
       (l) => {
         this.lobby = null;
         this.ctx.waitUntil(dir.remove(l.code));

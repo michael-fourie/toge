@@ -1,4 +1,5 @@
 import type { LobbyInfo } from '../../shared/protocol.ts';
+import { BATTLE_MAPS } from '../../shared/maps.ts';
 import { MODES } from './host.ts';
 import type { Render } from './router.ts';
 import { $, SERVER_PILL, esc, goOnline, playerName, replay, sheet } from './ui.ts';
@@ -88,7 +89,7 @@ export const join: Render = (root, ctx, screen) => {
             const full = l.players >= l.max;
             return `<li>
               <b class="lobby-code">${esc(l.code)}</b>
-              <span class="lobby-host">${esc(l.host)}'s sky <small class="mode-tag mode-${l.mode}">${MODES[l.mode].name}${l.teams ? ' · Teams' : ''}</small></span>
+              <span class="lobby-host">${esc(l.host)}'s sky <small class="mode-tag mode-${l.mode}">${MODES[l.mode].name}${l.teams ? ' · Teams' : ''}${l.map ? ` · ${BATTLE_MAPS[l.map].name}` : ''}</small></span>
               <em>${l.players}/${l.max}</em>
               <button data-code="${esc(l.code)}" ${full ? 'disabled' : ''}>${full ? 'Full' : 'Join'}</button>
             </li>`;
