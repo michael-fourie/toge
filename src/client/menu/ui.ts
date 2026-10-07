@@ -64,7 +64,7 @@ export const $ = <T extends HTMLElement = HTMLElement>(root: ParentNode, sel: st
 
 const NAME_KEY = 'atrous.name';
 
-export function storedName(): string {
+function storedName(): string {
   try {
     return localStorage.getItem(NAME_KEY) ?? '';
   } catch {
@@ -72,7 +72,7 @@ export function storedName(): string {
   }
 }
 
-export function saveName(name: string) {
+function saveName(name: string) {
   try {
     localStorage.setItem(NAME_KEY, name.trim().slice(0, 16));
   } catch {
@@ -80,14 +80,14 @@ export function saveName(name: string) {
   }
 }
 
-/** The name to play under; invents (and remembers) a bean name if none is set. */
+/** The name to play under: your username, or a generic Guest#### (kept in this browser) until you make an account. */
 export function playerName(): string {
   if (account.user) return account.user; // signed in: the server uses your username regardless
   const n = storedName().trim();
   if (n) return n;
-  const bean = `bean${Math.floor(Math.random() * 1000)}`;
-  saveName(bean);
-  return bean;
+  const guest = `Guest${1000 + Math.floor(Math.random() * 9000)}`;
+  saveName(guest);
+  return guest;
 }
 
 // --- Feedback ----------------------------------------------------------------------

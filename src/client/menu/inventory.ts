@@ -1,12 +1,11 @@
 import { RARITIES, RARITY, SLOTS, SLOT_NAME, type Slot, itemById } from '../../shared/items.ts';
 import { JACKETS } from '../../shared/skin.ts';
-import { account } from '../account.ts';
 import { stash } from '../inventoryStore.ts';
 import { sfx } from '../sfx.ts';
 import { storedSkin } from '../skinStore.ts';
 import { coinText, itemCard } from './lootui.ts';
 import type { Render } from './router.ts';
-import { $, esc, sheet, storedName } from './ui.ts';
+import { $, esc, playerName, sheet } from './ui.ts';
 import { mountSkinEditor, skinLabel } from './skin.ts';
 import { DEFAULT_JACKET, mountSkinPreview } from './skinPreview.ts';
 import './skin.css';
@@ -45,7 +44,7 @@ export const inventory: Render = (root, _ctx, screen) => {
   );
   $(root, '.sheet').classList.add('wide');
 
-  const name = () => (account.user ?? storedName()).trim();
+  const name = () => playerName();
   const preview = mountSkinPreview($<HTMLCanvasElement>(root, '.skin-preview'), true);
   let filter: Filter = 'all';
   let selected: number | null = null;
