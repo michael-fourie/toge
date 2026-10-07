@@ -16,6 +16,8 @@ Requires Node ≥ 20 (Wrangler). Node 22 LTS is recommended, and also unlocks Vi
 
 **Summit** (Battle): a snowy mountain top above the clouds. A rock ridge splits it with slide ramps into wind gates and a summit nook you pad up to; an ice chute to surf down a gully, a cable station run, a log lodge with a sniper roof, ice walls to wallrun. Step off the edge and the clouds take you.
 
+**Dune Village** (pick it when hosting a Battle): a sunbaked market town inside a sandstone wall. Snipe from flat roofs and the gatehouse towers, surf the glazed-tile aqueduct, slide down the dune into a wind-gate run, swing roof to roof over the market.
+
 **Practice** runs offline against target dummies. **Host** creates a lobby with a 4-letter code. Others join with that code, from the lobby list, or with `/?join=CODE`.
 
 ## Skins
