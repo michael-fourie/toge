@@ -18,7 +18,7 @@ function play(s: PlayerState, input: MoveInput, seconds: number, onTick?: (i: nu
 const dist = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
 test('map choice: Battle takes any listed arena, Random picks a real one, Survival ignores it', () => {
-  assert.deepEqual([...BATTLE_MAP_IDS].sort(), ['rustworks', 'windward']);
+  for (const id of ['windward', 'rustworks'] as const) assert.ok(BATTLE_MAP_IDS.includes(id), id); // other arenas have their own test files
   assert.ok(isBattleMap('rustworks') && !isBattleMap('nope') && !isBattleMap(undefined));
   assert.equal(mapFor('battle', 'rustworks'), BATTLE_MAPS.rustworks.data);
   assert.equal(mapFor('battle'), BATTLE_MAPS.windward.data);

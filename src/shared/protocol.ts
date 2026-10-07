@@ -6,7 +6,7 @@ import type { Slot, WeaponId } from './weapons.ts';
 export type V3 = [number, number, number];
 
 /** The Battle arenas (shared/maps.ts). */
-export type BattleMap = 'windward' | 'rustworks';
+export type BattleMap = 'windward' | 'rustworks' | 'summit';
 
 /** Battle: free-for-all snipers. Survival: co-op against rounds of zombies. */
 export type GameMode = 'battle' | 'survival';

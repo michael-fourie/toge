@@ -115,7 +115,7 @@ function buildRustworks(): MapData {
  * crates and catwalks (with headroom, away from edges, pads and gates), then farthest-point sampled so no two
  * are close. Deterministic, so the client and the server agree.
  */
-function spawnSpots(boxes: readonly Box[], triggers: readonly Trigger[], count: number): SpawnPoint[] {
+export function spawnSpots(boxes: readonly Box[], triggers: readonly Trigger[], count: number): SpawnPoint[] {
   const R = PLAYER.halfWidth + 0.15;
   const solid = boxes.filter((b) => b.kind !== 'hook');
   const clear = (x: number, y: number, z: number) =>

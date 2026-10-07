@@ -49,6 +49,7 @@ import type { Net } from './net.ts';
 import { sfx } from './sfx.ts';
 import { ViewModel } from './viewmodel.ts';
 import { buildRustworks } from './rustworld.ts';
+import { buildSummit } from './summitworld.ts';
 import { type World, buildWorld } from './world.ts';
 
 type Joined = Extract<ServerMsg, { t: 'joined' }>;
@@ -216,7 +217,7 @@ export class Game {
       this.foundry = buildFoundry(this.map, this.renderer, color0); // Survival is the Foundry, at night
       this.world = this.foundry;
       this.renderer.shadowMap.autoUpdate = false; // the moon's shadows are redrawn every few frames, not every frame
-    } else this.world = joined?.map === 'rustworks' ? buildRustworks(this.map, this.renderer) : buildWorld(this.map, this.renderer);
+    } else this.world = (joined?.map === 'rustworks' ? buildRustworks : joined?.map === 'summit' ? buildSummit : buildWorld)(this.map, this.renderer);
     this.corpses = new Corpses(this.world.scene);
     this.ropeSelf = new Rope(this.world.scene);
     this.grenadeFx = new GrenadeFx(this.world.scene);

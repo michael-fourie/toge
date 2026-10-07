@@ -14,6 +14,8 @@ Requires Node ≥ 20 (Wrangler). Node 22 LTS is recommended, and also unlocks Vi
 
 **The map, Windward:** two harbour islands face each other across a great tree. Three lanes lead to the middle: a slide-and-bhop Windway, a Surf Gorge, and walled Old Ruins. Along the way are multi-storey houses with sniping windows, extra surfs, wind gates (speed boosters) and puffball mushrooms (jump boosters).
 
+**Summit** (Battle): a snowy mountain top above the clouds. A rock ridge splits it with slide ramps into wind gates and a summit nook you pad up to; an ice chute to surf down a gully, a cable station run, a log lodge with a sniper roof, ice walls to wallrun. Step off the edge and the clouds take you.
+
 **Practice** runs offline against target dummies. **Host** creates a lobby with a 4-letter code. Others join with that code, from the lobby list, or with `/?join=CODE`.
 
 ## Skins
