@@ -50,6 +50,7 @@ src/client/
   world.ts      renders MAP by box.kind (+ sky, clouds, scenery). textures.ts = procedural canvas textures
   viewmodel.ts  first-person rifle + hands, all animation keyframed in code
   weapon/       awp.ts (procedural AWP + optional GLB loader/fitter), hands.ts (Arm)
+  grenade.ts    (shared) grenade physics, blast targets (line of sight) and the no-slowdown shove; client grenadefx.ts / nadehud.ts draw it; the thrower reports 'boom', the server validates and kills
   rope.ts       grapple rope + hook meshes
   killcam.ts    Trail (rolling per-player poses) + replay timing; game.ts records everyone and replays your death from the killer's eyes
   speedfx.ts    wind streaks overlay that scale with speed (hud.ts owns it); sfx.setWind adds the rushing-wind loop

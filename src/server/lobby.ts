@@ -1,4 +1,5 @@
-import { MOVE, NET, RESPAWN_SECONDS, SURVIVAL } from '../shared/constants.ts';
+import { GRENADE, MOVE, NET, RESPAWN_SECONDS, SURVIVAL } from '../shared/constants.ts';
+import { blastTargets } from '../shared/grenade.ts';
 import { MAP } from '../shared/map.ts';
 import type { ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
 import { JACKETS, type Skin, encodeSkin } from '../shared/skin.ts';
@@ -27,6 +28,9 @@ export interface Member {
   info: PlayerInfo;
   state: NetPlayerState;
   lastShot: number;
+  /** When this player last threw a grenade, and the one still in flight (if any) for validating its blast. */
+  nadeAt: number;
+  nadeOut: { p: V3; t: number } | null;
   respawnAt: number;
   /** Survival only: zombies claw this down; Battle is one-shot-one-kill. */
   hp: number;
@@ -84,6 +88,8 @@ export class Lobby {
       info: { id: client.id, name: client.name, color, kills: 0, deaths: 0, alive: true, skin: client.skin && encodeSkin(client.skin) },
       state: { id: client.id, p: spawn.p, v: [0, 0, 0], yaw: spawn.yaw, pitch: 0, f: 0 },
       lastShot: 0,
+      nadeAt: 0,
+      nadeOut: null,
       respawnAt: 0,
       hp: SURVIVAL.playerHp,
     };
@@ -141,9 +147,43 @@ export class Lobby {
       case 'punch':
         this.survival?.buy(m);
         return;
+      case 'nade':
+        this.onNade(m, msg);
+        return;
+      case 'boom':
+        this.onBoom(m, msg.p);
+        return;
       case 'fell':
         if (m.info.alive) this.kill(m, m, 'void', [0, 1, 0]);
         return;
+    }
+  }
+
+  /** A grenade leaves a hand: rate limit, remember it for validating the blast, show it to everyone else. */
+  private onNade(m: Member, msg: Extract<ClientMsg, { t: 'nade' }>) {
+    const now = Date.now();
+    if (!m.info.alive || now - m.nadeAt < GRENADE.cooldown * 1000 * 0.9) return;
+    if (!finite3(msg.p) || !finite3(msg.v) || Math.hypot(...msg.v) > MOVE.maxSpeed + GRENADE.throwSpeed + 10) return;
+    m.nadeAt = now;
+    m.nadeOut = { p: msg.p, t: now };
+    this.broadcast({ t: 'nade', id: m.info.id, p: msg.p, v: msg.v }, m.info.id);
+  }
+
+  /** The thrower's client reports where its grenade went off; we only trust it for the one we saw thrown. */
+  private onBoom(m: Member, p: V3) {
+    const out = m.nadeOut;
+    if (!out || !finite3(p)) return;
+    const age = Date.now() - out.t;
+    if (age < 300 || age > (GRENADE.fuse + 4) * 1000) return;
+    if (Math.hypot(p[0] - out.p[0], p[1] - out.p[1], p[2] - out.p[2]) > 120) return;
+    m.nadeOut = null;
+    this.broadcast({ t: 'blast', id: m.info.id, p });
+    const center = { x: p[0], y: p[1], z: p[2] };
+    if (this.survival) return this.survival.blast(m, center);
+    const targets = [...this.members.values()].filter((v) => v !== m && v.info.alive).map((v) => ({ id: v.info.id, pos: { x: v.state.p[0], y: v.state.p[1], z: v.state.p[2] } }));
+    for (const id of blastTargets(center, targets, MAP.boxes)) {
+      const v = this.members.get(id)!;
+      this.kill(v, m, 'grenade', [v.state.p[0] - p[0], v.state.p[1] + 1 - p[1] + 0.8, v.state.p[2] - p[2]]);
     }
   }
 
@@ -236,6 +276,8 @@ export class Lobby {
     }
   }
 }
+
+const finite3 = (v: unknown): v is V3 => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
 
 /** A grapple anchor is only relayed if it's a real point within rope reach of the player. */
 function validAnchor(g: V3 | undefined, p: V3): V3 | undefined {

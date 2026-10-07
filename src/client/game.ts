@@ -1,11 +1,12 @@
 import GUI from 'lil-gui';
 import * as THREE from 'three';
-import { PLAYER, MOVE, NET, RESPAWN_SECONDS, SURVIVAL, TICK_DT, WEAPON } from '../shared/constants.ts';
+import { GRENADE, PLAYER, MOVE, NET, RESPAWN_SECONDS, SURVIVAL, TICK_DT, WEAPON } from '../shared/constants.ts';
 import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
 import { MAP } from '../shared/map.ts';
 import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/math.ts';
 import { Ev, type GrappleTarget, type PlayerState, createPlayerState, emptyInput, findGrapple, stepPlayer } from '../shared/movement.ts';
 import { punchStatus, weaponStats } from '../shared/punch.ts';
+import { type Grenade, applyKnock, blastKnock, blastTargets, stepGrenade, throwVelocity } from '../shared/grenade.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import {
   type ClientMsg,
@@ -26,9 +27,11 @@ import { Avatar, Corpses } from './avatar.ts';
 import { PostGame } from './postgame.ts';
 import { Horde } from './horde.ts';
 import { Hud } from './hud.ts';
+import { GrenadeFx } from './grenadefx.ts';
 import { Input } from './input.ts';
 import { KILLCAM, Trail, killcamText, replayTime, replaying } from './killcam.ts';
 import { MINT, buildPunchMachine } from './punchmachine.ts';
+import { NadeHud } from './nadehud.ts';
 import { PunchHud } from './punchhud.ts';
 import { Rope } from './rope.ts';
 import { SpeedFx } from './speedfx.ts';
@@ -68,7 +71,7 @@ interface Tracer {
 const BASE_FOV = 78; // vertical; ~106° horizontal at 16:9
 const tracerGeo = new THREE.CylinderGeometry(0.025, 0.025, 1, 6, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
 
-const verbFor: Record<DeathCause, string> = { snipe: 'sniped', headshot: '💥 HEADSHOT', void: 'fell into the void', zombie: 'got munched 🧟' };
+const verbFor: Record<DeathCause, string> = { snipe: 'sniped', headshot: '💥 HEADSHOT', void: 'fell into the void', zombie: 'got munched 🧟', grenade: 'blew up 💣' };
 /** Stand-in for the killfeed when a zombie goes down. */
 const ZOMBIE_INFO: PlayerInfo = { id: -1, name: 'zombie', color: 0x7fae6a, kills: 0, deaths: 0, alive: false };
 const YEETS = ['YEET', 'SNIPED', 'BONK', 'GOT EM', 'SENT FLYING'];
@@ -119,6 +122,12 @@ export class Game {
   private ropeSelf: Rope;
   private ropeMiss = { t: 0, end: new THREE.Vector3() };
   private remoteRopes = new Map<number, Rope>();
+
+  // Grenades (Q): everyone's in flight, the fx, our cooldown (game time of our last throw) and its HUD.
+  private grenades: { owner: number; g: Grenade; obj: THREE.Group; fuse: number }[] = [];
+  private grenadeFx: GrenadeFx;
+  private nadeAt = -Infinity;
+  private nadeHud: NadeHud;
 
   // Kill-cam: trails of everyone, recent shots, and the replay in progress (if any).
   private selfTrail = new Trail();
@@ -177,6 +186,7 @@ export class Game {
     this.world = buildWorld(MAP, this.renderer);
     this.corpses = new Corpses(this.world.scene);
     this.ropeSelf = new Rope(this.world.scene);
+    this.grenadeFx = new GrenadeFx(this.world.scene);
     if (this.mode === 'survival') {
       this.horde = new Horde(this.world.scene);
       this.punchMachine = buildPunchMachine(MAP.punchMachine);
@@ -203,6 +213,7 @@ export class Game {
 
     this.hud = new Hud(container, joined ? `${this.mode === 'survival' ? 'SURVIVAL' : 'LOBBY'} ${joined.code}` : 'PRACTICE — shoot the dummies');
     this.punchHud = new PunchHud(this.hud.root);
+    this.nadeHud = new NadeHud(this.hud.root);
     this.input = new Input(this.renderer.domElement);
     if (net && this.mode === 'survival') this.postgame = new PostGame(container, this.selfId, { onAgain: () => { net.send({ t: 'again' }); void this.input.lock(); }, onHome: () => this.exit() });
     this.input.yaw = spawn.yaw;
@@ -250,6 +261,7 @@ export class Game {
     this.updateTracers(dt);
     this.world.update(this.time);
     this.punchMachine?.update(this.time);
+    this.updateGrenades(dt);
     this.updateCamera(dt);
     this.recordSelf();
     this.updateRopes(dt);
@@ -347,6 +359,7 @@ export class Game {
     if (wantScope && !this.scoped) sfx.scope();
     this.scoped = wantScope;
     if (this.input.takeFire()) this.fire();
+    if (this.input.takeGrenade()) this.throwGrenade();
   }
 
   private startReload() {
@@ -444,6 +457,87 @@ export class Game {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Grenades
+
+  /** Progress 0..1 to our next grenade; 1 = one in hand. */
+  private nadeProgress() {
+    return Math.min(1, (this.time - this.nadeAt) / GRENADE.cooldown);
+  }
+
+  private throwGrenade() {
+    if (!this.alive || this.nadeProgress() < 1) return;
+    const look = lookDir(this.input.yaw, this.input.pitch);
+    const o = { x: this.renderPos.x + look.x * 0.5, y: this.renderPos.y + this.eyeHeight - 0.15 + look.y * 0.5, z: this.renderPos.z + look.z * 0.5 };
+    const v = throwVelocity(this.input.yaw, this.input.pitch, this.me.vel); // your own velocity rides along: throws keep your momentum
+    this.nadeAt = this.time;
+    this.spawnGrenade(this.selfId, o, v);
+    sfx.throwNade();
+    this.opts.net?.send({ t: 'nade', p: [round3(o.x), round3(o.y), round3(o.z)], v: [round3(v.x), round3(v.y), round3(v.z)] });
+  }
+
+  private spawnGrenade(owner: number, pos: Vec3, vel: Vec3) {
+    this.grenades.push({ owner, g: { pos: { ...pos }, vel: { ...vel }, age: 0 }, obj: this.grenadeFx.makeGrenade(), fuse: GRENADE.fuse });
+  }
+
+  private updateGrenades(dt: number) {
+    for (let i = this.grenades.length - 1; i >= 0; i--) {
+      const n = this.grenades[i];
+      const steps = Math.max(1, Math.ceil(dt / (1 / 90)));
+      for (let s = 0; s < steps; s++) stepGrenade(n.g, dt / steps, MAP.boxes);
+      n.obj.position.set(n.g.pos.x, n.g.pos.y, n.g.pos.z);
+      n.obj.rotation.x += dt * 9;
+      n.obj.rotation.z += dt * 6;
+      this.grenadeFx.tick(n.obj, n.g.age);
+      if (n.owner === this.selfId && n.g.age >= n.fuse) {
+        // Ours: it goes off here and now; the server just validates the blast and does the damage.
+        const p = { ...n.g.pos };
+        this.removeGrenade(i);
+        this.opts.net?.send({ t: 'boom', p: [round3(p.x), round3(p.y), round3(p.z)] });
+        this.blast(p, this.selfId);
+        if (!this.opts.net) this.practiceBlast(p);
+      } else if (n.owner !== this.selfId && n.g.age >= n.fuse + 1.5) {
+        this.removeGrenade(i); // the thrower's blast never arrived (they left?): don't hang around
+      }
+    }
+    this.grenadeFx.update(dt);
+    this.nadeHud.update(this.nadeProgress(), GRENADE.cooldown - (this.time - this.nadeAt));
+  }
+
+  private removeGrenade(i: number) {
+    this.grenades[i].obj.removeFromParent();
+    this.grenades.splice(i, 1);
+  }
+
+  /** Everyone sees and hears the blast, and anyone close gets shoved (thrower included) without losing speed. */
+  private blast(p: Vec3, owner: number) {
+    this.grenadeFx.explode(p);
+    // The thrower's matching grenade (if we were still simulating it) is replaced by the reported blast.
+    if (owner !== this.selfId) {
+      const j = this.grenades.findIndex((n) => n.owner === owner);
+      if (j >= 0) this.removeGrenade(j);
+    }
+    const dist = Math.hypot(p.x - this.renderPos.x, p.y - this.renderPos.y, p.z - this.renderPos.z);
+    sfx.boom(dist);
+    if (!this.alive) return;
+    const k = blastKnock(p, this.me.pos, MAP.boxes);
+    if (k) {
+      applyKnock(this.me.vel, k);
+      this.me.onGround = false;
+      this.fovKick = Math.max(this.fovKick, 6 * (k.speed / GRENADE.knock));
+      this.landDip = Math.min(0.25, this.landDip + 0.12 * (k.speed / GRENADE.knock));
+    }
+  }
+
+  /** Offline practice: the dummies inside the blast go down. */
+  private practiceBlast(p: Vec3) {
+    const targets = [...this.remotes.values()].filter((r) => r.dummy && r.info.alive).map((r) => ({ id: r.info.id, pos: { x: r.pos.x, y: r.pos.y, z: r.pos.z } }));
+    for (const id of blastTargets(p, targets, MAP.boxes)) {
+      const r = this.remotes.get(id)!;
+      this.onKill(this.selfId, id, 'grenade', [r.pos.x - p.x, r.pos.y + 1.8 - p.y, r.pos.z - p.z]);
+    }
+  }
+
   private addTracer(from: THREE.Vector3, to: THREE.Vector3, color: number) {
     const mesh = new THREE.Mesh(tracerGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false }));
     mesh.position.copy(from);
@@ -530,7 +624,9 @@ export class Game {
         ? 'You fell into the void'
         : cause === 'zombie'
           ? 'Munched by a zombie'
-          : `${cause === 'headshot' ? 'Headshot' : 'Sniped'} by ${killer?.name ?? '???'}`;
+          : cause === 'grenade'
+            ? `Blown up by ${killer?.name ?? '???'}`
+            : `${cause === 'headshot' ? 'Headshot' : 'Sniped'} by ${killer?.name ?? '???'}`;
     const pos = new THREE.Vector3(this.me.pos.x, this.me.pos.y, this.me.pos.z);
     this.deathCam.copy(pos).add(new THREE.Vector3(0, PLAYER.eyeHeight, 0));
     this.deathCorpse =
@@ -805,6 +901,14 @@ export class Game {
         break;
       case 'pts':
         this.onPoints(msg.pts, !!msg.up);
+        break;
+      case 'nade': {
+        const o = { x: msg.p[0], y: msg.p[1], z: msg.p[2] };
+        this.spawnGrenade(msg.id, o, { x: msg.v[0], y: msg.v[1], z: msg.v[2] });
+        break;
+      }
+      case 'blast':
+        if (msg.id !== this.selfId) this.blast({ x: msg.p[0], y: msg.p[1], z: msg.p[2] }, msg.id); // ours already went off locally
         break;
       case 'shot': {
         const from = new THREE.Vector3(...msg.from);

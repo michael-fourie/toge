@@ -67,13 +67,15 @@ export interface PostRow {
   gone: boolean;
 }
 
-export type DeathCause = 'snipe' | 'headshot' | 'void' | 'zombie';
+export type DeathCause = 'snipe' | 'headshot' | 'void' | 'zombie' | 'grenade';
 
 // Client -> server
 export type ClientMsg =
   | { t: 'state'; p: V3; v: V3; yaw: number; pitch: number; f: number; g?: V3 }
   | { t: 'shoot'; from: V3; to: V3; victim?: number; zombie?: number; headshot?: boolean }
   | { t: 'fell' }
+  | { t: 'nade'; p: V3; v: V3 } // threw a grenade (server rate-limits to GRENADE.cooldown and relays it)
+  | { t: 'boom'; p: V3 } // our grenade went off here (server checks it's ours, then does the damage)
   | { t: 'again' } // Survival post-game: ready for another run
   | { t: 'punch' }; // Survival: buy the Pack-a-Punch upgrade (server checks range, points, not owned)
 
@@ -84,6 +86,8 @@ export type ServerMsg =
   | { t: 'playerJoined'; player: PlayerInfo }
   | { t: 'playerLeft'; id: number; hostId: number }
   | { t: 'snapshot'; players: NetPlayerState[]; zombies?: NetZombie[] }
+  | { t: 'nade'; id: number; p: V3; v: V3 } // someone else's grenade left their hand
+  | { t: 'blast'; id: number; p: V3 } // a grenade exploded here (everyone shows it and takes the shove)
   | { t: 'shot'; id: number; from: V3; to: V3; up?: boolean } // up: fired from a Pack-a-Punched rifle
   | { t: 'kill'; killer: number; victim: number; cause: DeathCause; dir: V3 }
   | { t: 'respawn'; id: number; p: V3; yaw: number }

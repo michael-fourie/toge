@@ -53,6 +53,7 @@ Kills earn mini achievements, and several at once **stack** into one combo with 
 | --- | --- |
 | WASD | Move. In the air, let go of W, hold A or D and turn the mouse the same way to gain speed (air-strafing). |
 | Space / mouse wheel | Jump. Hold Space to auto-bhop; you keep all your speed on every hop. Tap again in the air for a double jump. |
+| Q | Grenade: lob a frag in front of you (your own speed rides along). It goes off after about 2 s, kills anyone close and in line of sight and shoves everyone nearby, you included, without slowing you. You get another 8 s after throwing; the icon bottom-left greys out and a ring refills. |
 | E | Grapple: aim at any surface within 40 m and the rope reels you toward it (Space lets go and keeps your speed; 1.5 s recharge). Hook another player to zip to them, or aim near a glowing brass ring in the sky: it grabs the rope. Kills while roped score YANKED, and REELED IN if you're hooked on the victim. |
 | F | Survival only: at the Pack-a-Punch machine (the brass kettle by the Great Tree), buy the upgrade. |
 | Shift (hold) | Slide. Hold it in the air to slide the moment you land. Jumping out of a slide keeps your speed. |

@@ -1,4 +1,5 @@
-import { SURVIVAL } from '../shared/constants.ts';
+import { GRENADE, SURVIVAL } from '../shared/constants.ts';
+import { blastTargets } from '../shared/grenade.ts';
 import { MAP } from '../shared/map.ts';
 import { type RunRecord, buildRows, shouldRestart, waitingFor } from '../shared/postgame.ts';
 import { bodyDamage, headDamage, killPoints, pierced, punchStatus } from '../shared/punch.ts';
@@ -112,8 +113,17 @@ export class Survival {
     }
   }
 
-  private hurt(m: Member, z: Zombie, headshot: boolean, up: boolean, dir: V3) {
-    z.hp -= headshot ? headDamage(up) : bodyDamage(up);
+  /** A grenade went off: every zombie in range and in sight takes the blast damage (kills pay points as usual). */
+  blast(m: Member, center: { x: number; y: number; z: number }) {
+    const hit = blastTargets(center, this.zombies.map((z) => ({ id: z.id, pos: z.pos })), MAP.boxes);
+    for (const id of hit) {
+      const z = this.zombies.find((x) => x.id === id);
+      if (z) this.hurt(m, z, false, false, unit([z.pos.x - center.x, z.pos.y + 1 - center.y, z.pos.z - center.z]), GRENADE.zombieDamage);
+    }
+  }
+
+  private hurt(m: Member, z: Zombie, headshot: boolean, up: boolean, dir: V3, damage?: number) {
+    z.hp -= damage ?? (headshot ? headDamage(up) : bodyDamage(up));
     if (z.hp > 0) return;
     this.zombies.splice(this.zombies.indexOf(z), 1);
     m.info.kills++;

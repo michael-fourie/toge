@@ -97,6 +97,15 @@ export const sfx = {
     tone('square', 900, 500, 0.05, 0.14); // hook bites
     burst(0.1, 0.2, 2200, 1, 'bandpass');
   },
+  throwNade: () => burst(0.2, 0.18, 1400, 1.2, 'bandpass'),
+  nadeBounce: () => tone('triangle', 900, 500, 0.05, 0.1),
+  /** A boom that gets quieter and duller with distance (metres). */
+  boom(distance: number) {
+    const v = Math.max(0.12, 1 - distance / 80);
+    burst(0.7, 0.9 * v, 260 + 500 * v, 0.8);
+    tone('sine', 90, 28, 0.55, 0.7 * v);
+    burst(0.12, 0.5 * v, 3000, 0.6, 'highpass');
+  },
   grappleMiss: () => burst(0.25, 0.16, 1800, 1.4, 'bandpass'),
   grappleRelease: () => tone('sine', 520, 260, 0.1, 0.08),
   airJump: () => tone('sine', 380, 640, 0.1, 0.14), // a soft puff, higher than the ground jump

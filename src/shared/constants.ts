@@ -155,3 +155,20 @@ export const ZOMBIE = {
   ledgeDrop: 4, // walking off a drop deeper than this counts as a ledge
   separation: 0.9, // zombies shove apart inside this radius
 };
+
+/** Frag grenade (Q). You get another a fixed time after throwing one. */
+export const GRENADE = {
+  cooldown: 8, // seconds from the throw until you have another
+  fuse: 2.2, // seconds in the air before it goes off
+  throwSpeed: 17, // m/s along the look direction (lifted a little by throwLift)
+  throwLift: 0.16, // radians added to your pitch so it arcs
+  inherit: 1, // fraction of your own velocity added, so throws keep your momentum
+  radius: 4.5, // lethal radius (needs line of sight; walls shield)
+  knockRadius: 10, // beyond the lethal radius a blast still shoves you, less the farther you are
+  knock: 15, // m/s of shove at point blank (the thrower included: grenade jumping, but no self damage)
+  knockLift: 0.35, // pushes a bit upward so a blast at your feet launches you
+  zombieDamage: 450, // survival: damage to every zombie inside the lethal radius
+  bounce: 0.45, // energy kept on a bounce
+  friction: 0.3, // tangential speed lost per bounce
+  size: 0.09, // metres
+};

@@ -19,6 +19,7 @@ export class Input {
   private keys = new Set<string>();
   private jumpQueued = false;
   private grappleQueued = false;
+  private grenadeQueued = false;
   private fireQueued = false;
   /** Right mouse button currently held (hold-to-scope). Cleared on blur / lock loss / death. */
   scopeHeld = false;
@@ -33,6 +34,7 @@ export class Input {
       if (!e.repeat) {
         if (e.code === 'Space') this.jumpQueued = true;
         if (e.code === 'KeyE') this.grappleQueued = true;
+        if (e.code === 'KeyQ') this.grenadeQueued = true;
         this.onKey?.(e.code, true);
       }
       this.keys.add(e.code);
@@ -124,6 +126,13 @@ export class Input {
     this.jumpQueued = false;
     this.grappleQueued = false;
     return out;
+  }
+
+  /** True once per Q press while locked (the game decides whether you have a grenade). */
+  takeGrenade() {
+    const q = this.grenadeQueued && this.locked;
+    this.grenadeQueued = false;
+    return q;
   }
 
   takeFire() {
