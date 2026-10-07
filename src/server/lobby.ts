@@ -1,6 +1,7 @@
 import { MOVE, NET, RESPAWN_SECONDS, SURVIVAL, WEAPON } from '../shared/constants.ts';
 import { MAP } from '../shared/map.ts';
 import type { ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
+import { JACKETS, type Skin, encodeSkin } from '../shared/skin.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import { Survival } from './survival.ts';
 
@@ -15,6 +16,8 @@ export interface Client {
   id: number;
   ws: Socket;
   name: string;
+  /** Chosen look; relayed to everyone. Its `jacket` is a colour preference, honoured when free. */
+  skin?: Skin;
   lobby: Lobby | null;
 }
 
@@ -29,7 +32,7 @@ export interface Member {
 }
 
 // Soft storybook palette: Kiki's bow red, sky blue, mustard, meadow green, lavender, Totoro grey, ...
-const COLORS = [0xe0614f, 0x5f9fd6, 0xe8b84a, 0x76ac5a, 0xa98bd1, 0x8d96a3, 0xf2a35e, 0x4fae9f, 0xe58fa8, 0x4a6fa5, 0xb3a24f, 0xf08a6b];
+const COLORS = JACKETS;
 
 /** How often a live lobby re-announces itself so the directory can expire dead ones. */
 export const HEARTBEAT_SECONDS = 30;
@@ -72,11 +75,12 @@ export class Lobby {
 
   add(client: Client) {
     const used = new Set([...this.members.values()].map((m) => m.info.color));
-    const color = COLORS.find((c) => !used.has(c)) ?? COLORS[client.id % COLORS.length];
+    const wanted = client.skin?.jacket === undefined ? undefined : COLORS[client.skin.jacket];
+    const color = wanted !== undefined && !used.has(wanted) ? wanted : (COLORS.find((c) => !used.has(c)) ?? COLORS[client.id % COLORS.length]);
     const spawn = this.pickSpawn();
     const m: Member = {
       client,
-      info: { id: client.id, name: client.name, color, kills: 0, deaths: 0, alive: true },
+      info: { id: client.id, name: client.name, color, kills: 0, deaths: 0, alive: true, skin: client.skin && encodeSkin(client.skin) },
       state: { id: client.id, p: spawn.p, v: [0, 0, 0], yaw: spawn.yaw, pitch: 0, f: 0 },
       lastShot: 0,
       respawnAt: 0,

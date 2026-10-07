@@ -6,6 +6,7 @@ import { join } from './menu/join.ts';
 import { lobby } from './menu/lobby.ts';
 import { practice } from './menu/practice.ts';
 import { type Ctx, type Joined, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
+import { skin } from './menu/skin.ts';
 import { title } from './menu/title.ts';
 import { startSkirmish } from './menu/skirmish.ts';
 import { SKY_BACKDROP, playerName } from './menu/ui.ts';
@@ -14,7 +15,7 @@ import { loadSettings } from './settings.ts';
 import { sfx } from './sfx.ts';
 
 const app = document.getElementById('app')!;
-const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, practice, host, join, lobby, help };
+const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, practice, host, join, lobby, help, skin };
 
 let game: Game | null = null;
 let leaveScreen: (() => void) | null = null;

@@ -16,6 +16,10 @@ Requires Node ≥ 20 (Wrangler). Node 22 LTS is recommended, and also unlocks Vi
 
 **Practice** runs offline against target dummies. **Host** creates a lobby with a 4-letter code. Others join with that code, from the lobby list, or with `/?join=CODE`.
 
+## Skins
+
+Pick your look from the **Skin** chip on the home screen: eight named presets, individual hair style, hair colour, face, accessory, ahoge, scarf and jacket pickers, a Surprise me button, or Default (seeded from your name, as before). A live 3D preview turns as you choose. The skin is saved in your browser, used in Practice, and sent when you host or join, so everyone sees it. The jacket colour is a preference: online you get it if nobody in the lobby has it, otherwise the server picks one (Auto).
+
 ## Game types
 
 Pick one when hosting:

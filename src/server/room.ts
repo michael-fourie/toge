@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { ClientMsg, GameMode } from '../shared/protocol.ts';
+import { decodeSkin } from '../shared/skin.ts';
 import { type Client, Lobby, send } from './lobby.ts';
 import type { Env } from './worker.ts';
 
@@ -19,7 +20,8 @@ export class LobbyRoom extends DurableObject<Env> {
     ws.accept();
 
     const id = this.nextId++;
-    const client: Client = { id, ws, name: name.slice(0, 16).trim() || `player${id}`, lobby: null };
+    const skin = decodeSkin(url.searchParams.get('skin')) ?? undefined; // anything malformed just means the seeded default
+    const client: Client = { id, ws, name: name.slice(0, 16).trim() || `player${id}`, skin, lobby: null };
     send(client, { t: 'welcome', id });
     const lobby = this.open(code, mode);
     if (lobby.full) {

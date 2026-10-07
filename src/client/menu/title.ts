@@ -1,5 +1,7 @@
 import type { Render } from './router.ts';
 import { mountLogo } from './logo.ts';
+import { skinLabel } from './skin.ts';
+import { storedSkin } from '../skinStore.ts';
 import { $, esc, saveName, storedName } from './ui.ts';
 
 // Small storybook icons for the three buttons.
@@ -30,11 +32,14 @@ export const title: Render = (root, ctx, screen) => {
   root.innerHTML = `
     <main class="screen title-screen">
       <h1 class="logo" tabindex="-1" aria-label="Gambol"><canvas aria-hidden="true"></canvas></h1>
+      <div class="chips">
       <label class="name-chip">
         <span>Playing as</span>
         <input id="name" maxlength="16" placeholder="your name" autocomplete="nickname" spellcheck="false" value="${esc(storedName())}" />
         <i aria-hidden="true">✎</i>
       </label>
+      <button class="name-chip skin-chip" data-go="skin">Skin: <b>${esc(skinLabel(storedSkin()))}</b></button>
+      </div>
       <nav class="doors" aria-label="Play">
         ${door('practice', 'Practice')}
         ${door('host', 'Host')}
@@ -48,7 +53,7 @@ export const title: Render = (root, ctx, screen) => {
   nameInput.addEventListener('input', () => saveName(nameInput.value));
   nameInput.addEventListener('keydown', (e) => e.key === 'Enter' && nameInput.blur());
   root.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) =>
-    b.addEventListener('click', () => ctx.go({ name: b.dataset.go as 'practice' | 'host' | 'join' | 'help' })),
+    b.addEventListener('click', () => ctx.go({ name: b.dataset.go as 'practice' | 'host' | 'join' | 'help' | 'skin' })),
   );
   // A notice is shown once; don't replay it when navigating back here later.
   if (screen.notice) history.replaceState({ ...screen, notice: undefined }, '');

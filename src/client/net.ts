@@ -1,3 +1,4 @@
+import { storedSkinCode } from './skinStore.ts';
 import type { ClientMsg, GameMode, LobbyInfo, ServerMsg } from '../shared/protocol.ts';
 
 type Listener = (msg: ServerMsg) => void;
@@ -40,6 +41,8 @@ export class Net {
 
   private open(params: Record<string, string>) {
     this.leave();
+    const skin = storedSkinCode();
+    if (skin) params.skin = skin;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws?${new URLSearchParams(params)}`);
     this.ws = ws;

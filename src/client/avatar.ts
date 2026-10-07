@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PLAYER } from '../shared/constants.ts';
-import { rng, toonRamp } from './textures.ts';
+import { type Accessory, HAIR, type HairStyle, type Mouth, SCARF, type Skin, encodeSkin, seededSkin } from '../shared/skin.ts';
+import { toonRamp } from './textures.ts';
 
 // Chibi anime sniper: big head (it *is* the head hitbox), huge eyes, spiky hair, a scarf that
-// streams behind at speed, and an AWP. Every player gets a look (hair, mouth, accessory) seeded
-// from their name + colour; the jacket and sleeves stay in the player's colour so you can tell
+// streams behind at speed, and an AWP. Every player has a look (hair, mouth, accessory): the skin they
+// picked, or one seeded from their name + colour; the jacket and sleeves stay in the player's colour so you can tell
 // people apart. Static parts are merged per material to keep draw calls low.
 
 const HEAD_R = 0.25; // a touch inside PLAYER.headRadius so the hair stays inside the hit sphere
@@ -15,16 +16,9 @@ const AIM_Y = 0.44; // shoulder pivot for the arms + rifle, in upper-body space
 const OUTLINE = 0.0028; // ink line thickness per metre of camera distance
 
 type Vec = [number, number, number];
-type HairStyle = 'spiky' | 'twintails' | 'ponytail' | 'bob';
-type Mouth = 'cat' | 'smile' | 'fang';
-type Accessory = 'none' | 'catears' | 'headband' | 'bow';
 type Expr = 'open' | 'blink' | 'hype' | 'ko' | 'zombie';
 
-const HAIR = [0x2b2433, 0x6b4430, 0xf2d27a, 0xf59ac0, 0x7cb8f0, 0xdfe3ec, 0xe0663a, 0x92dbb8, 0xa983e6];
-const SCARF = [0xd9473d, 0xf4ead2, 0xf2c14e, 0x3f8f8a, 0x2f3a5c];
-const STYLES: HairStyle[] = ['spiky', 'twintails', 'ponytail', 'bob'];
-const MOUTHS: Mouth[] = ['cat', 'smile', 'fang'];
-const ACCESSORIES: Accessory[] = ['none', 'none', 'catears', 'headband', 'bow'];
+const ZOMBIE_HAIR = [0x5d6b4f, 0x7a6f86, 0x8d8a78];
 
 // ---------------------------------------------------------------------------
 // Shared materials
@@ -234,29 +228,24 @@ interface Look {
 
 const looks = new Map<string, Look>();
 
-function lookFor(color: number, name = '', zombie = false): Look {
-  const key = `${color}:${name}:${zombie}`;
+function lookFor(color: number, name = '', zombie = false, skin?: Skin | null): Look {
+  const key = `${color}:${name}:${zombie}:${skin ? encodeSkin(skin) : ''}`;
   let look = looks.get(key);
   if (look) return look;
-  let h = 2166136261 ^ color;
-  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
-  const r = rng(h);
-  const pick = <T>(xs: T[]) => xs[Math.floor(r() * xs.length)];
-  const hair = zombie ? pick([0x5d6b4f, 0x7a6f86, 0x8d8a78]) : pick(HAIR);
-  const mouth = pick(MOUTHS);
-  const style = pick(STYLES);
+  const sk = skin ?? seededSkin(color, name);
+  const hair = zombie ? ZOMBIE_HAIR[sk.hair % ZOMBIE_HAIR.length] : HAIR[sk.hair];
   const face = (e: Expr) =>
-    new THREE.MeshBasicMaterial({ map: faceTexture(e, color, hair, mouth), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+    new THREE.MeshBasicMaterial({ map: faceTexture(e, color, hair, sk.mouth), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
   const alive = zombie ? face('zombie') : null;
   look = {
     zombie,
     skin: zombie ? zombieSkinMat : skinMat,
-    style,
-    accessory: pick(ACCESSORIES),
-    ahoge: style !== 'twintails' && r() < 0.65,
+    style: sk.style,
+    accessory: sk.accessory,
+    ahoge: sk.ahoge,
     jacket: toon(color),
     hair: toon(hair),
-    scarf: toon(pick(SCARF)),
+    scarf: toon(SCARF[sk.scarf]),
     faces: alive
       ? { open: alive, blink: alive, hype: alive, ko: face('ko'), zombie: alive }
       : { open: face('open'), blink: face('blink'), hype: face('hype'), ko: face('ko'), zombie: face('zombie') },
@@ -512,8 +501,9 @@ export class Avatar {
     readonly color: number,
     name?: string,
     zombie = false,
+    skin?: Skin | null,
   ) {
-    const look = (this.look = lookFor(color, name, zombie));
+    const look = (this.look = lookFor(color, name, zombie, skin));
     this.root.add(this.lean);
     this.hips = pivot(this.lean, 0, HIP_Y, 0);
     this.upper = pivot(this.hips, 0, 0, 0);
