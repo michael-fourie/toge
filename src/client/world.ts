@@ -16,7 +16,6 @@ import {
   wallTexture,
   woodTexture,
 } from './textures.ts';
-import { MOON_DIR, NIGHT, makeMoon, makeStars } from './night.ts';
 
 // Painterly sky-island look (think Castle in the Sky): warm sun, soft cel shading,
 // cumulus clouds, a sea of clouds below, hazy distant islands.
@@ -81,7 +80,7 @@ function hasSolidBelow(b: Box, all: readonly Box[]): boolean {
  * Wedge geometry for a ramp (see RampShape): group 0 is the sloped face, group 1 the sides/back/bottom.
  * UVs are world metres ÷ tile; on the slope, u runs across the ramp and v up it.
  */
-function rampGeometry(b: Box, tile: number): THREE.BufferGeometry {
+export function rampGeometry(b: Box, tile: number): THREE.BufferGeometry {
   const r = b.ramp!;
   const along = r.axis;
   const across = along === 'x' ? 'z' : 'x';
@@ -159,19 +158,16 @@ export interface World {
   update(time: number): void;
 }
 
-/** `night`: the Survival look (moon, stars, indigo sky, cool light). Practice and Battle stay in daylight. */
-export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer, night = false): World {
+/** The daylight sky islands (Practice and Battle). Survival is the Foundry, at night: see foundryworld.ts. */
+export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
   const scene = new THREE.Scene();
-  const P = night ? { ...PALETTE, ...NIGHT, sun: NIGHT.light } : PALETTE;
-  const lightDir = night ? MOON_DIR : SUN_DIR;
-  scene.fog = night ? new THREE.Fog(P.fog, 70, 340) : new THREE.Fog(P.fog, 110, 460);
-  scene.add(makeSky(P, lightDir, night));
-  const stars = night ? makeStars() : null;
-  if (stars) scene.add(stars.obj, makeMoon());
+  const P = PALETTE;
+  scene.fog = new THREE.Fog(P.fog, 110, 460);
+  scene.add(makeSky(P, SUN_DIR));
 
-  scene.add(new THREE.HemisphereLight(P.skyLight, P.groundBounce, night ? 1.2 : 1.5));
-  const sun = new THREE.DirectionalLight(P.sun, night ? 1.55 : 2.6);
-  sun.position.copy(lightDir).multiplyScalar(120);
+  scene.add(new THREE.HemisphereLight(P.skyLight, P.groundBounce, 1.5));
+  const sun = new THREE.DirectionalLight(P.sun, 2.6);
+  sun.position.copy(SUN_DIR).multiplyScalar(120);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   const sc = sun.shadow.camera;
@@ -259,11 +255,11 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer, night = 
   for (const d of map.decor) scene.add(canopy(d, r));
 
   scene.add(meadow(floorTops, padBoxes, map.boxes, r));
-  scene.add(cloudSea(renderer, night));
-  const clouds = cumulus(night);
+  scene.add(cloudSea(renderer));
+  const clouds = cumulus();
   scene.add(clouds);
   scene.add(distantIslands(rock, grass, r));
-  const motes = driftingSeeds(night);
+  const motes = driftingSeeds();
   scene.add(motes.points);
 
   return {
@@ -285,7 +281,6 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer, night = 
         if (c.position.x > 700) c.position.x = -700;
       });
       motes.update(time);
-      stars?.update(time);
       for (const b of boosters) b.update(time);
     },
   };
@@ -293,7 +288,7 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer, night = 
 
 // ---------------------------------------------------------------------------
 
-function makeSky(P: typeof PALETTE, lightDir: THREE.Vector3, night: boolean): THREE.Mesh {
+export function makeSky(P: Pick<typeof PALETTE, 'zenith' | 'sky' | 'horizon' | 'below' | 'deep'>, lightDir: THREE.Vector3, night = false): THREE.Mesh {
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(900, 32, 16),
     new THREE.ShaderMaterial({
@@ -561,12 +556,12 @@ function grassClump(): THREE.BufferGeometry {
 }
 
 /** Sea of clouds far below: the void you fall into. */
-function cloudSea(renderer: THREE.WebGLRenderer, night = false): THREE.Mesh {
+function cloudSea(renderer: THREE.WebGLRenderer): THREE.Mesh {
   const tex = cloudSeaTexture(renderer);
   tex.repeat.set(8, 8);
   const sea = new THREE.Mesh(
     new THREE.PlaneGeometry(2400, 2400),
-    new THREE.MeshBasicMaterial({ map: tex, color: night ? NIGHT.cloudTint : 0xffffff, transparent: true, opacity: 0.95, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false }),
   );
   sea.rotation.x = -Math.PI / 2;
   sea.position.y = -45;
@@ -575,13 +570,13 @@ function cloudSea(renderer: THREE.WebGLRenderer, night = false): THREE.Mesh {
 }
 
 /** Big sunlit cumulus billboards around the horizon, plus puffs rising out of the cloud sea. */
-function cumulus(night = false): THREE.Group {
+function cumulus(): THREE.Group {
   const g = new THREE.Group();
   const textures = [1, 2, 3, 4].map((s) => cloudTexture(s * 97));
   const r = rng(9);
   const add = (dist: number, y: number, w: number, opacity = 1) => {
     const a = r() * Math.PI * 2;
-    const mat = new THREE.SpriteMaterial({ map: textures[Math.floor(r() * textures.length)], fog: false, depthWrite: false, transparent: true, opacity, color: night ? NIGHT.cloudSprite : 0xffffff });
+    const mat = new THREE.SpriteMaterial({ map: textures[Math.floor(r() * textures.length)], fog: false, depthWrite: false, transparent: true, opacity, color: 0xffffff });
     const sp = new THREE.Sprite(mat);
     sp.position.set(Math.cos(a) * dist, y, Math.sin(a) * dist);
     sp.scale.set(w, w * 0.5, 1);
@@ -637,9 +632,8 @@ function distantIslands(rock: THREE.Material, grass: THREE.Material, r: () => nu
   return g;
 }
 
-/** Dandelion seeds / dust motes drifting on the breeze through the play space. */
-/** Daylight: drifting pollen. Night: fireflies (bigger, warm and glowing). */
-function driftingSeeds(night = false) {
+/** Dandelion seeds drifting on the breeze through the play space. */
+function driftingSeeds() {
   const N = 450;
   const pos = new Float32Array(N * 3);
   const seeds = new Float32Array(N);
@@ -654,11 +648,7 @@ function driftingSeeds(night = false) {
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const points = new THREE.Points(
     geo,
-    new THREE.PointsMaterial(
-      night
-        ? { map: softDot(), color: 0xe6ff8a, size: 0.42, transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending }
-        : { map: softDot(), color: 0xfff6e0, size: 0.22, transparent: true, opacity: 0.85, depthWrite: false },
-    ),
+    new THREE.PointsMaterial({ map: softDot(), color: 0xfff6e0, size: 0.22, transparent: true, opacity: 0.85, depthWrite: false }),
   );
   points.frustumCulled = false;
   let last = 0;

@@ -118,17 +118,6 @@ test('every spawn is clear and stands on solid ground', () => {
   }
 });
 
-test('Survival: spawns are clear; players start on the Great Tree island, zombies at ground level around it', () => {
-  assert.ok(MAP.survivalSpawns.length >= 2 && MAP.zombieSpawns.length >= 4);
-  for (const pos of [...MAP.survivalSpawns.map((s) => s.pos), ...MAP.zombieSpawns]) {
-    const s = createPlayerState(pos);
-    play(s, emptyInput(), 1);
-    const ok = s.onGround && Math.abs(s.pos.y) < 0.05 && hlen({ x: s.pos.x - pos.x, y: 0, z: s.pos.z - pos.z }) < 0.01;
-    assert.ok(ok, `spawn ${JSON.stringify(pos)} -> ${JSON.stringify(s.pos)}`);
-  }
-  for (const sp of MAP.survivalSpawns) assert.ok(onCentreIsland(sp.pos));
-});
-
 test('every jump pad lands its rider on solid ground', () => {
   for (const b of MAP.boxes.filter((b) => b.kind === 'pad')) {
     const s = createPlayerState({ x: (b.min.x + b.max.x) / 2, y: b.max.y + 0.01, z: (b.min.z + b.max.z) / 2 });

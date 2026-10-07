@@ -33,7 +33,7 @@ export class Hud {
       <div class="bolt"><i></i></div>
       <div class="speed"><b>0</b><small>m/s</small><div class="bar"><i></i></div></div>
       <div class="chips"><span class="chip wallrun">WALLRUN</span><span class="chip grapple">GRAPPLE [E]</span></div>
-      <div class="ammo"><b>10</b><small>/ 10</small><span>reloading…</span></div>
+      <div class="ammo"><i class="gunname"></i><div class="slots"></div><b>10</b><small>/ 10</small><span>reloading…</span></div>
       <div class="credit"></div>
       <div class="lobby-tag">${esc(lobbyLabel)}</div>
       <div class="topright"><div class="livescore"></div><div class="killfeed"></div></div>
@@ -57,8 +57,9 @@ export class Hud {
             <dt>Run along walls</dt><dd>wallrun, Space to wall-jump</dd>
             <dt>Q</dt><dd>grenade (a new one 8 s after throwing)</dd>
             <dt>E</dt><dd>grapple: reels you toward what you aim at (40 m rope, 1.5 s to recharge); Space lets go and keeps your speed</dd>
-            <dt>F</dt><dd>Survival: buy at a station. Juggernog east of the tree (2500 pts): 250 health. Pack-a-Punch west (5000 pts): a much stronger rifle</dd>
-            <dt>LMB / RMB</dt><dd>shoot / hold to scope</dd>
+            <dt>F</dt><dd>Survival: buy doors, wall guns and the Mystery Box; take a gun from the box; hold at a window to nail the boards back up</dd>
+            <dt>LMB / RMB</dt><dd>shoot (hold for automatic guns) / hold to aim down the sights or scope</dd>
+            <dt>1 / 2</dt><dd>switch guns (Survival: you carry two)</dd>
             <dt>R</dt><dd>reload (auto when empty)</dd>
             <dt>Tab</dt><dd>scores</dd>
             <dt>\`</dt><dd>movement tuning panel</dd>
@@ -114,11 +115,16 @@ export class Hud {
     if (this.featTimer <= 0) this.q('.feats').classList.remove('show');
   }
 
-  ammo(rounds: number, mag: number, reloading: boolean) {
+  /** Rounds in the mag, spare rounds (null: endless), the gun's name, and the guns we carry (names, or null for an empty slot) with the one in our hands. */
+  ammo(rounds: number, mag: number, reserve: number | null, reloading: boolean, name: string, slots: (string | null)[] = [], cur = 0) {
     this.q('.ammo b').textContent = String(rounds);
-    this.q('.ammo small').textContent = `/ ${mag}`;
+    this.q('.ammo small').textContent = reserve === null ? `/ ${mag}` : `/ ${reserve}`;
+    this.q('.gunname').textContent = name;
+    const html = slots.length > 1 ? slots.map((s, i) => `<u class="${i === cur ? 'cur' : ''}">${i + 1}${s ? ` ${esc(s)}` : ''}</u>`).join('') : '';
+    const el = this.q('.slots');
+    if (el.innerHTML !== html) el.innerHTML = html;
     this.root.classList.toggle('reloading', reloading);
-    this.root.classList.toggle('low-ammo', rounds <= 2);
+    this.root.classList.toggle('low-ammo', rounds <= Math.max(1, mag * 0.2) && rounds < 5);
   }
 
   /** Attribution line for a CC BY model, shown small in the pause menu corner. */

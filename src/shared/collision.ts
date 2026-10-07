@@ -1,7 +1,9 @@
 import { type Vec3 } from './math.ts';
 import { PLAYER } from './constants.ts';
 
-export type BoxKind = 'floor' | 'branch' | 'wall' | 'trunk' | 'pad' | 'cover' | 'ramp' | 'surf' | 'hook';
+export type BoxKind = 'floor' | 'branch' | 'wall' | 'trunk' | 'pad' | 'cover' | 'ramp' | 'surf' | 'hook'
+  // The Foundry (Survival): poured gravel yard, brick walls, steel beams and rails, crates, machinery.
+  | 'gravel' | 'brick' | 'steel' | 'crate' | 'machine';
 
 /**
  * A wedge: the solid part of its bounding box that lies below a sloped top face.

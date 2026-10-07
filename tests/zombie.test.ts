@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Box } from '../src/shared/collision.ts';
 import { ZOMBIE } from '../src/shared/constants.ts';
-import { MAP } from '../src/shared/map.ts';
 import type { Vec3 } from '../src/shared/math.ts';
 import { type Zombie, type ZombieTarget, createZombie, stepHorde, zombieStats } from '../src/shared/zombie.ts';
 
@@ -85,12 +84,3 @@ test('a crowd spreads out instead of stacking into one body', () => {
   for (const a of zs) for (const b of zs) if (a !== b) assert.ok(Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z) > 0.5);
 });
 
-test('Windward: from every zombie spawn, the horde reaches a player by the Great Tree', () => {
-  for (const sp of MAP.zombieSpawns) {
-    for (const player of MAP.survivalSpawns) {
-      const z = createZombie(1, sp, 1);
-      const { hits } = run([z], target(player.pos), MAP.boxes, 25);
-      assert.ok(hits >= 1, `zombie from ${JSON.stringify(sp)} never reached ${JSON.stringify(player.pos)}; ended at ${JSON.stringify(z.pos)}`);
-    }
-  }
-});

@@ -94,38 +94,43 @@ export const WEAPON = {
 
 export const RESPAWN_SECONDS = 2.5;
 
-/** Survival (co-op vs zombie rounds). Damage numbers are CS-ish AWP values; zombies scale up per round. */
+/** Survival (co-op vs zombie rounds in the Foundry). Weapon damage lives in weapons.ts; zombies scale up per round. */
 export const SURVIVAL = {
   playerHp: 100,
-  bodyDamage: 115, // AWP body shot
-  headDamage: 450, // AWP headshot
-  firstRoundDelay: 6, // seconds after the lobby opens (or a game over) before round 1
-  intermission: 8, // breather between rounds; everyone is revived and healed at its start
+  regenDelay: 6, // seconds without a claw before health comes back...
+  regenRate: 25, // ...at this many hp per second
+  firstRoundDelay: 8, // seconds after the lobby opens (or a game over) before round 1
+  intermission: 10, // breather between rounds; everyone is revived and healed at its start
   gameOverSeconds: 90, // post-game screen: restart anyway after this long
-  spawnInterval: 0.7, // one zombie climbs out of the clouds this often...
+  spawnInterval: 1.1, // one zombie breaks in at an open window this often...
   maxAlive: 24, // ...while fewer than this are up
-  zombiesBase: 4, // round 1 has base + perRound zombies
+  zombiesBase: 3, // round 1 has base + perRound zombies
   zombiesPerRound: 3,
 
-  // Points and the Pack-a-Punch machine. Points are per player, server-side, and reset with the run.
+  // Points. Per player, server-side, and reset with the run.
+  hitPoints: 10, // every shot that connects without killing
   bodyPoints: 60,
   headPoints: 100,
-  punchPrice: 5000, // ~50-80 kills: a real commitment
-  punchRange: 2.5, // metres from a station (Pack-a-Punch or Juggernog) to buy
-  jugPrice: 2500, // Juggernog: half the price of Pack-a-Punch, still ~40 kills
+  repairPoints: 10, // per board nailed back up
+  boxPrice: 950, // Mystery Box: any gun in the game
+  plushChance: 0.14, // the sad plush: the box gives your points back and moves
+  plushAfter: 3, // uses before the plush can show up at all
+  punchPrice: 5000, // Pack-a-Punch: the gun in your hands, twice as good
+  punchAmmoPrice: 4500, // refilling a punched gun from a wall
+  punchRange: 2.5, // metres from a station to buy
+  jugPrice: 2500, // Juggernog
   jugHp: 250, // maximum health with Juggernog (100 without); lasts until the run restarts
-  punchDamageMult: 2.5, // on top of the faster rifle: body shots keep one-shotting deep into the rounds
-  punchPierceRadius: 0.75, // a punched shot also hits zombies this close to its line, behind the first
+  punchPierceRadius: 0.75, // a punched AWP shot also hits zombies this close to its line, behind the first
   punchPierceRange: 40,
-};
 
-/** The Pack-a-Punched rifle: much faster bolt, bigger mag, faster reload. Kept until the run restarts. */
-export const WEAPON_PUNCHED = {
-  boltDelay: 0.06,
-  boltTime: 0.22,
-  fireCooldown: 0.28,
-  magSize: 20,
-  reloadTime: 1.0,
+  // Doors, windows and the box.
+  useRange: 2.6, // metres from a door, wall gun, window or the box to use it
+  boards: 5, // planks across a window
+  tearTime: 1.7, // seconds a zombie spends ripping one board off
+  repairTime: 0.55, // seconds to nail one back up (hold F)
+  boxRoll: 3.6, // seconds the box spins its guns before showing one
+  boxHold: 9, // seconds you have to take the gun
+  boxLeave: 3, // seconds the plush waves goodbye before the box moves
 };
 
 /** Zombie stats and AI tuning. Per-round values grow linearly up to their caps. */

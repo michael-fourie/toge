@@ -2,29 +2,13 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { toonRamp } from '../textures.ts';
+import type { GunRig } from './rig.ts';
 
 /**
- * A sniper in "gun space": metres, barrel along -Z, origin at the trigger, bolt handle on the right (+X).
- * The bolt and magazine sit inside pivot groups so the viewmodel can animate them the same way
- * whether the rifle is our procedural one or a downloaded GLB.
+ * The AWP as a GunRig: bolt and magazine are pivots so the animation (guns.ts) drives them the same way
+ * whether the rifle is our procedural one or a downloaded GLB with separate bolt/mag parts.
  */
-export interface WeaponModel {
-  root: THREE.Group;
-  /** Pivot on the bolt's axis: rotate about Z to lift the handle, translate +Z to pull it back. */
-  boltPivot: THREE.Group;
-  /** Moves with the bolt; where the right hand grabs it. */
-  boltKnob: THREE.Object3D;
-  magPivot: THREE.Group;
-  hasMag: boolean;
-  anchors: {
-    grip: THREE.Vector3;
-    handguard: THREE.Vector3;
-    magWell: THREE.Vector3;
-    muzzle: THREE.Vector3;
-    ejectPort: THREE.Vector3;
-  };
-  credit?: string;
-}
+export type WeaponModel = GunRig;
 
 // Procedural layout (gun space). The GLB path fits downloaded models onto these same bounds.
 const LENGTH_FRONT = -0.95; // muzzle tip
@@ -33,10 +17,10 @@ const BOLT_AXIS = new THREE.Vector3(0, 0.038, 0.03);
 const MAG_WELL = new THREE.Vector3(0, 0, -0.12); // top of the magazine sits flush in the receiver's underside (y≈0.001)
 const ANCHORS = {
   grip: new THREE.Vector3(0.03, -0.075, 0.085),
-  handguard: new THREE.Vector3(0, -0.05, -0.4),
-  magWell: MAG_WELL.clone(),
+  fore: new THREE.Vector3(0, -0.05, -0.4),
+  mag: MAG_WELL.clone(),
   muzzle: new THREE.Vector3(0, 0.035, LENGTH_FRONT),
-  ejectPort: new THREE.Vector3(0.03, 0.05, -0.04),
+  eject: new THREE.Vector3(0.03, 0.05, -0.04),
 };
 
 function mats(accent: number) {
@@ -120,15 +104,15 @@ export function buildProceduralAwp(accent: number): WeaponModel {
   root.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) o.castShadow = false;
   });
-  return { root, boltPivot, boltKnob: knob, magPivot, hasMag: true, anchors: cloneAnchors() };
+  return { root, parts: { bolt: boltPivot, knob, mag: magPivot }, anchors: cloneAnchors() };
 }
 
 const cloneAnchors = () => ({
   grip: ANCHORS.grip.clone(),
-  handguard: ANCHORS.handguard.clone(),
-  magWell: ANCHORS.magWell.clone(),
+  fore: ANCHORS.fore.clone(),
+  mag: ANCHORS.mag.clone(),
   muzzle: ANCHORS.muzzle.clone(),
-  ejectPort: ANCHORS.ejectPort.clone(),
+  eject: ANCHORS.eject.clone(),
 });
 
 // ---------------------------------------------------------------------------
@@ -197,7 +181,7 @@ export async function loadAwpGlb(): Promise<WeaponModel | null> {
   if (magNode) magPivot.attach(magNode);
 
   console.info(`[awp] loaded GLB${boltNode ? `, bolt="${boltNode.name}"` : ', no bolt part found'}${magNode ? `, mag="${magNode.name}"` : ', no mag part found'}`);
-  return { root, boltPivot, boltKnob, magPivot, hasMag: !!magNode, anchors: cloneAnchors(), credit: AWP_GLB_CREDIT };
+  return { root, parts: { bolt: boltPivot, knob: boltKnob, mag: magPivot }, anchors: cloneAnchors(), credit: AWP_GLB_CREDIT };
 }
 
 /** Rotate so the longest axis runs along Z with the thin (barrel) end at -Z, then scale/translate onto our bounds. */
