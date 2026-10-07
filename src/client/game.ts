@@ -187,7 +187,7 @@ export class Game {
     container.appendChild(this.renderer.domElement);
     this.camera.rotation.order = 'YXZ';
 
-    this.world = buildWorld(MAP, this.renderer);
+    this.world = buildWorld(MAP, this.renderer, this.mode === 'survival'); // Survival is played at night
     this.corpses = new Corpses(this.world.scene);
     this.ropeSelf = new Rope(this.world.scene);
     this.grenadeFx = new GrenadeFx(this.world.scene);

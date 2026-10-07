@@ -16,6 +16,7 @@ import {
   wallTexture,
   woodTexture,
 } from './textures.ts';
+import { MOON_DIR, NIGHT, makeMoon, makeStars } from './night.ts';
 
 // Painterly sky-island look (think Castle in the Sky): warm sun, soft cel shading,
 // cumulus clouds, a sea of clouds below, hazy distant islands.
@@ -158,14 +159,19 @@ export interface World {
   update(time: number): void;
 }
 
-export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
+/** `night`: the Survival look (moon, stars, indigo sky, cool light). Practice and Battle stay in daylight. */
+export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer, night = false): World {
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(PALETTE.fog, 110, 460);
-  scene.add(makeSky());
+  const P = night ? { ...PALETTE, ...NIGHT, sun: NIGHT.light } : PALETTE;
+  const lightDir = night ? MOON_DIR : SUN_DIR;
+  scene.fog = night ? new THREE.Fog(P.fog, 70, 340) : new THREE.Fog(P.fog, 110, 460);
+  scene.add(makeSky(P, lightDir, night));
+  const stars = night ? makeStars() : null;
+  if (stars) scene.add(stars.obj, makeMoon());
 
-  scene.add(new THREE.HemisphereLight(PALETTE.skyLight, PALETTE.groundBounce, 1.5));
-  const sun = new THREE.DirectionalLight(PALETTE.sun, 2.6);
-  sun.position.copy(SUN_DIR).multiplyScalar(120);
+  scene.add(new THREE.HemisphereLight(P.skyLight, P.groundBounce, night ? 1.2 : 1.5));
+  const sun = new THREE.DirectionalLight(P.sun, night ? 1.55 : 2.6);
+  sun.position.copy(lightDir).multiplyScalar(120);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   const sc = sun.shadow.camera;
@@ -253,11 +259,11 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
   for (const d of map.decor) scene.add(canopy(d, r));
 
   scene.add(meadow(floorTops, padBoxes, map.boxes, r));
-  scene.add(cloudSea(renderer));
-  const clouds = cumulus();
+  scene.add(cloudSea(renderer, night));
+  const clouds = cumulus(night);
   scene.add(clouds);
   scene.add(distantIslands(rock, grass, r));
-  const motes = driftingSeeds();
+  const motes = driftingSeeds(night);
   scene.add(motes.points);
 
   return {
@@ -279,6 +285,7 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
         if (c.position.x > 700) c.position.x = -700;
       });
       motes.update(time);
+      stars?.update(time);
       for (const b of boosters) b.update(time);
     },
   };
@@ -286,7 +293,7 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
 
 // ---------------------------------------------------------------------------
 
-function makeSky(): THREE.Mesh {
+function makeSky(P: typeof PALETTE, lightDir: THREE.Vector3, night: boolean): THREE.Mesh {
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(900, 32, 16),
     new THREE.ShaderMaterial({
@@ -294,12 +301,14 @@ function makeSky(): THREE.Mesh {
       depthWrite: false,
       fog: false,
       uniforms: {
-        zenith: { value: new THREE.Color(PALETTE.zenith) },
-        sky: { value: new THREE.Color(PALETTE.sky) },
-        horizon: { value: new THREE.Color(PALETTE.horizon) },
-        below: { value: new THREE.Color(PALETTE.below) },
-        deep: { value: new THREE.Color(PALETTE.deep) },
-        sunDir: { value: SUN_DIR },
+        zenith: { value: new THREE.Color(P.zenith) },
+        sky: { value: new THREE.Color(P.sky) },
+        horizon: { value: new THREE.Color(P.horizon) },
+        below: { value: new THREE.Color(P.below) },
+        deep: { value: new THREE.Color(P.deep) },
+        sunDir: { value: lightDir },
+        glow: { value: night ? new THREE.Vector3(0.45, 0.58, 1.0) : new THREE.Vector3(1.0, 0.86, 0.6) },
+        glowAmt: { value: night ? 0.45 : 1.0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -309,7 +318,7 @@ function makeSky(): THREE.Mesh {
           gl_Position.z = gl_Position.w;
         }`,
       fragmentShader: /* glsl */ `
-        uniform vec3 zenith; uniform vec3 sky; uniform vec3 horizon; uniform vec3 below; uniform vec3 deep; uniform vec3 sunDir;
+        uniform vec3 zenith; uniform vec3 sky; uniform vec3 horizon; uniform vec3 below; uniform vec3 deep; uniform vec3 sunDir; uniform vec3 glow; uniform float glowAmt;
         varying vec3 vDir;
         void main() {
           vec3 d = normalize(vDir);
@@ -323,7 +332,7 @@ function makeSky(): THREE.Mesh {
             c = mix(c, deep, smoothstep(0.1, 0.9, -h));
           }
           float s = max(dot(d, sunDir), 0.0);
-          c += vec3(1.0, 0.86, 0.6) * (pow(s, 8.0) * 0.25 + pow(s, 200.0) * 0.6);
+          c += glow * (pow(s, 8.0) * 0.25 + pow(s, 200.0) * 0.6) * glowAmt;
           gl_FragColor = vec4(c, 1.0);
           #include <colorspace_fragment>
         }`,
@@ -552,12 +561,12 @@ function grassClump(): THREE.BufferGeometry {
 }
 
 /** Sea of clouds far below: the void you fall into. */
-function cloudSea(renderer: THREE.WebGLRenderer): THREE.Mesh {
+function cloudSea(renderer: THREE.WebGLRenderer, night = false): THREE.Mesh {
   const tex = cloudSeaTexture(renderer);
   tex.repeat.set(8, 8);
   const sea = new THREE.Mesh(
     new THREE.PlaneGeometry(2400, 2400),
-    new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ map: tex, color: night ? NIGHT.cloudTint : 0xffffff, transparent: true, opacity: 0.95, depthWrite: false }),
   );
   sea.rotation.x = -Math.PI / 2;
   sea.position.y = -45;
@@ -566,13 +575,13 @@ function cloudSea(renderer: THREE.WebGLRenderer): THREE.Mesh {
 }
 
 /** Big sunlit cumulus billboards around the horizon, plus puffs rising out of the cloud sea. */
-function cumulus(): THREE.Group {
+function cumulus(night = false): THREE.Group {
   const g = new THREE.Group();
   const textures = [1, 2, 3, 4].map((s) => cloudTexture(s * 97));
   const r = rng(9);
   const add = (dist: number, y: number, w: number, opacity = 1) => {
     const a = r() * Math.PI * 2;
-    const mat = new THREE.SpriteMaterial({ map: textures[Math.floor(r() * textures.length)], fog: false, depthWrite: false, transparent: true, opacity });
+    const mat = new THREE.SpriteMaterial({ map: textures[Math.floor(r() * textures.length)], fog: false, depthWrite: false, transparent: true, opacity, color: night ? NIGHT.cloudSprite : 0xffffff });
     const sp = new THREE.Sprite(mat);
     sp.position.set(Math.cos(a) * dist, y, Math.sin(a) * dist);
     sp.scale.set(w, w * 0.5, 1);
@@ -629,7 +638,8 @@ function distantIslands(rock: THREE.Material, grass: THREE.Material, r: () => nu
 }
 
 /** Dandelion seeds / dust motes drifting on the breeze through the play space. */
-function driftingSeeds() {
+/** Daylight: drifting pollen. Night: fireflies (bigger, warm and glowing). */
+function driftingSeeds(night = false) {
   const N = 450;
   const pos = new Float32Array(N * 3);
   const seeds = new Float32Array(N);
@@ -644,7 +654,11 @@ function driftingSeeds() {
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const points = new THREE.Points(
     geo,
-    new THREE.PointsMaterial({ map: softDot(), color: 0xfff6e0, size: 0.22, transparent: true, opacity: 0.85, depthWrite: false }),
+    new THREE.PointsMaterial(
+      night
+        ? { map: softDot(), color: 0xe6ff8a, size: 0.42, transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending }
+        : { map: softDot(), color: 0xfff6e0, size: 0.22, transparent: true, opacity: 0.85, depthWrite: false },
+    ),
   );
   points.frustumCulled = false;
   let last = 0;

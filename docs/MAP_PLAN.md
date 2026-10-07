@@ -92,3 +92,7 @@ Eight brass rings float over the map (3 per half over the lanes at y 11-13, 1 ab
 ## Juggernog station (Survival)
 
 A crimson cask with a floating glowing apple stands at (12, 0, 0) on the centre island, directly across the Great Tree from the Pack-a-Punch machine (-12, 0, 0), clear of the roots, the east launch pad and the wind gate. Press F within 2.5 m: 2500 points buys 250 maximum health (100 without), healing you to it; it lasts until the run restarts. `tests/jug.test.ts` checks it stands on clear floor, is walkable from every Survival spawn and that the server purchase rules hold.
+
+## Night (Survival)
+
+The same map, lit by a moon in Survival only (`buildWorld(map, renderer, night)`; Practice and Battle stay in daylight). Indigo sky with a pale moon and twinkling stars, cool moonlight with a lifted ambient so surfaces stay readable, dark blue clouds, fireflies instead of pollen, shorter fog. The glowing things (pads, wind gates, hooks, both stations) are unlit, so they read like lanterns. The palette is `NIGHT` in `src/client/night.ts`.
