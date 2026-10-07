@@ -414,10 +414,8 @@ function hookRing(x: number, y: number, z: number, rockMat: THREE.Material): Ani
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.07, 8, 24), brass);
   const glow = new THREE.Mesh(
     new THREE.SphereGeometry(1.6, 16, 10),
-    // Drawn over everything (even foliage) so hooks can always be spotted.
-    new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.16, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }),
+    new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending }),
   );
-  glow.renderOrder = 10;
   g.add(stone, ring, glow);
   return {
     obj: g,
