@@ -151,7 +151,7 @@ export class Lobby {
     if (!m) return;
     switch (msg.t) {
       case 'state':
-        if (!m.info.alive) return;
+        if (!m.info.alive || this.survival?.isDown(client.id)) return; // the downed stay where they fell
         m.state.p = msg.p;
         m.state.v = msg.v;
         m.state.yaw = msg.yaw;

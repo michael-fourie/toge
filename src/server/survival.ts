@@ -1,4 +1,4 @@
-import { GRENADE, KNIFE, SURVIVAL, WEAPON } from '../shared/constants.ts';
+import { BOSS, GRENADE, KNIFE, SURVIVAL, WEAPON } from '../shared/constants.ts';
 import { type Colliders, buildColliders } from '../shared/colliders.ts';
 import { blastTargets } from '../shared/grenade.ts';
 import { findUse, killPoints, maxHp, pierced } from '../shared/interact.ts';
@@ -7,8 +7,9 @@ import { Nav } from '../shared/nav.ts';
 import { type RunRecord, buildRows, shouldRestart, waitingFor } from '../shared/postgame.ts';
 import { type BoxState, type ClientMsg, type NetZombie, type V3, type WaveInfo, type WavePhase, ZombieFlag, round3 } from '../shared/protocol.ts';
 import { isThrough, makeBrain } from '../shared/siege.ts';
+import type { PerkId } from '../shared/perks.ts';
 import { STARTER, type Slot, type WeaponId, bodyDamage, boxPool, gunStats, headDamage } from '../shared/weapons.ts';
-import { type Zombie, type ZombieTarget, createZombie, stepHorde } from '../shared/zombie.ts';
+import { type Zombie, type ZombieTarget, bossRound, createBoss, createZombie, stepHorde } from '../shared/zombie.ts';
 import type { Lobby, Member } from './lobby.ts';
 
 const SIM_DT = 1 / 60; // zombie physics sub-step
@@ -18,6 +19,8 @@ const PICK_FROM = 3; // a new zombie breaks in at one of the few windows nearest
 interface Wallet {
   points: number;
   jug: boolean;
+  /** Perks beyond Juggernog. */
+  perks: PerkId[];
   /** Two guns, like the originals. */
   slots: (Slot | null)[];
   cur: number;
@@ -35,6 +38,8 @@ export class Survival {
   private phase: WavePhase = 'intermission';
   private timer: number = SURVIVAL.firstRoundDelay;
   private toSpawn = 0;
+  /** A boss round's boss, still waiting to break in. */
+  private bossDue = false;
   private spawnTimer = 0;
   private zombies: Zombie[] = [];
   private nextId = 1;
@@ -48,6 +53,11 @@ export class Survival {
   private repairAt = new Map<number, number>();
   /** Progress on the board each window's front zombie is tearing. */
   private tearing = new Map<number, number>();
+  /**
+   * Players who are down: seconds of bleed-out left, when Second Wind gets them up (if they had it), and the
+   * teammate reviving them with how far along they are (a revive needs F held: a gap in the use messages stops it).
+   */
+  private downs = new Map<number, { bleed: number; selfAt: number; by: number; prog: number; last: number }>();
 
   // The building: which doors are open, the planks in each window, the Mystery Box.
   private doors: boolean[] = [];
@@ -64,7 +74,13 @@ export class Survival {
   }
 
   info(): WaveInfo {
-    return { round: this.round, phase: this.phase, left: this.toSpawn + this.zombies.length, timer: Math.round(this.timer * 10) / 10 };
+    return {
+      round: this.round,
+      phase: this.phase,
+      left: this.toSpawn + this.zombies.length + (this.bossDue ? 1 : 0),
+      timer: Math.round(this.timer * 10) / 10,
+      boss: bossRound(this.round) || undefined,
+    };
   }
 
   snapshot(): NetZombie[] {
@@ -73,7 +89,8 @@ export class Survival {
       id: z.id,
       p: [r2(z.pos.x), r2(z.pos.y), r2(z.pos.z)],
       yaw: r2(z.yaw),
-      f: (z.claw > 0 || z.tear > 0 ? ZombieFlag.Clawing : 0) | (z.crouch > 0 ? ZombieFlag.Crouching : 0),
+      f: (z.claw > 0 || z.tear > 0 ? ZombieFlag.Clawing : 0) | (z.crouch > 0 ? ZombieFlag.Crouching : 0) | (z.boss ? ZombieFlag.Boss : 0),
+      hp: z.boss ? Math.round((Math.max(0, z.hp) / z.maxHp!) * 100) / 100 : undefined,
     }));
   }
 
@@ -87,13 +104,14 @@ export class Survival {
       } else if (this.timer <= 0) this.startRound();
     }
     this.simulate(dt);
+    this.tickDowns(dt);
     this.tickBox(dt);
     this.regen(dt);
     if (this.dirty) this.sendWorld();
     if (this.phase !== 'active') return;
-    const anyoneUp = [...this.lobby.members.values()].some((m) => m.info.alive);
+    const anyoneUp = [...this.lobby.members.values()].some((m) => m.info.alive && !this.downs.has(m.info.id));
     if (!anyoneUp && this.lobby.members.size > 0) this.setPhase('over', SURVIVAL.gameOverSeconds);
-    else if (this.toSpawn === 0 && this.zombies.length === 0) {
+    else if (this.toSpawn === 0 && !this.bossDue && this.zombies.length === 0) {
       this.reviveAll();
       this.setPhase('intermission', SURVIVAL.intermission);
     }
@@ -161,12 +179,13 @@ export class Survival {
 
   private purse(m: Member) {
     let w = this.wallet.get(m.info.id);
-    if (!w) this.wallet.set(m.info.id, (w = { points: 0, jug: false, slots: [{ w: STARTER, up: false }, null], cur: 0 }));
+    if (!w) this.wallet.set(m.info.id, (w = { points: 0, jug: false, perks: [], slots: [{ w: STARTER, up: false }, null], cur: 0 }));
     return w;
   }
 
   forget(id: number) {
     this.wallet.delete(id);
+    this.downs.delete(id);
     this.hurtAt.delete(id);
     this.repairAt.delete(id);
   }
@@ -188,7 +207,7 @@ export class Survival {
   /** Tell a player their points and guns. `fill` lists slots that start with a full mag and spare ammo. */
   private sendMe(m: Member, fill?: number[]) {
     const w = this.purse(m);
-    this.lobby.sendTo(m, { t: 'me', pts: w.points, jug: w.jug || undefined, slots: w.slots, cur: w.cur, fill });
+    this.lobby.sendTo(m, { t: 'me', pts: w.points, jug: w.jug || undefined, perks: w.perks.length ? w.perks : undefined, slots: w.slots, cur: w.cur, fill });
   }
 
   equip(m: Member, slot: number) {
@@ -211,10 +230,10 @@ export class Survival {
 
   /** F: the player pressed use. We find what's in reach ourselves and only act if it's what they asked for. */
   use(m: Member, msg: Extract<ClientMsg, { t: 'use' }>) {
-    if (!m.info.alive) return;
+    if (!m.info.alive || this.isDown(m.info.id)) return;
     const w = this.purse(m);
     const [x, y, z] = m.state.p;
-    const u = findUse({ x, y, z }, { lay: LAY, doorsOpen: this.doors, boards: this.boards, box: this.box, points: w.points, slots: w.slots, cur: w.cur, jug: w.jug, self: m.info.id });
+    const u = findUse({ x, y, z }, { lay: LAY, doorsOpen: this.doors, boards: this.boards, box: this.box, points: w.points, slots: w.slots, cur: w.cur, jug: w.jug, perks: w.perks, downed: this.downedNear(m), self: m.info.id });
     if (!u || u.kind !== msg.kind || u.id !== msg.id || u.status !== 'ready') return;
 
     let fill: number[] | undefined;
@@ -257,8 +276,99 @@ export class Survival {
       case 'board':
         this.repair(m, u.id, w);
         break;
+      case 'perk': {
+        const kind = LAY.perks[u.id].kind;
+        w.points -= u.price;
+        w.perks.push(kind);
+        break;
+      }
+      case 'revive':
+        this.reviving(m, u.id);
+        return; // nothing of ours changed
     }
     this.sendMe(m, fill);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Going down and getting back up
+
+  isDown(id: number) {
+    return this.downs.has(id);
+  }
+
+  /** Teammates down (as findUse wants them), for someone looking to revive. */
+  private downedNear(m: Member) {
+    const out: { id: number; pos: { x: number; y: number; z: number }; name: string }[] = [];
+    for (const id of this.downs.keys()) {
+      const o = this.lobby.members.get(id);
+      if (o && o !== m) out.push({ id, pos: { x: o.state.p[0], y: o.state.p[1], z: o.state.p[2] }, name: o.info.name });
+    }
+    return out;
+  }
+
+  /** Out of health: drop where you stand instead of dying. Zombies leave you be; teammates can get you up. */
+  private goDown(m: Member) {
+    const w = this.purse(m);
+    const wind = w.perks.includes('wind');
+    if (wind) w.perks.splice(w.perks.indexOf('wind'), 1); // Second Wind is spent getting you up
+    this.downs.set(m.info.id, { bleed: SURVIVAL.bleedOut, selfAt: wind ? this.clock + SURVIVAL.selfRevive : Infinity, by: 0, prog: 0, last: 0 });
+    m.info.down = true;
+    m.state.v = [0, 0, 0];
+    this.lobby.broadcast({ t: 'downed', id: m.info.id, bleed: SURVIVAL.bleedOut, self: wind ? SURVIVAL.selfRevive : undefined });
+    this.sendMe(m);
+  }
+
+  /** One "still holding F" from a reviver. A gap of more than half a second starts the revive over. */
+  private reviving(by: Member, id: number) {
+    const d = this.downs.get(id);
+    const target = this.lobby.members.get(id);
+    if (!d || !target) return;
+    const need = this.purse(by).perks.includes('mend') ? SURVIVAL.mendReviveTime : SURVIVAL.reviveTime;
+    if (d.by !== by.info.id || this.clock - d.last > 0.5) {
+      d.by = by.info.id;
+      d.prog = 0;
+    } else d.prog += this.clock - d.last;
+    d.last = this.clock;
+    if (d.prog >= need) return this.getUp(target);
+    this.lobby.broadcast({ t: 'reviving', id, by: by.info.id, prog: Math.round((d.prog / need) * 100) / 100 });
+  }
+
+  /** Back on your feet with part of your health. */
+  private getUp(m: Member) {
+    if (!this.downs.delete(m.info.id)) return;
+    m.info.down = false;
+    m.hp = Math.round(maxHp(this.purse(m).jug) * SURVIVAL.reviveHp);
+    this.hurtAt.set(m.info.id, this.clock);
+    this.lobby.broadcast({ t: 'revived', id: m.info.id });
+    this.lobby.sendTo(m, { t: 'hp', hp: m.hp });
+  }
+
+  /** Bleeding out, Second Wind, and revives that were let go of. */
+  private tickDowns(dt: number) {
+    for (const [id, d] of this.downs) {
+      const m = this.lobby.members.get(id);
+      if (!m) {
+        this.downs.delete(id);
+        continue;
+      }
+      if (this.clock >= d.selfAt) {
+        this.getUp(m);
+        continue;
+      }
+      if (d.by && this.clock - d.last > 0.5) {
+        d.by = 0;
+        d.prog = 0;
+        this.lobby.broadcast({ t: 'reviving', id, by: 0, prog: 0 });
+      }
+      if (d.by) continue; // no bleeding out while someone is getting you up
+      d.bleed -= dt;
+      if (d.bleed > 0) continue;
+      // Bled out: down for good until the round ends.
+      this.downs.delete(id);
+      m.info.down = false;
+      this.lobby.kill(m, m, 'zombie', [0, 1, 0]);
+      this.sendMe(m);
+    }
   }
 
   /** Nail one board back up (hold F: one per repairTime), unless a zombie is standing right there. */
@@ -291,6 +401,7 @@ export class Survival {
 
   /** A player's shot (hit detection is the shooter's; we sanity-check it). Damage comes from the gun we know they hold. */
   shoot(m: Member, msg: Extract<ClientMsg, { t: 'shoot' }>) {
+    if (this.isDown(m.info.id)) return;
     if (msg.knife) return this.stab(m, msg);
     const w = this.purse(m);
     const slot = w.slots[w.cur];
@@ -334,6 +445,7 @@ export class Survival {
 
   /** A grenade went off: every zombie in range and in sight takes the blast damage (kills pay points as usual). */
   blast(m: Member, center: { x: number; y: number; z: number }) {
+    if (this.isDown(m.info.id)) return;
     const hit = blastTargets(center, this.zombies.map((z) => ({ id: z.id, pos: z.pos })), this.cols.shot);
     for (const id of hit) {
       const z = this.zombies.find((x) => x.id === id);
@@ -353,9 +465,9 @@ export class Survival {
     this.zombies.splice(this.zombies.indexOf(z), 1);
     m.info.kills++;
     this.record(m).kills++;
-    w.points += killPoints(headshot);
+    w.points += z.boss ? BOSS.points : killPoints(headshot);
     this.sendMe(m);
-    this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot, dir });
+    this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot, dir, boss: z.boss ? true : undefined });
     this.broadcastWave();
     return scored;
   }
@@ -384,11 +496,14 @@ export class Survival {
     this.lobby.sendTo(m, { t: 'hp', hp: m.hp });
     this.sendMe(m, [0, 1]);
     this.sendWorld(m);
+    // Who is down right now, so a newcomer sees them lying there.
+    for (const [id, d] of this.downs) if (id !== m.info.id) this.lobby.sendTo(m, { t: 'downed', id, bleed: d.bleed, self: Number.isFinite(d.selfAt) ? d.selfAt - this.clock : undefined });
   }
 
   private startRound() {
     this.round++;
     this.toSpawn = SURVIVAL.zombiesBase + SURVIVAL.zombiesPerRound * this.round;
+    this.bossDue = bossRound(this.round); // the boss breaks in first, then the horde behind it
     this.spawnTimer = 0;
     this.setPhase('active', 0);
   }
@@ -422,7 +537,13 @@ export class Survival {
     }
     this.zombies = [];
     this.toSpawn = 0;
+    this.bossDue = false;
     this.wallet.clear();
+    for (const id of [...this.downs.keys()]) {
+      const m = this.lobby.members.get(id);
+      if (m) this.getUp(m);
+    }
+    this.downs.clear();
     this.resetBuilding();
     this.reviveAll();
     this.setPhase('intermission', SURVIVAL.firstRoundDelay);
@@ -430,6 +551,7 @@ export class Survival {
 
   private reviveAll() {
     for (const m of this.lobby.members.values()) {
+      if (this.isDown(m.info.id)) this.getUp(m); // round over: everyone down gets up where they lie
       if (!m.info.alive) this.lobby.respawn(m);
       this.heal(m);
     }
@@ -454,11 +576,16 @@ export class Survival {
 
   private spawn(dt: number) {
     this.spawnTimer -= dt;
-    if (this.spawnTimer > 0 || this.toSpawn === 0 || this.zombies.length >= SURVIVAL.maxAlive) return;
+    if (this.spawnTimer > 0 || (this.toSpawn === 0 && !this.bossDue) || this.zombies.length >= SURVIVAL.maxAlive) return;
     this.spawnTimer = SURVIVAL.spawnInterval;
-    this.toSpawn--;
     const b = this.pickWindow();
     const at = b.spawns[Math.floor(Math.random() * b.spawns.length)];
+    if (this.bossDue) {
+      this.bossDue = false;
+      this.zombies.push(createBoss(this.nextId++, at, this.round, this.lobby.members.size, b.id));
+      return;
+    }
+    this.toSpawn--;
     this.zombies.push(createZombie(this.nextId++, at, this.round, b.id));
   }
 
@@ -476,7 +603,7 @@ export class Survival {
   private targets(): ZombieTarget[] {
     const out: ZombieTarget[] = [];
     for (const m of this.lobby.members.values()) {
-      if (m.info.alive) out.push({ id: m.info.id, pos: { x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] } });
+      if (m.info.alive && !this.isDown(m.info.id)) out.push({ id: m.info.id, pos: { x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] } }); // the horde ignores the downed
     }
     return out;
   }
@@ -524,12 +651,12 @@ export class Survival {
 
   private claw(z: Zombie, targetId: number) {
     const m = this.lobby.members.get(targetId);
-    if (!m || !m.info.alive) return;
+    if (!m || !m.info.alive || this.isDown(m.info.id)) return;
     m.hp = Math.max(0, m.hp - z.damage);
     this.hurtAt.set(m.info.id, this.clock);
     const from: V3 = [round3(z.pos.x), round3(z.pos.y), round3(z.pos.z)];
     this.lobby.sendTo(m, { t: 'hp', hp: m.hp, from });
-    if (m.hp === 0) this.lobby.kill(m, m, 'zombie', sub(m.state.p, from));
+    if (m.hp === 0) this.goDown(m);
   }
 
   /** Health creeps back a few seconds after the last claw. */
@@ -537,7 +664,7 @@ export class Survival {
     if (this.phase !== 'active') return;
     for (const m of this.lobby.members.values()) {
       const max = maxHp(this.purse(m).jug);
-      if (!m.info.alive || m.hp >= max || this.clock - (this.hurtAt.get(m.info.id) ?? -99) < SURVIVAL.regenDelay) continue;
+      if (!m.info.alive || this.isDown(m.info.id) || m.hp >= max || this.clock - (this.hurtAt.get(m.info.id) ?? -99) < SURVIVAL.regenDelay) continue;
       m.hp = Math.min(max, m.hp + SURVIVAL.regenRate * dt);
       this.lobby.sendTo(m, { t: 'hp', hp: Math.round(m.hp) });
     }

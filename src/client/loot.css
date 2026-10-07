@@ -431,3 +431,8 @@ button.loot-card[aria-pressed='true'] {
   display: inline-flex;
   align-items: center;
 }
+
+/* Survival stacks health, points and the grenade up the bottom-left: the coin counter goes on top of them. */
+.hud:has(.health:not([hidden])) .coins {
+  bottom: 200px;
+}

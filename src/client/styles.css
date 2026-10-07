@@ -1479,6 +1479,37 @@ button:disabled {
   font-style: normal;
   color: var(--ink-soft);
 }
+/* The boss's health bar, under the round banner. */
+.bossbar {
+  position: absolute;
+  left: 50%;
+  top: 56px;
+  transform: translateX(-50%);
+  width: min(420px, 60vw);
+  display: none;
+  gap: 4px;
+  text-align: center;
+  color: #ffd7cf;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-shadow: 0 1px 3px #000a;
+}
+.bossbar.show {
+  display: grid;
+}
+.bossbar div {
+  height: 12px;
+  border-radius: 6px;
+  background: #1c141099;
+  border: 2px solid #fbf4e2cc;
+  overflow: hidden;
+}
+.bossbar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #a8322b, #e0674f);
+  transition: width 0.2s linear;
+}
 .health {
   position: absolute;
   left: 24px;

@@ -8,7 +8,8 @@ import type { Vec3 } from '../shared/math.ts';
 import type { BoxState } from '../shared/protocol.ts';
 import { boilerTexture, brickTexture, concreteTexture, conveyorTexture, crateTexture, gravelTexture, hazardTexture, machineTexture, paneTexture, plankTexture, signTexture, steelTexture } from './foundrytextures.ts';
 import { buildMysteryBox, buildWallBuy } from './foundrybox.ts';
-import { buildJugMachine } from './jugmachine.ts';
+import { buildJugMachine, buildPerkMachine } from './jugmachine.ts';
+import { PERKS } from '../shared/perks.ts';
 import { MOON_DIR, NIGHT, makeMoon, makeStars } from './night.ts';
 import { buildPunchMachine } from './punchmachine.ts';
 import { rng, softDot, toonRamp } from './textures.ts';
@@ -492,6 +493,15 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   const jug = buildJugMachine(lay.jug);
   jug.obj.rotation.y = -Math.PI / 2; // the tap faces into the room
   scene.add(punch.obj, jug.obj);
+  // The other perks: a cask each, in its colour, with its emblem.
+  const EMBLEM = { mend: 'cross', zephyr: 'bolt', wind: 'wings' } as const;
+  const perkMachines = lay.perks.map((p) => {
+    const c = new THREE.Color(PERKS[p.kind].color);
+    const m = buildPerkMachine(p.pos, PERKS[p.kind].color, c.clone().multiplyScalar(0.62).getHex(), c.clone().multiplyScalar(0.85).getHex(), EMBLEM[p.kind]);
+    m.obj.rotation.y = p.yaw; // the tap faces into the room
+    scene.add(m.obj);
+    return m;
+  });
   // The furnace behind the Pack-a-Punch: a glowing mouth in the machine's face.
   const furnaceGlow = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.5), new THREE.MeshBasicMaterial({ color: 0xff7a2a }));
   furnaceGlow.position.set(lay.punch.x, 1.1, -29.98);
@@ -609,6 +619,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
       (furnaceHalo.material as THREE.SpriteMaterial).opacity = 0.45 + 0.15 * Math.sin(time * 5.3) + 0.1 * Math.sin(time * 13);
       punch.update(time);
       jug.update(time);
+      for (const m of perkMachines) m.update(time);
       box.update(time, boxState, () => world.onEvent?.('tick', { x: box.obj.position.x, y: 1, z: box.obj.position.z }));
     },
   };

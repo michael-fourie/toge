@@ -138,6 +138,26 @@ export const SURVIVAL = {
   boxRoll: 3.6, // seconds the box spins its guns before showing one
   boxHold: 9, // seconds you have to take the gun
   boxLeave: 3, // seconds the plush waves goodbye before the box moves
+
+  // Going down. At 0 hp you drop instead of dying: zombies leave you be, teammates hold F beside you to revive.
+  bleedOut: 30, // seconds down before you die for good (and wait for the round to end)
+  reviveTime: 4, // seconds a teammate holds F to get you up...
+  mendReviveTime: 2, // ...with Swift Mend
+  reviveRange: 2, // metres from a downed teammate to revive them
+  reviveHp: 0.5, // you come back with this share of your max health
+  selfRevive: 4, // Second Wind: seconds down before you get yourself back up
+};
+
+/** The boss: one big zombie that joins every `every`th round, tougher each time. */
+export const BOSS = {
+  every: 5,
+  hpBase: 3000, // round 5
+  hpPerTier: 2500, // each later boss round adds this
+  hpPerExtraPlayer: 0.5, // +50% health for each player past the first
+  damageMult: 2.5, // its swipe vs a normal zombie of the same round
+  speedMult: 0.85, // a bit slower than the horde: big, not sneaky
+  points: 500, // Survival points to whoever lands the kill (everyone gets the coins)
+  scale: 1.8, // drawn (and hit-tested) this much bigger than a zombie
 };
 
 /** Zombie stats and AI tuning. Per-round values grow linearly up to their caps. */

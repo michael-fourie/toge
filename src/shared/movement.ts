@@ -13,6 +13,8 @@ export interface MoveInput {
   grapplePressed: boolean; // went down since the last tick
   /** Chest points of players the rope can latch onto (the rope follows them while attached). */
   grappleTargets?: readonly GrappleTarget[];
+  /** Ground run speed multiplier (Survival's Zephyr Fizz perk). Only raises the top run speed; air strafing is untouched. */
+  speedMult?: number;
 }
 
 export interface GrappleTarget {
@@ -387,7 +389,7 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
     if (s.sliding) slideMove(s, input, wishAmount, dt);
     else {
       if (!jumpedFromGround && !s.grapple) applyFriction(vel, dt);
-      accelerate(vel, wish, MOVE.maxGroundSpeed * wishAmount, MOVE.groundAccel, dt);
+      accelerate(vel, wish, MOVE.maxGroundSpeed * (input.speedMult ?? 1) * wishAmount, MOVE.groundAccel, dt);
     }
   } else if (s.wallrunning) {
     s.wallrunTime += dt;

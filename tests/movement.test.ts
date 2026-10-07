@@ -41,6 +41,21 @@ test('running forward reaches max ground speed, not more', () => {
   assert.ok(s.pos.z < -10, 'yaw 0 should move toward -Z');
 });
 
+test('Zephyr Fizz (speedMult) raises the top run speed on the ground and leaves air strafing exactly as it was', () => {
+  const fast = createPlayerState({ x: 0, y: 0, z: 0 });
+  run(fast, { ...emptyInput(), forward: 1, speedMult: 1.25 }, 2, [floor]);
+  assert.ok(Math.abs(hlen(fast.vel) - MOVE.maxGroundSpeed * 1.25) < 0.1, `speed=${hlen(fast.vel)}`);
+  // In the air the multiplier changes nothing: the same strafe from the same start ends at the same speed.
+  const air = (mult?: number) => {
+    const s = createPlayerState({ x: 0, y: 50, z: 0 });
+    s.vel = { x: 0, y: 0, z: -12 };
+    const input: MoveInput = { ...emptyInput(), right: 1, speedMult: mult };
+    run(s, input, 1, [], (i) => (input.yaw = -i * 0.01));
+    return hlen(s.vel);
+  };
+  assert.equal(air(1.25), air());
+});
+
 test('bhopping with air-strafing builds speed beyond ground max', () => {
   const s = createPlayerState({ x: 0, y: 0, z: 0 });
   const input: MoveInput = { ...emptyInput(), forward: 1 };

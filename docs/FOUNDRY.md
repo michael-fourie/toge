@@ -27,7 +27,7 @@ Metres; x east, z south, y up. The building is x ±36, z -32..24 inside a compou
 | D5 Loading Dock | 1250 | Storage - Dock |
 | D6 Locker to Furnace | 1000 | Locker - Furnace (closes the loop Hall - Boiler - Locker - Furnace - Hall) |
 
-Wall guns: Marshal (Office), Rattler (Hall), Warden (Boiler), Bramble (Storage), Kestrel (Mezzanine). Mystery Box spots: Boiler, Dock, Locker, Storage (it moves after the plush). Pack-a-Punch is in the Furnace, Juggernog in Storage. Fourteen boarded bays (`WINDOWS`) in the outside walls, 2 to 4 per room; each is an opening 3 m wide, floor to 3 m, with five planks.
+Wall guns: Marshal (Office), Rattler (Hall), Warden (Boiler), Bramble (Storage), Kestrel (Mezzanine). Mystery Box spots: Boiler, Dock, Locker, Storage (it moves after the plush). Pack-a-Punch is in the Furnace, Juggernog in Storage, and the other perks each in a room you have to buy: Swift Mend (Boiler Room), Second Wind (Locker Room), Zephyr Fizz (Loading Dock). Every perk machine is a 'machine' cooler against a wall (`lay.perks`: where it stands and its yaw). Fourteen boarded bays (`WINDOWS`) in the outside walls, 2 to 4 per room; each is an opening 3 m wide, floor to 3 m, with five planks.
 
 ## Moving parts (all server-authoritative)
 

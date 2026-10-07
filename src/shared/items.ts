@@ -18,7 +18,11 @@ export const RARITY: Record<Rarity, { name: string; color: number; weight: numbe
 };
 
 /** The currency: earned by kills, spent on cases, topped up by selling skins. */
-export const COIN = { name: 'Coins', start: 300, kill: 10, headshot: 5, zombie: 3 } as const;
+/**
+ * Coins (client-side, like the rest of the stash). Battle pays per kill and for winning the match;
+ * Survival pays everyone in the lobby for every round cleared and for every boss killed. Practice pays nothing.
+ */
+export const COIN = { name: 'Coins', start: 300, kill: 10, win: 50, round: 10, boss: 50 } as const;
 
 export type Slot = 'rifle' | 'knife' | 'hat' | 'face' | 'back';
 export const SLOTS: readonly Slot[] = ['rifle', 'knife', 'hat', 'face', 'back'];

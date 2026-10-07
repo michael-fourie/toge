@@ -43,6 +43,7 @@ export class Hud {
       <div class="center-msg"></div>
       <div class="feats"></div>
       <div class="wave"></div>
+      <div class="bossbar"><b>THE FOREMAN</b><div><i></i></div></div>
       <div class="hurt"></div>
       <div class="health" hidden><b>100</b><div class="bar"><i></i></div></div>
       <div class="death"><h2></h2><p></p></div>
@@ -200,6 +201,13 @@ export class Hud {
     el.classList.remove('show');
     void el.offsetWidth;
     el.classList.add('show');
+  }
+
+  /** The boss's health bar under the round banner; null hides it. */
+  boss(hp: number | null) {
+    const el = this.q('.bossbar');
+    el.classList.toggle('show', hp !== null);
+    if (hp !== null) this.q<HTMLElement>('.bossbar i').style.width = `${Math.round(hp * 100)}%`;
   }
 
   /** Survival round banner along the top; null hides it. */

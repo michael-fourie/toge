@@ -9,6 +9,7 @@ import { mapFor } from '../shared/maps.ts';
 import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/math.ts';
 import { Ev, type GrappleTarget, type PlayerState, createPlayerState, emptyInput, findGrapple, stepPlayer } from '../shared/movement.ts';
 import { WEAPONS, gunStats } from '../shared/weapons.ts';
+import { PERKS, type PerkId, ZEPHYR_SPEED } from '../shared/perks.ts';
 import { type Grenade, applyKnock, blastKnock, blastTargets, stepGrenade, throwVelocity } from '../shared/grenade.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import { TEAMS, sameTeam } from '../shared/teams.ts';
@@ -196,6 +197,16 @@ export class Game {
   // Points, perks, the building (server-authoritative; we mirror what it tells us)
   private points = 0;
   private jug = false;
+  /** Survival perks beyond Juggernog. */
+  private perks: PerkId[] = [];
+  /**
+   * Survival: who is down (us included), when they bleed out (our clock), when Second Wind gets them up, and how far
+   * a teammate's revive has got. While we're down we can't move, shoot or use anything.
+   */
+  private downed = new Map<number, { bleedAt: number; selfAt: number; prog: number; by: number; pausedAt: number }>();
+  private reviveAt = 0;
+  /** Floating "revive me" markers over downed teammates. */
+  private reviveMarks = new Map<number, THREE.Sprite>();
   private doors: boolean[] = [];
   private boards: number[] = [];
   private box: BoxState = { spot: 0, phase: 'closed', gun: null, owner: 0, left: 0 };
@@ -235,6 +246,10 @@ export class Game {
     if (this.map.koth) this.hillFx = new HillFx(this.world.scene, this.map.koth.zone);
     if (this.mode === 'survival') {
       this.horde = new Horde(this.world.scene);
+      this.horde.onBoss = () => {
+        this.hud.center('THE FOREMAN HAS ARRIVED', '#ff6b5a', 3);
+        sfx.roundStart();
+      };
       this.wave = joined?.wave ?? null;
       this.foundry!.onEvent = (e, at) => this.onFoundryEvent(e, at);
       this.foundry!.sync([], [], this.box);
@@ -316,6 +331,7 @@ export class Game {
     if (this.killcam) this.updateKillcam();
     else this.updateRemotes();
     this.updateHorde();
+    this.updateDowned();
     this.corpses.update(dt);
     this.updateTracers(dt);
     this.world.update(this.time);
@@ -329,7 +345,7 @@ export class Game {
     if (this.foundry && this.shadowTick++ % 3 === 0) this.renderer.shadowMap.needsUpdate = true;
     this.renderer.clear();
     this.renderer.render(this.world.scene, this.camera);
-    if (this.alive && !this.scoped) {
+    if (this.alive && !this.scoped && !this.isDown) {
       this.renderer.clearDepth();
       this.renderer.render(this.vm.scene, this.vm.camera);
     }
@@ -342,7 +358,14 @@ export class Game {
       copy(this.prevPos, this.me.pos);
       const fallSpeed = -this.me.vel.y;
       this.moveInput.grappleTargets = this.grappleTargets();
-      stepPlayer(this.me, this.input.sample(this.moveInput), TICK_DT, this.cols.move, this.map.triggers);
+      const input = this.input.sample(this.moveInput);
+      input.speedMult = this.perks.includes('zephyr') ? ZEPHYR_SPEED : 1;
+      if (this.isDown) {
+        // Down: you stay where you fell (gravity still settles you onto the floor).
+        input.forward = input.right = 0;
+        input.jump = input.jumpPressed = input.slide = input.grapplePressed = false;
+      }
+      stepPlayer(this.me, input, TICK_DT, this.cols.move, this.map.triggers);
       this.onMoveEvents(this.me.events, fallSpeed);
       this.airTime = this.me.onGround ? 0 : this.airTime + TICK_DT;
       this.acc -= TICK_DT;
@@ -427,8 +450,15 @@ export class Game {
     this.aiming = want && !st.scoped;
     this.vm.setAim(this.aiming);
     const auto = st.auto && this.input.fireHeld;
-    if (this.input.takeFire() || auto) this.fire();
-    if (this.input.takeGrenade()) this.throwGrenade();
+    const fire = this.input.takeFire() || auto;
+    const nade = this.input.takeGrenade();
+    if (this.isDown) {
+      this.scoped = this.aiming = false;
+      this.use = null;
+      return;
+    }
+    if (fire) this.fire();
+    if (nade) this.throwGrenade();
     if (this.horde && this.alive) this.useKeys();
   }
 
@@ -469,18 +499,18 @@ export class Game {
     let best = rayWorld(o, d, this.cols.shot, range);
     let hit: { id: number; zombie: boolean } | null = null;
     let headshot = false;
-    const hw = PLAYER.halfWidth;
-    const targets: { id: number; pos: THREE.Vector3; zombie: boolean }[] = this.horde
-      ? [...this.horde.zombies.values()].map((z) => ({ id: z.id, pos: z.pos, zombie: true })) // co-op: shots pass through friends
-      : [...this.remotes.values()].filter((r) => r.info.alive && !(this.teams && sameTeam(r.info, this.players.get(this.selfId)!))).map((r) => ({ id: r.info.id, pos: r.pos, zombie: false }));
-    for (const { id, pos: p, zombie } of targets) {
-      const th = raySphere(o, d, { x: p.x, y: p.y + PLAYER.headCenter, z: p.z }, PLAYER.headRadius + 0.04, best);
+    const targets: { id: number; pos: THREE.Vector3; zombie: boolean; s: number }[] = this.horde
+      ? [...this.horde.zombies.values()].map((z) => ({ id: z.id, pos: z.pos, zombie: true, s: z.scale })) // co-op: shots pass through friends
+      : [...this.remotes.values()].filter((r) => r.info.alive && !(this.teams && sameTeam(r.info, this.players.get(this.selfId)!))).map((r) => ({ id: r.info.id, pos: r.pos, zombie: false, s: 1 }));
+    for (const { id, pos: p, zombie, s } of targets) {
+      const hw = PLAYER.halfWidth * s; // a boss is bigger all over
+      const th = raySphere(o, d, { x: p.x, y: p.y + PLAYER.headCenter * s, z: p.z }, (PLAYER.headRadius + 0.04) * s, best);
       if (th >= 0 && th < best) {
         best = th;
         hit = { id, zombie };
         headshot = true;
       }
-      const tb = rayBox(o, d, { x: p.x - hw, y: p.y, z: p.z - hw }, { x: p.x + hw, y: p.y + PLAYER.headCenter - PLAYER.headRadius, z: p.z + hw }, best);
+      const tb = rayBox(o, d, { x: p.x - hw, y: p.y, z: p.z - hw }, { x: p.x + hw, y: p.y + (PLAYER.headCenter - PLAYER.headRadius) * s, z: p.z + hw }, best);
       if (tb >= 0 && tb < best) {
         best = tb;
         hit = { id, zombie };
@@ -614,7 +644,10 @@ export class Game {
   // Survival: doors, wall guns, the box and the windows (F)
 
   private useCtx() {
-    return { lay: this.map.survival!, doorsOpen: this.doors, boards: this.boards, box: this.box, points: this.points, slots: this.loadout.slots.map((s) => (s ? { w: s.w, up: s.up } : null)), cur: this.loadout.cur, jug: this.jug, self: this.selfId };
+    const downed = [...this.downed.keys()]
+      .filter((id) => id !== this.selfId && this.remotes.has(id))
+      .map((id) => ({ id, pos: this.remotes.get(id)!.pos, name: this.players.get(id)?.name ?? '???' }));
+    return { lay: this.map.survival!, doorsOpen: this.doors, boards: this.boards, box: this.box, points: this.points, slots: this.loadout.slots.map((s) => (s ? { w: s.w, up: s.up } : null)), cur: this.loadout.cur, jug: this.jug, perks: this.perks, downed, self: this.selfId };
   }
 
   /** Works out what F would do here (for the prompt) and, while F is held at a window, nails boards back up. */
@@ -627,11 +660,65 @@ export class Game {
       this.repairAt = this.time + SURVIVAL.repairTime;
       this.opts.net?.send({ t: 'use', kind: 'board', id: u.id });
     }
+    // Reviving is a hold too: keep telling the server we're still at it.
+    if (u?.kind === 'revive' && this.input.down(this.input.keymap.use) && this.time >= this.reviveAt) {
+      this.reviveAt = this.time + 0.2;
+      this.opts.net?.send({ t: 'use', kind: 'revive', id: u.id });
+    }
+  }
+
+  private get isDown() {
+    return this.downed.has(this.selfId);
+  }
+
+  /** Someone went down (maybe us): they lie where they fell with a bleed-out timer. */
+  private onDowned(m: Extract<ServerMsg, { t: 'downed' }>) {
+    this.downed.set(m.id, { bleedAt: this.time + m.bleed, selfAt: m.self === undefined ? Infinity : this.time + m.self, prog: 0, by: 0, pausedAt: 0 });
+    const p = this.players.get(m.id);
+    if (p) p.down = true;
+    if (m.id === this.selfId) {
+      sfx.death();
+      this.scoped = false;
+      this.input.scopeHeld = false;
+      this.hud.center(m.self === undefined ? 'YOU ARE DOWN!' : 'SECOND WIND!', '#ff6b5a', 2);
+    } else this.hud.killfeed(undefined, p, 'is down! Revive them');
+  }
+
+  private onRevived(id: number) {
+    this.downed.delete(id);
+    const p = this.players.get(id);
+    if (p) p.down = false;
+    this.reviveMarks.get(id)?.removeFromParent();
+    this.reviveMarks.delete(id);
+    if (id === this.selfId) {
+      sfx.roundClear();
+      this.hud.center('BACK ON YOUR FEET', '#9fe08a', 1.6);
+    }
+  }
+
+  /** Downed teammates lie on their side with a pulsing revive marker over them (filling as someone revives them). */
+  private updateDowned() {
+    for (const [id, d] of this.downed) {
+      if (id === this.selfId) continue;
+      const r = this.remotes.get(id);
+      if (!r) continue;
+      let mark = this.reviveMarks.get(id);
+      if (!mark) {
+        mark = new THREE.Sprite(new THREE.SpriteMaterial({ map: reviveIcon(), transparent: true, depthTest: false }));
+        mark.renderOrder = 5;
+        this.reviveMarks.set(id, mark);
+        this.world.scene.add(mark);
+      }
+      mark.position.set(r.pos.x, r.pos.y + 1.4 + Math.sin(this.time * 3) * 0.08, r.pos.z);
+      const s = 0.7 + d.prog * 0.5;
+      mark.scale.set(s, s, 1);
+      mark.material.opacity = 0.65 + 0.35 * Math.abs(Math.sin(this.time * 4));
+    }
   }
 
   private pressUse() {
     const u = this.use;
-    if (!u || u.kind === 'board') return;
+    if (!u || u.kind === 'board' || u.kind === 'revive') return; // both are holds (useKeys)
     if (u.status !== 'ready') return sfx.denied();
     this.opts.net?.send({ t: 'use', kind: u.kind, id: u.id });
   }
@@ -768,6 +855,7 @@ export class Game {
     this.hud.killfeed(killer, victim, feats ?? verbFor[cause]);
     const d = new THREE.Vector3(...dir);
 
+    if (this.downed.has(victimId)) this.onRevived(victimId); // bled out: no longer "down", just dead (quietly)
     if (victimId === this.selfId) {
       this.die(cause, killerId, d);
     } else {
@@ -775,7 +863,7 @@ export class Game {
       if (r) {
         r.avatar.root.visible = false;
         r.buffer.length = 0;
-        if (cause !== 'void') this.corpses.spawn(r.avatar.cloneBody(), r.pos, r.yaw, d, cause === 'headshot' ? 38 : 26);
+        if (cause !== 'void') this.corpses.spawn(r.avatar.cloneBody(), r.pos, r.yaw, d, this.horde ? 0 : cause === 'headshot' ? 38 : 26); // Survival: no flinging, they just lie there
         if (r.dummy) r.dummy.respawnAt = this.time + RESPAWN_SECONDS;
       }
     }
@@ -790,9 +878,7 @@ export class Game {
     const style = h && h.id === id && h.zombie === zombie ? featsFor(h.ctx) : headshot ? featsFor({ ...PLAIN_SHOT, headshot }) : [];
     const extra = this.streak.kill(this.time);
     sfx.kill();
-    const gained = zombie ? COIN.zombie : COIN.kill + (headshot ? COIN.headshot : 0);
-    stash.earn(gained);
-    this.hud.coins(stash.inv.coins, gained);
+    if (!zombie && this.opts.net && this.mode === 'battle') this.award(COIN.kill); // practice dummies pay nothing
     const all = [...style, ...extra];
     if (all.length === 0) this.hud.center(pick(YEETS));
     else if (all.length === 1 && style[0]?.label === 'HEADSHOT') this.hud.center('HEADSHOT!', '#ffd43b'); // the classic
@@ -801,6 +887,12 @@ export class Game {
       sfx.feats(all.length, Math.max(...all.map((f) => f.tier)));
     }
     return style.length ? style.map((f) => f.label).join(' ') : null;
+  }
+
+  /** Coins for something we did (client-side, like the rest of the stash): saved, and floated up on the HUD. */
+  private award(n: number) {
+    stash.earn(n);
+    this.hud.coins(stash.inv.coins, n);
   }
 
   private die(cause: DeathCause, killerId: number, dir: THREE.Vector3) {
@@ -822,8 +914,9 @@ export class Game {
             : `${cause === 'headshot' ? 'Headshot' : cause === 'knife' ? 'Stabbed' : 'Sniped'} by ${killer?.name ?? '???'}`;
     const pos = new THREE.Vector3(this.me.pos.x, this.me.pos.y, this.me.pos.z);
     this.deathCam.copy(pos).add(new THREE.Vector3(0, PLAYER.eyeHeight, 0));
-    this.deathCorpse =
-      cause === 'void' ? null : this.corpses.spawn(this.selfAvatar.cloneBody(), pos, this.input.yaw, dir, cause === 'headshot' ? 38 : 26);
+    // Survival: you bled out where you lay, so the body just slumps there instead of being flung.
+    const power = this.horde ? 0 : cause === 'headshot' ? 38 : 26;
+    this.deathCorpse = cause === 'void' ? null : this.corpses.spawn(this.selfAvatar.cloneBody(), pos, this.input.yaw, dir, power);
     if ((cause === 'snipe' || cause === 'headshot') && killerId !== this.selfId) this.startKillcam(killerId);
   }
 
@@ -978,6 +1071,7 @@ export class Game {
       r.avatar.holdKnife((e.f & StateFlag.Knife) !== 0);
       const sliding = (e.f & StateFlag.Sliding) !== 0;
       r.avatar.pose(r.pos.x, r.pos.y, r.pos.z, r.yaw, pitch, side, this.time, sliding);
+      r.avatar.root.rotation.z = r.info.down ? Math.PI / 2 : 0; // down: lying on their side
       r.trail.push(this.time, { x: r.pos.x, y: r.pos.y, z: r.pos.z, yaw: r.yaw, pitch, side, sliding });
     }
   }
@@ -1079,6 +1173,11 @@ export class Game {
         this.hud.killfeed(killer, ZOMBIE_INFO, feats ?? (msg.headshot ? verbFor.headshot : verbFor.snipe));
         this.horde?.kill(msg.id, new THREE.Vector3(...msg.dir), msg.headshot, this.corpses);
         sfx.zombieDown();
+        if (msg.boss) {
+          this.award(COIN.boss); // everyone, not just whoever landed the kill
+          this.hud.center(`THE FOREMAN IS DOWN! +${COIN.boss} COINS`, '#ffd98a', 3);
+          sfx.roundClear();
+        }
         break;
       }
       case 'teams':
@@ -1122,6 +1221,23 @@ export class Game {
       case 'me':
         this.onMe(msg);
         break;
+      case 'downed':
+        this.onDowned(msg);
+        break;
+      case 'reviving': {
+        const d = this.downed.get(msg.id);
+        if (d) {
+          // The bleed-out clock stops while someone is reviving (the server pauses it too): push it back by the pause.
+          if (msg.by && !d.by) d.pausedAt = this.time;
+          if (!msg.by && d.by) d.bleedAt += this.time - d.pausedAt;
+          d.prog = msg.prog;
+          d.by = msg.by;
+        }
+        break;
+      }
+      case 'revived':
+        this.onRevived(msg.id);
+        break;
       case 'world':
         this.onWorld(msg);
         break;
@@ -1161,6 +1277,13 @@ export class Game {
   /** Our points, perks and guns, as the server sees them. A different gun in our hands (bought, taken from the box, punched) gets drawn. */
   private onMe(m: Extract<ServerMsg, { t: 'me' }>) {
     this.points = m.pts;
+    const perks = m.perks ?? [];
+    const fresh = perks.filter((p) => !this.perks.includes(p));
+    this.perks = perks;
+    for (const p of fresh) {
+      sfx.jug();
+      this.hud.center(`${PERKS[p].name.toUpperCase()}!`, '#' + PERKS[p].color.toString(16).padStart(6, '0'), 2.2);
+    }
     if (!!m.jug !== this.jug) {
       this.jug = !!m.jug;
       if (this.jug) {
@@ -1212,6 +1335,7 @@ export class Game {
     } else if (w.round > 0) {
       sfx.roundClear();
       this.hud.center('ROUND CLEARED!', '#ffd98a', 2.2);
+      if (was === 'active') this.award(COIN.round); // everyone in the lobby, up or down
     }
   }
 
@@ -1242,6 +1366,7 @@ export class Game {
     const color = 'team' in w ? TEAMS[w.team].color : (this.players.get(w.id)?.color ?? 0xffffff);
     const who = 'team' in w ? `${TEAMS[w.team].name.toUpperCase()} WINS!` : `${(this.players.get(w.id)?.name ?? '???').toUpperCase()} WINS!`;
     this.hud.center(who, '#' + color.toString(16).padStart(6, '0'), msg.restartIn);
+    if (won) this.award(COIN.win);
     if (won) sfx.roundClear();
     else sfx.gameOver();
   }
@@ -1251,11 +1376,18 @@ export class Game {
     const w = this.wave;
     if (!w) return null;
     const secs = Math.max(0, Math.ceil(w.timer - (this.time - this.waveAt)));
-    if (w.phase === 'active') return `<b>ROUND ${w.round}</b>${w.left} zombie${w.left === 1 ? '' : 's'} left`;
+    if (w.phase === 'active') return `<b>ROUND ${w.round}${w.boss ? ' · BOSS' : ''}</b>${w.left} zombie${w.left === 1 ? '' : 's'} left`;
     const survived = Math.max(0, w.round - 1);
     if (w.phase === 'over') return `<b>GAME OVER</b>survived ${survived} round${survived === 1 ? '' : 's'}`;
     if (w.round === 0) return `<b>SURVIVAL</b>the horde rises in ${secs}s`;
     return `<b>ROUND ${w.round} CLEARED</b>next round in ${secs}s`;
+  }
+
+  /** Under "You are down!": who is getting you up, Second Wind's countdown, or how long until you bleed out. */
+  private downText(d: { bleedAt: number; selfAt: number; prog: number; by: number; pausedAt: number }): string {
+    if (d.by) return `${this.players.get(d.by)?.name ?? 'A teammate'} is reviving you… ${Math.round(d.prog * 100)}%`;
+    if (Number.isFinite(d.selfAt)) return `Second Wind gets you up in ${Math.max(0, d.selfAt - this.time).toFixed(1)}s`;
+    return `Bleeding out in ${Math.ceil(Math.max(0, d.bleedAt - this.time))}s · a teammate can hold F beside you to revive you`;
   }
 
   private deathSubtitle(): string | null {
@@ -1291,14 +1423,16 @@ export class Game {
     );
     this.landDip = Math.max(0, this.landDip - dt * 0.8);
     // Drop the camera toward the floor while sliding (fast down, a little slower back up).
-    const targetEye = this.me.sliding ? MOVE.slideEyeHeight : PLAYER.eyeHeight;
+    const targetEye = this.isDown ? 0.45 : this.me.sliding ? MOVE.slideEyeHeight : PLAYER.eyeHeight;
     this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * (this.me.sliding ? 14 : 9));
     cam.position.set(this.renderPos.x, this.renderPos.y + this.eyeHeight - this.landDip, this.renderPos.z);
 
     // Lean away from the wall while wallrunning, a little tilt while sliding, a touch of strafe tilt otherwise.
     const right = yawRight(this.input.yaw);
     const n = this.me.wallNormal;
-    const targetRoll = this.me.wallrunning
+    const targetRoll = this.isDown
+      ? 0.35 // slumped over
+      : this.me.wallrunning
       ? -(n.x * right.x + n.z * right.z) * 0.13
       : this.me.sliding
         ? 0.05 - this.moveInput.right * 0.03
@@ -1348,10 +1482,13 @@ export class Game {
     this.hud.grapple(this.grappleState());
     sfx.setWind(this.alive && !this.hud.root.classList.contains('paused') ? SpeedFx.strength(hlen(this.me.vel)) : 0);
     this.hud.setCredit(this.vm.credit);
-    this.hud.death(this.deathText, this.killcam ? null : this.deathSubtitle());
+    const down = this.downed.get(this.selfId);
+    if (down) this.hud.death('You are down!', this.downText(down));
+    else this.hud.death(this.deathText, this.killcam ? null : this.deathSubtitle());
     this.hud.killcam(this.killcam ? this.killcam.text : null);
     this.hud.health(this.horde ? this.hp : null, maxHp(this.jug));
     this.hud.wave(this.waveText());
+    this.hud.boss(this.horde?.bossHp() ?? null);
     this.postgame?.tick(this.time);
     this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId, this.teams, this.hill ? `Hold the hill for ${KOTH.holdToWin / 60} minutes` : undefined);
     this.hillFx?.update(this.hill, this.time);
@@ -1485,4 +1622,26 @@ function lerpAngle(a: number, b: number, t: number) {
   if (d > Math.PI) d -= Math.PI * 2;
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * t;
+}
+
+let reviveTex: THREE.CanvasTexture | null = null;
+/** The marker over a downed teammate: a white disc with a red cross. */
+function reviveIcon(): THREE.CanvasTexture {
+  if (reviveTex) return reviveTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#fffdf3';
+  g.strokeStyle = '#4a3726';
+  g.lineWidth = 4;
+  g.beginPath();
+  g.arc(32, 32, 27, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
+  g.fillStyle = '#d9584a';
+  g.fillRect(26, 14, 12, 36);
+  g.fillRect(14, 26, 36, 12);
+  reviveTex = new THREE.CanvasTexture(c);
+  reviveTex.colorSpace = THREE.SRGBColorSpace;
+  return reviveTex;
 }

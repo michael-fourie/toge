@@ -1,6 +1,7 @@
 // Wire protocol. JSON for the prototype; swap to a binary encoding once the shape settles.
 
 import type { KothState } from './koth.ts';
+import type { PerkId } from './perks.ts';
 import type { Team, Winner } from './teams.ts';
 import type { Slot, WeaponId } from './weapons.ts';
 
@@ -39,6 +40,8 @@ export interface PlayerInfo {
   skin?: string;
   /** Equipped loot (shared/items.ts gear code): rifle paint, knife, hat, face, back. */
   gear?: string;
+  /** Survival: down and waiting for a revive (still on the map, can't move or shoot). */
+  down?: boolean;
 }
 
 /** Per-player state inside a snapshot. Flags: 1 = on ground, 2 = wallrunning. */
@@ -62,9 +65,11 @@ export interface NetZombie {
   p: V3;
   yaw: number;
   f: number;
+  /** Bosses only: health left, 0..1 (for the boss bar). */
+  hp?: number;
 }
 
-export const ZombieFlag = { Clawing: 1, Crouching: 2 } as const;
+export const ZombieFlag = { Clawing: 1, Crouching: 2, Boss: 4 } as const;
 
 /** A zombie a shot hit (a shotgun blast can hit several). */
 export interface ZombieHit {
@@ -72,7 +77,7 @@ export interface ZombieHit {
   h?: boolean;
 }
 
-export type UseKind = 'door' | 'wall' | 'box' | 'take' | 'punch' | 'jug' | 'board';
+export type UseKind = 'door' | 'wall' | 'box' | 'take' | 'punch' | 'jug' | 'board' | 'perk' | 'revive';
 
 /** The Mystery Box. Closed: pay to open. Rolling: cycling guns. Ready: `owner` may take `gun` (null: the plush, which gives the points back). Leaving: it is moving to another spot. */
 type BoxPhase = 'closed' | 'rolling' | 'ready' | 'leaving';
@@ -92,6 +97,8 @@ export interface WaveInfo {
   phase: WavePhase;
   left: number;
   timer: number;
+  /** A boss round (every BOSS.every rounds). */
+  boss?: boolean;
 }
 
 /** One line of the Survival post-game board. `gone` players left mid-run but keep their kills. */
@@ -137,10 +144,13 @@ export type ServerMsg =
   | { t: 'matchStart'; players: PlayerInfo[] } // scores zeroed, everyone respawns (a `respawn` follows for each)
   // Survival
   | { t: 'wave'; wave: WaveInfo }
-  | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3 }
+  | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3; boss?: boolean } // a boss: everyone gets the coins
   | { t: 'postgame'; rounds: number; rows: PostRow[]; waiting: number } // game-over board, resent when readiness changes
   | { t: 'hp'; hp: number; from?: V3 } // only to the player concerned; `from` is where the claw came from
-  | { t: 'me'; pts: number; jug?: boolean; slots: (Slot | null)[]; cur: number; fill?: number[] } // only to the player concerned; fill: slots that start with a full mag and ammo
+  | { t: 'me'; pts: number; jug?: boolean; perks?: PerkId[]; slots: (Slot | null)[]; cur: number; fill?: number[] }
+  | { t: 'downed'; id: number; bleed: number; self?: number } // went down: `bleed` seconds to be revived; `self`: Second Wind gets them up after this long
+  | { t: 'reviving'; id: number; by: number; prog: number } // a teammate is reviving them (prog 0..1; 0 = they let go)
+  | { t: 'revived'; id: number } // back on their feet // only to the player concerned; fill: slots that start with a full mag and ammo
   | { t: 'world'; doors: boolean[]; boards: number[]; box: BoxState } // Survival: doors that are open, planks per window, and the Mystery Box
   | { t: 'error'; message: string };
 

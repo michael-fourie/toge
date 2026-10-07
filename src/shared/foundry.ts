@@ -8,6 +8,8 @@
 //                     │D0
 //                   Office (start)
 //
+// Perks: Swift Mend in the Boiler Room, Second Wind in the Locker Room, Zephyr Fizz on the Loading Dock.
+//
 // Windows are walled off from players by invisible bars (colliders.ts), so nobody wanders out into the yard.
 import type { Box } from './collision.ts';
 import type { Barricade, Door, Link, Room, SurvivalLayout, WallBuy } from './layout.ts';
@@ -208,6 +210,10 @@ function buildFoundry(): MapData {
   // --- Storage ---
   boxes.push(span(19, 0, -9.4, 22.5, 2.4, -8.6, 'steel'), span(19, 0, -5.4, 22.5, 2.4, -4.6, 'steel'), box(32, 0.6, 2, 1.2, 1.2, 1.2, 'crate'), box(30.6, 0.5, 3.4, 1, 1, 1, 'crate'), box(21.5, 0.8, 4, 1.6, 1.6, 1.6, 'crate'));
   boxes.push(span(35, 0, -10.5, 36, 2.6, -7.5, 'machine')); // Juggernog cooler
+  // The other perk coolers, one in each of the rooms you have to buy your way into.
+  boxes.push(span(-36, 0, 3, -35, 2.6, 6, 'machine')); // Swift Mend (Boiler Room)
+  boxes.push(span(-19, 0, -31, -18, 2.6, -28, 'machine')); // Second Wind (Locker Room)
+  boxes.push(span(18, 0, -30.5, 19, 2.6, -27.5, 'machine')); // Zephyr Fizz (Loading Dock)
   // --- Locker Room ---
   boxes.push(span(-35.8, 0, -31, -34.8, 2.2, -25.5, 'steel'), span(-30, 0, -22, -24, 0.5, -21, 'crate'));
   // --- Loading Dock ---
@@ -262,6 +268,12 @@ function buildFoundry(): MapData {
     ],
     punch: v(0, 0, -28.4),
     jug: v(33.7, 0, -9),
+    perks: [
+      // yaw turns the cask so its tap (local +x) points into the room
+      { kind: 'mend', pos: v(-33.7, 0, 4.5), yaw: 0, room: BOILER },
+      { kind: 'wind', pos: v(-20.3, 0, -29.5), yaw: Math.PI, room: LOCKER },
+      { kind: 'zephyr', pos: v(20.3, 0, -29), yaw: 0, room: DOCK },
+    ],
     start,
     startRoom: OFFICE,
   };

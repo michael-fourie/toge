@@ -3,6 +3,7 @@
 import type { Box } from './collision.ts';
 import type { Vec3 } from './math.ts';
 import type { SpawnPoint } from './map.ts';
+import type { PerkId } from './perks.ts';
 import type { WeaponId } from './weapons.ts';
 
 /** A walkable region, as a floor-plan rectangle plus the heights it covers (a mezzanine shares its footprint with the hall below). */
@@ -86,6 +87,8 @@ export interface SurvivalLayout {
   boxSpots: BoxSpot[];
   punch: Vec3;
   jug: Vec3;
+  /** The other perk machines: where each stands (you buy within reach of it) and how it is turned (`yaw`). */
+  perks: { kind: PerkId; pos: Vec3; yaw: number; room: number }[];
   start: SpawnPoint[];
   startRoom: number;
 }

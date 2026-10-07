@@ -2,6 +2,7 @@
 import { SURVIVAL } from './constants.ts';
 import type { SurvivalLayout } from './layout.ts';
 import type { Vec3 } from './math.ts';
+import { PERKS, type PerkId } from './perks.ts';
 import type { BoxState, UseKind } from './protocol.ts';
 import { type Slot, WEAPONS, ammoPrice, gunStats } from './weapons.ts';
 
@@ -26,6 +27,10 @@ export interface UseCtx {
   slots: readonly (Slot | null)[];
   cur: number;
   jug: boolean;
+  /** The other perks this player has. */
+  perks: readonly PerkId[];
+  /** Teammates who are down (not this player), for reviving. */
+  downed: readonly { id: number; pos: Vec3; name: string }[];
   self: number;
 }
 
@@ -88,6 +93,20 @@ export function findUse(pos: Vec3, c: UseCtx): Use | null {
   const dJug = flat(pos, lay.jug);
   if (dJug <= SURVIVAL.punchRange && Math.abs(pos.y - lay.jug.y) < 3) {
     offer(dJug, { kind: 'jug', id: 0, status: c.jug ? 'owned' : afford(SURVIVAL.jugPrice), price: SURVIVAL.jugPrice, text: c.jug ? 'Already Juggernogged' : 'Juggernog' });
+  }
+
+  lay.perks.forEach((p, id) => {
+    const d = flat(pos, p.pos);
+    if (d > SURVIVAL.punchRange || Math.abs(pos.y - p.pos.y) >= 3) return;
+    const def = PERKS[p.kind];
+    const have = c.perks.includes(p.kind);
+    offer(d, { kind: 'perk', id, status: have ? 'owned' : afford(def.price), price: def.price, text: have ? `Already have ${def.name}` : `${def.name}: ${def.blurb}` });
+  });
+
+  // A teammate down beside you comes before anything else in reach.
+  for (const t of c.downed) {
+    const d = Math.hypot(pos.x - t.pos.x, (pos.y - t.pos.y) * 0.5, pos.z - t.pos.z);
+    if (d <= SURVIVAL.reviveRange) offer(d - 10, { kind: 'revive', id: t.id, status: 'ready', price: 0, text: `Hold to revive ${t.name}` });
   }
 
   for (const b of lay.barricades) {

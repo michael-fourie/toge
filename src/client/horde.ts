@@ -1,11 +1,13 @@
 import * as THREE from 'three';
-import { NET } from '../shared/constants.ts';
+import { BOSS, NET } from '../shared/constants.ts';
 import { lerp } from '../shared/math.ts';
 import { type NetZombie, ZombieFlag } from '../shared/protocol.ts';
 import { Avatar, type Corpses } from './avatar.ts';
 
 /** Raggedy jacket colours; the look (hair, outfit) is seeded from these, so a few distinct zombies. */
 const RAGS = [0x6f7d5c, 0x7d6a8f, 0x8f6f5a, 0x5a6f7d, 0x8a8456, 0x6d5a5a];
+/** The boss wears the foreman's oxblood coat, so it reads at a glance. */
+const BOSS_COAT = 0x7a2a26;
 
 interface ZombieView {
   id: number;
@@ -14,11 +16,17 @@ interface ZombieView {
   /** As rendered this frame: what the local player sees and shoots at. */
   pos: THREE.Vector3;
   yaw: number;
+  /** Drawn (and hit-tested) this much bigger: BOSS.scale for the boss, else 1. */
+  scale: number;
+  /** Bosses: health left, 0..1. */
+  hp: number;
 }
 
 /** Survival zombies on the client: server snapshots in, interpolated avatars out (100 ms behind, like remotes). */
 export class Horde {
   readonly zombies = new Map<number, ZombieView>();
+  /** A boss just broke in. */
+  onBoss?: () => void;
 
   constructor(private scene: THREE.Scene) {}
 
@@ -28,12 +36,17 @@ export class Horde {
       seen.add(z.id);
       let v = this.zombies.get(z.id);
       if (!v) {
-        const avatar = new Avatar(RAGS[z.id % RAGS.length], undefined, true);
+        const boss = (z.f & ZombieFlag.Boss) !== 0;
+        const avatar = new Avatar(boss ? BOSS_COAT : RAGS[z.id % RAGS.length], undefined, true);
+        const scale = boss ? BOSS.scale : 1;
+        avatar.root.scale.setScalar(scale);
         avatar.root.visible = false; // until the first interpolated pose
         this.scene.add(avatar.root);
-        v = { id: z.id, avatar, buffer: [], pos: new THREE.Vector3(...z.p), yaw: z.yaw };
+        v = { id: z.id, avatar, buffer: [], pos: new THREE.Vector3(...z.p), yaw: z.yaw, scale, hp: 1 };
         this.zombies.set(z.id, v);
+        if (boss) this.onBoss?.();
       }
+      if (z.hp !== undefined) v.hp = z.hp;
       v.buffer.push({ t: now, z });
     }
     // Gone without a death message (a game over reset): just remove.
@@ -61,8 +74,14 @@ export class Horde {
   kill(id: number, dir: THREE.Vector3, headshot: boolean, corpses: Corpses) {
     const v = this.zombies.get(id);
     if (!v) return;
-    corpses.spawn(v.avatar.cloneBody(), v.pos.clone(), v.yaw, dir, headshot ? 38 : 26);
+    corpses.spawn(v.avatar.cloneBody(), v.pos.clone(), v.yaw, dir, headshot ? 38 : 26).obj.scale.setScalar(v.scale);
     this.remove(id);
+  }
+
+  /** The boss's health (0..1), or null when no boss is up. */
+  bossHp(): number | null {
+    for (const v of this.zombies.values()) if (v.scale > 1) return v.hp;
+    return null;
   }
 
   /** Distance to the closest zombie (for groans), or Infinity. */

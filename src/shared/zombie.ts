@@ -1,5 +1,5 @@
 import { type Box, moveAndCollide, newContacts, snapToGround } from './collision.ts';
-import { MOVE, ZOMBIE } from './constants.ts';
+import { BOSS, MOVE, ZOMBIE } from './constants.ts';
 import { type Vec3, copy, v3 } from './math.ts';
 import { launchTo } from './movement.ts';
 
@@ -32,6 +32,9 @@ export interface Zombie {
   gate: number;
   /** Seconds spent ripping at the current board. */
   tear: number;
+  /** Bosses only: which boss this is (1 at round 5, 2 at round 10, ...) and the health it started with. */
+  boss?: number;
+  maxHp?: number;
 }
 
 export interface ZombieTarget {
@@ -67,6 +70,22 @@ export function zombieStats(round: number) {
     speed: Math.min(ZOMBIE.speedMax, ZOMBIE.speedBase + ZOMBIE.speedPerRound * r),
     damage: Math.min(ZOMBIE.damageMax, ZOMBIE.damageBase + ZOMBIE.damagePerRound * r),
   };
+}
+
+/** Is this a boss round? */
+export const bossRound = (round: number) => round > 0 && round % BOSS.every === 0;
+
+/** The boss for a boss round: much more health (and more with more players), a harder swipe, a little slower. */
+export function bossStats(round: number, players: number) {
+  const tier = Math.max(1, Math.floor(round / BOSS.every));
+  const z = zombieStats(round);
+  const hp = Math.round((BOSS.hpBase + BOSS.hpPerTier * (tier - 1)) * (1 + BOSS.hpPerExtraPlayer * Math.max(0, players - 1)));
+  return { tier, hp, speed: z.speed * BOSS.speedMult, damage: Math.round(z.damage * BOSS.damageMult) };
+}
+
+export function createBoss(id: number, pos: Vec3, round: number, players: number, gate = -1): Zombie {
+  const b = bossStats(round, players);
+  return { ...createZombie(id, pos, round, gate), hp: b.hp, maxHp: b.hp, speed: b.speed, damage: b.damage, boss: b.tier };
 }
 
 export function createZombie(id: number, pos: Vec3, round: number, gate = -1): Zombie {

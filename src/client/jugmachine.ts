@@ -4,18 +4,26 @@ import { softDot, toonRamp } from './textures.ts';
 
 export const CRIMSON = 0xff6a4a;
 
+type Emblem = 'apple' | 'cross' | 'bolt' | 'wings';
+
 /**
  * The Juggernog station: a crimson cask with brass bands and a little tap on a stone plinth, with a glowing red
  * apple floating over it (a mirror of the Pack-a-Punch kettle's mint crystal, in warm colours so they read apart from afar).
  */
-export function buildJugMachine(pos: Vec3): { obj: THREE.Group; update(time: number): void } {
+export const buildJugMachine = (pos: Vec3) => buildPerkMachine(pos, CRIMSON, 0xb8452f, 0xd9694b, 'apple');
+
+/**
+ * A perk station: the same cask on a plinth, in the perk's colours, with its emblem floating over it
+ * (Juggernog's apple, Swift Mend's cross, Zephyr Fizz's lightning bolt, Second Wind's wings).
+ */
+export function buildPerkMachine(pos: Vec3, glowColor: number, caskColor: number, lidColor: number, emblem: Emblem): { obj: THREE.Group; update(time: number): void } {
   const g = new THREE.Group();
   g.position.set(pos.x, pos.y, pos.z);
   const gradientMap = toonRamp();
   const toon = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap });
   const stone = toon(0xbfb59f);
-  const wood = toon(0xb8452f);
-  const woodLight = toon(0xd9694b);
+  const wood = toon(caskColor);
+  const woodLight = toon(lidColor);
   const brass = toon(0xd9a441);
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
     const m = new THREE.Mesh(geo, mat);
@@ -42,25 +50,41 @@ export function buildJugMachine(pos: Vec3): { obj: THREE.Group; update(time: num
   tap.rotation.z = Math.PI / 2;
   add(new THREE.SphereGeometry(0.07, 8, 6), brass, 0.85, 0.85, 0);
 
-  // Floating apple with a leaf, a soft crimson halo and two slow rings.
-  const glow = new THREE.MeshBasicMaterial({ color: CRIMSON, transparent: true, opacity: 0.95, depthWrite: false });
+  // The floating emblem, a soft halo and two slow rings.
+  const glow = new THREE.MeshBasicMaterial({ color: glowColor, transparent: true, opacity: 0.95, depthWrite: false });
   const apple = new THREE.Group();
-  apple.add(new THREE.Mesh(new THREE.SphereGeometry(0.28, 14, 10), glow));
-  const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), new THREE.MeshBasicMaterial({ color: 0x7fd36a }));
-  leaf.scale.set(1.6, 0.35, 0.8);
-  leaf.position.set(0.1, 0.3, 0);
-  leaf.rotation.z = 0.5;
-  apple.add(leaf);
+  const part = (geo: THREE.BufferGeometry, x = 0, y = 0, rz = 0, mat: THREE.Material = glow) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, 0);
+    m.rotation.z = rz;
+    apple.add(m);
+    return m;
+  };
+  if (emblem === 'apple') {
+    part(new THREE.SphereGeometry(0.28, 14, 10));
+    const leaf = part(new THREE.SphereGeometry(0.1, 8, 6), 0.1, 0.3, 0.5, new THREE.MeshBasicMaterial({ color: 0x7fd36a }));
+    leaf.scale.set(1.6, 0.35, 0.8);
+  } else if (emblem === 'cross') {
+    part(new THREE.BoxGeometry(0.18, 0.56, 0.14));
+    part(new THREE.BoxGeometry(0.56, 0.18, 0.14));
+  } else if (emblem === 'bolt') {
+    part(new THREE.BoxGeometry(0.12, 0.34, 0.12), 0.06, 0.16, -0.5);
+    part(new THREE.BoxGeometry(0.3, 0.1, 0.12), 0, 0, 0.3);
+    part(new THREE.BoxGeometry(0.12, 0.34, 0.12), -0.06, -0.16, -0.5);
+  } else {
+    part(new THREE.SphereGeometry(0.12, 10, 8));
+    for (const s of [-1, 1]) part(new THREE.SphereGeometry(0.22, 10, 8), s * 0.24, 0.05, s * 0.5).scale.set(1.4, 0.45, 0.4);
+  }
   g.add(apple);
   const rings = [0, 1].map((i) => {
     const r = new THREE.Mesh(
       new THREE.TorusGeometry(0.5 + i * 0.12, 0.018, 6, 36),
-      new THREE.MeshBasicMaterial({ color: i ? 0xffd98a : CRIMSON, transparent: true, opacity: 0.7, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: i ? 0xffd98a : glowColor, transparent: true, opacity: 0.7, depthWrite: false }),
     );
     g.add(r);
     return r;
   });
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: CRIMSON, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: glowColor, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
   halo.scale.setScalar(3.2);
   g.add(halo);
 

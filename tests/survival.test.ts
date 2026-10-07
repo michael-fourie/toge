@@ -184,7 +184,7 @@ test('windows: zombies tear boards off, players nail them back for points, but n
       t.lobby.handle(t.clients[0], { t: 'use', kind: 'board', id: gate.id });
     }
     assert.equal(t.s.boards[gate.id], SURVIVAL.boards, 'capped');
-    assert.equal(findUse({ x: gate.inside.x, y: 0, z: gate.inside.z }, { lay, doorsOpen: t.s.doors, boards: t.s.boards, box: t.s.box, points: 0, slots: [], cur: 0, jug: false, self: 1 })?.kind === 'board', false, 'no repair prompt for a full window');
+    assert.equal(findUse({ x: gate.inside.x, y: 0, z: gate.inside.z }, { lay, doorsOpen: t.s.doors, boards: t.s.boards, box: t.s.box, points: 0, slots: [], cur: 0, jug: false, perks: [], downed: [], self: 1 })?.kind === 'board', false, 'no repair prompt for a full window');
     void b;
   } finally {
     t.done();
