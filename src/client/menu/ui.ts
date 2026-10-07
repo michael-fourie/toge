@@ -1,6 +1,7 @@
 // Shared bits for the menu screens: the painted backdrop, the page shell, names, toasts, the server pill.
 
 import type { LobbyInfo } from '../../shared/protocol.ts';
+import { account } from '../account.ts';
 import type { Net } from '../net.ts';
 import { sfx } from '../sfx.ts';
 
@@ -52,6 +53,7 @@ export function saveName(name: string) {
 
 /** The name to play under; invents (and remembers) a bean name if none is set. */
 export function playerName(): string {
+  if (account.user) return account.user; // signed in: the server uses your username regardless
   const n = storedName().trim();
   if (n) return n;
   const bean = `bean${Math.floor(Math.random() * 1000)}`;

@@ -20,6 +20,10 @@ Requires Node ≥ 20 (Wrangler). Node 22 LTS is recommended, and also unlocks Vi
 
 Pick your look from the **Skin** chip on the home screen: eight named presets, individual hair style, hair colour, face, accessory, ahoge, scarf and jacket pickers, a Surprise me button, or Default (seeded from your name, as before). A live 3D preview turns as you choose. The skin is saved in your browser, used in Practice, and sent when you host or join, so everyone sees it. The jacket colour is a preference: online you get it if nobody in the lobby has it, otherwise the server picks one (Auto).
 
+## Accounts
+
+Optional and simple, for friends: pick **Sign in** on the home screen to create an account with a username and password (usernames are 3-16 letters, numbers, `_` or `-`). Signed in, you always play under your username and nobody else can use it; guests can still play, but a guest who types a taken name shows up as "name (guest)". See `docs/DEPLOYMENT.md` for how it works.
+
 ## Game types
 
 Pick one when hosting:

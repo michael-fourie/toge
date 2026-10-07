@@ -40,6 +40,18 @@ First time: `npx wrangler login`, then `npm run deploy`. That publishes to `http
 
 ## Not done yet
 
-- Accounts (Google sign-in) and a player database (D1). See the plan in the conversation/README roadmap.
+- Per-account stats / leaderboards (accounts themselves exist, see above).
 - Server-authoritative movement. Netcode is still client-authoritative (see CLAUDE.md).
 - Rate limiting and Turnstile on lobby creation. A bot could spam `/ws` host requests; each one reserves a code for ~90 s.
+
+## Accounts (username + password)
+
+Accounts are deliberately simple, for a group of friends. One global `Accounts` Durable Object (`src/server/accounts.ts`, logic in `accountStore.ts`) stores users and sessions in its own storage, so there is no database to set up and it works on the free plan.
+
+- `POST /api/register`, `POST /api/login`, `POST /api/logout`, `GET /api/me`. Same-origin JSON only.
+- Passwords: PBKDF2-SHA256, 100k iterations (the workerd maximum), a random salt per user. Hashing runs inside the Durable Object because a free-plan Worker only gets about 10 ms of CPU per request and a Durable Object gets far more.
+- Sessions: a random 256-bit token in an HttpOnly, SameSite=Lax cookie (`gambol_session`, Secure on https), 30 days. Only a hash of the token is stored. Five wrong passwords lock that username for 30 seconds.
+- In a lobby the Worker looks the cookie up: signed in means you play as your username whatever the client sends; a guest who types a registered name becomes "name (guest)".
+- Usernames are 3-16 letters, numbers, `_` or `-`, unique ignoring case. Passwords are 6-72 characters.
+- Adding the `Accounts` class is migration `v2` in `wrangler.jsonc`; the next deploy applies it. Nothing is lost on later deploys.
+- Not built: password reset (an admin would delete the user key), email, stats per account. A leaderboard or saved skin would hang off the same Durable Object.

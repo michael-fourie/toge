@@ -11,9 +11,13 @@
   "durable_objects": {
     "bindings": [
       { "name": "LOBBY", "class_name": "LobbyRoom" },
-      { "name": "DIRECTORY", "class_name": "Directory" }
+      { "name": "DIRECTORY", "class_name": "Directory" },
+      { "name": "ACCOUNTS", "class_name": "Accounts" }
     ]
   },
   // SQLite-backed classes are the ones available on the free plan.
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LobbyRoom", "Directory"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["LobbyRoom", "Directory"] },
+    { "tag": "v2", "new_sqlite_classes": ["Accounts"] }
+  ]
 }

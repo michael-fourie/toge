@@ -36,7 +36,7 @@ src/shared/   runs on client AND server. No three.js, no DOM. Deterministic.
   spawn.ts      pickSpawn(): random good spawn (far from, and out of sight of, living players; not recently used)
   protocol.ts   JSON wire types (ClientMsg / ServerMsg), StateFlag bits
 src/server/   Cloudflare Worker: worker.ts (routing), room.ts (LobbyRoom Durable Object, one per match),
-              directory.ts (Directory DO: codes + lobby list), lobby.ts (game logic: 20 Hz snapshots, kills, respawns),
+              directory.ts (Directory DO: codes + lobby list), accounts.ts + accountStore.ts (Accounts DO: username/password accounts and sessions), lobby.ts (game logic: 20 Hz snapshots, kills, respawns),
               survival.ts (rounds, zombie spawning/sim, claws and HP, game over)
               Survival also owns the per-player economy (`wallet`: points + punched flag, server-authoritative, reset with the run). The `pts` message tells the owner; `shot.up` tells others the rifle is punched; `punch` buys.
 src/client/

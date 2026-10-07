@@ -6,16 +6,18 @@ import { join } from './menu/join.ts';
 import { lobby } from './menu/lobby.ts';
 import { practice } from './menu/practice.ts';
 import { type Ctx, type Joined, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
+import { accountScreen } from './menu/account.ts';
 import { skin } from './menu/skin.ts';
 import { title } from './menu/title.ts';
 import { startSkirmish } from './menu/skirmish.ts';
+import { account } from './account.ts';
 import { SKY_BACKDROP, playerName } from './menu/ui.ts';
 import { Net } from './net.ts';
 import { loadSettings } from './settings.ts';
 import { sfx } from './sfx.ts';
 
 const app = document.getElementById('app')!;
-const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, practice, host, join, lobby, help, skin };
+const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, practice, host, join, lobby, help, skin, account: accountScreen };
 
 let game: Game | null = null;
 let leaveScreen: (() => void) | null = null;
@@ -117,6 +119,8 @@ async function play(joined?: Joined) {
 
 // ---------------------------------------------------------------------------
 // Boot. A deep link (/?join=ABCD) lands on the Join page with the code filled in.
+
+void account.refresh(); // who's signed in (the title updates when this lands)
 
 // A reload restores the page you were on, except the lobby room and matches (the connection is gone).
 const deepLink = new URLSearchParams(location.search).get('join');

@@ -1,3 +1,4 @@
+import { account } from '../account.ts';
 import type { Render } from './router.ts';
 import { mountLogo } from './logo.ts';
 import { skinLabel } from './skin.ts';
@@ -29,15 +30,28 @@ const door = (name: 'practice' | 'host' | 'join', title: string) => `
   </button>`;
 
 export const title: Render = (root, ctx, screen) => {
-  root.innerHTML = `
+  let stopLogo = () => {};
+  let notice = screen.notice;
+
+  /** Signed in: your name is your username (locked) with a Sign out button. Guest: a free name box and a Sign in button. */
+  const nameChips = () =>
+    account.user
+      ? `<span class="name-chip signed"><span>Signed in as</span><b>${esc(account.user)}</b></span>
+         <button class="name-chip" data-signout>Sign out</button>`
+      : `<label class="name-chip">
+           <span>Playing as</span>
+           <input id="name" maxlength="16" placeholder="your name" autocomplete="nickname" spellcheck="false" value="${esc(storedName())}" />
+           <i aria-hidden="true">✎</i>
+         </label>
+         <button class="name-chip" data-go="account">Sign in</button>`;
+
+  const draw = (first: boolean) => {
+    stopLogo();
+    root.innerHTML = `
     <main class="screen title-screen">
       <h1 class="logo" tabindex="-1" aria-label="Gambol"><canvas aria-hidden="true"></canvas></h1>
       <div class="chips">
-      <label class="name-chip">
-        <span>Playing as</span>
-        <input id="name" maxlength="16" placeholder="your name" autocomplete="nickname" spellcheck="false" value="${esc(storedName())}" />
-        <i aria-hidden="true">✎</i>
-      </label>
+      ${nameChips()}
       <button class="name-chip skin-chip" data-go="skin">Skin: <b>${esc(skinLabel(storedSkin()))}</b></button>
       </div>
       <nav class="doors" aria-label="Play">
@@ -45,18 +59,30 @@ export const title: Render = (root, ctx, screen) => {
         ${door('host', 'Host')}
         ${door('join', 'Join')}
       </nav>
-      <p class="notice" role="status">${screen.notice ? esc(screen.notice) : ''}</p>
+      <p class="notice" role="status">${notice ? esc(notice) : ''}</p>
       <footer class="menu-foot"><button class="link" data-go="help">How to play</button></footer>
     </main>`;
+    notice = undefined; // shown once; a redraw (e.g. after signing in) shouldn't bring it back
 
-  const nameInput = $<HTMLInputElement>(root, '#name');
-  nameInput.addEventListener('input', () => saveName(nameInput.value));
-  nameInput.addEventListener('keydown', (e) => e.key === 'Enter' && nameInput.blur());
-  root.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) =>
-    b.addEventListener('click', () => ctx.go({ name: b.dataset.go as 'practice' | 'host' | 'join' | 'help' | 'skin' })),
-  );
+    const nameInput = root.querySelector<HTMLInputElement>('#name');
+    if (nameInput) {
+      nameInput.addEventListener('input', () => saveName(nameInput.value));
+      nameInput.addEventListener('keydown', (e) => e.key === 'Enter' && nameInput.blur());
+    }
+    root.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) =>
+      b.addEventListener('click', () => ctx.go({ name: b.dataset.go as 'practice' | 'host' | 'join' | 'help' | 'skin' | 'account' })),
+    );
+    root.querySelector('[data-signout]')?.addEventListener('click', () => void account.signOut());
+    if (first) $(root, '.door-practice').focus();
+    stopLogo = mountLogo($(root, '.logo canvas') as HTMLCanvasElement);
+  };
+
+  draw(true);
   // A notice is shown once; don't replay it when navigating back here later.
   if (screen.notice) history.replaceState({ ...screen, notice: undefined }, '');
-  $(root, '.door-practice').focus();
-  return mountLogo($(root, '.logo canvas') as HTMLCanvasElement);
+  const off = account.onChange(() => draw(false)); // signed in or out
+  return () => {
+    off();
+    stopLogo();
+  };
 };
