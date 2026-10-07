@@ -1,4 +1,4 @@
-// Survival additions: the boss every few rounds, the three new perks, going down and being revived, and Pack-a-Punch on every gun.
+// Survival additions: the boss every few rounds, Max Ammo drops, the three new perks, going down and being revived, and Pack-a-Punch on every gun.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Lobby, type Member } from '../src/server/lobby.ts';
@@ -27,6 +27,9 @@ interface Internals {
   startRound(): void;
   claw(z: unknown, id: number): void;
   hurt(m: Member, z: unknown, headshot: boolean, damage: number, dir: V3, scored: boolean): boolean;
+  drops: { id: number; pos: { x: number; y: number; z: number } }[];
+  rand: () => number;
+  reset(): void;
 }
 
 function setup(players = 1) {
@@ -298,6 +301,89 @@ test('server: when a round is cleared, everyone who is down gets up', () => {
     assert.equal(t.s.phase, 'intermission');
     assert.ok(!t.s.downs.has(1) && !t.member(1).info.down);
     assert.equal(t.member(1).hp, maxHp(false), 'and healed');
+  } finally {
+    t.done();
+  }
+});
+
+// --- Max Ammo ------------------------------------------------------------------------------------------------
+
+/** Start round `n` and let the horde break in until there's a zombie to kill. */
+function zombieIn(t: ReturnType<typeof setup>, n: number, boss = true) {
+  t.s.round = n - 1;
+  t.s.startRound();
+  if (!boss) t.s.bossDue = false;
+  for (let i = 0; i < 400 && !t.s.zombies.length; i++) t.s.tick(0.05);
+  const z = t.s.zombies[0];
+  assert.ok(z, 'a zombie came');
+  return z;
+}
+
+const kill = (t: ReturnType<typeof setup>, z: { hp: number }) => t.s.hurt(t.member(1), z, false, z.hp + 1, [0, 0, 1], false);
+const dropsSent = (t: ReturnType<typeof setup>) => t.sent[0].filter((m) => m.t === 'drop').length;
+
+test('server: a zombie drops a Max Ammo 1 time in 100, and the horde drops at most one every 4 rounds', () => {
+  assert.equal(SURVIVAL.maxAmmoChance, 0.01);
+  assert.equal(SURVIVAL.maxAmmoEveryRounds, 4);
+  const t = setup(1);
+  try {
+    t.s.rand = () => 0.5; // a miss
+    kill(t, zombieIn(t, 1));
+    assert.equal(t.s.drops.length, 0, 'no luck, no drop');
+    t.s.rand = () => 0.005; // a hit
+    kill(t, zombieIn(t, 1));
+    assert.equal(t.s.drops.length, 1, 'a lucky kill drops one');
+    assert.equal(dropsSent(t), 1, 'and everyone hears where');
+    for (const round of [1, 2, 3, 4]) kill(t, zombieIn(t, round));
+    assert.equal(dropsSent(t), 1, 'not again until 4 rounds later');
+    const z = zombieIn(t, 5, false); // just the horde, even on a boss round
+    assert.ok(!z.boss);
+    kill(t, z);
+    assert.equal(dropsSent(t), 2, 'four rounds on, the horde can drop again');
+  } finally {
+    t.done();
+  }
+});
+
+test('server: the boss always drops a Max Ammo, on top of the horde\'s', () => {
+  const t = setup(1);
+  try {
+    t.s.rand = () => 0.005;
+    kill(t, zombieIn(t, BOSS.every - 1)); // the horde's one for this stretch
+    t.s.rand = () => 0.99; // the boss doesn't need luck
+    const boss = zombieIn(t, BOSS.every);
+    assert.ok(boss.boss);
+    kill(t, boss);
+    assert.equal(dropsSent(t), 2);
+  } finally {
+    t.done();
+  }
+});
+
+test('server: walking into a Max Ammo fills everyone; one nobody grabs fades; a new run clears them', () => {
+  const t = setup(2);
+  try {
+    t.s.rand = () => 0;
+    kill(t, zombieIn(t, 1));
+    const d = t.s.drops[0];
+    t.at(2, [d.pos.x + 1, d.pos.y, d.pos.z]);
+    t.s.tick(0.05);
+    assert.equal(t.s.drops.length, 0);
+    for (const inbox of t.sent) assert.ok(inbox.some((m) => m.t === 'maxAmmo' && m.id === d.id && m.by === 2), 'everyone refills');
+
+    kill(t, zombieIn(t, 1 + SURVIVAL.maxAmmoEveryRounds, false));
+    const e = t.s.drops[0];
+    t.at(1, [e.pos.x + 50, e.pos.y, e.pos.z]);
+    t.at(2, [e.pos.x + 50, e.pos.y, e.pos.z]);
+    t.s.clock += SURVIVAL.dropLife + 1;
+    t.s.tick(0.05);
+    assert.equal(t.s.drops.length, 0);
+    assert.ok(t.sent[0].some((m) => m.t === 'dropGone' && m.id === e.id), 'it faded');
+
+    kill(t, zombieIn(t, 1 + 2 * SURVIVAL.maxAmmoEveryRounds, false));
+    assert.equal(t.s.drops.length, 1);
+    t.s.reset();
+    assert.equal(t.s.drops.length, 0, 'a new run starts clean');
   } finally {
     t.done();
   }

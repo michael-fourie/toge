@@ -35,6 +35,7 @@ import { stash } from './inventoryStore.ts';
 import { storedSkin } from './skinStore.ts';
 import { Avatar, Corpses } from './avatar.ts';
 import { PostGame } from './postgame.ts';
+import { Drops } from './drops.ts';
 import { Horde } from './horde.ts';
 import { HillFx, HillHud } from './hill.ts';
 import { IS_TOUCH, goFullscreen } from './touch.ts';
@@ -189,6 +190,7 @@ export class Game {
   /** Phones only: the on-screen joystick and buttons. */
   private touch: TouchControls | null = null;
   private horde: Horde | null = null;
+  private drops: Drops | null = null;
   private hp: number = SURVIVAL.playerHp;
   private wave: WaveInfo | null = null;
   private postgame: PostGame | null = null;
@@ -246,6 +248,7 @@ export class Game {
     if (this.map.koth) this.hillFx = new HillFx(this.world.scene, this.map.koth.zone);
     if (this.mode === 'survival') {
       this.horde = new Horde(this.world.scene);
+      this.drops = new Drops(this.world.scene);
       this.horde.onBoss = () => {
         this.hud.center('THE FOREMAN HAS ARRIVED', '#ff6b5a', 3);
         sfx.roundStart();
@@ -1076,9 +1079,21 @@ export class Game {
     }
   }
 
+  /** Someone walked into a Max Ammo: every gun we carry is full again. */
+  private onMaxAmmo(id: number, by: number) {
+    this.drops?.remove(id);
+    this.loadout.refill();
+    this.reloading = 0; // the mag is already full: nothing left to load
+    this.autoReloadAt = -1;
+    const who = by === this.selfId ? '' : ` (${this.players.get(by)?.name ?? '?'})`;
+    this.hud.center(`MAX AMMO!${who}`, '#b8ff9a', 2.5);
+    sfx.maxAmmo();
+  }
+
   private updateHorde() {
     if (!this.horde) return;
     this.horde.update(this.time);
+    this.drops?.update(this.time);
     if (this.time >= this.nextGroan) {
       this.nextGroan = this.time + 2 + Math.random() * 3;
       sfx.groan(this.horde.nearest(this.camera.position));
@@ -1237,6 +1252,15 @@ export class Game {
       }
       case 'revived':
         this.onRevived(msg.id);
+        break;
+      case 'drop':
+        this.drops?.add(msg.id, msg.p, msg.life, this.time);
+        break;
+      case 'dropGone':
+        this.drops?.remove(msg.id);
+        break;
+      case 'maxAmmo':
+        this.onMaxAmmo(msg.id, msg.by);
         break;
       case 'world':
         this.onWorld(msg);
@@ -1594,6 +1618,7 @@ export class Game {
     this.gui.destroy();
     for (const id of [...this.remotes.keys()]) this.removeRemote(id);
     this.horde?.dispose();
+    this.drops?.dispose();
     disposeScene(this.world.scene); // frees the map's GPU memory: the Foundry is a lot of canvas textures
     this.renderer.dispose();
     this.renderer.domElement.remove();

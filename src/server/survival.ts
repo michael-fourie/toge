@@ -58,6 +58,12 @@ export class Survival {
    * teammate reviving them with how far along they are (a revive needs F held: a gap in the use messages stops it).
    */
   private downs = new Map<number, { bleed: number; selfAt: number; by: number; prog: number; last: number }>();
+  /** Max Ammo drops lying around, and the round the horde last dropped one (the boss's doesn't count). */
+  private drops: { id: number; pos: { x: number; y: number; z: number }; until: number }[] = [];
+  private hordeDropRound = -Infinity;
+  private nextDrop = 1;
+  /** Dice for drops (tests swap it). */
+  rand: () => number = Math.random;
 
   // The building: which doors are open, the planks in each window, the Mystery Box.
   private doors: boolean[] = [];
@@ -105,6 +111,7 @@ export class Survival {
     }
     this.simulate(dt);
     this.tickDowns(dt);
+    this.tickDrops();
     this.tickBox(dt);
     this.regen(dt);
     if (this.dirty) this.sendWorld();
@@ -290,6 +297,33 @@ export class Survival {
   }
 
   // ---------------------------------------------------------------------------
+  // Max Ammo
+
+  /** A dead zombie sometimes leaves a Max Ammo behind (rarely; the boss always does). */
+  private maybeDrop(z: Zombie) {
+    if (!z.boss) {
+      if (this.round - this.hordeDropRound < SURVIVAL.maxAmmoEveryRounds || this.rand() >= SURVIVAL.maxAmmoChance) return;
+      this.hordeDropRound = this.round;
+    }
+    const d = { id: this.nextDrop++, pos: { x: z.pos.x, y: Math.max(0, z.pos.y), z: z.pos.z }, until: this.clock + SURVIVAL.dropLife };
+    this.drops.push(d);
+    this.lobby.broadcast({ t: 'drop', id: d.id, p: [round3(d.pos.x), round3(d.pos.y), round3(d.pos.z)], life: SURVIVAL.dropLife });
+  }
+
+  /** Anyone standing walks into a drop: everyone's guns fill up. Drops nobody grabbed fade away. */
+  private tickDrops() {
+    for (const d of [...this.drops]) {
+      const by = [...this.lobby.members.values()].find(
+        (m) => m.info.alive && !this.isDown(m.info.id) && Math.hypot(m.state.p[0] - d.pos.x, m.state.p[2] - d.pos.z) <= SURVIVAL.pickupRange && Math.abs(m.state.p[1] - d.pos.y) < 2.5,
+      );
+      if (by) this.lobby.broadcast({ t: 'maxAmmo', id: d.id, by: by.info.id });
+      else if (this.clock >= d.until) this.lobby.broadcast({ t: 'dropGone', id: d.id });
+      else continue;
+      this.drops.splice(this.drops.indexOf(d), 1);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Going down and getting back up
 
   isDown(id: number) {
@@ -467,6 +501,7 @@ export class Survival {
     this.record(m).kills++;
     w.points += z.boss ? BOSS.points : killPoints(headshot);
     this.sendMe(m);
+    this.maybeDrop(z);
     this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot, dir, boss: z.boss ? true : undefined });
     this.broadcastWave();
     return scored;
@@ -496,6 +531,7 @@ export class Survival {
     this.lobby.sendTo(m, { t: 'hp', hp: m.hp });
     this.sendMe(m, [0, 1]);
     this.sendWorld(m);
+    for (const d of this.drops) this.lobby.sendTo(m, { t: 'drop', id: d.id, p: [round3(d.pos.x), round3(d.pos.y), round3(d.pos.z)], life: d.until - this.clock });
     // Who is down right now, so a newcomer sees them lying there.
     for (const [id, d] of this.downs) if (id !== m.info.id) this.lobby.sendTo(m, { t: 'downed', id, bleed: d.bleed, self: Number.isFinite(d.selfAt) ? d.selfAt - this.clock : undefined });
   }
@@ -538,6 +574,9 @@ export class Survival {
     this.zombies = [];
     this.toSpawn = 0;
     this.bossDue = false;
+    for (const d of this.drops) this.lobby.broadcast({ t: 'dropGone', id: d.id });
+    this.drops = [];
+    this.hordeDropRound = -Infinity;
     this.wallet.clear();
     for (const id of [...this.downs.keys()]) {
       const m = this.lobby.members.get(id);

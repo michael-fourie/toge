@@ -146,6 +146,12 @@ export const SURVIVAL = {
   reviveRange: 2, // metres from a downed teammate to revive them
   reviveHp: 0.5, // you come back with this share of your max health
   selfRevive: 4, // Second Wind: seconds down before you get yourself back up
+
+  // Max Ammo: a rare drop from a dead zombie (the boss always drops one). Walk into it: every gun, everyone, full.
+  maxAmmoChance: 0.01, // per zombie killed...
+  maxAmmoEveryRounds: 4, // ...but the horde drops at most one per this many rounds (the boss's comes on top)
+  dropLife: 25, // seconds it floats there before it fades
+  pickupRange: 1.6, // metres to grab it
 };
 
 /** The boss: one big zombie that joins every `every`th round, tougher each time. */

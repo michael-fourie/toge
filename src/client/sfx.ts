@@ -267,6 +267,12 @@ export const sfx = {
     tone('sine', 300, 150, 0.12, 0.2, 0.14);
     tone('triangle', 420, 880, 0.35, 0.18, 0.3);
   },
+  /** Max Ammo: a clatter of shells and a fanfare. */
+  maxAmmo() {
+    for (let i = 0; i < 5; i++) tone('square', 1800 + i * 150, 900, 0.05, 0.08, i * 0.04);
+    [262, 330, 392, 523, 659].forEach((f, i) => tone('sawtooth', f, f, 0.18, 0.12, 0.2 + i * 0.08));
+    tone('triangle', 784, 788, 0.6, 0.18, 0.62);
+  },
   denied: () => tone('square', 180, 120, 0.15, 0.12),
   gameOver: () => [392, 330, 262, 196].forEach((f, i) => tone('triangle', f, f * 0.98, 0.35, 0.2, i * 0.22)),
 };

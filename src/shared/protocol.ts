@@ -147,10 +147,13 @@ export type ServerMsg =
   | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3; boss?: boolean } // a boss: everyone gets the coins
   | { t: 'postgame'; rounds: number; rows: PostRow[]; waiting: number } // game-over board, resent when readiness changes
   | { t: 'hp'; hp: number; from?: V3 } // only to the player concerned; `from` is where the claw came from
-  | { t: 'me'; pts: number; jug?: boolean; perks?: PerkId[]; slots: (Slot | null)[]; cur: number; fill?: number[] }
+  | { t: 'me'; pts: number; jug?: boolean; perks?: PerkId[]; slots: (Slot | null)[]; cur: number; fill?: number[] } // only to the player concerned; fill: slots that start with a full mag and ammo
   | { t: 'downed'; id: number; bleed: number; self?: number } // went down: `bleed` seconds to be revived; `self`: Second Wind gets them up after this long
   | { t: 'reviving'; id: number; by: number; prog: number } // a teammate is reviving them (prog 0..1; 0 = they let go)
-  | { t: 'revived'; id: number } // back on their feet // only to the player concerned; fill: slots that start with a full mag and ammo
+  | { t: 'revived'; id: number } // back on their feet
+  | { t: 'drop'; id: number; p: V3; life: number } // a Max Ammo appeared here; it fades after `life` seconds
+  | { t: 'maxAmmo'; id: number; by: number } // someone grabbed it: every player's guns are full
+  | { t: 'dropGone'; id: number } // it faded
   | { t: 'world'; doors: boolean[]; boards: number[]; box: BoxState } // Survival: doors that are open, planks per window, and the Mystery Box
   | { t: 'error'; message: string };
 

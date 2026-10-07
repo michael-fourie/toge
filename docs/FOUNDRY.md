@@ -34,6 +34,7 @@ Wall guns: Marshal (Office), Rattler (Hall), Warden (Boiler), Bramble (Storage),
 - **Doors**: a solid `Door.box` in the wall gap until bought. Open doors are in `world.doors`; both sides rebuild `buildColliders` and `Nav.setDoors`.
 - **Windows**: `Barricade.seal` blocks zombies while any plank is up; `Barricade.blocker` blocks *players* always (nobody walks out into the yard). Bullets and the grapple pass through the gap (`Colliders.shot`). A zombie spawns at an unlocked window (in a room joined to the start room by open doors, among the three nearest a player), walks to `outside`, the front one of the queue tears a plank every `SURVIVAL.tearTime`, and once the seal is gone it walks through and joins the chase (`gate = -1`, `siege.ts`). Hold F to nail a plank back (`repairTime` each, +10 points) unless a zombie stands on it.
 - **Mystery Box** (`BoxState`): closed -> rolling (spins guns for 3.6 s) -> ready (9 s for the payer to press F) -> closed; after 3 uses 14 % of rolls are the plush: points refunded, the box leaves and reappears at another spot.
+- **Max Ammo**: a dead zombie drops one 1 time in 100, the horde at most once every 4 rounds, the boss every time (`Survival.maybeDrop`, tests in `survivalplus.test.ts`). Walk into it and every player's guns are full; it fades after `SURVIVAL.dropLife`.
 - **Guns**: two slots per player. Wall buy: new gun into the free slot (or replaces the one in hand); buying one you own refills it for half price (4500 if punched). Pack-a-Punch upgrades the gun in hand for 5000 and refills it.
 
 ## Zombie navigation
