@@ -17,6 +17,19 @@ export const SKY_BACKDROP = `
     <div class="cloud c5"></div>
   </div>`;
 
+/** The menu's backdrop: a sunny meadow, so the character on the home screen stands in a field. (Loading into a match keeps the sky.) */
+export const FIELD_BACKDROP = `
+  <div class="sky field" aria-hidden="true">
+    <div class="sun"></div>
+    <div class="cloud c2"></div><div class="cloud c1"></div><div class="cloud c4"></div>
+    <svg class="hills" viewBox="0 0 1600 400" preserveAspectRatio="none">
+      <path d="M0 200 Q200 90 420 170 T860 150 T1240 160 T1600 120 V400 H0Z" fill="#9fc98a"/>
+      <path d="M0 260 Q260 170 520 240 T1020 220 T1600 230 V400 H0Z" fill="#86b872"/>
+      <g fill="#6b9a58"><path d="M120 235 l22 -42 l22 42z"/><path d="M1300 215 l18 -34 l18 34z"/><path d="M1380 222 l14 -26 l14 26z"/></g>
+    </svg>
+    <div class="meadow"></div>
+  </div>`;
+
 /** A paper sheet with a back button and heading; the body is screen-specific. */
 export function sheet(title: string, body: string, backLabel = 'Back') {
   return `

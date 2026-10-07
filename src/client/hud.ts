@@ -36,7 +36,7 @@ export class Hud {
       <div class="chips"><span class="chip wallrun">WALLRUN</span><span class="chip grapple">GRAPPLE [E]</span></div>
       <div class="ammo"><i class="gunname"></i><div class="slots"></div><b>10</b><small>/ 10</small><span>reloading…</span></div>
       <div class="credit"></div>
-      <div class="coins" title="Acorns"><b></b><i></i></div>
+      <div class="coins" title="Coins"><b></b><i></i></div>
       <div class="lobby-tag">${esc(lobbyLabel)}</div>
       <div class="topright"><div class="livescore"></div><div class="killfeed"></div></div>
       <div class="center-msg"></div>
@@ -130,9 +130,9 @@ export class Hud {
     this.root.classList.toggle('low-ammo', rounds <= Math.max(1, mag * 0.2) && rounds < 5);
   }
 
-  /** The acorn counter (bottom left); `gained` floats up beside it for a moment. */
+  /** The coin counter (bottom left); `gained` floats up beside it for a moment. */
   coins(total: number, gained = 0) {
-    this.q('.coins b').textContent = `🌰 ${total}`;
+    this.q('.coins b').textContent = `🪙 ${total}`;
     if (!gained) return;
     const pop = this.q('.coins i');
     pop.textContent = `+${gained}`;

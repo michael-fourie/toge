@@ -13,7 +13,8 @@
   display: none;
 }
 .points b {
-  font-family: 'Kaisei Decol', 'Georgia', serif;
+  font-family: var(--display);
+  font-weight: 700;
   font-size: 30px;
   line-height: 1;
 }

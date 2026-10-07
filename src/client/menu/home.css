@@ -246,33 +246,10 @@
 .play-practice {
   --accent: var(--kiki);
 }
-.play-survival {
-  --accent: #7a5cc4;
-}
-.play-battle {
-  --accent: var(--meadow);
-}
-.play-settings {
-  --accent: #5fa3dc;
-}
-.play-settings b {
-  font-size: 26px;
-}
 .play-btn:hover,
 .play-btn:focus-visible {
   transform: skewX(-5deg) translateX(10px);
   box-shadow: 0 2px 0 #fff inset, 0 20px 40px #2a4d7a66;
-}
-.join-link {
-  justify-self: start;
-  margin: 4px 0 0 6px;
-  color: var(--ink);
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  background: #fbf4e2aa;
-  border-radius: 8px;
-  padding: 2px 8px;
 }
 .home .notice {
   grid-area: note;
@@ -358,5 +335,116 @@
   .play-btn,
   .login-btn {
     transition: none;
+  }
+}
+
+/* ---------- Field backdrop (menu screens) ---------- */
+.field {
+  background: linear-gradient(180deg, #4a98dc 0%, #8cc6ee 38%, #cfe8f3 56%);
+}
+.field .hills {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  top: 38%;
+  height: 26%;
+}
+.field .meadow {
+  position: absolute;
+  inset: 55% 0 0;
+  background:
+    radial-gradient(circle at 12% 30%, #fff 0 3px, transparent 4px),
+    radial-gradient(circle at 34% 62%, #ffd24a 0 3px, transparent 4px),
+    radial-gradient(circle at 58% 24%, #ff8aa8 0 3px, transparent 4px),
+    radial-gradient(circle at 81% 55%, #fff 0 3px, transparent 4px),
+    radial-gradient(circle at 92% 22%, #ffd24a 0 3px, transparent 4px),
+    radial-gradient(circle at 70% 78%, #ff8aa8 0 3px, transparent 4px),
+    repeating-linear-gradient(100deg, #0000 0 14px, #ffffff12 14px 16px),
+    linear-gradient(180deg, #7dbb55 0%, #5fa347 40%, #4a8a3a 100%);
+  background-size: 310px 150px, 270px 170px, 360px 140px, 330px 190px, 400px 160px, 290px 180px, auto, auto;
+}
+.field .cloud.c4 {
+  top: 12%;
+}
+
+/* ---------- Title: Roboto with a slight glitch ---------- */
+.home .logo {
+  font: 900 clamp(34px, 4.4vw, 56px) / 1 var(--display);
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  text-shadow: 0 2px 0 #fffdf3;
+  position: relative;
+  user-select: none;
+}
+.glitch::before,
+.glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  text-shadow: none;
+  opacity: 0.85;
+}
+.glitch::before {
+  color: #ff4f6d;
+  animation: glitch-a 3.4s steps(1) infinite;
+}
+.glitch::after {
+  color: #29c4f5;
+  animation: glitch-b 3.4s steps(1) infinite;
+}
+/* Mostly still, then a quick stutter: slices of the colour ghosts jump sideways. */
+@keyframes glitch-a {
+  0%, 90%, 100% { transform: none; clip-path: inset(0 0 100% 0); }
+  91% { transform: translate(-3px, 1px); clip-path: inset(10% 0 55% 0); }
+  93% { transform: translate(3px, -1px); clip-path: inset(60% 0 8% 0); }
+  95% { transform: translate(-2px, 0); clip-path: inset(30% 0 40% 0); }
+  97% { transform: translate(2px, 1px); clip-path: inset(0 0 80% 0); }
+}
+@keyframes glitch-b {
+  0%, 88%, 100% { transform: none; clip-path: inset(0 0 100% 0); }
+  89% { transform: translate(3px, 0); clip-path: inset(50% 0 20% 0); }
+  92% { transform: translate(-3px, 1px); clip-path: inset(5% 0 70% 0); }
+  94% { transform: translate(2px, -1px); clip-path: inset(70% 0 5% 0); }
+  96% { transform: translate(-2px, 0); clip-path: inset(25% 0 45% 0); }
+}
+
+/* ---------- Buttons: plain Host / Join / Practice, and a settings gear ---------- */
+.play-btn {
+  padding: 18px 28px 18px 30px;
+}
+.play-btn b {
+  font: 900 30px/1.05 var(--display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.play-host {
+  --accent: var(--meadow);
+}
+.play-join {
+  --accent: #5fa3dc;
+}
+.gear-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 2px solid var(--paper-edge);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 0 #fff inset, 0 6px 18px #2a4d7a30;
+}
+.gear-btn:hover,
+.gear-btn:focus-visible {
+  background: #fffdf6;
+  transform: rotate(40deg);
+  transition: transform 0.25s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .glitch::before,
+  .glitch::after {
+    animation: none;
   }
 }

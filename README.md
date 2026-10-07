@@ -22,7 +22,7 @@ Pick your look from the **Skin** chip on the home screen: eight named presets, i
 
 
 ## Cases, loot and the knife
-Eliminations pay **Acorns** 🌰 (10 per player kill, +5 for a headshot, 3 per zombie), shown on the home screen and in the corner of the HUD. Spend them in the **Store** on a case (Skyline: AWP paints, Windblade: knives, Wardrobe: hats, faces and backs) and watch the reel roll. Drops come in CSGO's rarities (Consumer, Industrial, Mil-Spec, Restricted, Classified, Covert, and a gold Exceedingly Rare tier). The **Inventory** lists what you own with a turning preview: equip an item, unequip it, or sell spares for acorns. Equipped gear is saved in your browser and everyone in the lobby sees it.
+Eliminations pay **Coins** 🪙 (10 per player kill, +5 for a headshot, 3 per zombie), shown on the home screen and in the corner of the HUD. Spend them in the **Store** on a case (Skyline: AWP paints, Windblade: knives, Wardrobe: hats, faces and backs) and watch the reel roll. Drops come in CSGO's rarities (Consumer, Industrial, Mil-Spec, Restricted, Classified, Covert, and a gold Exceedingly Rare tier). The **Inventory** lists what you own with a turning preview: equip an item, unequip it, or sell spares for coins. Equipped gear is saved in your browser and everyone in the lobby sees it.
 
 Press **2** for the knife (**3** in Survival, where 2 is your second gun; LMB stabs, one hit kills, no momentum lost) and **1** to bring your gun back. Knives come in four shapes (field knife, karambit, machete, kunai) with many colourways.
 

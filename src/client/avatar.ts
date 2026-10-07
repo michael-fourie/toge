@@ -120,13 +120,14 @@ const GEO = {
   shin: new THREE.CapsuleGeometry(0.066, 0.25, 3, 10).translate(0, -0.19, 0),
   shoe: at(new THREE.CapsuleGeometry(0.062, 0.12, 3, 10), [0, -0.335, -0.05], [Math.PI / 2, 0, 0], [1.1, 1, 0.9]),
   // Arms + rifle live in aim space (pivot at the shoulders, -Z is where they're aiming).
-  sleeves: merge(
-    limb([0.21, 0.02, 0.02], [0.27, -0.17, -0.02], 0.055),
-    limb([0.27, -0.17, -0.02], [0.13, -0.1, -0.2], 0.048),
-    limb([-0.21, 0.02, 0.02], [-0.17, -0.17, -0.26], 0.055),
-    limb([-0.17, -0.17, -0.26], [0.07, -0.08, -0.5], 0.048),
-  ),
-  hands: merge(at(new THREE.SphereGeometry(0.048, 8, 6), [0.13, -0.09, -0.22]), at(new THREE.SphereGeometry(0.048, 8, 6), [0.08, -0.07, -0.52])),
+  // Right arm (holds the rifle's grip, or the knife) and left arm (steadies the rifle's fore-end).
+  sleeves: merge(limb([0.21, 0.02, 0.02], [0.27, -0.17, -0.02], 0.055), limb([0.27, -0.17, -0.02], [0.13, -0.1, -0.2], 0.048)),
+  hands: at(new THREE.SphereGeometry(0.048, 8, 6), [0.13, -0.09, -0.22]),
+  sleevesL: merge(limb([-0.21, 0.02, 0.02], [-0.17, -0.17, -0.26], 0.055), limb([-0.17, -0.17, -0.26], [0.07, -0.08, -0.5], 0.048)),
+  handsL: at(new THREE.SphereGeometry(0.048, 8, 6), [0.08, -0.07, -0.52]),
+  // With the knife out the left arm hangs relaxed instead of reaching for a fore-end.
+  sleevesRest: merge(limb([-0.21, 0.02, 0.02], [-0.25, -0.2, 0.0], 0.055), limb([-0.25, -0.2, 0.0], [-0.26, -0.36, -0.05], 0.048)),
+  handsRest: at(new THREE.SphereGeometry(0.048, 8, 6), [-0.26, -0.38, -0.06]),
   // Zombies: both arms reaching straight out, slightly droopy, with grabby hands.
   zombieSleeves: merge(limb([0.21, 0.02, 0.02], [0.2, -0.04, -0.42], 0.052), limb([-0.21, 0.02, 0.02], [-0.2, -0.06, -0.42], 0.052)),
   zombieHands: merge(
@@ -498,6 +499,8 @@ export class Avatar {
   private readonly ahoge?: THREE.Group;
   private readonly rifle: THREE.Group;
   private readonly knife: THREE.Group;
+  private readonly rifleArm: THREE.Group;
+  private readonly restArm: THREE.Group;
   private readonly wings: THREE.Object3D[] = [];
   private readonly face: THREE.Mesh;
   private readonly look: Look;
@@ -551,6 +554,15 @@ export class Avatar {
       mesh(GEO.sleeves, look.jacket, this.aim);
       mesh(GEO.hands, look.skin, this.aim);
     }
+    this.rifleArm = pivot(this.aim, 0, 0, 0);
+    this.restArm = pivot(this.aim, 0, 0, 0);
+    if (!zombie) {
+      mesh(GEO.sleevesL, look.jacket, this.rifleArm);
+      mesh(GEO.handsL, look.skin, this.rifleArm);
+      mesh(GEO.sleevesRest, look.jacket, this.restArm);
+      mesh(GEO.handsRest, look.skin, this.restArm);
+    }
+    this.restArm.visible = false;
     this.rifle = pivot(this.aim, 0, 0, 0);
     this.knife = pivot(this.aim, 0.13, -0.09, -0.24);
     if (!zombie) {
@@ -706,6 +718,8 @@ export class Avatar {
   holdKnife(on: boolean) {
     this.knife.visible = on;
     this.rifle.visible = !on;
+    this.rifleArm.visible = !on;
+    this.restArm.visible = on;
   }
 
   cloneBody(): THREE.Group {
@@ -730,7 +744,7 @@ function makeNameTag(name: string, color: number): THREE.Sprite {
   c.width = 256;
   c.height = 64;
   const g = c.getContext('2d')!;
-  g.font = 'bold 34px "Zen Maru Gothic", system-ui, sans-serif';
+  g.font = 'bold 34px Roboto, system-ui, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.lineWidth = 7;

@@ -67,7 +67,7 @@ src/client/
   items.ts + inventory.ts (src/shared) loot: rarities (CSGO colours/names), the three cases, every item (rifle paints, knives, wearables), the dice (`rollCase`), gear codes
                 (equipped ids sent to the server as `gear=` and relayed in `PlayerInfo.gear`, validated by `decodeGear`), and the pure stash rules (coins, buy/open, equip, sell).
                 client/inventoryStore.ts saves it in localStorage; menu/store.ts (case reel), menu/inventory.ts, menu/itemIcon.ts (renders each item once to a PNG); knife.ts + wear.ts build the models;
-                avatar.ts / viewmodel.ts show the equipped gear. Currency is Acorns: kills pay (COIN in items.ts). Tests: loot.test.ts.
+                avatar.ts / viewmodel.ts show the equipped gear. Currency is Coins: kills pay (COIN in items.ts). Tests: loot.test.ts.
   skin.ts (src/shared) skin spec: option lists, presets, seeded default, encode/decode ('3.0.1.3.0.0.x', validated on the server). client/skinStore.ts saves it; menu/skin.ts (mountSkinEditor, used by the inventory's Character tab) + skinPreview.ts are the picker.
   avatar.ts     chibi anime players (look = chosen skin, else seeded from name+colour, ink outlines, canvas faces), a zombie variant
                 (poseZombie) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
@@ -156,7 +156,7 @@ The Survival map is its own file (`foundry.ts`); its rules and checklist are in 
 
 A playable prototype covering practice and online lobbies. Everything listed in README works and is covered by tests or was checked in the browser. Known gaps, roughly in priority order:
 
-- **Loot is client-side:** acorns, owned items and equips live in localStorage, so they are as trustworthy as the client (cosmetic only, no gameplay edge). Real accounts would move the stash into the Accounts DO and make case opens server-side rolls.
+- **Loot is client-side:** coins, owned items and equips live in localStorage, so they are as trustworthy as the client (cosmetic only, no gameplay edge). Real accounts would move the stash into the Accounts DO and make case opens server-side rolls.
 - **Netcode is a prototype:** client-authoritative movement, client-side hit detection, JSON messages. The upgrade path is under Netcode above and in `docs/DEPLOYMENT.md`.
 - **Deployment:** Cloudflare Worker + Durable Objects on the free plan, see `docs/DEPLOYMENT.md`. Next: Google sign-in + D1 player stats, rate limiting, reconnection tokens.
 - **Lobby room:** while you sit in the room, your bean is already in the live match, idle at spawn. The fix is a server "ready" flag.

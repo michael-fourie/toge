@@ -13,7 +13,7 @@ import { store } from './menu/store.ts';
 import { title } from './menu/title.ts';
 import { startSkirmish } from './menu/skirmish.ts';
 import { account } from './account.ts';
-import { SKY_BACKDROP, playerName } from './menu/ui.ts';
+import { FIELD_BACKDROP, SKY_BACKDROP, playerName } from './menu/ui.ts';
 import { Net } from './net.ts';
 import { loadSettings } from './settings.ts';
 import { sfx } from './sfx.ts';
@@ -28,8 +28,7 @@ let leaveScreen: (() => void) | null = null;
 function stage(): HTMLElement {
   let el = app.querySelector<HTMLElement>('.menu-stage');
   if (!el) {
-    app.innerHTML = `<div class="menu">${SKY_BACKDROP}<div class="menu-stage"></div></div>`;
-    startSkirmish(app.querySelector('canvas.skirmish')!);
+    app.innerHTML = `<div class="menu">${FIELD_BACKDROP}<div class="menu-stage"></div></div>`;
     el = app.querySelector<HTMLElement>('.menu-stage')!;
   }
   return el;

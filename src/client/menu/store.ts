@@ -35,7 +35,7 @@ function contents(c: CaseDef) {
 export const store: Render = (root) => {
   root.innerHTML = sheet(
     'Store',
-    `<div class="loot-bar"><span class="coin-total" id="coins"></span><small>Earn acorns by eliminating things. Sell spares from your Inventory.</small></div>
+    `<div class="loot-bar"><span class="coin-total" id="coins"></span><small>Earn coins by eliminating things. Sell spares from your Inventory.</small></div>
     <div class="case-list">${CASES.map(
       (c) => `
       <article class="case" style="--c:${hexOf(c.color)}" data-case="${c.id}">
@@ -56,7 +56,7 @@ export const store: Render = (root) => {
     root.querySelectorAll<HTMLButtonElement>('[data-open]').forEach((b) => {
       const price = CASES.find((c) => c.id === b.dataset.open)!.price;
       b.disabled = stash.inv.coins < price;
-      b.title = b.disabled ? 'Not enough acorns' : '';
+      b.title = b.disabled ? 'Not enough coins' : '';
     });
   };
   const off = stash.onChange(refresh);
@@ -82,7 +82,7 @@ export const store: Render = (root) => {
   /** Pay, then spin the reel to the (already decided) drop. */
   function open(c: CaseDef) {
     const got = stash.openCase(c.id);
-    if (!got) return toast('Not enough acorns');
+    if (!got) return toast('Not enough coins');
     sfx.unlock();
     const won = itemById(got.id)!;
     const reel = Array.from({ length: REEL_LEN }, (_, i) => (i === WINNER ? won : rollCase(c.id)));

@@ -1,4 +1,4 @@
-/* Store, Inventory, the case-opening reel, and the in-game acorn counter */
+/* Store, Inventory, the case-opening reel, and the in-game coin counter */
 
 /* ---------- Home screen ---------- */
 .coin-chip {
@@ -342,7 +342,7 @@ button.loot-card[aria-pressed='true'] {
   gap: 8px;
 }
 
-/* ---------- In-game acorn counter ---------- */
+/* ---------- In-game coin counter ---------- */
 .hud .coins {
   position: absolute;
   left: 18px;
@@ -410,7 +410,7 @@ button.loot-card[aria-pressed='true'] {
   }
 }
 
-/* The name/skin/acorn chips used to float at the bottom (sharing the HUD's .chips rule); with two more
+/* The name/skin/coin chips used to float at the bottom (sharing the HUD's .chips rule); with two more
    buttons on the home screen they flow between the logo and the doors instead. */
 .title-screen .chips {
   position: static;
