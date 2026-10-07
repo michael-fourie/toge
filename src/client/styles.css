@@ -1130,6 +1130,66 @@ button:disabled {
   margin: 8px 0 0;
   text-shadow: var(--shadow);
 }
+.killcam {
+  position: absolute;
+  left: 50%;
+  top: 11%;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  border-radius: 20px;
+  background: #1c1410aa;
+  color: #fffaf0;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+.killcam i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e0443a;
+  animation: rec 1s steps(2) infinite;
+}
+.killcam b {
+  font-size: 12px;
+  opacity: 0.8;
+}
+@keyframes rec {
+  50% {
+    opacity: 0.2;
+  }
+}
+/* Letterbox bars and a quiet HUD while the replay plays. */
+.hud.replay .killcam {
+  display: flex;
+}
+.hud.replay::before,
+.hud.replay::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 9%;
+  background: #000;
+  z-index: 5;
+  pointer-events: none;
+}
+.hud.replay::before {
+  top: 0;
+}
+.hud.replay::after {
+  bottom: 0;
+}
+.hud.replay .crosshair,
+.hud.replay .speed,
+.hud.replay .ammo,
+.hud.replay .chips,
+.hud.replay .bolt,
+.hud.replay .speedfx {
+  display: none;
+}
 .scoreboard {
   position: absolute;
   left: 50%;

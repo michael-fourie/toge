@@ -23,6 +23,7 @@ import { Avatar, Corpses } from './avatar.ts';
 import { Horde } from './horde.ts';
 import { Hud } from './hud.ts';
 import { Input } from './input.ts';
+import { KILLCAM, Trail, replayTime, replaying } from './killcam.ts';
 import { Rope } from './rope.ts';
 import { SpeedFx } from './speedfx.ts';
 import type { Net } from './net.ts';
@@ -47,6 +48,8 @@ interface Remote {
   buffer: { t: number; s: NetPlayerState }[];
   pos: THREE.Vector3; // as rendered this frame (what the local player sees and shoots at)
   yaw: number;
+  /** Recent poses, for the kill-cam. */
+  trail: Trail;
   /** Offline practice targets drive themselves. */
   dummy?: { base: Vec3; phase: number; respawnAt: number };
 }
@@ -110,6 +113,11 @@ export class Game {
   private ropeSelf: Rope;
   private ropeMiss = { t: 0, end: new THREE.Vector3() };
   private remoteRopes = new Map<number, Rope>();
+
+  // Kill-cam: trails of everyone, recent shots, and the replay in progress (if any).
+  private selfTrail = new Trail();
+  private shotLog: { t: number; id: number; from: THREE.Vector3; to: THREE.Vector3 }[] = [];
+  private killcam: { deathTime: number; start: number; killerId: number; shot: { t: number; from: THREE.Vector3; to: THREE.Vector3 } | null; shotShown: boolean } | null = null;
 
   private scoped = false;
   private bolt = 0; // seconds until the next shot is chambered
@@ -217,12 +225,14 @@ export class Game {
     else if (!this.opts.net && this.time >= this.respawnAt) this.respawn(this.randomSpawn());
 
     if (this.opts.net) this.sendState(dt);
-    this.updateRemotes();
+    if (this.killcam) this.updateKillcam();
+    else this.updateRemotes();
     this.updateHorde();
     this.corpses.update(dt);
     this.updateTracers(dt);
     this.world.update(this.time);
     this.updateCamera(dt);
+    this.recordSelf();
     this.updateRopes(dt);
     this.updateHud(dt);
 
@@ -506,6 +516,69 @@ export class Game {
     this.deathCam.copy(pos).add(new THREE.Vector3(0, PLAYER.eyeHeight, 0));
     this.deathCorpse =
       cause === 'void' ? null : this.corpses.spawn(this.selfAvatar.cloneBody(), pos, this.input.yaw, dir, cause === 'headshot' ? 38 : 26);
+    if ((cause === 'snipe' || cause === 'headshot') && killerId !== this.selfId) this.startKillcam(killerId);
+  }
+
+  /** Records where we were this frame, so a replay can show us too. */
+  private recordSelf() {
+    if (!this.alive) return;
+    const right = yawRight(this.input.yaw);
+    const side = this.me.wallrunning ? Math.sign(right.x * this.me.vel.x + right.z * this.me.vel.z) || 0 : 0;
+    this.selfTrail.push(this.time, { x: this.renderPos.x, y: this.renderPos.y, z: this.renderPos.z, yaw: this.input.yaw, pitch: this.input.pitch, side, sliding: this.me.sliding });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Kill-cam: replay the last couple of seconds from the killer's eyes
+
+  private startKillcam(killerId: number) {
+    const killer = this.remotes.get(killerId);
+    if (!killer || killer.dummy || killer.trail.length < 2 || this.selfTrail.length < 2) return;
+    const shot = [...this.shotLog].reverse().find((s) => s.id === killerId && this.time - s.t < 1.2) ?? null;
+    this.killcam = { deathTime: this.time, start: this.time, killerId, shot, shotShown: false };
+    this.world.scene.add(this.selfAvatar.root);
+    if (this.deathCorpse) this.deathCorpse.obj.visible = false; // it flies at the end of the replay, not the start
+  }
+
+  private endKillcam() {
+    this.killcam = null;
+    this.selfAvatar.root.removeFromParent();
+    if (this.deathCorpse) this.deathCorpse.obj.visible = true;
+  }
+
+  private updateKillcam() {
+    const kc = this.killcam!;
+    const elapsed = this.time - kc.start;
+    if (this.alive || !replaying(elapsed)) {
+      this.endKillcam();
+      this.updateRemotes();
+      return;
+    }
+    const T = replayTime(elapsed, kc.deathTime);
+    for (const r of this.remotes.values()) {
+      if (r.dummy) continue;
+      const p = r.trail.at(T);
+      if (!p || r.info.id === kc.killerId) {
+        r.avatar.root.visible = false; // the killer's head is the camera
+        continue;
+      }
+      r.avatar.root.visible = true;
+      r.avatar.pose(p.x, p.y, p.z, p.yaw, p.pitch, p.side, this.time, p.sliding);
+    }
+    const me = this.selfTrail.at(T);
+    if (me) this.selfAvatar.pose(me.x, me.y, me.z, me.yaw, me.pitch, me.side, this.time, me.sliding);
+    this.selfAvatar.root.visible = !!me;
+    if (kc.shot && !kc.shotShown && T >= kc.shot.t) {
+      kc.shotShown = true;
+      this.addTracer(kc.shot.from, kc.shot.to, this.players.get(kc.killerId)?.color ?? 0xffffff);
+      sfx.distantShot(8);
+    }
+    const k = this.remotes.get(kc.killerId)?.trail.at(T);
+    if (k) {
+      this.camera.position.set(k.x, k.y + (k.sliding ? KILLCAM.killerEyeSliding : KILLCAM.killerEye), k.z);
+      this.camera.rotation.set(k.pitch, k.yaw, 0);
+    }
+    this.camera.fov += (55 - this.camera.fov) * 0.2;
+    this.camera.updateProjectionMatrix();
   }
 
   private respawn(spawn: { pos: Vec3; yaw: number }) {
@@ -514,6 +587,8 @@ export class Game {
     this.acc = 0;
     this.input.yaw = spawn.yaw;
     this.input.pitch = 0;
+    if (this.killcam) this.endKillcam();
+    this.selfTrail.clear();
     this.alive = true;
     this.deathCorpse = null;
     this.ammo = WEAPON.magSize;
@@ -545,7 +620,7 @@ export class Game {
     const avatar = new Avatar(info.color, info.name);
     avatar.root.visible = info.alive && !!dummy;
     this.world.scene.add(avatar.root);
-    this.remotes.set(info.id, { info, avatar, buffer: [], pos: new THREE.Vector3(), yaw: 0, dummy });
+    this.remotes.set(info.id, { info, avatar, buffer: [], pos: new THREE.Vector3(), yaw: 0, trail: new Trail(), dummy });
   }
 
   private removeRemote(id: number) {
@@ -585,7 +660,9 @@ export class Game {
       this.remoteRopes.set(r.info.id, rope);
       rope.set(this.tmpA.set(r.pos.x, r.pos.y + 1.2, r.pos.z), e.g ? this.tmpB.set(e.g[0], e.g[1], e.g[2]) : null);
       r.avatar.root.visible = true;
-      r.avatar.pose(r.pos.x, r.pos.y, r.pos.z, r.yaw, pitch, side, this.time, (e.f & StateFlag.Sliding) !== 0);
+      const sliding = (e.f & StateFlag.Sliding) !== 0;
+      r.avatar.pose(r.pos.x, r.pos.y, r.pos.z, r.yaw, pitch, side, this.time, sliding);
+      r.trail.push(this.time, { x: r.pos.x, y: r.pos.y, z: r.pos.z, yaw: r.yaw, pitch, side, sliding });
     }
   }
 
@@ -701,6 +778,8 @@ export class Game {
       case 'shot': {
         const from = new THREE.Vector3(...msg.from);
         this.addTracer(from, new THREE.Vector3(...msg.to), this.players.get(msg.id)?.color ?? 0xffffff);
+        this.shotLog.push({ t: this.time, id: msg.id, from, to: new THREE.Vector3(...msg.to) });
+        if (this.shotLog.length > 12) this.shotLog.shift();
         sfx.distantShot(from.distanceTo(this.renderPos));
         break;
       }
@@ -762,6 +841,7 @@ export class Game {
   private updateCamera(dt: number) {
     const cam = this.camera;
     if (!this.alive) {
+      if (this.killcam) return; // updateKillcam owns the camera
       // Spectate our own flying corpse.
       if (this.deathCorpse?.obj.parent) {
         const target = this.deathCorpse.obj.position;
@@ -834,7 +914,8 @@ export class Game {
     this.hud.grapple(this.grappleState());
     sfx.setWind(this.alive && !this.hud.root.classList.contains('paused') ? SpeedFx.strength(hlen(this.me.vel)) : 0);
     this.hud.setCredit(this.vm.credit);
-    this.hud.death(this.deathText, this.deathSubtitle());
+    this.hud.death(this.deathText, this.killcam ? null : this.deathSubtitle());
+    this.hud.killcam(this.killcam ? this.deathText : null);
     this.hud.health(this.horde ? this.hp : null, SURVIVAL.playerHp);
     this.hud.wave(this.waveText());
     this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId);

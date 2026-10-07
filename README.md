@@ -51,6 +51,7 @@ Kills earn mini achievements, and several at once **stack** into one combo with 
 | LMB / RMB | Shoot / hold to scope. The bolt cycle drops you out of scope, and you scope back in if still holding. No-scopes have spread. |
 | R | Reload (automatic when the mag runs dry) |
 | Tab | Scoreboard |
+| (when sniped) | Kill-cam: the last two seconds replayed from the killer's eyes, with you in it |
 | `` ` `` | Live movement tuning panel |
 
 ## Movement

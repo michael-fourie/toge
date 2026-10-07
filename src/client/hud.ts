@@ -43,6 +43,7 @@ export class Hud {
       <div class="hurt"></div>
       <div class="health" hidden><b>100</b><div class="bar"><i></i></div></div>
       <div class="death"><h2></h2><p></p></div>
+      <div class="killcam"><i></i><b>KILLCAM</b><span></span></div>
       <div class="scoreboard"></div>
       <div class="pause">
         <div class="panel">
@@ -94,7 +95,7 @@ export class Hud {
 
   update(dt: number, speed: number, wallrun: boolean, bolt: number) {
     this.speedEl.textContent = speed.toFixed(1);
-    this.fx.update(dt, speed, !this.root.classList.contains('paused') && !this.root.classList.contains('scoped'));
+    this.fx.update(dt, speed, !this.root.classList.contains('paused') && !this.root.classList.contains('scoped') && !this.root.classList.contains('replay'));
     const k = Math.min(1, speed / MOVE.maxSpeed);
     this.speedBar.style.width = `${k * 100}%`;
     // Cream at walking pace, warming to sunset coral as you build speed.
@@ -193,6 +194,12 @@ export class Hud {
     feed.prepend(row);
     setTimeout(() => row.remove(), 6000);
     while (feed.children.length > 6) feed.lastElementChild!.remove();
+  }
+
+  /** Kill-cam banner (cinematic bars, hides the rest of the HUD); null text ends it. */
+  killcam(text: string | null) {
+    this.root.classList.toggle('replay', text !== null); // not 'killcam': that is the banner's own class
+    if (text !== null) this.q('.killcam span').textContent = text;
   }
 
   /** Death overlay; a null subtitle hides it. */
