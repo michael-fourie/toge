@@ -8,6 +8,7 @@ import { Ev, type GrappleTarget, type PlayerState, createPlayerState, emptyInput
 import { punchStatus, weaponStats } from '../shared/punch.ts';
 import { type Grenade, applyKnock, blastKnock, blastTargets, stepGrenade, throwVelocity } from '../shared/grenade.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
+import { TEAMS, sameTeam } from '../shared/teams.ts';
 import {
   type ClientMsg,
   type DeathCause,
@@ -158,6 +159,9 @@ export class Game {
 
   // Survival
   private readonly mode: GameMode;
+  /** Battle with two sides (no friendly fire), and whether the current match has been won (scores frozen). */
+  private readonly teams: boolean;
+  private matchOver = false;
   private horde: Horde | null = null;
   private hp: number = SURVIVAL.playerHp;
   private wave: WaveInfo | null = null;
@@ -175,6 +179,7 @@ export class Game {
   constructor(private opts: GameOptions) {
     const { container, net, joined } = opts;
     this.mode = joined?.mode ?? 'battle';
+    this.teams = !!joined?.teams;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -407,7 +412,7 @@ export class Game {
     const hw = PLAYER.halfWidth;
     const targets: { id: number; pos: THREE.Vector3; zombie: boolean }[] = this.horde
       ? [...this.horde.zombies.values()].map((z) => ({ id: z.id, pos: z.pos, zombie: true })) // co-op: shots pass through friends
-      : [...this.remotes.values()].filter((r) => r.info.alive).map((r) => ({ id: r.info.id, pos: r.pos, zombie: false }));
+      : [...this.remotes.values()].filter((r) => r.info.alive && !(this.teams && sameTeam(r.info, this.players.get(this.selfId)!))).map((r) => ({ id: r.info.id, pos: r.pos, zombie: false }));
     for (const { id, pos: p, zombie } of targets) {
       const th = raySphere(o, d, { x: p.x, y: p.y + PLAYER.headCenter, z: p.z }, PLAYER.headRadius + 0.04, best);
       if (th >= 0 && th < best) {
@@ -892,6 +897,30 @@ export class Game {
         sfx.zombieDown();
         break;
       }
+      case 'teams':
+        for (const t of msg.players) {
+          const p = this.players.get(t.id);
+          if (!p) continue;
+          p.team = t.team;
+          p.color = t.color;
+          if (t.id === this.selfId || !this.remotes.has(t.id)) continue;
+          this.removeRemote(t.id); // the avatar's colours are baked in: rebuild it in the new team's
+          this.addRemote(p);
+        }
+        break;
+      case 'matchOver':
+        this.onMatchOver(msg);
+        break;
+      case 'matchStart':
+        this.matchOver = false;
+        this.streak.reset();
+        for (const n of msg.players) {
+          const p = this.players.get(n.id);
+          if (p) p.kills = p.deaths = 0;
+        }
+        this.hud.center('GO!', '#9fe08a', 1.4);
+        sfx.roundStart();
+        break;
       case 'postgame':
         this.postgame?.update(msg.rounds, msg.rows, msg.waiting, (this.wave?.timer ?? 0) - (this.time - this.waveAt), this.time);
         break;
@@ -994,6 +1023,26 @@ export class Game {
       sfx.roundClear();
       this.hud.center('ROUND CLEARED!', '#ffd98a', 2.2);
     }
+  }
+
+  /** A side or a player hit the kill limit: freeze the scores, show the board and name the winner. */
+  private onMatchOver(msg: Extract<ServerMsg, { t: 'matchOver' }>) {
+    this.matchOver = true;
+    for (const n of msg.players) {
+      const p = this.players.get(n.id);
+      if (p) {
+        p.kills = n.kills;
+        p.deaths = n.deaths;
+      }
+    }
+    const me = this.players.get(this.selfId);
+    const w = msg.winner;
+    const won = 'team' in w ? me?.team === w.team : w.id === this.selfId;
+    const color = 'team' in w ? TEAMS[w.team].color : (this.players.get(w.id)?.color ?? 0xffffff);
+    const who = 'team' in w ? `${TEAMS[w.team].name.toUpperCase()} WINS!` : `${(this.players.get(w.id)?.name ?? '???').toUpperCase()} WINS!`;
+    this.hud.center(who, '#' + color.toString(16).padStart(6, '0'), msg.restartIn);
+    if (won) sfx.roundClear();
+    else sfx.gameOver();
   }
 
   /** The Survival banner: which round and how many zombies are left, or how long until the next one. */
@@ -1100,8 +1149,8 @@ export class Game {
     this.hud.health(this.horde ? this.hp : null, maxHp(this.jug));
     this.hud.wave(this.waveText());
     this.postgame?.tick(this.time);
-    this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId);
-    this.hud.scoreboard(this.showScores ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.dummy).map((r) => r.info)] : null, this.selfId);
+    this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId, this.teams);
+    this.hud.scoreboard(this.showScores || this.matchOver ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.dummy).map((r) => r.info)] : null, this.selfId, this.teams);
   }
 
   /** 'ready' lights up when pressing E right now would catch something. */

@@ -1663,3 +1663,66 @@ button:disabled {
 .pg-buttons button:disabled {
   opacity: 0.6;
 }
+
+/* ---------- Battle format + team picker ---------- */
+.formats[hidden] {
+  display: none;
+}
+.formats {
+  margin-top: 12px;
+}
+.mode-ffa {
+  --accent: var(--kiki);
+}
+.mode-teams {
+  --accent: #4f8fd9;
+}
+.teampick h3 {
+  margin: 0 0 8px;
+}
+.teamcols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.teamcol {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f4ead2;
+  border-top: 6px solid var(--team);
+}
+.teamcol h4 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 22px;
+  color: var(--team);
+}
+.teamcol .players {
+  min-height: 3.5em;
+}
+.teamcol .empty {
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.teampick .row {
+  margin-top: 10px;
+}
+.livescore .goal {
+  display: block;
+  opacity: 0.85;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.livescore .team {
+  font-size: 15px;
+  font-weight: 900;
+}
+.scoreboard .teamhead th {
+  padding-top: 10px;
+  font-family: var(--display);
+  font-size: 18px;
+}

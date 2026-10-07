@@ -5,6 +5,7 @@ import type { ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, Serve
 import { JACKETS, type Skin, encodeSkin } from '../shared/skin.ts';
 import { weaponStats } from '../shared/punch.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
+import { KILL_LIMIT, MATCH_OVER_SECONDS, TEAMS, type Team, sameTeam, shuffleTeams, smallerTeam, winner } from '../shared/teams.ts';
 import { Survival } from './survival.ts';
 
 /** The slice of a WebSocket the lobby needs (satisfied by the Workers WebSocket). */
@@ -58,11 +59,15 @@ export class Lobby {
   private ticks = 0;
   private recentSpawns: number[] = [];
   private survival: Survival | null;
+  /** Battle: set once someone reaches the kill limit; the next match starts when it passes. */
+  private overAt = 0;
 
   /** `onChange` fires on join/leave and as a heartbeat; `onEmpty` once the last player leaves. */
   constructor(
     readonly code: string,
     readonly mode: GameMode,
+    /** Battle only: two teams instead of free-for-all. */
+    readonly teams: boolean,
     private onChange: (l: Lobby) => void,
     private onEmpty: (l: Lobby) => void,
   ) {
@@ -83,9 +88,10 @@ export class Lobby {
     const wanted = client.skin?.jacket === undefined ? undefined : COLORS[client.skin.jacket];
     const color = wanted !== undefined && !used.has(wanted) ? wanted : (COLORS.find((c) => !used.has(c)) ?? COLORS[client.id % COLORS.length]);
     const spawn = this.pickSpawn();
+    const team = this.teams ? smallerTeam([...this.members.values()].map((x) => x.info)) : undefined;
     const m: Member = {
       client,
-      info: { id: client.id, name: client.name, color, kills: 0, deaths: 0, alive: true, skin: client.skin && encodeSkin(client.skin) },
+      info: { id: client.id, name: client.name, color: team === undefined ? color : TEAMS[team].color, kills: 0, deaths: 0, alive: true, team, skin: client.skin && encodeSkin(client.skin) },
       state: { id: client.id, p: spawn.p, v: [0, 0, 0], yaw: spawn.yaw, pitch: 0, f: 0 },
       lastShot: 0,
       nadeAt: 0,
@@ -102,6 +108,7 @@ export class Lobby {
       code: this.code,
       mode: this.mode,
       hostId: this.hostId,
+      teams: this.teams || undefined,
       players: [...this.members.values()].map((x) => x.info),
       spawn,
       wave: this.survival?.info(),
@@ -141,6 +148,12 @@ export class Lobby {
       case 'shoot':
         this.onShoot(m, msg);
         return;
+      case 'team':
+        if (this.teams && (msg.team === 0 || msg.team === 1)) this.setTeams(new Map([[client.id, msg.team]]));
+        return;
+      case 'shuffle':
+        if (this.teams && client.id === this.hostId) this.setTeams(shuffleTeams([...this.members.keys()]));
+        return;
       case 'again':
         this.survival?.again(m);
         return;
@@ -160,6 +173,19 @@ export class Lobby {
         if (m.info.alive) this.kill(m, m, 'void', [0, 1, 0]);
         return;
     }
+  }
+
+  /** Moves players to the given sides (their colour follows) and tells everyone. */
+  private setTeams(sides: Map<number, Team>) {
+    const changed: { id: number; team: Team; color: number }[] = [];
+    for (const [id, team] of sides) {
+      const m = this.members.get(id);
+      if (!m) continue;
+      m.info.team = team;
+      m.info.color = TEAMS[team].color;
+      changed.push({ id, team, color: m.info.color });
+    }
+    if (changed.length) this.broadcast({ t: 'teams', players: changed });
   }
 
   /** A grenade leaves a hand: rate limit, remember it for validating the blast, show it to everyone else. */
@@ -183,7 +209,7 @@ export class Lobby {
     this.broadcast({ t: 'blast', id: m.info.id, p });
     const center = { x: p[0], y: p[1], z: p[2] };
     if (this.survival) return this.survival.blast(m, center);
-    const targets = [...this.members.values()].filter((v) => v !== m && v.info.alive).map((v) => ({ id: v.info.id, pos: { x: v.state.p[0], y: v.state.p[1], z: v.state.p[2] } }));
+    const targets = [...this.members.values()].filter((v) => v !== m && v.info.alive && !sameTeam(v.info, m.info)).map((v) => ({ id: v.info.id, pos: { x: v.state.p[0], y: v.state.p[1], z: v.state.p[2] } }));
     for (const id of blastTargets(center, targets, MAP.boxes)) {
       const v = this.members.get(id)!;
       this.kill(v, m, 'grenade', [v.state.p[0] - p[0], v.state.p[1] + 1 - p[1] + 0.8, v.state.p[2] - p[2]]);
@@ -203,7 +229,7 @@ export class Lobby {
     }
     if (msg.victim === undefined) return;
     const v = this.members.get(msg.victim);
-    if (!v || v === m || !v.info.alive) return;
+    if (!v || v === m || !v.info.alive || sameTeam(v.info, m.info)) return;
     // Client-side hit detection ("favour the shooter"); reject hits nowhere near where we last saw the victim.
     const [x, y, z] = v.state.p;
     if (Math.hypot(msg.to[0] - x, msg.to[1] - (y + 1), msg.to[2] - z) > 6) return;
@@ -212,6 +238,7 @@ export class Lobby {
   }
 
   kill(victim: Member, killer: Member, cause: DeathCause, dir: V3) {
+    if (this.overAt) return; // the match is decided: the scores are final
     victim.info.alive = false;
     victim.info.deaths++;
     if (killer !== victim) killer.info.kills++;
@@ -219,6 +246,26 @@ export class Lobby {
     victim.respawnAt = this.survival ? Infinity : Date.now() + RESPAWN_SECONDS * 1000;
     const l = Math.hypot(...dir) || 1;
     this.broadcast({ t: 'kill', killer: killer.info.id, victim: victim.info.id, cause, dir: [dir[0] / l, dir[1] / l, dir[2] / l] });
+    if (!this.survival) this.checkWinner();
+  }
+
+  private checkWinner() {
+    const infos = [...this.members.values()].map((m) => m.info);
+    const won = winner(infos, this.teams, KILL_LIMIT);
+    if (!won) return;
+    this.overAt = Date.now() + MATCH_OVER_SECONDS * 1000;
+    this.broadcast({ t: 'matchOver', winner: won, players: infos, restartIn: MATCH_OVER_SECONDS });
+  }
+
+  /** Zero the scores and put everyone back on the map. */
+  private startMatch() {
+    this.overAt = 0;
+    for (const m of this.members.values()) {
+      m.info.kills = 0;
+      m.info.deaths = 0;
+    }
+    this.broadcast({ t: 'matchStart', players: [...this.members.values()].map((m) => m.info) });
+    for (const m of this.members.values()) this.respawn(m);
   }
 
   respawn(m: Member) {
@@ -235,6 +282,7 @@ export class Lobby {
     const now = Date.now();
     if (++this.ticks % (NET.snapshotRate * HEARTBEAT_SECONDS) === 0) this.onChange(this);
     this.survival?.tick(1 / NET.snapshotRate);
+    if (this.overAt && now >= this.overAt) this.startMatch();
     const players: NetPlayerState[] = [];
     for (const m of this.members.values()) {
       if (!m.info.alive && now >= m.respawnAt) this.respawn(m);

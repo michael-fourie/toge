@@ -83,7 +83,7 @@ import type { ServerMsg } from '../src/shared/protocol.ts';
 
 function arena() {
   const inbox = new Map<number, ServerMsg[]>();
-  const lobby = new Lobby('NADE', 'battle', () => {}, () => {});
+  const lobby = new Lobby('NADE', 'battle', false, () => {}, () => {});
   const clients = [1, 2, 3].map((id) => {
     inbox.set(id, []);
     const c = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, lobby: null };

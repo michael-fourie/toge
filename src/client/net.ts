@@ -25,8 +25,8 @@ export class Net {
   }
 
   /** Replies arrive as `joined` or `error` messages through `on()`. */
-  host(name: string, mode: GameMode) {
-    this.open({ name, mode });
+  host(name: string, mode: GameMode, teams = false) {
+    this.open(teams ? { name, mode, teams: '1' } : { name, mode });
   }
 
   join(name: string, code: string) {

@@ -49,7 +49,7 @@ test('the Juggernog station stands on solid floor, clear of geometry, and is wal
 test('server: Juggernog needs range and points, deducts them, heals to 250, sticks through the run and resets with it', () => {
   const sent: { t: string; hp?: number; pts?: number; jug?: boolean }[] = [];
   const ws = { readyState: 1, send: (d: string) => sent.push(JSON.parse(d)) };
-  const lobby = new Lobby('JUGT', 'survival', () => {}, () => {});
+  const lobby = new Lobby('JUGT', 'survival', false, () => {}, () => {});
   const client = { id: 1, ws, name: 'tester', lobby: null };
   lobby.add(client);
   try {

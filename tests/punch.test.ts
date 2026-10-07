@@ -90,7 +90,7 @@ test('the Pack-a-Punch machine stands on solid floor, clear of geometry, and is 
 test('server: buying needs range and points, deducts them, and the upgrade sticks until the run restarts', () => {
   const sent: { t: string; pts?: number; up?: boolean }[] = [];
   const ws = { readyState: 1, send: (d: string) => sent.push(JSON.parse(d)) };
-  const lobby = new Lobby('TEST', 'survival', () => {}, () => {});
+  const lobby = new Lobby('TEST', 'survival', false, () => {}, () => {});
   const client = { id: 1, ws, name: 'tester', lobby: null };
   lobby.add(client);
   try {
@@ -127,7 +127,7 @@ test('server: buying needs range and points, deducts them, and the upgrade stick
 
 test('server: "play again" is its own message and never buys the upgrade', () => {
   const ws = { readyState: 1, send: () => {} };
-  const lobby = new Lobby('TEST2', 'survival', () => {}, () => {});
+  const lobby = new Lobby('TEST2', 'survival', false, () => {}, () => {});
   const client = { id: 1, ws, name: 'tester', lobby: null };
   lobby.add(client);
   try {

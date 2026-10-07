@@ -1,6 +1,7 @@
 import { MOVE } from '../shared/constants.ts';
 import type { PlayerInfo } from '../shared/protocol.ts';
 import type { Feat } from './achievements.ts';
+import { KILL_LIMIT, TEAMS, teamKills } from '../shared/teams.ts';
 import { SpeedFx } from './speedfx.ts';
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
@@ -214,29 +215,40 @@ export class Hud {
   }
 
   /** Always-on top-right standings (online only; null hides). Rebuilt only when the numbers change. */
-  liveScores(players: PlayerInfo[] | null, selfId: number) {
+  liveScores(players: PlayerInfo[] | null, selfId: number, teams = false) {
     const el = this.q('.livescore');
     el.classList.toggle('show', !!players?.length);
     if (!players) return;
-    const html = [...players]
+    const goal = `<div class="goal">First to ${KILL_LIMIT} kills</div>`;
+    const tally = teams
+      ? teamKills(players)
+          .map((k, t) => `<div class="team"><i style="background:${hex(TEAMS[t].color)}"></i><span>${TEAMS[t].name}</span><b>${k}</b></div>`)
+          .join('')
+      : '';
+    const rows = [...players]
       .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
       .map((p) => `<div class="${p.id === selfId ? 'me' : ''}"><i style="background:${hex(p.color)}"></i><span>${esc(p.name)}</span><b>${p.kills}</b></div>`)
       .join('');
+    const html = goal + tally + rows;
     if (el.innerHTML !== html) el.innerHTML = html;
   }
 
-  scoreboard(players: PlayerInfo[] | null, selfId: number) {
+  /** Tab board; in teams mode each side gets its own block under a header with the team total. */
+  scoreboard(players: PlayerInfo[] | null, selfId: number, teams = false) {
     const el = this.q('.scoreboard');
     el.classList.toggle('show', !!players);
     if (!players) return;
-    const rows = [...players]
-      .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
-      .map(
-        (p) =>
-          `<tr class="${p.id === selfId ? 'me' : ''}"><td><i style="background:${hex(p.color)}"></i>${esc(p.name)}</td><td>${p.kills}</td><td>${p.deaths}</td></tr>`,
-      )
-      .join('');
-    el.innerHTML = `<table><thead><tr><th>Player</th><th>K</th><th>D</th></tr></thead><tbody>${rows}</tbody></table>`;
+    const row = (p: PlayerInfo) =>
+      `<tr class="${p.id === selfId ? 'me' : ''}"><td><i style="background:${hex(p.color)}"></i>${esc(p.name)}</td><td>${p.kills}</td><td>${p.deaths}</td></tr>`;
+    const ranked = [...players].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+    const body = teams
+      ? TEAMS.map((t, i) => {
+          const side = ranked.filter((p) => p.team === i);
+          const total = side.reduce((n, p) => n + p.kills, 0);
+          return `<tr class="teamhead"><th style="color:${hex(t.color)}">${t.name}</th><th>${total}</th><th></th></tr>${side.map(row).join('')}`;
+        }).join('')
+      : ranked.map(row).join('');
+    el.innerHTML = `<table><thead><tr><th>Player</th><th>K</th><th>D</th></tr></thead><tbody>${body}</tbody></table>`;
   }
 
   dispose() {

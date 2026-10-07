@@ -1,5 +1,7 @@
 // Wire protocol. JSON for the prototype; swap to a binary encoding once the shape settles.
 
+import type { Team, Winner } from './teams.ts';
+
 export type V3 = [number, number, number];
 
 /** Battle: free-for-all snipers. Survival: co-op against rounds of zombies. */
@@ -8,6 +10,8 @@ export type GameMode = 'battle' | 'survival';
 export interface LobbyInfo {
   code: string;
   mode: GameMode;
+  /** Battle only: two teams instead of free-for-all. */
+  teams?: boolean;
   host: string;
   players: number;
   max: number;
@@ -20,6 +24,8 @@ export interface PlayerInfo {
   kills: number;
   deaths: number;
   alive: boolean;
+  /** Battle teams only: 0 = Sunset, 1 = Tide (shared/teams.ts). `color` is the team colour then. */
+  team?: Team;
   /** Chosen look, as an encoded skin (shared/skin.ts); absent = seeded from name + colour. */
   skin?: string;
 }
@@ -78,12 +84,14 @@ export type ClientMsg =
   | { t: 'boom'; p: V3 } // our grenade went off here (server checks it's ours, then does the damage)
   | { t: 'again' } // Survival post-game: ready for another run
   | { t: 'punch' } // Survival: buy the Pack-a-Punch upgrade (server checks range, points, not owned)
-  | { t: 'jug' }; // Survival: buy Juggernog (same checks)
+  | { t: 'jug' } // Survival: buy Juggernog (same checks)
+  | { t: 'team'; team: Team } // Battle teams: switch to this side (before the match is over)
+  | { t: 'shuffle' }; // Battle teams: host only, randomise everyone's side
 
 // Server -> client
 export type ServerMsg =
   | { t: 'welcome'; id: number }
-  | { t: 'joined'; code: string; mode: GameMode; hostId: number; players: PlayerInfo[]; spawn: { p: V3; yaw: number }; wave?: WaveInfo }
+  | { t: 'joined'; code: string; mode: GameMode; hostId: number; teams?: boolean; players: PlayerInfo[]; spawn: { p: V3; yaw: number }; wave?: WaveInfo }
   | { t: 'playerJoined'; player: PlayerInfo }
   | { t: 'playerLeft'; id: number; hostId: number }
   | { t: 'snapshot'; players: NetPlayerState[]; zombies?: NetZombie[] }
@@ -92,6 +100,10 @@ export type ServerMsg =
   | { t: 'shot'; id: number; from: V3; to: V3; up?: boolean } // up: fired from a Pack-a-Punched rifle
   | { t: 'kill'; killer: number; victim: number; cause: DeathCause; dir: V3 }
   | { t: 'respawn'; id: number; p: V3; yaw: number }
+  // Battle teams and matches
+  | { t: 'teams'; players: { id: number; team: Team; color: number }[] } // new sides (a switch or a shuffle)
+  | { t: 'matchOver'; winner: Winner; players: PlayerInfo[]; restartIn: number } // someone hit the kill limit
+  | { t: 'matchStart'; players: PlayerInfo[] } // scores zeroed, everyone respawns (a `respawn` follows for each)
   // Survival
   | { t: 'wave'; wave: WaveInfo }
   | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3 }
