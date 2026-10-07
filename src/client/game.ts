@@ -5,6 +5,7 @@ import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
 import { MAP } from '../shared/map.ts';
 import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/math.ts';
 import { Ev, type GrappleTarget, type PlayerState, createPlayerState, emptyInput, findGrapple, stepPlayer } from '../shared/movement.ts';
+import { punchStatus, weaponStats } from '../shared/punch.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import {
   type ClientMsg,
@@ -23,6 +24,8 @@ import { Avatar, Corpses } from './avatar.ts';
 import { Horde } from './horde.ts';
 import { Hud } from './hud.ts';
 import { Input } from './input.ts';
+import { MINT, buildPunchMachine } from './punchmachine.ts';
+import { PunchHud } from './punchhud.ts';
 import { KILLCAM, Trail, replayTime, replaying } from './killcam.ts';
 import { Rope } from './rope.ts';
 import { SpeedFx } from './speedfx.ts';
@@ -146,6 +149,11 @@ export class Game {
   private wave: WaveInfo | null = null;
   private waveAt = 0; // this.time when `wave` arrived (its timer counts down from then)
   private nextGroan = 3;
+  // Points and the Pack-a-Punch machine (server-authoritative; we mirror what it tells us)
+  private points = 0;
+  private upgraded = false;
+  private punchMachine: ReturnType<typeof buildPunchMachine> | null = null;
+  private punchHud!: PunchHud;
 
   constructor(private opts: GameOptions) {
     const { container, net, joined } = opts;
@@ -167,6 +175,8 @@ export class Game {
     this.ropeSelf = new Rope(this.world.scene);
     if (this.mode === 'survival') {
       this.horde = new Horde(this.world.scene);
+      this.punchMachine = buildPunchMachine(MAP.punchMachine);
+      this.world.scene.add(this.punchMachine.obj);
       this.wave = joined?.wave ?? null;
     }
 
@@ -186,6 +196,7 @@ export class Game {
     copy(this.prevPos, this.me.pos);
 
     this.hud = new Hud(container, joined ? `${this.mode === 'survival' ? 'SURVIVAL' : 'LOBBY'} ${joined.code}` : 'PRACTICE — shoot the dummies');
+    this.punchHud = new PunchHud(this.hud.root);
     this.input = new Input(this.renderer.domElement);
     this.input.yaw = spawn.yaw;
     this.input.onLockChange = (locked) => this.hud.setPaused(!locked);
@@ -231,6 +242,7 @@ export class Game {
     this.corpses.update(dt);
     this.updateTracers(dt);
     this.world.update(this.time);
+    this.punchMachine?.update(this.time);
     this.updateCamera(dt);
     this.recordSelf();
     this.updateRopes(dt);
@@ -316,7 +328,7 @@ export class Game {
     this.bolt = Math.max(0, this.bolt - dt);
     if (this.reloading > 0) {
       this.reloading = Math.max(0, this.reloading - dt);
-      if (this.reloading === 0) this.ammo = WEAPON.magSize;
+      if (this.reloading === 0) this.ammo = this.stats.magSize;
     }
     if (this.autoReloadAt >= 0 && this.time >= this.autoReloadAt) {
       this.autoReloadAt = -1;
@@ -331,9 +343,9 @@ export class Game {
   }
 
   private startReload() {
-    if (!this.alive || this.reloading > 0 || this.ammo >= WEAPON.magSize) return;
+    if (!this.alive || this.reloading > 0 || this.ammo >= this.stats.magSize) return;
     const fromEmpty = this.ammo === 0; // chamber's empty too: finish with a bolt cycle
-    this.reloading = WEAPON.reloadTime + (fromEmpty ? WEAPON.boltTime : 0);
+    this.reloading = this.stats.reloadTime + (fromEmpty ? this.stats.boltTime : 0);
     this.bolt = 0;
     this.autoReloadAt = -1;
     this.vm.reload(fromEmpty);
@@ -385,7 +397,7 @@ export class Game {
     }
     const end = new THREE.Vector3(o.x + d.x * best, o.y + d.y * best, o.z + d.z * best);
     const muzzle = this.camera.localToWorld(new THREE.Vector3(0.22, -0.2, -1.1));
-    this.addTracer(muzzle, end, this.players.get(this.selfId)!.color);
+    this.addTracer(muzzle, end, this.upgraded ? MINT : this.players.get(this.selfId)!.color);
 
     if (hit) {
       this.hud.hitmarker();
@@ -407,7 +419,7 @@ export class Game {
     this.ammo--;
     this.vm.fire(this.ammo > 0);
     sfx.shoot();
-    if (this.ammo > 0) this.bolt = WEAPON.fireCooldown;
+    if (this.ammo > 0) this.bolt = this.stats.fireCooldown;
     else this.autoReloadAt = this.time + 0.25; // last round: drop straight into a reload
     this.scoped = false; // updateWeapon re-scopes after the bolt if RMB is still held
 
@@ -591,7 +603,7 @@ export class Game {
     this.selfTrail.clear();
     this.alive = true;
     this.deathCorpse = null;
-    this.ammo = WEAPON.magSize;
+    this.ammo = this.stats.magSize;
     this.bolt = this.reloading = 0;
     this.autoReloadAt = -1;
     this.vm.draw();
@@ -775,9 +787,12 @@ export class Game {
         }
         this.hp = msg.hp;
         break;
+      case 'pts':
+        this.onPoints(msg.pts, !!msg.up);
+        break;
       case 'shot': {
         const from = new THREE.Vector3(...msg.from);
-        this.addTracer(from, new THREE.Vector3(...msg.to), this.players.get(msg.id)?.color ?? 0xffffff);
+        this.addTracer(from, new THREE.Vector3(...msg.to), msg.up ? MINT : (this.players.get(msg.id)?.color ?? 0xffffff));
         this.shotLog.push({ t: this.time, id: msg.id, from, to: new THREE.Vector3(...msg.to) });
         if (this.shotLog.length > 12) this.shotLog.shift();
         sfx.distantShot(from.distanceTo(this.renderPos));
@@ -797,6 +812,34 @@ export class Game {
         break;
       }
     }
+  }
+
+  private get stats() {
+    return weaponStats(this.upgraded);
+  }
+
+  /** Our points and upgrade state, as the server sees them. A change in `up` is a purchase (or a restarted run). */
+  private onPoints(pts: number, up: boolean) {
+    this.points = pts;
+    if (up === this.upgraded) return;
+    this.upgraded = up;
+    this.vm.setUpgraded(up);
+    this.ammo = this.stats.magSize; // a fresh mag either way
+    this.bolt = this.reloading = 0;
+    this.autoReloadAt = -1;
+    if (up) {
+      sfx.punch();
+      this.hud.center('PACK-A-PUNCHED!', '#8ff5d0', 2.2);
+      this.hud.punch(0.8);
+      this.vm.draw();
+    }
+  }
+
+  /** Pack-a-Punch prompt state while standing at the machine (null elsewhere and outside Survival). */
+  private nearMachine() {
+    if (!this.horde) return null;
+    const s = punchStatus(this.points, this.upgraded, this.me.pos, MAP.punchMachine);
+    return s === 'far' ? null : s;
   }
 
   private onWave(w: WaveInfo) {
@@ -909,8 +952,9 @@ export class Game {
 
   private updateHud(dt: number) {
     this.hud.setScoped(this.scoped && this.alive);
-    this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, this.bolt / WEAPON.fireCooldown);
-    this.hud.ammo(this.ammo, WEAPON.magSize, this.reloading > 0);
+    this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, this.bolt / this.stats.fireCooldown);
+    this.hud.ammo(this.ammo, this.stats.magSize, this.reloading > 0);
+    this.punchHud.update(this.horde ? this.points : null, this.alive ? this.nearMachine() : null);
     this.hud.grapple(this.grappleState());
     sfx.setWind(this.alive && !this.hud.root.classList.contains('paused') ? SpeedFx.strength(hlen(this.me.vel)) : 0);
     this.hud.setCredit(this.vm.credit);
@@ -944,6 +988,11 @@ export class Game {
   private onKey(code: string, down: boolean) {
     if (code === 'Tab') this.showScores = down;
     if (code === 'KeyR' && down) this.startReload();
+    if (code === 'KeyF' && down && this.alive) {
+      const near = this.nearMachine();
+      if (near === 'ready') this.opts.net?.send({ t: 'punch' });
+      else if (near) sfx.denied();
+    }
     if (code === 'Backquote' && down) {
       const show = this.gui._hidden;
       this.gui.show(show);

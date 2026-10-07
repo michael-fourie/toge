@@ -22,6 +22,7 @@ Pick one when hosting:
 
 - **Battle**: free-for-all, one AWP each, one shot, one kill.
 - **Survival**: co-op against rounds of zombies on the same map. You start by the Great Tree, and zombies climb out of the clouds around the island's rim. They shamble at you and claw you (you have 100 HP), hop over roots, and pounce up onto ledges and across gaps. Each round brings more of them, and they get a bit faster and tougher: from round 3 a body shot won't drop one, but a headshot still will. Clear a round and everyone is revived and healed. If everyone goes down, it's game over and you start again from round 1.
+  - **Points and Pack-a-Punch:** each zombie kill earns points (60 for a body shot, 100 for a headshot). At 5000 points you can buy the Pack-a-Punch upgrade at the machine west of the Great Tree (stand within 2.5 m, press F). Your rifle then cycles about twice as fast, holds 20 rounds, reloads faster, hits 2.5x as hard, and its shots pierce through zombies lined up behind the first, with a mint glow and tracer everyone can see. You keep it through deaths and rounds until the run restarts (game over); points work the same way.
 
 ## Feats and streaks
 
@@ -45,6 +46,7 @@ Kills earn mini achievements, and several at once **stack** into one combo with 
 | WASD | Move. In the air, let go of W, hold A or D and turn the mouse the same way to gain speed (air-strafing). |
 | Space / mouse wheel | Jump. Hold Space to auto-bhop; you keep all your speed on every hop. Tap again in the air for a double jump. |
 | E | Grapple: aim at any surface within 40 m and the rope reels you toward it (Space lets go and keeps your speed; 1.5 s recharge). Hook another player to zip to them, or aim near a glowing brass ring in the sky: it grabs the rope. Kills while roped score YANKED, and REELED IN if you're hooked on the victim. |
+| F | Survival only: at the Pack-a-Punch machine (the brass kettle by the Great Tree), buy the upgrade. |
 | Shift (hold) | Slide. Hold it in the air to slide the moment you land. Jumping out of a slide keeps your speed. |
 | Run along a wall in the air | Wallrun. Space wall-jumps off it; tapping Space next to any wall kicks off it too (once per wall until you land), and refreshes the double jump. |
 | Steep blue ramps | Surf: strafe into the ramp to ride it. |
