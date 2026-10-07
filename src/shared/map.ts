@@ -1,6 +1,7 @@
 import type { Box, BoxKind, RampShape, Trigger } from './collision.ts';
 import { MOVE } from './constants.ts';
 import type { Vec3 } from './math.ts';
+import type { SurvivalLayout } from './layout.ts';
 import { launchTo } from './movement.ts';
 
 export interface SpawnPoint {
@@ -21,14 +22,8 @@ export interface MapData {
   triggers: Trigger[];
   decor: Decor[];
   spawns: SpawnPoint[];
-  /** Survival: players start round 1 (and get revived) around the Great Tree... */
-  survivalSpawns: SpawnPoint[];
-  /** ...and zombies climb up out of the clouds at the island's rim. */
-  zombieSpawns: Vec3[];
-  /** Survival: the Pack-a-Punch machine's feet (visual only; players walk up and press F). */
-  punchMachine: Vec3;
-  /** The Juggernog station (Survival): across the tree from the Pack-a-Punch machine. */
-  juggernog: Vec3;
+  /** Survival maps: rooms, doors, windows, wall guns and stations. */
+  survival?: SurvivalLayout;
   killY: number;
 }
 
@@ -36,17 +31,17 @@ export interface MapData {
 // Building blocks
 
 /** Box from centre + size. */
-function box(cx: number, cy: number, cz: number, sx: number, sy: number, sz: number, kind: BoxKind): Box {
+export function box(cx: number, cy: number, cz: number, sx: number, sy: number, sz: number, kind: BoxKind): Box {
   return { min: { x: cx - sx / 2, y: cy - sy / 2, z: cz - sz / 2 }, max: { x: cx + sx / 2, y: cy + sy / 2, z: cz + sz / 2 }, kind };
 }
 
 /** Box from min/max corners. */
-function span(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, kind: BoxKind): Box {
+export function span(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, kind: BoxKind): Box {
   return { min: { x: x0, y: y0, z: z0 }, max: { x: x1, y: y1, z: z1 }, kind };
 }
 
 /** A wedge from min/max corners whose top rises along `axis` toward `rise`. */
-function wedge(kind: 'ramp' | 'surf', x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, ramp: RampShape): Box {
+export function wedge(kind: 'ramp' | 'surf', x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, ramp: RampShape): Box {
   return { ...span(x0, y0, z0, x1, y1, z1, kind), ramp };
 }
 
@@ -364,29 +359,12 @@ function buildWindward(): MapData {
   ];
   const spawns: SpawnPoint[] = SPAWN_SPOTS.map(([x, y, z]) => ({ pos: { x, y, z }, yaw: Math.atan2(x, z) }));
 
-  // Survival: back to the trunk, facing out; the horde comes from the rim and the ruins terrace.
-  const survivalSpawns: SpawnPoint[] = [
-    { pos: { x: -9, y: 0.01, z: 9 }, yaw: (Math.PI * 3) / 4 },
-    { pos: { x: 9, y: 0.01, z: 9 }, yaw: (-Math.PI * 3) / 4 },
-  ];
-  const zombieSpawns: Vec3[] = [
-    { x: -22, y: 0.01, z: -14 },
-    { x: 0, y: 0.01, z: 24 },
-    { x: -20, y: 0.01, z: -22 },
-    { x: 22, y: 0.01, z: 12 },
-    { x: 30, y: 0.01, z: 18 },
-  ];
-
   return {
     name: 'Windward',
     boxes: [...centre, ...half, ...half.map(mirror)],
     triggers: [...centreTriggers, ...centreTriggers.map(mirrorTrigger), ...halfTriggers, ...halfTriggers.map(mirrorTrigger)],
     decor: [{ kind: 'canopy', pos: { x: 0, y: 23, z: 0 }, radius: 13 }],
     spawns,
-    survivalSpawns: [...survivalSpawns, ...survivalSpawns.map((s) => ({ pos: flip(s.pos), yaw: s.yaw + Math.PI }))],
-    zombieSpawns: [...zombieSpawns, ...zombieSpawns.map(flip)],
-    juggernog: { x: 12, y: 0, z: 0 }, // opposite the Pack-a-Punch machine, clear of the roots, the east pad and the wind gate
-    punchMachine: { x: -12, y: 0, z: 0 }, // on the centre island, clear of roots and walls, ~10 m from the spawns
     killY: -40,
   };
 }

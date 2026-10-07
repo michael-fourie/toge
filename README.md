@@ -24,7 +24,7 @@ Pick your look from the **Skin** chip on the home screen: eight named presets, i
 ## Cases, loot and the knife
 Eliminations pay **Acorns** 🌰 (10 per player kill, +5 for a headshot, 3 per zombie), shown on the home screen and in the corner of the HUD. Spend them in the **Store** on a case (Skyline: AWP paints, Windblade: knives, Wardrobe: hats, faces and backs) and watch the reel roll. Drops come in CSGO's rarities (Consumer, Industrial, Mil-Spec, Restricted, Classified, Covert, and a gold Exceedingly Rare tier). The **Inventory** lists what you own with a turning preview: equip an item, unequip it, or sell spares for acorns. Equipped gear is saved in your browser and everyone in the lobby sees it.
 
-Press **2** for the knife (LMB stabs, one hit kills, no momentum lost) and **1** to bring the rifle back. Knives come in four shapes (field knife, karambit, machete, kunai) with many colourways.
+Press **2** for the knife (**3** in Survival, where 2 is your second gun; LMB stabs, one hit kills, no momentum lost) and **1** to bring your gun back. Knives come in four shapes (field knife, karambit, machete, kunai) with many colourways.
 
 ## Accounts
 
@@ -35,8 +35,31 @@ Optional and simple, for friends: pick **Sign in** on the home screen to create 
 Pick one when hosting:
 
 - **Battle**: free-for-all, one AWP each, one shot, one kill.
-- **Survival**: co-op against rounds of zombies on the same map. You start by the Great Tree, and zombies climb out of the clouds around the island's rim. They shamble at you and claw you (you have 100 HP), hop over roots, and pounce up onto ledges and across gaps. Each round brings more of them, and they get a bit faster and tougher: from round 3 a body shot won't drop one, but a headshot still will. Clear a round and everyone is revived and healed. If everyone goes down, a post-game screen ranks everyone by zombie kills (MVP crown for the top scorer); press Play again to start over from round 1 once everyone is ready (or after 90 s), or Home to leave. Survival is played at **night**: a moon, stars, fireflies and dark clouds, with the pads, wind gates, hooks and stations glowing like lanterns.
-  - **Points and Pack-a-Punch:** each zombie kill earns points (60 for a body shot, 100 for a headshot). At 5000 points you can buy the Pack-a-Punch upgrade at the machine west of the Great Tree (stand within 2.5 m, press F). Your rifle then cycles about twice as fast, holds 20 rounds, reloads faster, hits 2.5x as hard, and its shots pierce through zombies lined up behind the first, with a mint glow and tracer everyone can see. You keep it through deaths and rounds until the run restarts (game over); points work the same way. Across the tree from it, a **Juggernog** station (press F, 2500 points) raises your maximum health from 100 to 250 until the run restarts.
+- **Survival**: co-op against rounds of zombies in **the Foundry**, an old walled factory at night (full design notes: `docs/FOUNDRY.md`). Think Call of Duty zombies:
+  - **Start small.** You spawn in the little Office with a pistol (the Sparrow). Everything else is behind **doors you buy** (F, 750-1500 points each): the Assembly Hall, Boiler Room, Storage, Furnace, Locker Room and Loading Dock, plus a mezzanine you can snipe from.
+  - **Zombies break in through boarded windows.** Fourteen bays in the outside walls are nailed shut with five planks each. Zombies queue outside, rip the boards off one by one, then climb in and chase you through whatever rooms you have opened. **Hold F at a window to nail the boards back up** (10 points a board); you can't repair one while a zombie is standing on it.
+  - **Guns off the walls.** Chalk-lit wall guns sell the Marshal revolver, the Rattler SMG, the Warden rifle, the Bramble shotgun and the Kestrel lever-action (600-1500 points); buy the same gun again for half price to refill its ammo. You carry two guns (**1** / **2** to switch).
+  - **The Mystery Box** (950 points, moves between four spots): any gun in the game, including the Hammer LMG, the AWP and the Sunbeam ray gun. Sometimes the box gives you a sad plush instead: your points come back and it moves.
+  - **Pack-a-Punch** (5000 points, in the Furnace) upgrades the gun in your hands: about 2.5x damage, 1.5x the ammo, quicker cycling and reloads, a new name and a mint glow. Every gun has a Pack-a-Punched version. **Juggernog** (2500, in Storage) raises your maximum health from 100 to 250.
+  - **Points** come from kills (60 body, 100 head), 10 per hit and 10 per board. Health regenerates a few seconds after a claw. Each round brings more zombies, faster and tougher. Clear a round and everyone is revived and healed. If everyone goes down, a post-game screen ranks everyone by zombie kills (MVP crown for the top scorer); press Play again to start over from round 1 once everyone is ready (or after 90 s), or Home to leave.
+
+## Guns (Survival)
+
+Every gun has its own model and its own hands-on animation (recoil, action and reload), and its own Pack-a-Punched name.
+
+| Gun | Where | Feel | Animation |
+| --- | --- | --- | --- |
+| Sparrow M1911 | start | 8-round pistol | slide blows back and locks open on the last round; mag drop, slide release |
+| Marshal .44 | wall, 600 | heavy 6-shot revolver | hammer rises; cylinder swings out, six casings fall, speedloader goes in |
+| Rattler SMG | wall, 1000 | fast and spraying | open bolt chatters; mag swap, charging handle |
+| Warden AR | wall, 1200 | steady automatic rifle | curved mag swap, charging handle hauled back |
+| Bramble 12g | wall, 1500 | 8-pellet pump shotgun | forend pumps every shot; shells thumbed in one at a time |
+| Kestrel Lever | wall, 1500 | punchy lever-action | lever loop swings with your hand on it; shells through the side gate |
+| Hammer LMG | box | 100-round belt-fed | top cover flips up, belt and box swapped, cover slammed |
+| AWP | box | the original bolt sniper | bolt cycle; scoped |
+| Sunbeam | box | ray gun with splash | coils spin up on every shot; the glowing cell pops out of the top |
+
+Hold RMB to aim down the sights (the AWP scopes). Automatic guns fire while LMB is held.
 
 ## Feats and streaks
 
@@ -61,11 +84,12 @@ Kills earn mini achievements, and several at once **stack** into one combo with 
 | Space / mouse wheel | Jump. Hold Space to auto-bhop; you keep all your speed on every hop. Tap again in the air for a double jump. |
 | Q | Grenade: lob a frag in front of you (your own speed rides along). It goes off after about 2 s, kills anyone close and in line of sight and shoves everyone nearby, you included, without slowing you. You get another 8 s after throwing; the icon bottom-left greys out and a ring refills. |
 | E | Grapple: aim at any surface within 40 m and the rope reels you toward it (Space lets go and keeps your speed; 1.5 s recharge). Hook another player to zip to them, or aim near a glowing brass ring in the sky: it grabs the rope. Kills while roped score YANKED, and REELED IN if you're hooked on the victim. |
-| F | Survival only: at the Pack-a-Punch machine (the brass kettle by the Great Tree), buy the upgrade. |
+| F | Survival only: buy doors, wall guns, the Mystery Box, Pack-a-Punch and Juggernog; take a gun from the box; hold at a window to repair the boards. |
+| 1 / 2 | Survival: switch between your two guns. |
 | Shift (hold) | Slide. Hold it in the air to slide the moment you land. Jumping out of a slide keeps your speed. |
 | Run along a wall in the air | Wallrun. Space wall-jumps off it; tapping Space next to any wall kicks off it too (once per wall until you land), and refreshes the double jump. |
 | Steep blue ramps | Surf: strafe into the ramp to ride it. |
-| LMB / RMB | Shoot / hold to scope. The bolt cycle drops you out of scope, and you scope back in if still holding. No-scopes have spread. |
+| LMB / RMB | Shoot (hold for automatic guns) / hold to aim down the sights or scope. The AWP's bolt cycle drops you out of scope, and you scope back in if still holding. Hip fire and no-scopes have spread. |
 | R | Reload (automatic when the mag runs dry) |
 | Tab | Scoreboard |
 | (when sniped) | Kill-cam: the last two seconds replayed from the killer's eyes, with you in it |

@@ -1,39 +1,20 @@
 import * as THREE from 'three';
-import { WEAPON } from '../shared/constants.ts';
-import { type Gear, itemById } from '../shared/items.ts';
-import { weaponStats } from '../shared/punch.ts';
+import { type Gear, type RiflePaint, itemById } from '../shared/items.ts';
 import { DEFAULT_KNIFE, buildKnife } from './knife.ts';
-import { GOLD, MINT } from './punchmachine.ts';
 import { sfx } from './sfx.ts';
-import { type WeaponModel, buildProceduralAwp, loadAwpGlb } from './weapon/awp.ts';
+import { GOLD, MINT } from './punchmachine.ts';
+import { buildProceduralAwp, loadAwpGlb } from './weapon/awp.ts';
+import { GUN_ANIMS, GUN_BUILDERS } from './weapon/guns.ts';
 import { Arm } from './weapon/hands.ts';
-
-// Easing helpers for keyframed motion. seg(u, a, b) eases 0->1 as u goes a->b.
-const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
-const seg = (u: number, a: number, b: number) => ease((u - a) / (b - a));
-/** 0 -> 1 over [a, b], hold, 1 -> 0 over [c, d]. */
-const hold = (u: number, a: number, b: number, c: number, d: number) => seg(u, a, b) - seg(u, c, d);
-
-const q = (x: number, y: number, z: number) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z));
-// Hand orientations in gun space. The palm's normal is -Y and fingers point -Z in the hand's own frame.
-const POSE = {
-  grip: q(0.45, 0, -Math.PI / 2), // palm against the right of the pistol grip, fingers wrapping forward
-  handguard: q(0.1, 0, Math.PI), // palm up, cradling the forend
-  knob: q(-0.5, 0.3, -Math.PI / 2 - 0.3), // pinching the bolt knob from the right
-  magGrab: q(0.2, 0, Math.PI),
-};
+import { type GunAnim, type GunRig, type Kit, POSES, Plan, seg } from './weapon/rig.ts';
+import { WEAPONS, type WeaponId } from '../shared/weapons.ts';
 
 // Everything below lives in `view` space, which is scaled down as a whole (gun + arms together).
 const VIEW_SCALE = 0.85;
-/** @public Exported so the dev lab (dev/viewmodel.html) can tune the pose live. */
-export const GUN_POS = new THREE.Vector3(0.27, -0.2, -0.64);
-/** @public */
-export const GUN_ROT = new THREE.Euler(-0.05, -0.02, 0); // muzzle dipped a touch so the rifle lies flatter on screen
-const UNDER_MAG = new THREE.Vector3(0, -0.12, 0);
 const LEFT_OFFSCREEN = new THREE.Vector3(-0.3, -0.85, -0.5);
+const RIGHT_OFFSCREEN = new THREE.Vector3(0.7, -0.85, -0.3);
 
-type LeftTarget = 'handguard' | 'mag' | 'down';
-type Action = { kind: 'bolt' | 'reload' | 'draw' | 'stab'; t: number; dur: number; withBolt: boolean; cues: Set<string> };
+type Action = { kind: 'reload' | 'draw' | 'stab'; t: number; dur: number; empty: boolean; cues: Set<string> };
 
 interface Debris {
   obj: THREE.Object3D;
@@ -42,10 +23,15 @@ interface Debris {
   life: number;
 }
 
+interface Loaded {
+  rig: GunRig;
+  anim: GunAnim;
+}
+
 /**
- * First-person AWP + hands, drawn in its own scene/camera after the world so it never clips into walls.
- * All the motion (recoil, bolt cycle, reload, draw, sway, bob) is procedural keyframing, so it works
- * the same on the built-in rifle and on a downloaded GLB with separate bolt/mag parts.
+ * First-person gun + hands, drawn in its own scene/camera after the world so it never clips into walls.
+ * All the motion (recoil, each gun's own action, reload, draw, sway, bob, aiming) is procedural keyframing:
+ * the gun model is a few named pivots (weapon/guns.ts) and its animation also says where each hand goes.
  */
 export class ViewModel {
   readonly scene = new THREE.Scene();
@@ -55,21 +41,27 @@ export class ViewModel {
 
   private readonly view = new THREE.Group();
   private readonly rig = new THREE.Group(); // sway/bob/action offsets live here
-  private gun!: WeaponModel;
+  private readonly guns = new Map<WeaponId, Loaded>();
+  private gun!: Loaded;
+  private id: WeaponId = 'awp';
   private readonly right: Arm;
   private readonly left: Arm;
   private readonly muzzleFlash: THREE.Mesh;
-  private readonly handMag = new THREE.Group();
   private readonly knife = new THREE.Group();
   private knifeOut = false;
+  private readonly paint?: RiflePaint;
   private debris: Debris[] = [];
-  /** Bolt/reload timings for animations: stock AWP, or the Pack-a-Punched one (faster, with a mint glow). */
-  private stats: Pick<typeof WEAPON, 'boltDelay' | 'boltTime' | 'reloadTime'> = WEAPON;
   private readonly glow = new THREE.Group();
   private readonly glowMats = [MINT, GOLD, MINT].map((color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false }));
 
+  private readonly plan = new Plan();
   private action: Action | null = null;
-  private pendingBolt = -1; // seconds until a queued bolt cycle starts
+  private shotT = -1; // seconds since the last shot's own animation began; -1 when idle
+  private shotEmpty = false;
+  private shotCues = new Set<string>();
+  private readonly kit: Kit & { set: Set<string>; u: number };
+  private aim = 0;
+  private aimTarget = 0;
   private bobT = 0;
   private sway = new THREE.Vector2();
   private recoil = 0;
@@ -78,11 +70,12 @@ export class ViewModel {
 
   private readonly v = new THREE.Vector3();
   private readonly v2 = new THREE.Vector3();
-  private readonly v3 = new THREE.Vector3();
   private readonly qa = new THREE.Quaternion();
-  private readonly qb = new THREE.Quaternion();
 
-  constructor(color: number, gear: Gear = {}) {
+  constructor(
+    private color: number,
+    gear: Gear = {},
+  ) {
     this.scene.add(new THREE.HemisphereLight(0xcde8ff, 0x7c9a58, 1.6));
     const key = new THREE.DirectionalLight(0xffe3b3, 2.4);
     key.position.set(1, 2, 1);
@@ -92,56 +85,84 @@ export class ViewModel {
     this.view.add(this.rig);
 
     const rifleItem = itemById(gear.rifle ?? '');
-    const paint = rifleItem?.slot === 'rifle' ? rifleItem.paint : undefined;
-    this.setModel(buildProceduralAwp(color, paint));
+    this.paint = rifleItem?.slot === 'rifle' ? rifleItem.paint : undefined;
     const knifeItem = itemById(gear.knife ?? '');
     this.knife.add(buildKnife(knifeItem?.slot === 'knife' ? knifeItem.paint : DEFAULT_KNIFE));
     this.knife.visible = false;
     this.rig.add(this.knife);
-    // Swap in the real AWP if one has been dropped into public/models/ (a paint job means you want the built-in one).
-    void loadAwpGlb()
-      .then((m) => {
-        if (!m || paint) return;
-        this.setModel(m);
-        this.credit = m.credit ?? null;
-      })
-      .catch((e) => console.warn('[awp] GLB failed to load, keeping the built-in rifle', e));
 
     this.right = new Arm(this.view, color, new THREE.Vector3(0.62, -0.7, 0.02), 1);
     this.left = new Arm(this.view, color, new THREE.Vector3(-0.3, -0.85, -0.3), -1);
-    this.view.add(this.handMag);
 
     this.muzzleFlash = new THREE.Mesh(
       new THREE.SphereGeometry(0.05, 10, 8),
       new THREE.MeshBasicMaterial({ color: 0xfff1c4, transparent: true, opacity: 0, depthWrite: false }),
     );
     this.rig.add(this.muzzleFlash);
-    this.draw();
+
+    this.kit = {
+      set: new Set<string>(),
+      u: 0,
+      empty: false,
+      cue(u, at, name, fn) {
+        if (u >= at && !this.set.has(name)) {
+          this.set.add(name);
+          fn();
+        }
+      },
+      casing: () => this.ejectCasing(),
+      dropPart: (part, vel) => this.dropPart(part, vel),
+    };
+
+    // The AWP is the one gun with an optional downloaded model: swap it in when it arrives.
+    void loadAwpGlb()
+      .then((m) => {
+        if (!m || this.paint) return; // a paint job means you want the built-in rifle
+        this.guns.set('awp', { rig: m, anim: GUN_ANIMS.bolt });
+        this.credit = m.credit ?? null;
+        if (this.id === 'awp') this.equip('awp', this.up, false);
+      })
+      .catch((e) => console.warn('[awp] GLB failed to load, keeping the built-in rifle', e));
+    this.equip('awp', false, false);
   }
 
-  private setModel(m: WeaponModel) {
-    if (this.gun) this.rig.remove(this.gun.root);
-    this.gun = m;
-    m.root.visible = !this.knifeOut;
-    this.rig.add(m.root);
-    m.root.add(this.glow);
-    this.handMag.clear();
-    if (m.hasMag) this.handMag.add(m.magPivot.clone(true));
-    this.handMag.visible = false;
+  private up = false;
+
+  private load(id: WeaponId): Loaded {
+    let g = this.guns.get(id);
+    if (!g) {
+      const style = WEAPONS[id].style;
+      const rig = style === 'bolt' ? buildProceduralAwp(this.color, this.paint) : GUN_BUILDERS[style]!(this.color);
+      rig.root.traverse((o) => (o.castShadow = false));
+      g = { rig, anim: GUN_ANIMS[style] };
+      this.guns.set(id, g);
+    }
+    return g;
   }
 
-  /** Pack-a-Punch: faster animations, glowing rings along the barrel, a mint-tinted muzzle flash. */
-  setUpgraded(on: boolean) {
-    this.stats = weaponStats(on);
-    this.glow.visible = on;
-    (this.muzzleFlash.material as THREE.MeshBasicMaterial).color.set(on ? MINT : 0xfff1c4);
-    if (on && !this.glow.children.length) {
-      [-0.5, -0.66, -0.82].forEach((z, i) => {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.034 - i * 0.002, 0.005, 6, 20), this.glowMats[i]);
-        ring.position.set(0, 0.035, z);
+  /** Put this gun in the hands (with a draw animation unless `draw` is false). A punched gun glows along the barrel. */
+  equip(id: WeaponId, punched: boolean, draw = true) {
+    if (this.gun) this.rig.remove(this.gun.rig.root);
+    this.id = id;
+    this.up = punched;
+    this.gun = this.load(id);
+    this.setKnifeOut(false);
+    this.rig.add(this.gun.rig.root);
+    this.gun.rig.root.add(this.glow);
+    this.glow.visible = punched;
+    this.glow.clear();
+    if (punched) {
+      const m = this.gun.rig.anchors.muzzle;
+      [0.14, 0.2, 0.26].forEach((d, i) => {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.034 - i * 0.003, 0.005, 6, 20), this.glowMats[i]);
+        ring.position.set(0, m.y, m.z + d);
         this.glow.add(ring);
       });
     }
+    (this.muzzleFlash.material as THREE.MeshBasicMaterial).color.set(punched ? MINT : this.gun.anim.flash);
+    this.action = null;
+    this.shotT = -1;
+    if (draw) this.draw();
   }
 
   setAspect(a: number) {
@@ -152,57 +173,58 @@ export class ViewModel {
   // ---------------------------------------------------------------------------
   // Triggers from the game
 
-  /** cycle: there's another round in the mag, so work the bolt right after the recoil. */
-  fire(cycle: boolean) {
+  /** A shot went off. `empty`: it was the last round (a pistol's slide stays back). */
+  fire(empty: boolean) {
     this.recoil = 1;
     this.flash = 1;
-    this.action = null;
-    this.pendingBolt = cycle ? this.stats.boltDelay : -1;
+    this.shotT = 0;
+    this.shotEmpty = empty;
+    this.shotCues.clear();
+    if (this.action?.kind === 'draw') this.action = null;
   }
 
-  /** Mag swap; withBolt when the chamber is empty (last round fired), adding a bolt cycle at the end. */
-  reload(withBolt: boolean) {
-    this.pendingBolt = -1;
-    this.start('reload', this.stats.reloadTime + (withBolt ? this.stats.boltTime : 0), withBolt);
+  /** `dur` seconds of reload; `empty` when the chamber was empty too. */
+  reload(dur: number, empty: boolean) {
+    this.shotT = -1;
+    this.start('reload', dur, empty);
   }
 
   draw() {
-    this.pendingBolt = -1;
-    this.start('draw', 0.4);
+    this.shotT = -1;
+    this.start('draw', 0.4, false);
   }
 
-  /** Switch between the rifle (false) and the knife (true), with a draw animation. */
+  /** Switch between the gun (false) and the knife (true), with a draw animation. */
   holdKnife(on: boolean) {
     if (on === this.knifeOut) return;
+    this.setKnifeOut(on);
+    this.shotT = -1;
+    this.start('draw', 0.35, false);
+  }
+
+  private setKnifeOut(on: boolean) {
     this.knifeOut = on;
     this.knife.visible = on;
-    this.gun.root.visible = !on;
-    this.handMag.visible = false;
-    this.pendingBolt = -1;
-    this.start('draw', 0.35);
+    this.gun.rig.root.visible = !on;
+    this.muzzleFlash.visible = !on;
   }
 
   /** A stab/slash: lunge across the screen. */
   stab() {
-    this.start('stab', 0.32);
+    this.start('stab', 0.32, false);
+  }
+
+  /** Hold to aim down the sights. */
+  setAim(on: boolean) {
+    this.aimTarget = on ? 1 : 0;
   }
 
   land(impact: number) {
     this.dip = Math.min(1, this.dip + impact);
   }
 
-  private start(kind: Action['kind'], dur: number, withBolt = false) {
-    this.action = { kind, t: 0, dur, withBolt, cues: new Set() };
-    this.gun.magPivot.visible = true;
-    this.handMag.visible = false;
-  }
-
-  /** Runs fn once when an action's timeline passes `at` (sounds, debris). */
-  private cue(a: Action, u: number, at: number, name: string, fn: () => void) {
-    if (u >= at && !a.cues.has(name)) {
-      a.cues.add(name);
-      fn();
-    }
+  private start(kind: Action['kind'], dur: number, empty: boolean) {
+    this.action = { kind, t: 0, dur, empty, cues: new Set() };
   }
 
   // ---------------------------------------------------------------------------
@@ -210,22 +232,23 @@ export class ViewModel {
 
   /** speed: horizontal m/s, grounded: for walk bob, look: mouse delta this frame (radians). */
   update(dt: number, speed: number, grounded: boolean, lookX: number, lookY: number, roll: number) {
-    if (this.pendingBolt >= 0) {
-      this.pendingBolt -= dt;
-      if (this.pendingBolt < 0) this.start('bolt', this.stats.boltTime);
-    }
+    if (this.knifeOut) return this.updateKnife(dt, speed, grounded, lookX, lookY, roll);
+    const { rig: g, anim } = this.gun;
     const a = this.action;
     if (a) {
       a.t += dt;
-      if (a.t >= a.dur) {
-        this.action = null;
-        this.gun.magPivot.visible = true;
-        this.handMag.visible = false;
-      }
+      if (a.t >= a.dur) this.action = null;
     }
+    if (this.shotT >= 0) {
+      this.shotT += dt;
+      const end = anim.cycle ? anim.cycle.delay + anim.cycle.dur : 0.25;
+      if (this.shotT > end) this.shotT = -1;
+    }
+    this.aim += (this.aimTarget - this.aim) * Math.min(1, dt * 14);
 
     if (grounded) this.bobT += dt * Math.min(speed, 12) * 1.1;
-    const bobAmt = grounded ? Math.min(speed / 7, 1) : 0;
+    const calm = 1 - this.aim * 0.85; // aiming steadies the gun
+    const bobAmt = grounded ? Math.min(speed / 7, 1) * calm : 0;
     this.sway.x += (-lookX * 0.6 - this.sway.x) * Math.min(1, dt * 10);
     this.sway.y += (lookY * 0.6 - this.sway.y) * Math.min(1, dt * 10);
     if (this.glow.visible) for (const [i, m] of this.glowMats.entries()) m.opacity = 0.55 + 0.4 * Math.sin(performance.now() / 180 - i * 1.2);
@@ -233,64 +256,75 @@ export class ViewModel {
     this.dip = Math.max(0, this.dip - dt * 4);
     this.flash = Math.max(0, this.flash - dt * 16);
 
-    // Base pose + idle breathing + bob + sway + recoil.
+    // Base pose (hip or sights) + idle breathing + bob + sway + recoil.
     const t = performance.now() / 1000;
     const kick = this.recoil * this.recoil;
+    const hipP = anim.hip.pos;
+    const adsP = anim.ads.pos;
+    const k = anim.kick;
     this.rig.position.set(
-      GUN_POS.x + Math.sin(this.bobT) * 0.01 * bobAmt + this.sway.x * 0.04,
-      GUN_POS.y - Math.abs(Math.cos(this.bobT)) * 0.01 * bobAmt + this.sway.y * 0.04 - this.dip * 0.05 + Math.sin(t * 1.6) * 0.002,
-      GUN_POS.z + kick * 0.07,
+      hipP.x + (adsP.x - hipP.x) * this.aim + Math.sin(this.bobT) * 0.01 * bobAmt + this.sway.x * 0.04 * calm,
+      hipP.y + (adsP.y - hipP.y) * this.aim - Math.abs(Math.cos(this.bobT)) * 0.01 * bobAmt + this.sway.y * 0.04 * calm - this.dip * 0.05 + Math.sin(t * 1.6) * 0.002 * calm,
+      hipP.z + (adsP.z - hipP.z) * this.aim + kick * k.back,
     );
     this.rig.rotation.set(
-      GUN_ROT.x + kick * 0.16 + this.sway.y * 0.25,
-      GUN_ROT.y + this.sway.x * 0.35,
-      GUN_ROT.z + roll * 1.5 + this.sway.x * 0.15,
+      anim.hip.rot.x + (anim.ads.rot.x - anim.hip.rot.x) * this.aim + kick * k.flip * (1 - this.aim * 0.4) + this.sway.y * 0.25 * calm,
+      anim.hip.rot.y + (anim.ads.rot.y - anim.hip.rot.y) * this.aim + this.sway.x * 0.35 * calm,
+      anim.hip.rot.z + roll * 1.5 * calm + this.sway.x * 0.15 * calm,
     );
 
-    if (this.knifeOut) {
-      this.poseKnife(a);
-      this.muzzleFlash.visible = false;
-      this.updateDebris(dt);
-      return;
-    }
-    this.muzzleFlash.visible = true;
-
-    // Bolt + mag at rest, then the active action overrides.
-    const g = this.gun;
-    g.boltPivot.rotation.z = 0;
-    g.boltPivot.position.z = 0.03;
-    g.magPivot.position.copy(g.anchors.magWell);
-
-    let rightW = 0; // 0 = on the grip, 1 = on the bolt knob
-    let left: [LeftTarget, number] = ['handguard', 0];
-    if (a?.kind === 'bolt') rightW = this.animateBolt(a, a.t / a.dur);
-    else if (a?.kind === 'reload') {
-      const magDur = a.dur - (a.withBolt ? this.stats.boltTime : 0);
-      if (a.t < magDur) left = this.animateReload(a, a.t / magDur);
-      else rightW = this.animateBolt(a, (a.t - magDur) / this.stats.boltTime);
+    // The gun's own motion.
+    const p = this.plan;
+    p.reset();
+    anim.rest(g);
+    const kit = this.kit;
+    if (a?.kind === 'reload') {
+      kit.set = a.cues;
+      kit.empty = a.empty;
+      anim.reload(g, a.t / a.dur, p, kit);
     } else if (a?.kind === 'draw') {
-      const k = 1 - seg(a.t / a.dur, 0, 1);
-      this.rig.position.y -= k * 0.28;
-      this.rig.rotation.x -= k * 0.7;
-      this.rig.rotation.z += k * 0.3;
+      const d = 1 - seg(a.t / a.dur, 0, 1);
+      this.rig.position.y -= d * 0.28;
+      this.rig.rotation.x -= d * 0.7;
+      this.rig.rotation.z += d * 0.3;
+    } else if (this.shotT >= 0) {
+      kit.set = this.shotCues;
+      kit.empty = this.shotEmpty;
+      anim.fire(g, this.shotT, p, kit);
     }
+    this.rig.position.add(p.pos);
+    this.rig.rotation.x += p.rot.x;
+    this.rig.rotation.y += p.rot.y;
+    this.rig.rotation.z += p.rot.z;
 
     this.rig.updateMatrixWorld(true);
-    this.poseRightHand(rightW);
-    this.poseLeftHand(left[0], left[1]);
+    this.poseHands(g, p);
 
     this.muzzleFlash.position.copy(g.anchors.muzzle);
     (this.muzzleFlash.material as THREE.MeshBasicMaterial).opacity = this.flash;
-    this.muzzleFlash.scale.setScalar(0.5 + this.flash * 1.8);
+    this.muzzleFlash.scale.setScalar(0.5 + this.flash * (WEAPONS[this.id].pellets > 1 ? 2.8 : 1.8));
 
     this.updateDebris(dt);
   }
 
   /** Knife pose: held out in the right hand, blade forward and tilted in; the left hand stays out of view. */
-  private poseKnife(a: Action | null) {
-    this.rig.position.add(this.v.set(-0.04, 0.1, 0.14));
-    this.rig.rotation.x += 0.5;
-    this.rig.rotation.y += 0.35;
+  private updateKnife(dt: number, speed: number, grounded: boolean, lookX: number, lookY: number, roll: number) {
+    const a = this.action;
+    if (a) {
+      a.t += dt;
+      if (a.t >= a.dur) this.action = null;
+    }
+    if (grounded) this.bobT += dt * Math.min(speed, 12) * 1.1;
+    const bobAmt = grounded ? Math.min(speed / 7, 1) : 0;
+    this.sway.x += (-lookX * 0.6 - this.sway.x) * Math.min(1, dt * 10);
+    this.sway.y += (lookY * 0.6 - this.sway.y) * Math.min(1, dt * 10);
+    this.dip = Math.max(0, this.dip - dt * 4);
+    this.rig.position.set(
+      0.23 + Math.sin(this.bobT) * 0.01 * bobAmt + this.sway.x * 0.04,
+      -0.1 - Math.abs(Math.cos(this.bobT)) * 0.01 * bobAmt + this.sway.y * 0.04 - this.dip * 0.05 + Math.sin(performance.now() / 625) * 0.002,
+      -0.5,
+    );
+    this.rig.rotation.set(0.45 + this.sway.y * 0.25, 0.33 + this.sway.x * 0.35, roll * 1.5 + this.sway.x * 0.15);
     if (a?.kind === 'draw') {
       const k = 1 - seg(a.t / a.dur, 0, 1);
       this.rig.position.y -= k * 0.3;
@@ -298,139 +332,73 @@ export class ViewModel {
     } else if (a?.kind === 'stab') {
       // Wind back and up, sweep across to the left with a lunge, then recover.
       const u = a.t / a.dur;
-      const wind = hold(u, 0, 0.25, 0.25, 0.3);
-      const swing = hold(u, 0.25, 0.5, 0.55, 1);
+      const wind = seg(u, 0, 0.25) - seg(u, 0.25, 0.3);
+      const swing = seg(u, 0.25, 0.5) - seg(u, 0.55, 1);
       this.rig.position.x += wind * 0.12 - swing * 0.34;
       this.rig.position.z -= swing * 0.22;
       this.rig.rotation.y += wind * 0.5 - swing * 1.5;
       this.rig.rotation.z += wind * 0.6 - swing * 0.9;
-      this.cue(a, u, 0.25, 'whoosh', () => sfx.knife());
+      if (u >= 0.25 && !a.cues.has('whoosh')) {
+        a.cues.add('whoosh');
+        sfx.knife();
+      }
     }
     this.rig.updateMatrixWorld(true);
-    const grip = this.view.worldToLocal(this.knife.getWorldPosition(this.v));
-    this.right.hand.position.copy(grip);
-    this.right.hand.quaternion.copy(this.rig.quaternion).multiply(POSE.grip);
+    this.right.hand.position.copy(this.view.worldToLocal(this.knife.getWorldPosition(this.v)));
+    this.right.hand.quaternion.copy(this.rig.quaternion).multiply(POSES.grip);
     this.right.curl(1);
     this.right.updateForearm();
     this.left.hand.position.copy(LEFT_OFFSCREEN);
-    this.left.hand.quaternion.copy(this.rig.quaternion).multiply(POSE.handguard);
+    this.left.hand.quaternion.copy(this.rig.quaternion).multiply(POSES.fore);
     this.left.updateForearm();
+    this.updateDebris(dt);
   }
 
-  /**
-   * The bolt cycle, kinda fast: hand to knob, lift, rip back (casing flies), slam forward, lock down, hand home.
-   * Returns how much the right hand is on the knob (0..1).
-   */
-  private animateBolt(a: Action, u: number): number {
-    const g = this.gun;
-    const lift = hold(u, 0.14, 0.26, 0.7, 0.8);
-    const back = hold(u, 0.28, 0.42, 0.52, 0.66);
-    g.boltPivot.rotation.z = lift * 1.05; // handle swings up (knob on +X rises)
-    g.boltPivot.position.z = 0.03 + back * 0.09;
-    const tilt = hold(u, 0, 0.14, 0.82, 1);
-    this.rig.rotation.z += tilt * 0.2;
-    this.rig.rotation.x -= tilt * 0.05;
-    this.rig.position.x -= tilt * 0.015;
-    this.rig.position.z += back * 0.012; // the pull tugs the rifle back a touch
-    this.cue(a, u, 0.18, 'up', () => sfx.boltUp());
-    this.cue(a, u, 0.36, 'back', () => {
-      sfx.boltBack();
-      this.ejectCasing();
-    });
-    this.cue(a, u, 0.6, 'fwd', () => sfx.boltForward());
-    return hold(u, 0, 0.13, 0.84, 1);
-  }
-
-  /** Mag out, hand down for a fresh one, seat it, slap. Returns the left hand's target and blend. */
-  private animateReload(a: Action, u: number): [LeftTarget, number] {
-    const g = this.gun;
-    const tilt = hold(u, 0, 0.12, 0.8, 0.95);
-    this.rig.rotation.z -= tilt * 0.38;
-    this.rig.rotation.x += tilt * 0.2;
-    this.rig.position.y += tilt * 0.035;
-    this.rig.position.x -= tilt * 0.035;
-
-    if (g.hasMag) {
-      g.magPivot.visible = u < 0.16 || u >= 0.5;
-      // The new mag sits 10 cm below the well while the hand brings it up, then slides in; the hand follows it.
-      if (u >= 0.32) g.magPivot.position.y -= (1 - seg(u, 0.5, 0.64)) * 0.1;
-      this.cue(a, u, 0.16, 'drop', () => {
-        sfx.magOut();
-        this.dropMag();
-      });
-      this.handMag.visible = u >= 0.32 && u < 0.5;
-    }
-    this.cue(a, u, 0.64, 'in', () => sfx.magIn());
-    this.rig.position.y += hold(u, 0.64, 0.67, 0.67, 0.74) * 0.012; // slap
-
-    // Left hand route: forend -> mag -> down out of view -> back up with the new mag -> push it in -> forend.
-    // Every hand-off is continuous ('down' at w=0 is the same spot as 'mag' at w=1), so the hand never snaps or stalls.
-    if (u < 0.16) return ['mag', seg(u, 0.02, 0.14)];
-    if (u < 0.32) return ['down', seg(u, 0.16, 0.28)];
-    if (u < 0.5) return ['down', 1 - seg(u, 0.32, 0.5)];
-    if (u < 0.72) return ['mag', 1];
-    return ['mag', 1 - seg(u, 0.72, 0.88)];
-  }
-
-  private poseRightHand(w: number) {
-    const g = this.gun;
-    const grip = this.gunToView(this.v.copy(g.anchors.grip));
-    g.boltKnob.updateWorldMatrix(true, false);
-    const knob = this.view.worldToLocal(g.boltKnob.getWorldPosition(this.v2)).add(this.v3.set(0.012, 0.004, 0.012).applyQuaternion(this.rig.quaternion));
-    this.right.hand.position.copy(grip).lerp(knob, w);
-    this.qa.copy(this.rig.quaternion).multiply(POSE.grip);
-    this.qb.copy(this.rig.quaternion).multiply(POSE.knob);
-    this.right.hand.quaternion.copy(this.qa).slerp(this.qb, w);
-    this.right.curl(0.95 - w * 0.25);
-    this.right.updateForearm();
-  }
-
-  private poseLeftHand(target: LeftTarget, w: number) {
-    const g = this.gun;
-    const underMag = this.gunToView(this.v2.copy(g.magPivot.position).add(UNDER_MAG));
-    if (target === 'down') {
-      this.left.hand.position.copy(underMag).lerp(LEFT_OFFSCREEN, w);
-    } else {
-      const forend = this.gunToView(this.v.copy(g.anchors.handguard));
-      this.left.hand.position.copy(forend).lerp(underMag, w);
-    }
-    this.qa.copy(this.rig.quaternion).multiply(POSE.handguard);
-    this.qb.copy(this.rig.quaternion).multiply(POSE.magGrab);
-    this.left.hand.quaternion.copy(this.qa).slerp(this.qb, target === 'down' ? 1 : w);
-    this.left.curl(target === 'down' ? 0.75 : 0.55 + Math.min(1, w) * 0.2); // gripping the mag from the moment it's grabbed
-    this.left.updateForearm();
-
-    // The fresh mag rides in the left hand until it's seated.
-    if (this.handMag.visible) {
-      this.handMag.position.copy(this.left.hand.position).add(this.v3.set(0, 0.07, 0).applyQuaternion(this.rig.quaternion));
-      this.handMag.quaternion.copy(this.rig.quaternion);
+  private poseHands(g: GunRig, p: Plan) {
+    const place = (arm: Arm, useP: boolean, pos: THREE.Vector3, rest: THREE.Vector3, pose: keyof typeof POSES, curl: number, off: number, away: THREE.Vector3) => {
+      this.gunToView(this.v.copy(useP ? pos : rest));
+      if (off > 0) this.v.lerp(away, off);
+      arm.hand.position.copy(this.v);
+      this.qa.copy(this.rig.quaternion).multiply(POSES[pose]);
+      arm.hand.quaternion.copy(this.qa);
+      arm.curl(curl);
+      arm.updateForearm();
+    };
+    place(this.right, p.useR, p.r, g.anchors.grip, p.rPose, p.rCurl, p.rOff, RIGHT_OFFSCREEN);
+    place(this.left, p.useL, p.l, g.anchors.fore, p.lPose, p.lCurl, p.lOff, LEFT_OFFSCREEN);
+    // A fresh magazine or shell rides in the left hand.
+    if (p.carry) {
+      this.rig.updateMatrixWorld(true);
+      g.root.worldToLocal(this.left.hand.getWorldPosition(this.v2));
+      p.carry.position.copy(this.v2).add(p.carryOff);
     }
   }
 
   /** Gun-space point -> view space (where the hands and debris live). */
   private gunToView(p: THREE.Vector3) {
-    return this.view.worldToLocal(this.gun.root.localToWorld(p));
+    return this.view.worldToLocal(this.gun.rig.root.localToWorld(p));
   }
 
   // ---------------------------------------------------------------------------
   // Debris: spent casings and dropped mags (viewmodel space, purely cosmetic)
 
   private ejectCasing() {
-    const g = this.gun;
+    const g = this.gun.rig;
+    const big = WEAPONS[this.id].pellets > 1;
     const casing = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.006, 0.006, 0.05, 8).rotateX(Math.PI / 2),
-      new THREE.MeshToonMaterial({ color: 0xd9a84e }),
+      new THREE.CylinderGeometry(big ? 0.01 : 0.006, big ? 0.01 : 0.006, big ? 0.045 : 0.05, 8).rotateX(Math.PI / 2),
+      new THREE.MeshToonMaterial({ color: big ? 0xc23b32 : 0xd9a84e }),
     );
-    this.gunToView(casing.position.copy(g.anchors.ejectPort));
+    this.gunToView(casing.position.copy(g.anchors.eject));
     this.spawnDebris(casing, new THREE.Vector3(0.9 + Math.random() * 0.3, 0.9, 0.15));
   }
 
-  private dropMag() {
-    const g = this.gun;
-    const mag = g.magPivot.clone(true);
-    this.view.worldToLocal(g.magPivot.getWorldPosition(mag.position));
-    mag.quaternion.copy(this.rig.quaternion);
-    this.spawnDebris(mag, new THREE.Vector3(-0.05, -0.5, 0.05), 0.4);
+  private dropPart(part: THREE.Object3D, vel: THREE.Vector3) {
+    const clone = part.clone(true);
+    clone.visible = true;
+    this.view.worldToLocal(part.getWorldPosition(clone.position));
+    clone.quaternion.copy(this.rig.quaternion);
+    this.spawnDebris(clone, vel.clone(), 0.4);
   }
 
   private spawnDebris(obj: THREE.Object3D, vel: THREE.Vector3, spinScale = 1) {

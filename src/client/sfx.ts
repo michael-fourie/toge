@@ -81,10 +81,6 @@ export const sfx = {
     wind.gain.gain.setTargetAtTime(k * k * 0.45, t, 0.12);
     wind.filter.frequency.setTargetAtTime(350 + k * 1700, t, 0.12);
   },
-  shoot() {
-    burst(0.35, 1.0, 2400);
-    tone('square', 140, 40, 0.25, 0.5);
-  },
   distantShot(distance: number) {
     const v = Math.max(0.05, 0.5 - distance / 300);
     burst(0.4, v, 900);
@@ -166,6 +162,64 @@ export const sfx = {
     tone('square', 320, 260, 0.06, 0.12);
   },
   dryFire: () => tone('square', 2200, 2000, 0.02, 0.08),
+
+  /** A shot, in each gun's own voice (punched ones ring a little at the end). */
+  gun(style: string, punched = false) {
+    const v = { pistol: [0.22, 3200, 220, 0.3], revolver: [0.4, 1500, 90, 0.55], smg: [0.12, 4200, 260, 0.28], rifle: [0.2, 2600, 150, 0.4], pump: [0.45, 1300, 70, 0.7], lever: [0.3, 2000, 110, 0.5], lmg: [0.2, 1800, 100, 0.5], bolt: [0.35, 2400, 140, 0.5], ray: [0.3, 0, 0, 0] }[style] ?? [0.3, 2400, 140, 0.5];
+    if (style === 'ray') {
+      tone('sawtooth', 1400, 260, 0.35, 0.22);
+      tone('sine', 700, 1900, 0.25, 0.2, 0.02);
+      tone('triangle', 2600, 600, 0.3, 0.1);
+    } else {
+      burst(v[0], 0.9, v[1]);
+      tone('square', v[2], 40, v[0] * 0.8, v[3]);
+    }
+    if (punched) tone('sine', 1760, 2200, 0.25, 0.08, 0.03);
+  },
+  /** Another player's gun heard from afar: quieter and duller with distance, and the sound of its type. */
+  distantGun(style: string, distance: number) {
+    const v = Math.max(0.05, 0.5 - distance / 300);
+    if (style === 'ray') tone('sawtooth', 900, 300, 0.25, v * 0.4);
+    else burst(style === 'pump' || style === 'revolver' ? 0.5 : 0.25, v, style === 'smg' || style === 'pistol' ? 1500 : 800);
+  },
+  pump() {
+    burst(0.07, 0.25, 2800, 1.5, 'highpass');
+    tone('square', 500, 300, 0.06, 0.1);
+    tone('square', 800, 1100, 0.06, 0.1, 0.16);
+  },
+  shell: () => tone('triangle', 1100, 700, 0.05, 0.1),
+  lever() {
+    tone('square', 600, 380, 0.05, 0.09);
+    burst(0.05, 0.2, 3000, 1.2, 'highpass');
+    tone('square', 420, 680, 0.05, 0.09, 0.2);
+  },
+  cover: () => {
+    burst(0.1, 0.3, 1200, 1, 'bandpass');
+    tone('square', 240, 160, 0.08, 0.14);
+  },
+  cell() {
+    tone('sine', 500, 1500, 0.2, 0.14);
+    tone('triangle', 1500, 700, 0.12, 0.08, 0.1);
+  },
+  cash: () => [988, 1319].forEach((f, i) => tone('square', f, f, 0.09, 0.1, i * 0.07)),
+  /** Hammering a board back on. */
+  nail() {
+    burst(0.05, 0.4, 1800, 1.5, 'bandpass');
+    tone('square', 260, 180, 0.05, 0.12);
+  },
+  /** A zombie ripping a board off: splintering wood. */
+  plank() {
+    burst(0.22, 0.5, 700, 0.6, 'lowpass');
+    tone('sawtooth', 160, 70, 0.18, 0.18);
+  },
+  door() {
+    burst(0.5, 0.5, 300, 0.8);
+    tone('sawtooth', 70, 40, 0.5, 0.3);
+    tone('square', 180, 120, 0.1, 0.15, 0.3);
+  },
+  /** The Mystery Box music: a little ascending jingle per cycle. */
+  boxTick: (i: number) => tone('triangle', [392, 440, 523, 587, 659][i % 5], [392, 440, 523, 587, 659][i % 5], 0.12, 0.1),
+  plush: () => [392, 349, 330, 262].forEach((f, i) => tone('triangle', f, f * 0.97, 0.3, 0.16, i * 0.2)),
 
   // Achievements: a rising pentatonic sparkle, one note per stacked feat, plus a top note for a legendary one.
   feats(count: number, best: number) {

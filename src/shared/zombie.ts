@@ -28,11 +28,29 @@ export interface Zombie {
   /** > 0 while walking sideways around a wall, on side `detourSide` (±1). */
   detour: number;
   detourSide: number;
+  /** Survival: the window this zombie is breaking in through (-1 once it is inside). */
+  gate: number;
+  /** Seconds spent ripping at the current board. */
+  tear: number;
 }
 
 export interface ZombieTarget {
   id: number;
   pos: Vec3;
+}
+
+/** Where a zombie is headed this step. `claw` = may swipe at players; `hold` = stand and wait there (tearing a board). */
+export interface Aim {
+  pos: Vec3;
+  claw: boolean;
+  hold: boolean;
+}
+
+/** Optional route-finding: the Survival map plugs its rooms-and-doorways graph and window sieges in here. */
+export interface Brain {
+  /** How far a zombie at `from` is from a target at `to` for ranking who to chase. */
+  cost(from: Vec3, to: Vec3): number;
+  steer(z: Zombie, target: ZombieTarget | null): Aim | null;
 }
 
 /** A swipe that connected. */
@@ -51,7 +69,7 @@ export function zombieStats(round: number) {
   };
 }
 
-export function createZombie(id: number, pos: Vec3, round: number): Zombie {
+export function createZombie(id: number, pos: Vec3, round: number, gate = -1): Zombie {
   return {
     id,
     pos: { ...pos },
@@ -67,11 +85,13 @@ export function createZombie(id: number, pos: Vec3, round: number): Zombie {
     stuck: 0,
     detour: 0,
     detourSide: id % 2 ? 1 : -1,
+    gate,
+    tear: 0,
   };
 }
 
 /** Steps every zombie (shoving them apart so they don't stack into one blob). Returns swipes that hit. */
-export function stepHorde(zombies: readonly Zombie[], targets: readonly ZombieTarget[], dt: number, boxes: readonly Box[]): Claw[] {
+export function stepHorde(zombies: readonly Zombie[], targets: readonly ZombieTarget[], dt: number, boxes: readonly Box[], brain?: Brain): Claw[] {
   const claws: Claw[] = [];
   const r = ZOMBIE.separation;
   for (const z of zombies) {
@@ -87,7 +107,7 @@ export function stepHorde(zombies: readonly Zombie[], targets: readonly ZombieTa
       push.x += (dx / d) * k;
       push.z += (dz / d) * k;
     }
-    const hit = stepZombie(z, targets, push, dt, boxes);
+    const hit = stepZombie(z, targets, push, dt, boxes, brain);
     if (hit >= 0) claws.push({ zombie: z, target: hit });
   }
   return claws;
@@ -97,12 +117,12 @@ const push = v3();
 const contacts = newContacts();
 const LOOK_AHEAD = 1; // metres ahead to check for a drop
 
-function nearest(z: Zombie, targets: readonly ZombieTarget[]): ZombieTarget | null {
+function nearest(z: Zombie, targets: readonly ZombieTarget[], brain?: Brain): ZombieTarget | null {
   let best: ZombieTarget | null = null;
   let bestCost = Infinity;
   for (const t of targets) {
     // Height is costly to close, so prefer someone on our level.
-    const cost = Math.hypot(t.pos.x - z.pos.x, t.pos.z - z.pos.z) + Math.abs(t.pos.y - z.pos.y) * 1.5;
+    const cost = brain ? brain.cost(z.pos, t.pos) : Math.hypot(t.pos.x - z.pos.x, t.pos.z - z.pos.z) + Math.abs(t.pos.y - z.pos.y) * 1.5;
     if (cost < bestCost) {
       bestCost = cost;
       best = t;
@@ -136,7 +156,7 @@ function alongEdge(z: Zombie, ux: number, uz: number, boxes: readonly Box[]): [n
 }
 
 /** One AI + physics step. Returns the id of the player clawed this step, or -1. */
-function stepZombie(z: Zombie, targets: readonly ZombieTarget[], shove: Vec3, dt: number, boxes: readonly Box[]): number {
+function stepZombie(z: Zombie, targets: readonly ZombieTarget[], shove: Vec3, dt: number, boxes: readonly Box[], brain?: Brain): number {
   z.clawCooldown = Math.max(0, z.clawCooldown - dt);
   z.leapCooldown = Math.max(0, z.leapCooldown - dt);
   z.detour = Math.max(0, z.detour - dt);
@@ -144,19 +164,25 @@ function stepZombie(z: Zombie, targets: readonly ZombieTarget[], shove: Vec3, dt
   let wantX = 0;
   let wantZ = 0;
 
-  const t = nearest(z, targets);
-  if (t) {
-    const dx = t.pos.x - z.pos.x;
-    const dz = t.pos.z - z.pos.z;
-    const dy = t.pos.y - z.pos.y;
+  const t = nearest(z, targets, brain);
+  const aim: Aim | null = brain ? brain.steer(z, t) : t && { pos: t.pos, claw: true, hold: false };
+  if (aim) {
+    const dx = aim.pos.x - z.pos.x;
+    const dz = aim.pos.z - z.pos.z;
+    const dy = aim.pos.y - z.pos.y;
     const dist = Math.hypot(dx, dz);
+    // How far the player we might claw really is (the aim can be a doorway on the way to them).
+    const rx = t && aim.claw ? t.pos.x - z.pos.x : Infinity;
+    const rz = t && aim.claw ? t.pos.z - z.pos.z : Infinity;
+    const rdist = Math.hypot(rx, rz);
+    const rdy = t ? t.pos.y - z.pos.y : 0;
     if (dist > 0.01 && z.crouch <= 0) z.yaw = Math.atan2(-dx, -dz);
     if (z.claw > 0) {
       z.claw -= dt;
       if (z.claw <= 0) {
         z.claw = 0;
         z.clawCooldown = ZOMBIE.clawCooldown;
-        if (dist < ZOMBIE.clawHitRange && Math.abs(dy) < 1.8) hit = t.id;
+        if (t && rdist < ZOMBIE.clawHitRange && Math.abs(rdy) < 1.8) hit = t.id;
       }
     } else if (z.crouch > 0) {
       z.crouch -= dt;
@@ -167,8 +193,8 @@ function stepZombie(z: Zombie, targets: readonly ZombieTarget[], shove: Vec3, dt
         z.leapCooldown = ZOMBIE.leapCooldown;
         z.stuck = 0;
       }
-    } else if (z.onGround && dist > 0.01) {
-      const inReach = dist < ZOMBIE.clawRange && Math.abs(dy) < 1.6;
+    } else if (z.onGround && dist > 0.01 && !aim.hold) {
+      const inReach = rdist < ZOMBIE.clawRange && Math.abs(rdy) < 1.6;
       const ux = dx / dist;
       const uz = dz / dist;
       if (inReach) {
@@ -182,7 +208,7 @@ function stepZombie(z: Zombie, targets: readonly ZombieTarget[], shove: Vec3, dt
           if (groundAhead(z.pos, -ux, -uz, boxes)) [wantX, wantZ] = [-ux, -uz];
         } else if (canLeap && (above || ledge || z.stuck > ZOMBIE.stuckLeap)) {
           z.crouch = ZOMBIE.leapWindup;
-          copy(z.leapTo, t.pos);
+          copy(z.leapTo, aim.pos);
         } else if (z.detour > 0) {
           // Around the wall: perpendicular to the chase, flipping sides if that way is a drop.
           let [px, pz] = [-uz * z.detourSide, ux * z.detourSide];

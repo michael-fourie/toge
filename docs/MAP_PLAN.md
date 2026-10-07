@@ -65,11 +65,9 @@ Kill floor: y −40 (the cloud sea).
 
 Fix: surf (and slide) ramps sometimes rendered inside-out. The ramp mesh wound each triangle "away from the centre" of its bounding box, but for a wedge that point lies exactly on the slope, so the slope's winding was a coin toss and its faces got culled (you saw the brown inner faces). It now uses the wedge's centroid.
 
-## Survival spawns
+## Survival
 
-Survival reuses Windward. Players start (and are revived) back to back around the Great Tree at (±9, ±9), facing out. Zombies climb up at ground level on the island's rim and on the ruins terraces (`zombieSpawns`, mirrored), preferring spots at least 12 m from every player. Zombies chase in a straight line: they hop roots and crates, detour sideways along walls, feel along edges, and pounce (a `launchTo` arc) onto ledges, branches and across gaps within 15 m. They ride launch pads but ignore wind gates and puffballs. `zombie.test.ts` checks that a zombie from every spawn reaches both player spawns.
-
-The Pack-a-Punch machine (`MAP.punchMachine`) stands on the centre island at (-12, 0, 0): west of the trunk, clear of the root ridges and walls, about 10 m from the first spawn. It is visual only (no collision); the server checks that you are within 2.5 m when you press F. Players from the far spawn walk around the trunk. `punch.test.ts` checks the spot is clear floor and walkable from both spawns.
+Survival no longer uses Windward: it has its own night-time factory map, **the Foundry** (`docs/FOUNDRY.md`).
 
 ## Lessons from building it
 
@@ -83,16 +81,8 @@ The Pack-a-Punch machine (`MAP.punchMachine`) stands on the centre island at (-1
 
 ## Spawns
 
-Battle spawns are 29 spots spread over the whole map (both harbours, centre island, gorge, ruins, mills, undercliffs), found by farthest-point sampling over every spot you can stand on, and each faces the middle. There is no spawn zone to camp. `src/shared/spawn.ts` picks one at random among the good ones: at least 30 m from every living player, out of their line of sight (within 90 m), and not one of the last 8 used. If nothing qualifies it relaxes those rules in order and finally takes the farthest spot. Survival keeps its own back-to-back spawns around the tree. Tests: `tests/spawn.test.ts`.
+Battle spawns are 29 spots spread over the whole map (both harbours, centre island, gorge, ruins, mills, undercliffs), found by farthest-point sampling over every spot you can stand on, and each faces the middle. There is no spawn zone to camp. `src/shared/spawn.ts` picks one at random among the good ones: at least 30 m from every living player, out of their line of sight (within 90 m), and not one of the last 8 used. If nothing qualifies it relaxes those rules in order and finally takes the farthest spot. Tests: `tests/spawn.test.ts`.
 
 ## Grapple hooks
 
 Eight brass rings float over the map (3 per half over the lanes at y 11-13, 1 above the canopy per side at y 44, reached from the north branch). They are tiny solid `hook` boxes with a glowing marker drawn over foliage. The grapple (E) snaps to one if it is within about 8° of your aim, in line of sight and in rope range (40 m), so they work as shortcuts to the middle and a rescue if you fall. `map.test.ts` checks they are free-floating and reachable from a floor.
-
-## Juggernog station (Survival)
-
-A crimson cask with a floating glowing apple stands at (12, 0, 0) on the centre island, directly across the Great Tree from the Pack-a-Punch machine (-12, 0, 0), clear of the roots, the east launch pad and the wind gate. Press F within 2.5 m: 2500 points buys 250 maximum health (100 without), healing you to it; it lasts until the run restarts. `tests/jug.test.ts` checks it stands on clear floor, is walkable from every Survival spawn and that the server purchase rules hold.
-
-## Night (Survival)
-
-The same map, lit by a moon in Survival only (`buildWorld(map, renderer, night)`; Practice and Battle stay in daylight). Indigo sky with a pale moon and twinkling stars, cool moonlight with a lifted ambient so surfaces stay readable, dark blue clouds, fireflies instead of pollen, shorter fog. The glowing things (pads, wind gates, hooks, both stations) are unlit, so they read like lanterns. The palette is `NIGHT` in `src/client/night.ts`.
