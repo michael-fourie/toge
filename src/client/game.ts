@@ -19,6 +19,8 @@ import {
   round3,
 } from '../shared/protocol.ts';
 import { type ShotContext, SpinMeter, Streak, featsFor } from './achievements.ts';
+import { JACKETS, decodeSkin, encodeSkin } from '../shared/skin.ts';
+import { storedSkin } from './skinStore.ts';
 import { Avatar, Corpses } from './avatar.ts';
 import { Horde } from './horde.ts';
 import { Hud } from './hud.ts';
@@ -175,10 +177,12 @@ export class Game {
     if (joined) {
       for (const p of joined.players) this.players.set(p.id, p);
     } else {
-      this.players.set(0, { id: 0, name: opts.name, color: 0xe0614f, kills: 0, deaths: 0, alive: true });
+      const skin = storedSkin(); // practice honours your skin, jacket colour included
+      const color = skin?.jacket === undefined ? 0xe0614f : JACKETS[skin.jacket];
+      this.players.set(0, { id: 0, name: opts.name, color, kills: 0, deaths: 0, alive: true, skin: skin ? encodeSkin(skin) : undefined });
     }
     const self = this.players.get(this.selfId)!;
-    this.selfAvatar = new Avatar(self.color);
+    this.selfAvatar = new Avatar(self.color, self.name, false, decodeSkin(self.skin));
     this.vm = new ViewModel(self.color);
 
     const spawn = joined ? { pos: arr(joined.spawn.p), yaw: joined.spawn.yaw } : this.randomSpawn();
@@ -617,7 +621,7 @@ export class Game {
   // Remote players
 
   private addRemote(info: PlayerInfo, dummy?: Remote['dummy']) {
-    const avatar = new Avatar(info.color, info.name);
+    const avatar = new Avatar(info.color, info.name, false, decodeSkin(info.skin));
     avatar.root.visible = info.alive && !!dummy;
     this.world.scene.add(avatar.root);
     this.remotes.set(info.id, { info, avatar, buffer: [], pos: new THREE.Vector3(), yaw: 0, trail: new Trail(), dummy });

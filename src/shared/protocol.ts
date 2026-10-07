@@ -20,6 +20,8 @@ export interface PlayerInfo {
   kills: number;
   deaths: number;
   alive: boolean;
+  /** Chosen look, as an encoded skin (shared/skin.ts); absent = seeded from name + colour. */
+  skin?: string;
 }
 
 /** Per-player state inside a snapshot. Flags: 1 = on ground, 2 = wallrunning. */

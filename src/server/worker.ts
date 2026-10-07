@@ -51,6 +51,7 @@ export default {
 
       const name = url.searchParams.get('name') ?? '';
       const mode = url.searchParams.get('mode') ?? '';
+      const skin = (url.searchParams.get('skin') ?? '').slice(0, 24);
       const join = url.searchParams.get('code')?.toUpperCase();
       let room: DurableObjectStub<LobbyRoom>;
       let code: string;
@@ -63,7 +64,7 @@ export default {
         room = env.LOBBY.getByName(code, { locationHint: regionHint(req.cf) });
       }
       const target = new URL(req.url);
-      target.search = new URLSearchParams({ code, name, mode }).toString();
+      target.search = new URLSearchParams({ code, name, mode, skin }).toString();
       return room.fetch(new Request(target, req));
     }
     return new Response('Not found', { status: 404 });
