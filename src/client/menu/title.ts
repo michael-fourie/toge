@@ -43,11 +43,11 @@ export const title: Render = (root, ctx, screen) => {
         <nav class="top-tabs" aria-label="Sections">
           <button class="tab on" aria-current="page">Play</button>
           <button class="tab" data-go="inventory">Inventory</button>
-          <button class="tab" data-go="store">Store</button>
+          <button class="tab" data-go="casino">Casino</button>
           <button class="tab" data-go="help">How to play</button>
         </nav>
         <div class="top-right">
-          <button class="coin-pill" data-go="store" title="Coins: earn them by eliminating things, spend them on cases" aria-label="Coins">${coinText(stash.inv.coins)}</button>
+          <button class="coin-pill" data-go="casino" title="Coins: earn them by eliminating things, spend them on cases, Plinko and Blackjack" aria-label="Coins">${coinText(stash.inv.coins)}</button>
           ${accountBox()}
           <button class="gear-btn" data-go="settings" aria-label="Settings" title="Settings">⚙</button>
         </div>
@@ -89,7 +89,7 @@ export const title: Render = (root, ctx, screen) => {
   // Coins change when kills pay out or cases open; only the pill needs to move.
   const offStash = stash.onChange(() => {
     const pill = root.querySelector('.coin-pill');
-    if (pill) pill.textContent = coinText(stash.inv.coins);
+    if (pill) pill.innerHTML = coinText(stash.inv.coins);
   });
   return () => {
     offAcct();

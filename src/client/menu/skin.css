@@ -16,7 +16,7 @@
 }
 .skin-chip b {
   color: var(--ink);
-  font-weight: 900;
+  font-weight: 800;
 }
 .skin-chip:hover,
 .skin-chip:focus-visible {
@@ -90,7 +90,7 @@
   border: 2px solid var(--paper-edge);
   background: var(--c, #fffdf6);
   cursor: pointer;
-  font: 900 12px var(--body);
+  font: 800 12px var(--body);
   color: var(--ink-soft);
   padding: 0;
 }

@@ -663,6 +663,7 @@ export class Avatar {
 
     // Keep the rifle and gaze on target whatever the body is doing.
     this.aim.rotation.x = pitch - tilt;
+    this.knife.rotation.x = Math.PI / 2 - this.aim.rotation.x; // blade straight up whatever the pitch
     this.head.rotation.x = (pitch - tilt) * 0.6;
     this.head.rotation.z = Math.sin(time * 1.3 + this.nextBlink) * 0.04 - wallSide * 0.1;
 
@@ -744,7 +745,7 @@ function makeNameTag(name: string, color: number): THREE.Sprite {
   c.width = 256;
   c.height = 64;
   const g = c.getContext('2d')!;
-  g.font = 'bold 34px Roboto, system-ui, sans-serif';
+  g.font = '800 34px Manrope, system-ui, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.lineWidth = 7;

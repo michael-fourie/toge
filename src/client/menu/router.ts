@@ -4,7 +4,7 @@
 import type { GameMode, ServerMsg } from '../../shared/protocol.ts';
 import type { Net } from '../net.ts';
 
-export type ScreenName = 'title' | 'host' | 'join' | 'lobby' | 'help' | 'settings' | 'account' | 'store' | 'inventory' | 'game';
+export type ScreenName = 'title' | 'host' | 'join' | 'lobby' | 'help' | 'settings' | 'account' | 'casino' | 'inventory' | 'game';
 
 export interface Screen {
   name: ScreenName;
@@ -12,6 +12,7 @@ export interface Screen {
   code?: string; // join: prefilled lobby code
   mode?: GameMode; // host: which game type starts selected
   tab?: 'items' | 'character'; // inventory: which tab opens
+  game?: 'cases' | 'plinko' | 'blackjack'; // casino: which game opens
   signup?: boolean; // account: open on Create account
   depth?: number; // how many entries deep we are; Back at depth 0 goes to the title instead of leaving the site
 }

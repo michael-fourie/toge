@@ -18,7 +18,7 @@ export const RARITY: Record<Rarity, { name: string; color: number; weight: numbe
 };
 
 /** The currency: earned by kills, spent on cases, topped up by selling skins. */
-export const COIN = { name: 'Coins', icon: '🪙', start: 300, kill: 10, headshot: 5, zombie: 3 } as const;
+export const COIN = { name: 'Coins', start: 300, kill: 10, headshot: 5, zombie: 3 } as const;
 
 export type Slot = 'rifle' | 'knife' | 'hat' | 'face' | 'back';
 export const SLOTS: readonly Slot[] = ['rifle', 'knife', 'hat', 'face', 'back'];

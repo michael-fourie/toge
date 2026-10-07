@@ -28,6 +28,13 @@ export function earn(inv: Inv, n: number) {
   inv.coins += Math.max(0, Math.floor(n));
 }
 
+/** Stakes `n` whole coins at a table game. False (and nothing taken) if it isn't a positive whole number you can afford. */
+export function wager(inv: Inv, n: number): boolean {
+  if (!Number.isInteger(n) || n < 1 || n > inv.coins) return false;
+  inv.coins -= n;
+  return true;
+}
+
 /** Pays for a case and returns what dropped (now in the inventory), or null if you can't afford it. */
 export function openCase(inv: Inv, id: CaseId, rng: () => number = Math.random): Owned | null {
   const def = caseById(id);

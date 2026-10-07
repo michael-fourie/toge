@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap');
 
 /* Storybook sky palette: painted blues, warm cream paper, ink brown, meadow green, Kiki red. */
 :root {
@@ -14,12 +14,13 @@
   --kiki: #d9584a;
   --sun: #ffd98a;
   --radius: 18px;
-  --display: 'Roboto', system-ui, sans-serif;
-  --body: 'Roboto', system-ui, sans-serif;
+  --display: 'Manrope', system-ui, sans-serif;
+  --body: 'Manrope', system-ui, sans-serif;
 }
 
 * {
   box-sizing: border-box;
+  font-style: normal !important; /* no italics anywhere */
 }
 html,
 body {
@@ -277,7 +278,7 @@ input::placeholder {
   padding: 6px 8px;
   border: 0;
   background: transparent;
-  font-weight: 900;
+  font-weight: 800;
   color: var(--ink);
 }
 .name-chip:focus-within {
@@ -420,7 +421,7 @@ button:disabled {
   width: 100%;
   padding: 0;
   margin-bottom: 4px;
-  font-weight: 900;
+  font-weight: 800;
 }
 .settings legend small,
 .setting small {
@@ -528,7 +529,7 @@ button:disabled {
 .lobbies h3 {
   margin: 0;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-soft);
@@ -695,7 +696,7 @@ button:disabled {
 .badge {
   font-style: normal;
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 2px 8px;
@@ -1052,7 +1053,7 @@ button:disabled {
 }
 .livescore .me {
   color: #ffe28a;
-  font-weight: 900;
+  font-weight: 800;
 }
 .killfeed {
   display: grid;
@@ -1230,7 +1231,7 @@ button:disabled {
 }
 .scoreboard tr.me td {
   color: var(--meadow-dark);
-  font-weight: 900;
+  font-weight: 800;
 }
 .scoreboard td i {
   display: inline-block;
@@ -1273,7 +1274,7 @@ button:disabled {
 }
 .keys dt {
   color: var(--meadow-dark);
-  font-weight: 900;
+  font-weight: 800;
 }
 .keys dd {
   margin: 0;
@@ -1597,7 +1598,7 @@ button:disabled {
 .mode-tag {
   justify-self: center;
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   padding: 2px 9px;
@@ -1636,7 +1637,7 @@ button:disabled {
 }
 .postgame-card h2 {
   margin: 0;
-  font: 900 34px var(--display);
+  font: 800 34px var(--display);
   color: var(--kiki);
 }
 .pg-sub,
@@ -1668,7 +1669,7 @@ button:disabled {
 .pg-rows li.me {
   background: #6fa64a22;
   color: var(--meadow-dark);
-  font-weight: 900;
+  font-weight: 800;
 }
 .pg-rows li.gone {
   opacity: 0.55;
@@ -1738,7 +1739,7 @@ button:disabled {
 }
 .teamcol .empty {
   color: var(--ink-soft);
-  font-style: italic;
+  font-style: normal;
 }
 .teampick .row {
   margin-top: 10px;
@@ -1752,7 +1753,7 @@ button:disabled {
 }
 .livescore .team {
   font-size: 15px;
-  font-weight: 900;
+  font-weight: 800;
 }
 .scoreboard .teamhead th {
   padding-top: 10px;

@@ -1,7 +1,7 @@
 // The player's inventory, saved per browser (like skins). The rules live in shared/inventory.ts.
 // Prototype shortcut: it's all client-side, so coins are as trustworthy as the client. See CLAUDE.md.
 
-import { type Inv, earn as earnCoins, equip as equipItem, gearOf, newInv, openCase as buyCase, sanitize, sell as sellItem, unequip as unequipSlot } from '../shared/inventory.ts';
+import { type Inv, earn as earnCoins, equip as equipItem, gearOf, newInv, openCase as buyCase, sanitize, sell as sellItem, wager as stakeCoins, unequip as unequipSlot } from '../shared/inventory.ts';
 import { type CaseId, type Gear, type Slot, encodeGear } from '../shared/items.ts';
 
 const KEY = 'atrous.inventory';
@@ -42,6 +42,12 @@ export const stash = {
   earn(n: number) {
     earnCoins(inv, n);
     changed();
+  },
+  /** Takes a stake for a table game (false if you can't cover it). Pay winnings back with `earn`. */
+  wager(n: number) {
+    const ok = stakeCoins(inv, n);
+    if (ok) changed();
+    return ok;
   },
   openCase(id: CaseId) {
     const got = buyCase(inv, id);

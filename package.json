@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "npm run typecheck && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
-    "test": "tsx --test tests/movement.test.ts tests/slide.test.ts tests/map.test.ts tests/rustworks.test.ts tests/summit.test.ts tests/dunevillage.test.ts tests/zombie.test.ts tests/achievements.test.ts tests/spawn.test.ts tests/grapple.test.ts tests/speedfx.test.ts tests/killcam.test.ts tests/postgame.test.ts tests/skin.test.ts tests/accounts.test.ts tests/input.test.ts tests/grenade.test.ts tests/foundry.test.ts tests/weapons.test.ts tests/survival.test.ts tests/loadout.test.ts tests/loot.test.ts tests/teams.test.ts",
+    "test": "tsx --test tests/movement.test.ts tests/slide.test.ts tests/map.test.ts tests/rustworks.test.ts tests/casino.test.ts tests/summit.test.ts tests/dunevillage.test.ts tests/zombie.test.ts tests/achievements.test.ts tests/spawn.test.ts tests/grapple.test.ts tests/speedfx.test.ts tests/killcam.test.ts tests/postgame.test.ts tests/skin.test.ts tests/accounts.test.ts tests/input.test.ts tests/grenade.test.ts tests/foundry.test.ts tests/weapons.test.ts tests/survival.test.ts tests/loadout.test.ts tests/loot.test.ts tests/teams.test.ts",
     "smoke": "tsx tests/lobby.smoke.ts",
     "deploy": "npm run build && wrangler deploy"
   },

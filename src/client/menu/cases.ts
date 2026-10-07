@@ -2,8 +2,7 @@ import { CASES, type CaseDef, RARITIES, RARITY, hexOf, itemById, itemsIn, odds, 
 import { stash } from '../inventoryStore.ts';
 import { sfx } from '../sfx.ts';
 import { coinText, itemCard } from './lootui.ts';
-import type { Render } from './router.ts';
-import { $, esc, sheet, toast } from './ui.ts';
+import { $, esc, toast } from './ui.ts';
 
 const CARD = 140; // reel card width + gap, px
 const WINNER = 38; // which reel slot the drop lands on
@@ -32,10 +31,9 @@ function contents(c: CaseDef) {
     .join('');
 }
 
-export const store: Render = (root) => {
-  root.innerHTML = sheet(
-    'Store',
-    `<div class="loot-bar"><span class="coin-total" id="coins"></span><small>Earn coins by eliminating things. Sell spares from your Inventory.</small></div>
+/** The case shop: the Casino's Cases tab. Draws into `root` and returns its cleanup. */
+export function mountCases(root: HTMLElement): () => void {
+  root.innerHTML = `<p class="pane-note">Earn coins by eliminating things. Sell spares from your Inventory.</p>
     <div class="case-list">${CASES.map(
       (c) => `
       <article class="case" style="--c:${hexOf(c.color)}" data-case="${c.id}">
@@ -47,12 +45,9 @@ export const store: Render = (root) => {
         </div>
         <details class="case-inside"><summary>What's inside (${itemsIn(c.id).length} items)</summary><div class="inside" data-inside="${c.id}"></div></details>
       </article>`,
-    ).join('')}</div>`,
-  );
-  $(root, '.sheet').classList.add('wide');
+    ).join('')}</div>`;
 
   const refresh = () => {
-    $(root, '#coins').textContent = coinText(stash.inv.coins);
     root.querySelectorAll<HTMLButtonElement>('[data-open]').forEach((b) => {
       const price = CASES.find((c) => c.id === b.dataset.open)!.price;
       b.disabled = stash.inv.coins < price;
@@ -157,7 +152,7 @@ export const store: Render = (root) => {
     timer = window.setTimeout(reveal, SPIN_MS + 150);
   }
 
-  $(root, '.sheet').addEventListener('click', (e) => {
+  root.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-open]');
     if (b && !b.disabled) open(CASES.find((c) => c.id === b.dataset.open)!);
   });
@@ -166,4 +161,4 @@ export const store: Render = (root) => {
     close();
     off();
   };
-};
+}

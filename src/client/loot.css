@@ -7,7 +7,7 @@
 }
 .coin-chip b {
   color: #9a6a12;
-  font-weight: 900;
+  font-weight: 800;
 }
 .doors-mini {
   width: min(360px, 100%);
@@ -415,4 +415,19 @@ button.loot-card[aria-pressed='true'] {
 .title-screen .chips {
   position: static;
   transform: none;
+}
+
+/* The gold coin icon sits inline before every amount. */
+.coin-ico {
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.2em;
+  margin-right: 0.3em;
+  flex: none;
+}
+.coin-pill,
+.coin-total,
+.hud .coins b {
+  display: inline-flex;
+  align-items: center;
 }

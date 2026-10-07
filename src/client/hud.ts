@@ -1,3 +1,4 @@
+import { COIN_SVG } from './menu/lootui.ts';
 import { MOVE } from '../shared/constants.ts';
 import type { PlayerInfo } from '../shared/protocol.ts';
 import type { Feat } from './achievements.ts';
@@ -132,7 +133,7 @@ export class Hud {
 
   /** The coin counter (bottom left); `gained` floats up beside it for a moment. */
   coins(total: number, gained = 0) {
-    this.q('.coins b').textContent = `🪙 ${total}`;
+    this.q('.coins b').innerHTML = `${COIN_SVG}<span>${total}</span>`;
     if (!gained) return;
     const pop = this.q('.coins i');
     pop.textContent = `+${gained}`;

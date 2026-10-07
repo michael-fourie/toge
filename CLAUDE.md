@@ -70,7 +70,7 @@ src/client/
   speedfx.ts    wind streaks overlay that scale with speed (hud.ts owns it); sfx.setWind adds the rushing-wind loop
   items.ts + inventory.ts (src/shared) loot: rarities (CSGO colours/names), the three cases, every item (rifle paints, knives, wearables), the dice (`rollCase`), gear codes
                 (equipped ids sent to the server as `gear=` and relayed in `PlayerInfo.gear`, validated by `decodeGear`), and the pure stash rules (coins, buy/open, equip, sell).
-                client/inventoryStore.ts saves it in localStorage; menu/store.ts (case reel), menu/inventory.ts, menu/itemIcon.ts (renders each item once to a PNG); knife.ts + wear.ts build the models;
+                client/inventoryStore.ts saves it in localStorage; menu/casino.ts (tabs: cases.ts case reel, plinko.ts, blackjack.ts; rules in shared/casino.ts, tests/casino.test.ts), menu/inventory.ts, menu/itemIcon.ts (renders each item once to a PNG); knife.ts + wear.ts build the models;
                 avatar.ts / viewmodel.ts show the equipped gear. Currency is Coins: kills pay (COIN in items.ts). Tests: loot.test.ts.
   skin.ts (src/shared) skin spec: option lists, presets, seeded default, encode/decode ('3.0.1.3.0.0.x', validated on the server). client/skinStore.ts saves it; menu/skin.ts (mountSkinEditor, used by the inventory's Character tab) + skinPreview.ts are the picker.
   avatar.ts     chibi anime players (look = chosen skin, else seeded from name+colour, ink outlines, canvas faces), a zombie variant

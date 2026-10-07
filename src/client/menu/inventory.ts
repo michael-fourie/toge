@@ -70,7 +70,7 @@ export const inventory: Render = (root, _ctx, screen) => {
     const { inv } = stash;
     if (selected !== null && !inv.items.some((o) => o.u === selected)) selected = null;
     const worn = new Set(Object.values(inv.equipped));
-    $(root, '#coins').textContent = coinText(inv.coins);
+    $(root, '#coins').innerHTML = coinText(inv.coins);
     $(root, '#count').textContent = `${inv.items.length} item${inv.items.length === 1 ? '' : 's'}`;
 
     $(root, '#filters').innerHTML = (['all', ...SLOTS] as Filter[])
@@ -83,7 +83,7 @@ export const inventory: Render = (root, _ctx, screen) => {
       .sort((a, b) => RARITIES.indexOf(b.item.rarity) - RARITIES.indexOf(a.item.rarity) || a.item.name.localeCompare(b.item.name));
     $(root, '#grid').innerHTML = shown.length
       ? shown.map(({ o, item }) => itemCard(item, { button: String(o.u), pressed: o.u === selected, tag: worn.has(o.u) ? 'Equipped' : undefined })).join('')
-      : `<p class="empty">${inv.items.length ? 'Nothing in this tab.' : 'Nothing yet. Open a case in the Store!'}</p>`;
+      : `<p class="empty">${inv.items.length ? 'Nothing in this tab.' : 'Nothing yet. Open a case in the Casino!'}</p>`;
 
     $(root, '#slots').innerHTML = SLOTS.map((s) => {
       const u = inv.equipped[s];
