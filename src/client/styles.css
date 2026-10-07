@@ -1144,6 +1144,7 @@ button:disabled {
   color: #fffaf0;
   font-size: 14px;
   letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 .killcam i {
   width: 10px;
@@ -1155,6 +1156,11 @@ button:disabled {
 .killcam b {
   font-size: 12px;
   opacity: 0.8;
+}
+.killcam em {
+  font-size: 11px;
+  font-style: normal;
+  opacity: 0.55;
 }
 @keyframes rec {
   50% {

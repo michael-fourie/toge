@@ -43,7 +43,7 @@ export class Hud {
       <div class="hurt"></div>
       <div class="health" hidden><b>100</b><div class="bar"><i></i></div></div>
       <div class="death"><h2></h2><p></p></div>
-      <div class="killcam"><i></i><b>KILLCAM</b><span></span></div>
+      <div class="killcam"><i></i><b>KILLCAM</b><span></span><em>space to skip</em></div>
       <div class="scoreboard"></div>
       <div class="pause">
         <div class="panel">

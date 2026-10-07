@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { RESPAWN_SECONDS } from '../src/shared/constants.ts';
-import { KILLCAM, Trail, type TrailPose, replayTime, replaying } from '../src/client/killcam.ts';
+import { KILLCAM, Trail, type TrailPose, killcamText, replayTime, replaying } from '../src/client/killcam.ts';
 
 const pose = (x: number, yaw = 0): TrailPose => ({ x, y: 0, z: 0, yaw, pitch: 0, side: 0, sliding: false });
 
@@ -40,4 +40,13 @@ test('the replay maps real time onto the last seconds before the death and fits 
   assert.ok(replayTime(0.5, 100) < replayTime(1.5, 100));
   assert.equal(replaying(KILLCAM.real - 0.01), true);
   assert.equal(replaying(KILLCAM.real), false);
+});
+
+test('banner text adds the distance when known, and an open-ended lookup gives the latest pose', () => {
+  assert.equal(killcamText('Sniped by Bob', 83.4), 'Sniped by Bob · 83 m');
+  assert.equal(killcamText('Sniped by Bob', null), 'Sniped by Bob');
+  const t = new Trail();
+  t.push(0, pose(0));
+  t.push(1, pose(7));
+  assert.equal(t.at(Infinity)?.x, 7);
 });

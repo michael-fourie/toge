@@ -7,6 +7,7 @@ export const KILLCAM = {
   real: 2.2, // seconds of real time the replay takes (slightly slow-mo); must be under RESPAWN_SECONDS
   recordInterval: 1 / 30, // trail sample spacing
   keep: 4, // seconds of trail kept
+  remoteLag: 0.1, // remotes are recorded as rendered, NET.interpDelayMs behind real time: look this far ahead to line up with us and the shots
   killerEye: 1.62,
   killerEyeSliding: 0.95,
 };
@@ -75,6 +76,11 @@ export class Trail {
       sliding: b.sliding,
     };
   }
+}
+
+/** Banner text: the death text plus how far away the killer was, when known. */
+export function killcamText(text: string, metres: number | null): string {
+  return metres === null ? text : `${text} · ${Math.round(metres)} m`;
 }
 
 /** Game time shown `elapsed` real seconds into a replay of a death at `deathTime`. */
