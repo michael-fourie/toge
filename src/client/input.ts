@@ -21,6 +21,8 @@ export class Input {
   private grappleQueued = false;
   private grenadeQueued = false;
   private fireQueued = false;
+  /** Left mouse button held: automatic guns keep firing. */
+  fireHeld = false;
   /** Right mouse button currently held (hold-to-scope). Cleared on blur / lock loss / death. */
   scopeHeld = false;
   private disposers: (() => void)[] = [];
@@ -46,6 +48,7 @@ export class Input {
     this.listen(window, 'blur', () => {
       this.keys.clear();
       this.scopeHeld = false;
+      this.fireHeld = false;
     });
     this.listen(document, 'mousemove', (e: MouseEvent) => {
       if (!this.locked) return;
@@ -57,12 +60,16 @@ export class Input {
     });
     this.listen(document, 'mousedown', (e: MouseEvent) => {
       if (!this.locked) return;
-      if (e.button === 0) this.fireQueued = true;
+      if (e.button === 0) {
+        this.fireQueued = true;
+        this.fireHeld = true;
+      }
       if (e.button === 2) this.scopeHeld = true;
     });
     // Listen for the release even when unlocked so the scope can never get stuck on.
     this.listen(document, 'mouseup', (e: MouseEvent) => {
       if (e.button === 2) this.scopeHeld = false;
+      if (e.button === 0) this.fireHeld = false;
     });
     this.listen(document, 'contextmenu', (e: Event) => e.preventDefault());
     // Scroll-wheel jump, the bhopper's best friend.
@@ -82,6 +89,7 @@ export class Input {
       this.locked = locked;
       this.keys.clear();
       this.scopeHeld = false;
+      this.fireHeld = false;
       this.onLockChange?.(this.locked);
     });
   }

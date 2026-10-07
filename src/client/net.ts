@@ -1,3 +1,4 @@
+import { stash } from './inventoryStore.ts';
 import { storedSkinCode } from './skinStore.ts';
 import type { ClientMsg, GameMode, LobbyInfo, ServerMsg } from '../shared/protocol.ts';
 
@@ -43,6 +44,7 @@ export class Net {
     this.leave();
     const skin = storedSkinCode();
     if (skin) params.skin = skin;
+    if (stash.gearCode) params.gear = stash.gearCode;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws?${new URLSearchParams(params)}`);
     this.ws = ws;

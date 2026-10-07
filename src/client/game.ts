@@ -1,11 +1,14 @@
 import GUI from 'lil-gui';
 import * as THREE from 'three';
-import { GRENADE, PLAYER, MOVE, NET, RESPAWN_SECONDS, SURVIVAL, TICK_DT, WEAPON } from '../shared/constants.ts';
+import { GRENADE, KNIFE, PLAYER, MOVE, NET, RESPAWN_SECONDS, SURVIVAL, TICK_DT, WEAPON } from '../shared/constants.ts';
+import { type Colliders, buildColliders } from '../shared/colliders.ts';
 import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
-import { MAP } from '../shared/map.ts';
+import { type Use, findUse, maxHp } from '../shared/interact.ts';
+import type { MapData } from '../shared/map.ts';
+import { mapFor } from '../shared/maps.ts';
 import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/math.ts';
 import { Ev, type GrappleTarget, type PlayerState, createPlayerState, emptyInput, findGrapple, stepPlayer } from '../shared/movement.ts';
-import { punchStatus, weaponStats } from '../shared/punch.ts';
+import { WEAPONS, gunStats } from '../shared/weapons.ts';
 import { type Grenade, applyKnock, blastKnock, blastTargets, stepGrenade, throwVelocity } from '../shared/grenade.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import { TEAMS, sameTeam } from '../shared/teams.ts';
@@ -15,14 +18,18 @@ import {
   type GameMode,
   type NetPlayerState,
   type PlayerInfo,
+  type BoxState,
   type ServerMsg,
   StateFlag,
+  type ZombieHit,
   type V3,
   type WaveInfo,
   round3,
 } from '../shared/protocol.ts';
 import { type ShotContext, SpinMeter, Streak, featsFor } from './achievements.ts';
 import { JACKETS, decodeSkin, encodeSkin } from '../shared/skin.ts';
+import { COIN, decodeGear } from '../shared/items.ts';
+import { stash } from './inventoryStore.ts';
 import { storedSkin } from './skinStore.ts';
 import { Avatar, Corpses } from './avatar.ts';
 import { PostGame } from './postgame.ts';
@@ -31,11 +38,11 @@ import { Hud } from './hud.ts';
 import { GrenadeFx } from './grenadefx.ts';
 import { Input } from './input.ts';
 import { KILLCAM, Trail, killcamText, replayTime, replaying } from './killcam.ts';
-import { jugStatus, maxHp } from '../shared/jug.ts';
-import { buildJugMachine } from './jugmachine.ts';
-import { MINT, buildPunchMachine } from './punchmachine.ts';
+import { MINT } from './punchmachine.ts';
+import { type FoundryWorld, buildFoundry } from './foundryworld.ts';
+import { Loadout } from './loadout.ts';
 import { NadeHud } from './nadehud.ts';
-import { PunchHud, type Station } from './punchhud.ts';
+import { UseHud } from './usehud.ts';
 import { Rope } from './rope.ts';
 import { SpeedFx } from './speedfx.ts';
 import type { Net } from './net.ts';
@@ -74,7 +81,7 @@ interface Tracer {
 const BASE_FOV = 78; // vertical; ~106° horizontal at 16:9
 const tracerGeo = new THREE.CylinderGeometry(0.025, 0.025, 1, 6, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
 
-const verbFor: Record<DeathCause, string> = { snipe: 'sniped', headshot: '💥 HEADSHOT', void: 'fell into the void', zombie: 'got munched 🧟', grenade: 'blew up 💣' };
+const verbFor: Record<DeathCause, string> = { snipe: 'sniped', headshot: '💥 HEADSHOT', void: 'fell into the void', zombie: 'got munched 🧟', grenade: 'blew up 💣', knife: 'stabbed 🔪' };
 /** Stand-in for the killfeed when a zombie goes down. */
 const ZOMBIE_INFO: PlayerInfo = { id: -1, name: 'zombie', color: 0x7fae6a, kills: 0, deaths: 0, alive: false };
 const YEETS = ['YEET', 'SNIPED', 'BONK', 'GOT EM', 'SENT FLYING'];
@@ -90,6 +97,9 @@ export class Game {
   private renderer: THREE.WebGLRenderer;
   private camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.05, 1500);
   private world: World;
+  private foundry: FoundryWorld | null = null;
+  private map: MapData;
+  private cols: Colliders;
   private vm: ViewModel;
   private hud: Hud;
   private input: Input;
@@ -137,9 +147,11 @@ export class Game {
   private shotLog: { t: number; id: number; from: THREE.Vector3; to: THREE.Vector3 }[] = [];
   private killcam: { deathTime: number; start: number; killerId: number; text: string; shot: { t: number; from: THREE.Vector3; to: THREE.Vector3 } | null; shotShown: boolean } | null = null;
 
-  private scoped = false;
+  private knifeOut = false; // the knife is out instead of a gun
+  private scoped = false; // looking through a scope (AWP): the overlay is up and the viewmodel hidden
+  private aiming = false; // looking down the sights of any other gun
   private bolt = 0; // seconds until the next shot is chambered
-  private ammo = WEAPON.magSize;
+  private loadout: Loadout;
   private reloading = 0; // seconds left on a reload
   private autoReloadAt = -1;
   private roll = 0;
@@ -168,13 +180,17 @@ export class Game {
   private postgame: PostGame | null = null;
   private waveAt = 0; // this.time when `wave` arrived (its timer counts down from then)
   private nextGroan = 3;
-  // Points and the Pack-a-Punch machine (server-authoritative; we mirror what it tells us)
+  // Points, perks, the building (server-authoritative; we mirror what it tells us)
   private points = 0;
-  private upgraded = false;
   private jug = false;
-  private jugMachine: ReturnType<typeof buildJugMachine> | null = null;
-  private punchMachine: ReturnType<typeof buildPunchMachine> | null = null;
-  private punchHud!: PunchHud;
+  private doors: boolean[] = [];
+  private boards: number[] = [];
+  private box: BoxState = { spot: 0, phase: 'closed', gun: null, owner: 0, left: 0 };
+  private use: Use | null = null;
+  private repairAt = 0;
+  private shadowTick = 0;
+  private boxTick = 0;
+  private useHud!: UseHud;
 
   constructor(private opts: GameOptions) {
     const { container, net, joined } = opts;
@@ -184,6 +200,8 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.map = mapFor(this.mode);
+    this.cols = buildColliders(this.map);
     // Neutral keeps the soft painted palette saturated; ACES washes it toward grey-orange.
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = 1.05;
@@ -192,17 +210,20 @@ export class Game {
     container.appendChild(this.renderer.domElement);
     this.camera.rotation.order = 'YXZ';
 
-    this.world = buildWorld(MAP, this.renderer, this.mode === 'survival'); // Survival is played at night
+    const color0 = joined?.players.find((p) => p.id === net?.id)?.color ?? 0xe0614f;
+    if (this.mode === 'survival') {
+      this.foundry = buildFoundry(this.map, this.renderer, color0); // Survival is the Foundry, at night
+      this.world = this.foundry;
+      this.renderer.shadowMap.autoUpdate = false; // the moon's shadows are redrawn every few frames, not every frame
+    } else this.world = buildWorld(this.map, this.renderer);
     this.corpses = new Corpses(this.world.scene);
     this.ropeSelf = new Rope(this.world.scene);
     this.grenadeFx = new GrenadeFx(this.world.scene);
     if (this.mode === 'survival') {
       this.horde = new Horde(this.world.scene);
-      this.punchMachine = buildPunchMachine(MAP.punchMachine);
-      this.world.scene.add(this.punchMachine.obj);
-      this.jugMachine = buildJugMachine(MAP.juggernog);
-      this.world.scene.add(this.jugMachine.obj);
       this.wave = joined?.wave ?? null;
+      this.foundry!.onEvent = (e, at) => this.onFoundryEvent(e, at);
+      this.foundry!.sync([], [], this.box);
     }
 
     // Players.
@@ -215,15 +236,18 @@ export class Game {
       this.players.set(0, { id: 0, name: opts.name, color, kills: 0, deaths: 0, alive: true, skin: skin ? encodeSkin(skin) : undefined });
     }
     const self = this.players.get(this.selfId)!;
-    this.selfAvatar = new Avatar(self.color, self.name, false, decodeSkin(self.skin));
-    this.vm = new ViewModel(self.color);
+    this.selfAvatar = new Avatar(self.color, self.name, false, decodeSkin(self.skin), stash.gear);
+    this.vm = new ViewModel(self.color, stash.gear);
+    this.loadout = new Loadout(this.mode !== 'survival', this.mode === 'survival' ? 'sparrow' : 'awp');
+    this.vm.equip(this.loadout.gun!.w, false);
 
     const spawn = joined ? { pos: arr(joined.spawn.p), yaw: joined.spawn.yaw } : this.randomSpawn();
     this.me = createPlayerState(spawn.pos);
     copy(this.prevPos, this.me.pos);
 
     this.hud = new Hud(container, joined ? `${this.mode === 'survival' ? 'SURVIVAL' : 'LOBBY'} ${joined.code}` : 'PRACTICE — shoot the dummies');
-    this.punchHud = new PunchHud(this.hud.root);
+    this.hud.coins(stash.inv.coins);
+    this.useHud = new UseHud(this.hud.root);
     this.nadeHud = new NadeHud(this.hud.root);
     this.input = new Input(this.renderer.domElement);
     if (net && this.mode === 'survival') this.postgame = new PostGame(container, this.selfId, { onAgain: () => { net.send({ t: 'again' }); void this.input.lock(); }, onHome: () => this.exit() });
@@ -271,14 +295,14 @@ export class Game {
     this.corpses.update(dt);
     this.updateTracers(dt);
     this.world.update(this.time);
-    this.punchMachine?.update(this.time);
-    this.jugMachine?.update(this.time);
     this.updateGrenades(dt);
     this.updateCamera(dt);
     this.recordSelf();
     this.updateRopes(dt);
+    this.foundry?.setViewer(this.renderPos);
     this.updateHud(dt);
 
+    if (this.foundry && this.shadowTick++ % 3 === 0) this.renderer.shadowMap.needsUpdate = true;
     this.renderer.clear();
     this.renderer.render(this.world.scene, this.camera);
     if (this.alive && !this.scoped) {
@@ -294,12 +318,12 @@ export class Game {
       copy(this.prevPos, this.me.pos);
       const fallSpeed = -this.me.vel.y;
       this.moveInput.grappleTargets = this.grappleTargets();
-      stepPlayer(this.me, this.input.sample(this.moveInput), TICK_DT, MAP.boxes, MAP.triggers);
+      stepPlayer(this.me, this.input.sample(this.moveInput), TICK_DT, this.cols.move, this.map.triggers);
       this.onMoveEvents(this.me.events, fallSpeed);
       this.airTime = this.me.onGround ? 0 : this.airTime + TICK_DT;
       this.acc -= TICK_DT;
     }
-    if (this.me.pos.y < MAP.killY) {
+    if (this.me.pos.y < this.map.killY) {
       if (this.opts.net) {
         // Die immediately; the server's kill message only updates the scores.
         this.opts.net.send({ t: 'fell' });
@@ -355,58 +379,70 @@ export class Game {
   // ---------------------------------------------------------------------------
   // Weapon
 
+  private get stats() {
+    return this.loadout.stats;
+  }
+
   private updateWeapon(dt: number) {
     this.bolt = Math.max(0, this.bolt - dt);
     if (this.reloading > 0) {
       this.reloading = Math.max(0, this.reloading - dt);
-      if (this.reloading === 0) this.ammo = this.stats.magSize;
+      if (this.reloading === 0) this.loadout.finishReload();
     }
     if (this.autoReloadAt >= 0 && this.time >= this.autoReloadAt) {
       this.autoReloadAt = -1;
       this.startReload();
     }
-    // Hold RMB to scope. The bolt cycle (and reloads) knock you out of scope, CS-style;
-    // if RMB is still held when it finishes, you scope straight back in.
-    const wantScope = this.alive && this.input.scopeHeld && this.bolt === 0 && this.reloading === 0;
+    // Hold RMB to aim. Scoped guns (the AWP) drop you out of the scope during their bolt cycle and while reloading, CS-style;
+    // if RMB is still held when it finishes you scope straight back in. Other guns just look down the sights.
+    const st = this.stats;
+    const want = this.alive && !this.knifeOut && this.input.scopeHeld && this.reloading === 0;
+    const wantScope = want && st.scoped && this.bolt === 0;
     if (wantScope && !this.scoped) sfx.scope();
     this.scoped = wantScope;
-    if (this.input.takeFire()) this.fire();
+    this.aiming = want && !st.scoped;
+    this.vm.setAim(this.aiming);
+    const auto = st.auto && this.input.fireHeld;
+    if (this.input.takeFire() || auto) this.fire();
     if (this.input.takeGrenade()) this.throwGrenade();
+    if (this.horde && this.alive) this.useKeys();
   }
 
+  /** Reload the gun in hand: not if the mag is full or there is nothing to put in it. */
   private startReload() {
-    if (!this.alive || this.reloading > 0 || this.ammo >= this.stats.magSize) return;
-    const fromEmpty = this.ammo === 0; // chamber's empty too: finish with a bolt cycle
-    this.reloading = this.stats.reloadTime + (fromEmpty ? this.stats.boltTime : 0);
+    if (!this.alive || this.knifeOut || this.reloading > 0 || !this.loadout.canReload()) return;
+    const empty = this.loadout.gun!.mag === 0; // the chamber's empty too: finish with a bolt cycle
+    const st = this.stats;
+    // The AWP also works its bolt after an empty reload (the animation does it inside the same time).
+    this.reloading = st.reloadTime + (empty && st.style === 'bolt' ? WEAPON.boltTime * (st.punched ? 0.44 : 1) : 0);
     this.bolt = 0;
     this.autoReloadAt = -1;
-    this.vm.reload(fromEmpty);
+    this.vm.reload(this.reloading, empty);
   }
 
-  private fire() {
-    if (!this.alive || this.bolt > 0 || this.reloading > 0) return;
-    if (this.ammo === 0) {
-      sfx.dryFire();
-      this.startReload();
-      return;
-    }
-    const pitch = this.input.pitch;
-    const yaw = this.input.yaw;
-    const d = lookDir(yaw, pitch);
-    if (!this.scoped) {
-      // No-scope spread, uniform-ish in a cone.
-      d.x += (Math.random() - 0.5) * 2 * WEAPON.hipSpread;
-      d.y += (Math.random() - 0.5) * 2 * WEAPON.hipSpread;
-      d.z += (Math.random() - 0.5) * 2 * WEAPON.hipSpread;
+  /** Switch guns (Survival: two slots). */
+  private equip(slot: number) {
+    if (!this.alive || this.loadout.cur === slot || !this.loadout.equip(slot)) return;
+    this.reloading = 0;
+    this.bolt = 0.25;
+    this.autoReloadAt = -1;
+    this.vm.equip(this.loadout.gun!.w, this.loadout.gun!.up);
+    this.opts.net?.send({ t: 'equip', slot });
+  }
+
+  /** One ray's worth of aim: spread (tighter when aiming), then the nearest thing it hits. */
+  private cast(o: Vec3, base: Vec3, spread: number, range: number) {
+    const d = { ...base };
+    if (spread > 0) {
+      d.x += (Math.random() - 0.5) * 2 * spread;
+      d.y += (Math.random() - 0.5) * 2 * spread;
+      d.z += (Math.random() - 0.5) * 2 * spread;
       const l = Math.hypot(d.x, d.y, d.z);
       d.x /= l;
       d.y /= l;
       d.z /= l;
     }
-    // Shoot from where the camera actually is (lower while sliding).
-    const o = { x: this.renderPos.x, y: this.renderPos.y + this.eyeHeight, z: this.renderPos.z };
-
-    let best = rayWorld(o, d, MAP.boxes, WEAPON.range);
+    let best = rayWorld(o, d, this.cols.shot, range);
     let hit: { id: number; zombie: boolean } | null = null;
     let headshot = false;
     const hw = PLAYER.halfWidth;
@@ -427,31 +463,105 @@ export class Game {
         headshot = false;
       }
     }
-    const end = new THREE.Vector3(o.x + d.x * best, o.y + d.y * best, o.z + d.z * best);
-    const muzzle = this.camera.localToWorld(new THREE.Vector3(0.22, -0.2, -1.1));
-    this.addTracer(muzzle, end, this.upgraded ? MINT : this.players.get(this.selfId)!.color);
+    return { d, best, hit, headshot };
+  }
 
-    if (hit) {
+  /** Knife on or off. Switching keeps any gun cooldown running, so it can't be used to skip it. */
+  private setKnife(on: boolean) {
+    if (on === this.knifeOut || !this.alive) return;
+    this.knifeOut = on;
+    this.scoped = false;
+    this.aiming = false;
+    this.vm.setAim(false);
+    this.autoReloadAt = -1;
+    this.vm.holdKnife(on);
+    this.selfAvatar.holdKnife(on);
+  }
+
+  /** A gun key (1, 2): back to the guns if the knife was out. */
+  private pickGun(slot: number) {
+    const wasKnife = this.knifeOut;
+    this.setKnife(false);
+    if (!wasKnife || this.loadout.cur !== slot) this.equip(slot);
+  }
+
+  /** A knife stab: a short ray along the look direction; any hit on a player or zombie is a kill. Never costs momentum. */
+  private stab() {
+    const look = lookDir(this.input.yaw, this.input.pitch);
+    const o = { x: this.renderPos.x, y: this.renderPos.y + this.eyeHeight, z: this.renderPos.z };
+    const { best, hit } = this.cast(o, look, 0, KNIFE.range);
+    this.vm.stab();
+    this.bolt = KNIFE.cooldown;
+    if (!hit) return;
+    this.hud.hitmarker();
+    sfx.hit();
+    this.lastHit = { ...hit, ctx: { ...PLAIN_SHOT, scoped: true /* a stab isn't a no-scope */, distance: best, speed: hlen(this.me.vel) } };
+    const end = { x: o.x + look.x * best, y: o.y + look.y * best, z: o.z + look.z * best };
+    if (this.opts.net) {
+      this.opts.net.send({
+        t: 'shoot',
+        from: [round3(o.x), round3(o.y), round3(o.z)],
+        to: [round3(end.x), round3(end.y), round3(end.z)],
+        victim: hit.zombie ? undefined : hit.id,
+        hits: hit.zombie ? [{ z: hit.id }] : undefined,
+        knife: true,
+      });
+    } else this.onKill(this.selfId, hit.id, 'knife', [look.x, look.y, look.z]);
+  }
+
+  private fire() {
+    if (!this.alive || this.bolt > 0 || this.reloading > 0) return;
+    if (this.knifeOut) return this.stab();
+    const g = this.loadout.gun!;
+    if (g.mag === 0) {
+      sfx.dryFire();
+      this.input.fireHeld = false; // an empty auto gun clicks once, not a hundred times
+      this.startReload();
+      return;
+    }
+    const st = this.stats;
+    const look = lookDir(this.input.yaw, this.input.pitch);
+    const spread = this.scoped || this.aiming ? st.adsSpread : st.spread;
+    // Shoot from where the camera actually is (lower while sliding).
+    const o = { x: this.renderPos.x, y: this.renderPos.y + this.eyeHeight, z: this.renderPos.z };
+    const muzzle = this.camera.localToWorld(new THREE.Vector3(0.22, -0.2, -1.1));
+    const color = st.punched ? MINT : st.style === 'ray' ? 0xaaffee : this.players.get(this.selfId)!.color;
+
+    const hits: ZombieHit[] = [];
+    let first: { id: number; zombie: boolean; headshot: boolean; best: number } | null = null;
+    let end = new THREE.Vector3();
+    let victim: { id: number; headshot: boolean } | null = null;
+    for (let i = 0; i < st.pellets; i++) {
+      const r = this.cast(o, look, spread, WEAPON.range);
+      end = new THREE.Vector3(o.x + r.d.x * r.best, o.y + r.d.y * r.best, o.z + r.d.z * r.best);
+      if (i < 4 || st.pellets === 1) this.addTracer(muzzle, end, color);
+      if (!r.hit) continue;
+      if (!first) first = { ...r.hit, headshot: r.headshot, best: r.best };
+      if (r.hit.zombie) hits.push({ z: r.hit.id, h: r.headshot || undefined });
+      else victim = { id: r.hit.id, headshot: r.headshot };
+    }
+    if (first) {
       this.hud.hitmarker();
       sfx.hit();
       const ctx: ShotContext = {
-        headshot,
+        headshot: first.headshot,
         scoped: this.scoped,
-        spin: this.spin.spin(yaw),
+        spin: this.spin.spin(this.input.yaw),
         airTime: this.airTime,
         wallrunning: this.me.wallrunning,
         sliding: this.me.sliding,
         speed: hlen(this.me.vel),
-        distance: best,
-        rope: this.me.grapple ? (this.me.grappleTarget === hit.id && !hit.zombie ? 'target' : 'surface') : 'none',
+        distance: first.best,
+        rope: this.me.grapple ? (this.me.grappleTarget === first.id && !first.zombie ? 'target' : 'surface') : 'none',
       };
-      this.lastHit = { ...hit, ctx };
+      this.lastHit = { id: first.id, zombie: first.zombie, ctx };
     }
 
-    this.ammo--;
-    this.vm.fire(this.ammo > 0);
-    sfx.shoot();
-    if (this.ammo > 0) this.bolt = this.stats.fireCooldown;
+    this.loadout.fire();
+    this.vm.fire(g.mag === 0);
+    sfx.gun(st.style, st.punched);
+    this.fovKick = Math.max(this.fovKick, st.style === 'pump' || st.style === 'revolver' ? 2.5 : 0.6);
+    if (g.mag > 0) this.bolt = st.fireCooldown;
     else this.autoReloadAt = this.time + 0.25; // last round: drop straight into a reload
     this.scoped = false; // updateWeapon re-scopes after the bolt if RMB is still held
 
@@ -460,13 +570,50 @@ export class Game {
         t: 'shoot',
         from: [round3(o.x), round3(o.y), round3(o.z)],
         to: [round3(end.x), round3(end.y), round3(end.z)],
-        victim: hit && !hit.zombie ? hit.id : undefined,
-        zombie: hit?.zombie ? hit.id : undefined,
-        headshot,
+        victim: victim?.id,
+        headshot: victim?.headshot,
+        hits: hits.length ? hits : undefined,
       });
-    } else if (hit) {
-      this.onKill(this.selfId, hit.id, headshot ? 'headshot' : 'snipe', [d.x, d.y, d.z]);
+    } else if (victim) {
+      this.onKill(this.selfId, victim.id, victim.headshot ? 'headshot' : 'snipe', [look.x, look.y, look.z]);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Survival: doors, wall guns, the box and the windows (F)
+
+  private useCtx() {
+    return { lay: this.map.survival!, doorsOpen: this.doors, boards: this.boards, box: this.box, points: this.points, slots: this.loadout.slots.map((s) => (s ? { w: s.w, up: s.up } : null)), cur: this.loadout.cur, jug: this.jug, self: this.selfId };
+  }
+
+  /** Works out what F would do here (for the prompt) and, while F is held at a window, nails boards back up. */
+  private useKeys() {
+    if (!this.map.survival) return;
+    const p = this.me.pos;
+    this.use = findUse(p, this.useCtx());
+    const u = this.use;
+    if (u?.kind === 'board' && this.input.down('KeyF') && this.time >= this.repairAt) {
+      this.repairAt = this.time + SURVIVAL.repairTime;
+      this.opts.net?.send({ t: 'use', kind: 'board', id: u.id });
+    }
+  }
+
+  private pressUse() {
+    const u = this.use;
+    if (!u || u.kind === 'board') return;
+    if (u.status !== 'ready') return sfx.denied();
+    this.opts.net?.send({ t: 'use', kind: u.kind, id: u.id });
+  }
+
+  /** The building made a sound (planks, doors, the box): play it. */
+  private onFoundryEvent(e: 'plank' | 'nail' | 'door' | 'tick' | 'plush', at: Vec3) {
+    const d = Math.hypot(at.x - this.renderPos.x, at.z - this.renderPos.z);
+    if (d > 60) return;
+    if (e === 'plank') sfx.plank();
+    else if (e === 'nail') sfx.nail();
+    else if (e === 'door') sfx.door();
+    else if (e === 'plush') sfx.plush();
+    else sfx.boxTick(this.boxTick++);
   }
 
   // ---------------------------------------------------------------------------
@@ -496,7 +643,7 @@ export class Game {
     for (let i = this.grenades.length - 1; i >= 0; i--) {
       const n = this.grenades[i];
       const steps = Math.max(1, Math.ceil(dt / (1 / 90)));
-      for (let s = 0; s < steps; s++) stepGrenade(n.g, dt / steps, MAP.boxes);
+      for (let s = 0; s < steps; s++) stepGrenade(n.g, dt / steps, this.cols.move);
       n.obj.position.set(n.g.pos.x, n.g.pos.y, n.g.pos.z);
       n.obj.rotation.x += dt * 9;
       n.obj.rotation.z += dt * 6;
@@ -532,7 +679,7 @@ export class Game {
     const dist = Math.hypot(p.x - this.renderPos.x, p.y - this.renderPos.y, p.z - this.renderPos.z);
     sfx.boom(dist);
     if (!this.alive) return;
-    const k = blastKnock(p, this.me.pos, MAP.boxes);
+    const k = blastKnock(p, this.me.pos, this.cols.move);
     if (k) {
       applyKnock(this.me.vel, k);
       this.me.onGround = false;
@@ -544,7 +691,7 @@ export class Game {
   /** Offline practice: the dummies inside the blast go down. */
   private practiceBlast(p: Vec3) {
     const targets = [...this.remotes.values()].filter((r) => r.dummy && r.info.alive).map((r) => ({ id: r.info.id, pos: { x: r.pos.x, y: r.pos.y, z: r.pos.z } }));
-    for (const id of blastTargets(p, targets, MAP.boxes)) {
+    for (const id of blastTargets(p, targets, this.cols.shot)) {
       const r = this.remotes.get(id)!;
       this.onKill(this.selfId, id, 'grenade', [r.pos.x - p.x, r.pos.y + 1.8 - p.y, r.pos.z - p.z]);
     }
@@ -612,6 +759,9 @@ export class Game {
     const style = h && h.id === id && h.zombie === zombie ? featsFor(h.ctx) : headshot ? featsFor({ ...PLAIN_SHOT, headshot }) : [];
     const extra = this.streak.kill(this.time);
     sfx.kill();
+    const gained = zombie ? COIN.zombie : COIN.kill + (headshot ? COIN.headshot : 0);
+    stash.earn(gained);
+    this.hud.coins(stash.inv.coins, gained);
     const all = [...style, ...extra];
     if (all.length === 0) this.hud.center(pick(YEETS));
     else if (all.length === 1 && style[0]?.label === 'HEADSHOT') this.hud.center('HEADSHOT!', '#ffd43b'); // the classic
@@ -638,7 +788,7 @@ export class Game {
           ? 'Munched by a zombie'
           : cause === 'grenade'
             ? `Blown up by ${killer?.name ?? '???'}`
-            : `${cause === 'headshot' ? 'Headshot' : 'Sniped'} by ${killer?.name ?? '???'}`;
+            : `${cause === 'headshot' ? 'Headshot' : cause === 'knife' ? 'Stabbed' : 'Sniped'} by ${killer?.name ?? '???'}`;
     const pos = new THREE.Vector3(this.me.pos.x, this.me.pos.y, this.me.pos.z);
     this.deathCam.copy(pos).add(new THREE.Vector3(0, PLAYER.eyeHeight, 0));
     this.deathCorpse =
@@ -724,9 +874,10 @@ export class Game {
     this.selfTrail.clear();
     this.alive = true;
     this.deathCorpse = null;
-    this.ammo = this.stats.magSize;
+    this.loadout.refill();
     this.bolt = this.reloading = 0;
     this.autoReloadAt = -1;
+    this.setKnife(false); // back to the guns
     this.vm.draw();
     const self = this.players.get(this.selfId);
     if (self) self.alive = true;
@@ -739,10 +890,10 @@ export class Game {
   /** Practice respawn: a random good spot away from the dummies (same chooser the server uses). */
   private randomSpawn() {
     const dummies = [...this.remotes.values()].filter((r) => r.dummy && r.info.alive).map((r) => ({ x: r.dummy!.base.x, y: r.dummy!.base.y, z: r.dummy!.base.z }));
-    const i = pickSpawn(MAP.spawns, dummies, this.recentSpawns, MAP.boxes);
+    const i = pickSpawn(this.map.spawns, dummies, this.recentSpawns, this.map.boxes);
     this.recentSpawns.push(i);
     if (this.recentSpawns.length > RECENT_SPAWNS) this.recentSpawns.shift();
-    const s = MAP.spawns[i];
+    const s = this.map.spawns[i];
     return { pos: { ...s.pos }, yaw: s.yaw };
   }
 
@@ -750,7 +901,7 @@ export class Game {
   // Remote players
 
   private addRemote(info: PlayerInfo, dummy?: Remote['dummy']) {
-    const avatar = new Avatar(info.color, info.name, false, decodeSkin(info.skin));
+    const avatar = new Avatar(info.color, info.name, false, decodeSkin(info.skin), decodeGear(info.gear));
     avatar.root.visible = info.alive && !!dummy;
     this.world.scene.add(avatar.root);
     this.remotes.set(info.id, { info, avatar, buffer: [], pos: new THREE.Vector3(), yaw: 0, trail: new Trail(), dummy });
@@ -793,6 +944,7 @@ export class Game {
       this.remoteRopes.set(r.info.id, rope);
       rope.set(this.tmpA.set(r.pos.x, r.pos.y + 1.2, r.pos.z), e.g ? this.tmpB.set(e.g[0], e.g[1], e.g[2]) : null);
       r.avatar.root.visible = true;
+      r.avatar.holdKnife((e.f & StateFlag.Knife) !== 0);
       const sliding = (e.f & StateFlag.Sliding) !== 0;
       r.avatar.pose(r.pos.x, r.pos.y, r.pos.z, r.yaw, pitch, side, this.time, sliding);
       r.trail.push(this.time, { x: r.pos.x, y: r.pos.y, z: r.pos.z, yaw: r.yaw, pitch, side, sliding });
@@ -860,7 +1012,7 @@ export class Game {
       v: [round3(m.vel.x), round3(m.vel.y), round3(m.vel.z)],
       yaw: round3(this.input.yaw),
       pitch: round3(this.input.pitch),
-      f: (m.wallrunning ? StateFlag.Wallrun : 0) | (m.sliding ? StateFlag.Sliding : 0),
+      f: (m.wallrunning ? StateFlag.Wallrun : 0) | (m.sliding ? StateFlag.Sliding : 0) | (this.knifeOut ? StateFlag.Knife : 0),
     };
     if (m.grapple) msg.g = [round3(m.grapple.x), round3(m.grapple.y), round3(m.grapple.z)];
     // The server keeps our last state, so standing still costs nothing (every message is a billed request on Cloudflare).
@@ -935,8 +1087,11 @@ export class Game {
         }
         this.hp = msg.hp;
         break;
-      case 'pts':
-        this.onPoints(msg.pts, !!msg.up, !!msg.jug);
+      case 'me':
+        this.onMe(msg);
+        break;
+      case 'world':
+        this.onWorld(msg);
         break;
       case 'nade': {
         const o = { x: msg.p[0], y: msg.p[1], z: msg.p[2] };
@@ -948,10 +1103,11 @@ export class Game {
         break;
       case 'shot': {
         const from = new THREE.Vector3(...msg.from);
-        this.addTracer(from, new THREE.Vector3(...msg.to), msg.up ? MINT : (this.players.get(msg.id)?.color ?? 0xffffff));
+        this.addTracer(from, new THREE.Vector3(...msg.to), msg.up ? MINT : msg.w === 'sunbeam' ? 0xaaffee : (this.players.get(msg.id)?.color ?? 0xffffff));
         this.shotLog.push({ t: this.time, id: msg.id, from, to: new THREE.Vector3(...msg.to) });
         if (this.shotLog.length > 12) this.shotLog.shift();
-        sfx.distantShot(from.distanceTo(this.renderPos));
+        if (msg.w) sfx.distantGun(WEAPONS[msg.w].style, from.distanceTo(this.renderPos));
+        else sfx.distantShot(from.distanceTo(this.renderPos));
         break;
       }
       case 'kill':
@@ -970,41 +1126,43 @@ export class Game {
     }
   }
 
-  private get stats() {
-    return weaponStats(this.upgraded);
-  }
-
-  /** Our points and upgrade state, as the server sees them. A change in `up` is a purchase (or a restarted run). */
-  private onPoints(pts: number, up: boolean, jug: boolean) {
-    this.points = pts;
-    if (jug !== this.jug) {
-      this.jug = jug;
-      if (jug) {
+  /** Our points, perks and guns, as the server sees them. A different gun in our hands (bought, taken from the box, punched) gets drawn. */
+  private onMe(m: Extract<ServerMsg, { t: 'me' }>) {
+    this.points = m.pts;
+    if (!!m.jug !== this.jug) {
+      this.jug = !!m.jug;
+      if (this.jug) {
         sfx.jug();
         this.hud.center(`JUGGERNOG! ${maxHp(true)} HP`, '#ff8a6a', 2.2);
       }
     }
-    if (up === this.upgraded) return;
-    this.upgraded = up;
-    this.vm.setUpgraded(up);
-    this.ammo = this.stats.magSize; // a fresh mag either way
-    this.bolt = this.reloading = 0;
-    this.autoReloadAt = -1;
-    if (up) {
-      sfx.punch();
-      this.hud.center('PACK-A-PUNCHED!', '#8ff5d0', 2.2);
-      this.hud.punch(0.8);
-      this.vm.draw();
+    const was = this.loadout.gun;
+    const changed = this.loadout.sync(m.slots, m.cur, m.fill);
+    const now = this.loadout.gun!;
+    if (changed || m.fill?.includes(this.loadout.cur)) {
+      this.bolt = this.reloading = 0;
+      this.autoReloadAt = -1;
+      this.knifeOut = false; // vm.equip puts the gun back in hand
+      this.selfAvatar.holdKnife(false);
+      this.vm.equip(now.w, now.up, changed);
+    }
+    if (changed && was) {
+      if (now.up && was.w === now.w) {
+        sfx.punch();
+        this.hud.center('PACK-A-PUNCHED!', '#8ff5d0', 2.2);
+        this.hud.punch(0.8);
+      } else sfx.cash();
     }
   }
 
-  /** The station we're standing at (Pack-a-Punch or Juggernog), or null elsewhere and outside Survival. */
-  private nearMachine(): Station | null {
-    if (!this.horde) return null;
-    const punch = punchStatus(this.points, this.upgraded, this.me.pos, MAP.punchMachine);
-    if (punch !== 'far') return { kind: 'punch', status: punch };
-    const jug = jugStatus(this.points, this.jug, this.me.pos, MAP.juggernog);
-    return jug === 'far' ? null : { kind: 'jug', status: jug };
+  /** The building changed: a door opened, a board came off or went up, the box moved or did something. */
+  private onWorld(m: Extract<ServerMsg, { t: 'world' }>) {
+    const colliders = m.doors.some((d, i) => d !== !!this.doors[i]) || m.boards.some((b, i) => b > 0 !== (this.boards[i] > 0));
+    this.doors = m.doors;
+    this.boards = m.boards;
+    this.box = m.box;
+    if (colliders || !this.foundry) this.cols = buildColliders(this.map, this.doors, this.boards);
+    this.foundry?.sync(m.doors, m.boards, m.box);
   }
 
   private onWave(w: WaveInfo) {
@@ -1109,10 +1267,11 @@ export class Game {
     const speed = hlen(this.me.vel);
     const slideKick = this.me.sliding ? 5 : 0;
     this.fovKick = Math.max(0, this.fovKick - dt * 20);
-    const targetFov = this.scoped ? WEAPON.scopedFov : BASE_FOV + slideKick + this.fovKick + Math.min(24, Math.max(0, speed - MOVE.maxGroundSpeed) * 0.5);
-    cam.fov += (targetFov - cam.fov) * Math.min(1, dt * (this.scoped ? 25 : 6));
+    const zoom = this.scoped ? this.stats.zoomFov : this.aiming ? this.stats.zoomFov : 0;
+    const targetFov = zoom ? zoom : BASE_FOV + slideKick + this.fovKick + Math.min(24, Math.max(0, speed - MOVE.maxGroundSpeed) * 0.5);
+    cam.fov += (targetFov - cam.fov) * Math.min(1, dt * (this.scoped ? 25 : this.aiming ? 14 : 6));
     cam.updateProjectionMatrix();
-    this.input.sensitivityScale = this.scoped ? WEAPON.scopedFov / BASE_FOV : 1;
+    this.input.sensitivityScale = zoom ? zoom / BASE_FOV : 1;
 
     const [lx, ly] = this.input.takeLook();
     this.vm.update(dt, speed, this.me.onGround, lx, ly, this.roll);
@@ -1139,8 +1298,9 @@ export class Game {
   private updateHud(dt: number) {
     this.hud.setScoped(this.scoped && this.alive);
     this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, this.bolt / this.stats.fireCooldown);
-    this.hud.ammo(this.ammo, this.stats.magSize, this.reloading > 0);
-    this.punchHud.update(this.horde ? this.points : null, this.alive ? this.nearMachine() : null);
+    const gun = this.loadout.gun!;
+    this.hud.ammo(gun.mag, this.stats.mag, this.horde || gun.reserve !== Infinity ? gun.reserve : null, this.reloading > 0, this.stats.label, this.horde ? this.loadout.slots.map((s) => (s ? gunStats(s.w, s.up).label : null)) : [], this.loadout.cur);
+    this.useHud.update(this.horde ? this.points : null, this.alive ? this.use : null);
     this.hud.grapple(this.grappleState());
     sfx.setWind(this.alive && !this.hud.root.classList.contains('paused') ? SpeedFx.strength(hlen(this.me.vel)) : 0);
     this.hud.setCredit(this.vm.credit);
@@ -1160,7 +1320,7 @@ export class Game {
     if (this.me.grappleCooldown > 0) return 'off';
     const c = this.camera.position;
     const d = lookDir(this.input.yaw, this.input.pitch);
-    return findGrapple({ x: c.x, y: c.y, z: c.z }, d, MAP.boxes, this.grappleTargets()) ? 'ready' : 'off';
+    return findGrapple({ x: c.x, y: c.y, z: c.z }, d, this.cols.shot, this.grappleTargets()) ? 'ready' : 'off';
   }
 
   /** Players the rope can hook (chest height): hit one and you zip to them. */
@@ -1174,13 +1334,13 @@ export class Game {
 
   private onKey(code: string, down: boolean) {
     if (code === 'Tab') this.showScores = down;
-    if (code === 'KeyR' && down) this.startReload();
+    if (code === 'KeyR' && down && !this.knifeOut) this.startReload();
     if ((code === 'Space' || code === 'Enter') && down && this.killcam) this.killcam.start = -Infinity; // skip the replay
-    if (code === 'KeyF' && down && this.alive) {
-      const near = this.nearMachine();
-      if (near?.status === 'ready') this.opts.net?.send({ t: near.kind });
-      else if (near) sfx.denied();
-    }
+    if (code === 'KeyF' && down && this.alive) this.pressUse();
+    if (code === 'Digit1' && down) this.pickGun(0);
+    // The knife is 2 when you carry one gun, 3 when you carry two (2 is then your second gun).
+    if (code === 'Digit2' && down) this.loadout.slots[1] ? this.pickGun(1) : this.setKnife(true);
+    if (code === 'Digit3' && down) this.setKnife(true);
     if (code === 'Backquote' && down) {
       const show = this.gui._hidden;
       this.gui.show(show);
@@ -1250,10 +1410,23 @@ export class Game {
     this.gui.destroy();
     for (const id of [...this.remotes.keys()]) this.removeRemote(id);
     this.horde?.dispose();
+    disposeScene(this.world.scene); // frees the map's GPU memory: the Foundry is a lot of canvas textures
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.opts.onExit(reason);
   }
+}
+
+/** Frees every geometry, material and texture under a scene. */
+function disposeScene(scene: THREE.Scene) {
+  scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    m.geometry?.dispose();
+    for (const mat of Array.isArray(m.material) ? m.material : m.material ? [m.material] : []) {
+      for (const v of Object.values(mat)) if (v instanceof THREE.Texture) v.dispose();
+      mat.dispose();
+    }
+  });
 }
 
 const arr = (p: V3): Vec3 => ({ x: p[0], y: p[1], z: p[2] });

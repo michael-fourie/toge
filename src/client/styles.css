@@ -1317,6 +1317,39 @@ button:disabled {
 .hud.low-ammo .ammo b {
   color: #f08a6b;
 }
+.ammo {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.ammo .gunname {
+  flex-basis: 100%;
+  text-align: right;
+  font-style: normal;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  opacity: 0.9;
+}
+.ammo .slots {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+.ammo .slots u {
+  text-decoration: none;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #1c223e66;
+  opacity: 0.55;
+}
+.ammo .slots u.cur {
+  opacity: 1;
+  background: #ffd98a;
+  color: #3a2c20;
+  text-shadow: none;
+}
 @keyframes ammo-pulse {
   from {
     opacity: 0.45;

@@ -63,7 +63,7 @@ export function playerName(): string {
 
 // --- Feedback ----------------------------------------------------------------------
 
-function toast(text: string) {
+export function toast(text: string) {
   const el = document.createElement('div');
   el.className = 'toast';
   el.setAttribute('role', 'status');

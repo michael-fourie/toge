@@ -6,7 +6,7 @@ import { $, SERVER_PILL, goOnline, playerName, sheet } from './ui.ts';
 
 export const MODES: Record<GameMode, { name: string; blurb: string }> = {
   battle: { name: 'Battle', blurb: 'Snipers, first to 30 kills' },
-  survival: { name: 'Survival', blurb: 'Co-op vs zombie rounds' },
+  survival: { name: 'Survival', blurb: 'Co-op vs zombies in a night factory' },
 };
 
 export const host: Render = (root, ctx) => {

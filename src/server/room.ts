@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { ClientMsg, GameMode } from '../shared/protocol.ts';
+import { decodeGear } from '../shared/items.ts';
 import { decodeSkin } from '../shared/skin.ts';
 import { type Client, Lobby, send } from './lobby.ts';
 import type { Env } from './worker.ts';
@@ -22,7 +23,8 @@ export class LobbyRoom extends DurableObject<Env> {
 
     const id = this.nextId++;
     const skin = decodeSkin(url.searchParams.get('skin')) ?? undefined; // anything malformed just means the seeded default
-    const client: Client = { id, ws, name: name.slice(0, 16).trim() || `player${id}`, skin, lobby: null };
+    const gear = decodeGear(url.searchParams.get('gear')) ?? undefined; // forged ids just mean nothing worn
+    const client: Client = { id, ws, name: name.slice(0, 16).trim() || `player${id}`, skin, gear, lobby: null };
     send(client, { t: 'welcome', id });
     const lobby = this.open(code, mode, teams);
     if (lobby.full) {

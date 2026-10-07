@@ -2,7 +2,9 @@ import { account } from '../account.ts';
 import type { Render } from './router.ts';
 import { mountLogo } from './logo.ts';
 import { skinLabel } from './skin.ts';
+import { stash } from '../inventoryStore.ts';
 import { storedSkin } from '../skinStore.ts';
+import { coinText } from './lootui.ts';
 import { $, esc, saveName, storedName } from './ui.ts';
 
 // Small storybook icons for the three buttons.
@@ -17,6 +19,15 @@ const ICONS = {
       <path d="M8 40 Q32 32 56 40 Q48 44 32 42 Q16 44 8 40Z" fill="#7fb24e"/>
       <rect x="30" y="8" width="3" height="32" rx="1.5" fill="#7a5236"/>
       <path d="M33 9 L52 15 L33 22Z" fill="#d9584a"/></svg>`,
+  store: `<svg viewBox="0 0 64 64" aria-hidden="true">
+      <rect x="8" y="26" width="48" height="30" rx="4" fill="#a98c6c" stroke="#4a3726" stroke-width="3"/>
+      <rect x="5" y="16" width="54" height="14" rx="4" fill="#e0b84a" stroke="#4a3726" stroke-width="3"/>
+      <rect x="28" y="16" width="8" height="40" fill="#fbf4e2" stroke="#4a3726" stroke-width="2.5"/>
+      <path d="M50 4 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2z" fill="#fff6c8"/></svg>`,
+  inventory: `<svg viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M14 22 Q32 6 50 22 L54 56 H10Z" fill="#76ac5a" stroke="#4a3726" stroke-width="3" stroke-linejoin="round"/>
+      <rect x="20" y="34" width="24" height="16" rx="4" fill="#fbf4e2" stroke="#4a3726" stroke-width="2.5"/>
+      <path d="M24 22 q8 -12 16 0" fill="none" stroke="#4a3726" stroke-width="3"/></svg>`,
   join: `<svg viewBox="0 0 64 64" aria-hidden="true">
       <path d="M6 30 L58 10 L44 54 L32 38Z" fill="#fbf4e2" stroke="#4a3726" stroke-width="3" stroke-linejoin="round"/>
       <path d="M32 38 L58 10 L28 34Z" fill="#8cc6ee"/>
@@ -53,11 +64,16 @@ export const title: Render = (root, ctx, screen) => {
       <div class="chips">
       ${nameChips()}
       <button class="name-chip skin-chip" data-go="skin">Skin: <b>${esc(skinLabel(storedSkin()))}</b></button>
+      <span class="name-chip coin-chip" title="Acorns: earn them by eliminating things, spend them on cases"><b>${coinText(stash.inv.coins)}</b></span>
       </div>
       <nav class="doors" aria-label="Play">
         ${door('practice', 'Practice')}
         ${door('host', 'Host')}
         ${door('join', 'Join')}
+      </nav>
+      <nav class="doors-mini" aria-label="Loot">
+        <button class="door door-store" data-go="store"><span class="door-art">${ICONS.store}</span><b>Store</b></button>
+        <button class="door door-inventory" data-go="inventory"><span class="door-art">${ICONS.inventory}</span><b>Inventory</b></button>
       </nav>
       <p class="notice" role="status">${notice ? esc(notice) : ''}</p>
       <footer class="menu-foot"><button class="link" data-go="help">How to play</button></footer>
@@ -70,7 +86,7 @@ export const title: Render = (root, ctx, screen) => {
       nameInput.addEventListener('keydown', (e) => e.key === 'Enter' && nameInput.blur());
     }
     root.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) =>
-      b.addEventListener('click', () => ctx.go({ name: b.dataset.go as 'practice' | 'host' | 'join' | 'help' | 'skin' | 'account' })),
+      b.addEventListener('click', () => ctx.go({ name: b.dataset.go as 'practice' | 'host' | 'join' | 'help' | 'skin' | 'account' | 'store' | 'inventory' })),
     );
     root.querySelector('[data-signout]')?.addEventListener('click', () => void account.signOut());
     if (first) $(root, '.door-practice').focus();

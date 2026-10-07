@@ -4,7 +4,7 @@
 import type { ServerMsg } from '../../shared/protocol.ts';
 import type { Net } from '../net.ts';
 
-export type ScreenName = 'title' | 'practice' | 'host' | 'join' | 'lobby' | 'help' | 'skin' | 'account' | 'game';
+export type ScreenName = 'title' | 'practice' | 'host' | 'join' | 'lobby' | 'help' | 'skin' | 'account' | 'store' | 'inventory' | 'game';
 
 export interface Screen {
   name: ScreenName;

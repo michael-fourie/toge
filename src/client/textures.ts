@@ -15,7 +15,7 @@ export function rng(seed: number) {
 
 type Ctx = CanvasRenderingContext2D;
 
-function canvas(w: number, h = w): [HTMLCanvasElement, Ctx] {
+export function canvas(w: number, h = w): [HTMLCanvasElement, Ctx] {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -34,7 +34,7 @@ function wrapped(g: Ctx, w: number, h: number, fn: () => void, vertical = true) 
   }
 }
 
-function blobs(g: Ctx, w: number, h: number, r: () => number, n: number, colors: string[], size: [number, number], alpha: [number, number], vertical = true, yRange: [number, number] = [0, 1]) {
+export function blobs(g: Ctx, w: number, h: number, r: () => number, n: number, colors: string[], size: [number, number], alpha: [number, number], vertical = true, yRange: [number, number] = [0, 1]) {
   for (let i = 0; i < n; i++) {
     const x = r() * w;
     const y = (yRange[0] + r() * (yRange[1] - yRange[0])) * h;
@@ -58,7 +58,7 @@ function blobs(g: Ctx, w: number, h: number, r: () => number, n: number, colors:
   g.globalAlpha = 1;
 }
 
-function toTexture(c: HTMLCanvasElement, renderer: THREE.WebGLRenderer, wrap = true): THREE.CanvasTexture {
+export function toTexture(c: HTMLCanvasElement, renderer: THREE.WebGLRenderer, wrap = true): THREE.CanvasTexture {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   if (wrap) t.wrapS = t.wrapT = THREE.RepeatWrapping;

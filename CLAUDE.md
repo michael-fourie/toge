@@ -30,15 +30,20 @@ src/shared/   runs on client AND server. No three.js, no DOM. Deterministic.
   constants.ts  every tunable: TICK_DT, NET, PLAYER, MOVE (CS:GO values in Hammer units), WEAPON
   math.ts       tiny {x,y,z} helpers (yaw 0 looks down -Z, three.js convention)
   movement.ts   stepPlayer(): the 128 Hz player sim (bhop, air-strafe, slide, wallrun, pads); launchTo()
-  zombie.ts     Survival zombie AI + physics (chase, claw, hop, detour, pounce); the server runs it
+  zombie.ts     Survival zombie AI + physics (chase, claw, hop, detour, pounce); the server runs it. Optional `Brain` steers it (rooms/doors, window sieges)
   collision.ts  AABB boxes + wedge ramps + non-solid Triggers: move-and-slide, probes, raycasts
-  map.ts        the "Windward" map as data (boxes, triggers, decor, spawns), built from helpers; one half mirrored
+  map.ts        the "Windward" map as data (boxes, triggers, decor, spawns), built from helpers; one half mirrored. `MapData.survival` carries a Survival layout
+  foundry.ts    the "Foundry" Survival map (night factory): walls with doorway/window gaps, rooms, doors, barricades, wall guns, box spots, stations. layout.ts = its types
+  maps.ts       mapFor(mode): Windward for battle/practice, Foundry for survival
+  colliders.ts  the boxes each mover bumps into (players / zombies / bullets differ: shut doors, window boards, invisible window bars); rebuilt when a door or board changes
+  nav.ts        rooms-and-doorways graph: routes zombies between rooms, ranks who to chase; siege.ts = the Brain for window break-ins
+  weapons.ts    the nine guns (stats, Pack-a-Punch twin, prices, box pool); interact.ts = the shared "press F" rules (findUse) + kill points
   spawn.ts      pickSpawn(): random good spawn (far from, and out of sight of, living players; not recently used)
   protocol.ts   JSON wire types (ClientMsg / ServerMsg), StateFlag bits
 src/server/   Cloudflare Worker: worker.ts (routing), room.ts (LobbyRoom Durable Object, one per match),
               directory.ts (Directory DO: codes + lobby list), accounts.ts + accountStore.ts (Accounts DO: username/password accounts and sessions), lobby.ts (game logic: 20 Hz snapshots, kills, respawns),
-              survival.ts (rounds, zombie spawning/sim, claws and HP, game over)
-              Survival also owns the per-player economy (`wallet`: points + punched flag, server-authoritative, reset with the run). The `pts` message tells the owner; `shot.up` tells others the rifle is punched; `punch` buys.
+              survival.ts (rounds, window break-ins, zombie sim, claws, HP regen, game over)
+              Survival also owns everything with a price, server-authoritative and reset with the run: per-player `wallet` (points, Juggernog, two gun slots), doors, window boards, the Mystery Box. Clients send `use {kind,id}` (the server re-checks with `findUse`) and `equip`; the owner hears `me` (points, guns, which slots start full), everyone hears `world` (open doors, boards per window, box state), others see `shot.w/up`.
 src/client/
   main.ts       boots the menu router; loading screen; starts a Game (practice or online)
   menu/         one file per screen (title, practice, host, join, lobby room, help) + router.ts, ui.ts,
@@ -47,15 +52,20 @@ src/client/
   game.ts       the Game: loop, fixed-tick sim + render interpolation, weapon state, remotes, net, camera
   achievements.ts  feats (360, no-scope, headshot, ...) + streaks/multi-kills; pure, unit-tested
   horde.ts      Survival zombies on the client: snapshot interpolation, zombie avatars, corpses
-  world.ts      renders MAP by box.kind (+ sky, clouds, scenery). textures.ts = procedural canvas textures
-  viewmodel.ts  first-person rifle + hands, all animation keyframed in code
-  weapon/       awp.ts (procedural AWP + optional GLB loader/fitter), hands.ts (Arm)
+  world.ts      renders Windward by box.kind (+ sky, clouds, scenery). textures.ts = procedural canvas textures
+  foundryworld.ts  renders the Foundry at night: static boxes merged into ~9 meshes, faked lamp light, doors, planks, box, stations; foundrytextures.ts, foundrybox.ts (wall-gun plates, Mystery Box, plush)
+  loadout.ts    the guns we carry and their ammo (the server owns *which* guns; ammo is counted here)
+  viewmodel.ts  first-person gun + hands for any gun; the gun's animation (weapon/guns.ts) says where the hands go
+  weapon/       rig.ts (GunRig/GunAnim/Plan, easing, builders), guns.ts (8 guns: model + fire/reload animation each; the AWP's bolt animation too), awp.ts (procedural AWP + optional GLB loader/fitter), hands.ts (Arm)
   grenade.ts    (shared) grenade physics, blast targets (line of sight) and the no-slowdown shove; client grenadefx.ts / nadehud.ts draw it; the thrower reports 'boom', the server validates and kills
-  jug.ts        (shared) Juggernog rules: station range/price/status and max health (client jugmachine.ts draws the station; survival.ts buyJug)
-  night.ts      the Survival look: indigo moonlit palette, stars, moon (world.ts buildWorld(.., night) uses it; only Survival is at night)
+  night.ts      the night palette, stars and moon (used by foundryworld.ts); usehud.ts = points + the F prompt; jugmachine.ts / punchmachine.ts draw the two stations
   rope.ts       grapple rope + hook meshes
   killcam.ts    Trail (rolling per-player poses) + replay timing; game.ts records everyone and replays your death from the killer's eyes
   speedfx.ts    wind streaks overlay that scale with speed (hud.ts owns it); sfx.setWind adds the rushing-wind loop
+  items.ts + inventory.ts (src/shared) loot: rarities (CSGO colours/names), the three cases, every item (rifle paints, knives, wearables), the dice (`rollCase`), gear codes
+                (equipped ids sent to the server as `gear=` and relayed in `PlayerInfo.gear`, validated by `decodeGear`), and the pure stash rules (coins, buy/open, equip, sell).
+                client/inventoryStore.ts saves it in localStorage; menu/store.ts (case reel), menu/inventory.ts, menu/itemIcon.ts (renders each item once to a PNG); knife.ts + wear.ts build the models;
+                avatar.ts / viewmodel.ts show the equipped gear. Currency is Acorns: kills pay (COIN in items.ts). Tests: loot.test.ts.
   skin.ts (src/shared) skin spec: option lists, presets, seeded default, encode/decode ('3.0.1.3.0.0.x', validated on the server). client/skinStore.ts saves it; menu/skin.ts + skinPreview.ts are the picker.
   avatar.ts     chibi anime players (look = chosen skin, else seeded from name+colour, ink outlines, canvas faces), a zombie variant
                 (poseZombie) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
@@ -96,12 +106,14 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
   - `spawnDummies()` spots in `game.ts`.
   - `docs/MAP_PLAN.md`.
 
+The Survival map is its own file (`foundry.ts`); its rules and checklist are in `docs/FOUNDRY.md`.
+
 **Game types**: a lobby is `'battle'` (FFA or two teams) or `'survival'`, chosen on the Host screen and sent with `host` (`teams=1` in the socket query).
 - Battle matches end at `KILL_LIMIT` (30) kills, a player's or a team's total (`shared/teams.ts`, tests in `teams.test.ts`). The server sends `matchOver`, freezes scores for `MATCH_OVER_SECONDS`, then `matchStart` zeroes them and respawns everyone. Teams: joiners fill the smaller side, `team` switches yours, the host's `shuffle` randomises; `color` becomes the team colour, no friendly fire (shots, grenades). The lobby room draws the two-column picker.
 - Survival is co-op (no friendly fire; the client only hit-tests zombies). `Survival` (server) owns rounds: intermission → active → (all cleared: revive + heal, next round) or (everyone down: game over → post-game board, shared/postgame.ts; restarts at round 1 when all present players send 'again' or after SURVIVAL.gameOverSeconds). Dead players stay down until the round ends.
-- Zombies are server-authoritative: `stepHorde` at 60 Hz, sent as `snapshot.zombies`; shots on zombies are client-detected and sanity-checked like player hits (`shoot.zombie`). Players have HP only in Survival (`hp` message to that player). Tuning lives in `SURVIVAL` and `ZOMBIE` in constants.ts.
-- Points and Pack-a-Punch: pure rules in `shared/punch.ts` (kill points, `punchStatus` range/price/owned, `weaponStats`, damage, `pierced`), tunables in `SURVIVAL` and `WEAPON_PUNCHED`. The machine's spot is `MAP.punchMachine` (visual only, built client-side in `punchmachine.ts`; the server checks distance). Press F to buy; the upgrade lasts until the run restarts. The server uses the punched `fireCooldown` as its rate limit. Tests: `punch.test.ts`.
-- Map data: `survivalSpawns` (players) and `zombieSpawns`.
+- Zombies are server-authoritative: `stepHorde` at 60 Hz, sent as `snapshot.zombies`. They spawn in the yard at a boarded window (`gate`), the front one tears a board every `SURVIVAL.tearTime`, and once the window is clear they climb in and chase through the room graph (`nav.ts`; keep obstacles hoppable ≤1.3 m or narrow, `foundry.test.ts` walks a zombie from every window to a grid of points in every room). Shots are client-detected and sanity-checked: `shoot.hits` lists the zombies each pellet hit and the server computes damage from the gun it knows you hold. Tuning lives in `SURVIVAL`, `ZOMBIE` and `weapons.ts`.
+- The Foundry (docs/FOUNDRY.md): doors (`layout.doors`) and window boards are the only changing geometry; `buildColliders` makes three lists (move / zombie / shot) and both sides rebuild them from `world` messages. Press F: the client shows `findUse`'s prompt, sends `use`, the server re-runs `findUse` before acting. Hold F at a window repairs (rate-limited). Guns: `weapons.ts` has all numbers; `gunStats(id, punched)` is the single source (Pack-a-Punch = `PUNCH` multipliers). Add a gun = a WeaponDef + a builder and `GunAnim` in `weapon/guns.ts` (see "Verifying" for the viewmodel lab).
+- Practice and Battle are still AWP-only on Windward (`Loadout` with endless reserve).
 
 **Feats** (`achievements.ts`): the shot's context is captured at fire time (`lastHit`), and scored when the kill is confirmed (immediately offline, on `kill`/`zombieDied` online). Feats from one kill stack into one combo popup (`hud.feats`) + `sfx.feats`. Streak resets on death.
 
@@ -135,16 +147,19 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 - Prefer small exact edits. When several agents or sessions work in parallel, give each one clear file ownership and keep each test area in its own file.
 - Don't commit unless asked. The remote is `origin` → github.com/michael-fourie/atrous (private), default branch `master`.
 
+**Knife (key 2 with one gun, key 3 with two; keys 1/2 return to your guns)**: LMB stabs a ray of `KNIFE.range` and one hit kills (or `KNIFE.zombieDamage` on a zombie). It sends `shoot` with `knife: true` (and `hits: [{z}]` for a zombie), which the server checks for reach, rate-limits with `KNIFE.cooldown`, and does not relay as a gun shot. The held weapon travels in `StateFlag.Knife`; the ViewModel's `holdKnife`/`stab` and the Avatar's `holdKnife` draw it. It never touches velocity.
+
 ## Status and known gaps
 
 A playable prototype covering practice and online lobbies. Everything listed in README works and is covered by tests or was checked in the browser. Known gaps, roughly in priority order:
 
+- **Loot is client-side:** acorns, owned items and equips live in localStorage, so they are as trustworthy as the client (cosmetic only, no gameplay edge). Real accounts would move the stash into the Accounts DO and make case opens server-side rolls.
 - **Netcode is a prototype:** client-authoritative movement, client-side hit detection, JSON messages. The upgrade path is under Netcode above and in `docs/DEPLOYMENT.md`.
 - **Deployment:** Cloudflare Worker + Durable Objects on the free plan, see `docs/DEPLOYMENT.md`. Next: Google sign-in + D1 player stats, rate limiting, reconnection tokens.
 - **Lobby room:** while you sit in the room, your bean is already in the live match, idle at spawn. The fix is a server "ready" flag.
 - **Real AWP model:** the GLB loader has never run against the real Sketchfab file. That file needs a manual download (see README).
 - **Viewmodel:** during the bolt cycle the right hand covers the knob.
-- **Survival:** zombies have no pathfinding: straight-line chase plus hops, wall detours, edge-feeling and pounces. The canopy crown (23 m) is out of pounce reach from the ground, so it's a safe camping spot. No HP regen yet (healed between rounds). Practice has no Survival mode yet; host a lobby alone to play it solo.
+- **Survival:** zombies navigate rooms and doorways (not a navmesh): straight lines inside a room with hops and detours, so a tall wide obstacle can trap them (the room-sweep test guards it). A lone player can camp behind a shut door while zombies queue at it. No power switch, perks beyond Juggernog, max-ammo or insta-kill drops yet. Practice has no Survival mode yet; host a lobby alone to play it solo.
 - **Feats are local:** only the shooter sees the combo popup and the feat title in their killfeed. Everyone else sees a plain "sniped" row. Sending feats in `shoot` would fix that.
 - **knip** (latest) needs Node 20+, and older versions crash against TypeScript 5.9, so the dead-code sweep can't run on Node 18.
 - **Map:**
@@ -157,6 +172,7 @@ Design docs in `docs/` describe the current map and menu. Update them when you c
 
 ## Verifying in the browser
 
+- Gun models and animations: open `/dev/viewmodel` (dev server), pick a gun, press fire / reload / draw; right mouse aims. `window.lab` has `pick(id, punched)`, `step(seconds)` and `reload(empty)` for scripted screenshots.
 - In dev, `window.__game` is the running Game. To skip the menu, create one directly: `const { Game } = await import('/src/client/game.ts'); app.innerHTML = ''; new Game({ container: app, name: 'x', onExit() {} })`.
 - Set `g.input.locked = true; g.hud.setPaused(false)` to play without pointer lock.
 - Automation tabs are often **hidden**, which pauses rAF. Drive frames yourself: `let T = performance.now(); g.last = T; for (...) { T += 1000/60; g.frame(T); }`.
