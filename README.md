@@ -14,6 +14,8 @@ Requires Node ≥ 20 (Wrangler). Node 22 LTS is recommended, and also unlocks Vi
 
 **The map, Windward:** two harbour islands face each other across a great tree. Three lanes lead to the middle: a slide-and-bhop Windway, a Surf Gorge, and walled Old Ruins. Along the way are multi-storey houses with sniping windows, extra surfs, wind gates (speed boosters) and puffball mushrooms (jump boosters).
 
+**Dune Village** (pick it when hosting a Battle): a sunbaked market town inside a sandstone wall. Snipe from flat roofs and the gatehouse towers, surf the glazed-tile aqueduct, slide down the dune into a wind-gate run, swing roof to roof over the market.
+
 **Practice** runs offline against target dummies. **Host** creates a lobby with a 4-letter code. Others join with that code, from the lobby list, or with `/?join=CODE`.
 
 ## Skins

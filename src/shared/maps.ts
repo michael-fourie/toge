@@ -2,11 +2,13 @@ import type { BattleMap, GameMode } from './protocol.ts';
 import { FOUNDRY } from './foundry.ts';
 import { MAP, type MapData } from './map.ts';
 import { RUSTWORKS } from './rustworks.ts';
+import { DUNE_VILLAGE } from './dunevillage.ts';
 
 /** The Battle arenas, in menu order. Survival always plays on the Foundry; Practice on Windward. */
 export const BATTLE_MAPS: Record<BattleMap, { name: string; blurb: string; data: MapData }> = {
   windward: { name: 'Windward', blurb: 'Sky islands, surf gorges and a great tree', data: MAP },
   rustworks: { name: 'Rustworks', blurb: 'An abandoned foundry: furnace, conveyor, catwalks', data: RUSTWORKS },
+  dunevillage: { name: 'Dune Village', blurb: 'A sunbaked market town: rooftops, an aqueduct surf, a dune run', data: DUNE_VILLAGE },
 };
 export const BATTLE_MAP_IDS = Object.keys(BATTLE_MAPS) as BattleMap[];
 
