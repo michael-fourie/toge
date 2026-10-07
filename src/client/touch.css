@@ -388,17 +388,12 @@ html.touch .pause .keys {
     font-size: 13px;
     margin: 0;
   }
-  html.touch .modes {
-    gap: 8px;
+  html.touch .host-pill span {
+    padding: 6px 12px;
+    font-size: 13px;
   }
-  html.touch .mode {
-    padding: 8px 12px;
-  }
-  html.touch .mode b {
-    font-size: 17px;
-  }
-  html.touch .mode span {
-    font-size: 12px;
+  html.touch .host-row {
+    margin-bottom: 8px;
   }
   html.touch .primary.big {
     padding: 11px 18px;

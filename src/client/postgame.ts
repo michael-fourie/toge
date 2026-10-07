@@ -3,6 +3,7 @@
 import { mvpIds, totalKills } from '../shared/postgame.ts';
 import type { PostRow } from '../shared/protocol.ts';
 import { esc, hex } from './menu/ui.ts';
+import { type XpLine, showXp } from './xpcard.ts';
 
 export class PostGame {
   private root: HTMLDivElement;
@@ -26,6 +27,7 @@ export class PostGame {
         <p class="pg-sub"></p>
         <ol class="pg-rows"></ol>
         <p class="pg-total"></p>
+        <div class="pg-xp"></div>
         <div class="pg-buttons">
           <button class="primary" data-again>Play again</button>
           <button data-home>Home</button>
@@ -87,6 +89,11 @@ export class PostGame {
     if (!this.shown || this.left === null) return;
     const s = Math.max(0, Math.ceil(this.left - (now - this.timerAt)));
     if (s <= 15 && !this.iAmReady) (this.root.querySelector('.pg-wait') as HTMLElement).textContent = `New run in ${s}s`;
+  }
+
+  /** Level progress for this run (filled once, at game over). */
+  showXp(start: number, end: number, lines: readonly XpLine[]) {
+    showXp(this.root.querySelector('.pg-xp') as HTMLElement, start, end, lines);
   }
 
   hide() {

@@ -43,6 +43,11 @@ export const stash = {
     earnCoins(inv, n);
     changed();
   },
+  /** Account XP. */
+  gainXp(n: number) {
+    inv.xp += Math.max(0, Math.floor(n));
+    changed();
+  },
   /** Takes a stake for a table game (false if you can't cover it). Pay winnings back with `earn`. */
   wager(n: number) {
     const ok = stakeCoins(inv, n);

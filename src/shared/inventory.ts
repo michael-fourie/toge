@@ -11,13 +11,15 @@ export interface Owned {
 
 export interface Inv {
   coins: number;
+  /** Account XP (levels.ts turns it into a level). */
+  xp: number;
   items: Owned[];
   next: number;
   /** Slot -> the `u` of the owned item that's worn. */
   equipped: Partial<Record<Slot, number>>;
 }
 
-export const newInv = (): Inv => ({ coins: COIN.start, items: [], next: 1, equipped: {} });
+export const newInv = (): Inv => ({ coins: COIN.start, xp: 0, items: [], next: 1, equipped: {} });
 
 const ownedItem = (inv: Inv, u: number): Item | undefined => {
   const o = inv.items.find((x) => x.u === u);
@@ -83,6 +85,7 @@ export function sanitize(raw: unknown): Inv {
   const r = (raw ?? {}) as Partial<Inv>;
   const inv = newInv();
   if (typeof r.coins === 'number' && Number.isFinite(r.coins)) inv.coins = Math.max(0, Math.floor(r.coins));
+  if (typeof r.xp === 'number' && Number.isFinite(r.xp)) inv.xp = Math.max(0, Math.floor(r.xp));
   const seen = new Set<number>();
   for (const o of Array.isArray(r.items) ? r.items : []) {
     if (!o || !Number.isInteger(o.u) || o.u < 1 || seen.has(o.u) || !itemById(o.id)) continue;

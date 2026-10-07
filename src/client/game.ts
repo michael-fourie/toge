@@ -37,6 +37,9 @@ import { storedSkin } from './skinStore.ts';
 import { Avatar, Corpses } from './avatar.ts';
 import { PostGame } from './postgame.ts';
 import { Drops } from './drops.ts';
+import { type XpLine, showXp } from './xpcard.ts';
+import './xpcard.css';
+import { XP, levelOf } from '../shared/levels.ts';
 import { ScytheFx } from './scythefx.ts';
 import { Horde } from './horde.ts';
 import { HillFx, HillHud } from './hill.ts';
@@ -223,6 +226,10 @@ export class Game {
   private roofT = 0;
   private roofWarned = false;
   private fogDefault: [number, number] | null = null;
+  /** XP this match or run, for the after-game card: the total we started from and what it was earned for. */
+  private xpStart = stash.inv.xp;
+  private xpLines: XpLine[] = [];
+  private xpOverlay: HTMLDivElement;
   private use: Use | null = null;
   private repairAt = 0;
   private shadowTick = 0;
@@ -297,6 +304,10 @@ export class Game {
     if (this.map.koth) this.hillHud = new HillHud(this.hud.root);
     this.nadeHud = new NadeHud(this.hud.root);
     this.input = new Input(this.renderer.domElement);
+    this.xpOverlay = document.createElement('div');
+    this.xpOverlay.className = 'xp-overlay';
+    this.xpOverlay.hidden = true;
+    container.appendChild(this.xpOverlay);
     if (net && this.mode === 'survival') this.postgame = new PostGame(container, this.selfId, { onAgain: () => { net.send({ t: 'again' }); void this.input.lock(); }, onHome: () => this.exit() });
     this.input.yaw = spawn.yaw;
     this.input.onLockChange = (locked) => {
@@ -909,6 +920,7 @@ export class Game {
     const extra = this.streak.kill(this.time);
     sfx.kill();
     if (!zombie && this.opts.net && this.mode === 'battle') this.award(COIN.kill); // practice dummies pay nothing
+    if (this.opts.net) this.gainXp(zombie ? 'Zombies' : 'Kills', zombie ? XP.zombieKill : XP.battleKill);
     const all = [...style, ...extra];
     if (all.length === 0) this.hud.center(pick(YEETS));
     else if (all.length === 1 && style[0]?.label === 'HEADSHOT') this.hud.center('HEADSHOT!', '#ffd43b'); // the classic
@@ -917,6 +929,28 @@ export class Game {
       sfx.feats(all.length, Math.max(...all.map((f) => f.tier)));
     }
     return style.length ? style.map((f) => f.label).join(' ') : null;
+  }
+
+  /** Account XP (client-side, like coins), tallied by what earned it for the after-game card. A level-up gets a banner. */
+  private gainXp(label: string, n: number) {
+    const before = levelOf(stash.inv.xp).level;
+    stash.gainXp(n);
+    const line = this.xpLines.find((l) => l.label === label);
+    if (line) {
+      line.count++;
+      line.xp += n;
+    } else this.xpLines.push({ label, count: 1, xp: n });
+    const after = levelOf(stash.inv.xp).level;
+    if (after > before && !this.matchOver && this.wave?.phase !== 'over') {
+      this.hud.center(`LEVEL UP! LV ${after}`, '#b89aff', 2.5);
+      sfx.part();
+    }
+  }
+
+  /** A new match or run: the after-game card counts from here. */
+  private resetXp() {
+    this.xpStart = stash.inv.xp;
+    this.xpLines = [];
   }
 
   /** Coins for something we did (client-side, like the rest of the stash): saved, and floated up on the HUD. */
@@ -1237,6 +1271,7 @@ export class Game {
         sfx.zombieDown();
         if (msg.boss) {
           this.award(COIN.boss); // everyone, not just whoever landed the kill
+          this.gainXp('The Foreman', XP.boss);
           this.hud.center(`THE FOREMAN IS DOWN! +${COIN.boss} COINS`, '#ffd98a', 3);
           sfx.roundClear();
         }
@@ -1258,6 +1293,8 @@ export class Game {
         break;
       case 'matchStart':
         this.matchOver = false;
+        this.xpOverlay.hidden = true;
+        this.resetXp();
         this.streak.reset();
         for (const n of msg.players) {
           const p = this.players.get(n.id);
@@ -1424,6 +1461,7 @@ export class Game {
     this.waveAt = this.time;
     if (w.phase !== 'over') this.postgame?.hide();
     if (w.phase === was) return;
+    if (was === 'over') this.resetXp(); // a new run
     if (this.horde) this.horde.mod = w.phase === 'active' ? (w.mod ?? null) : null;
     this.setSmog(w.phase === 'active' && w.mod === 'smog');
     if (w.phase === 'active') {
@@ -1433,10 +1471,17 @@ export class Game {
     } else if (w.phase === 'over') {
       sfx.gameOver();
       if (!this.postgame) this.hud.center('GAME OVER', '#f08a6b', 3);
+      if (was) {
+        this.gainXp('Run played', XP.survivalGame);
+        this.postgame?.showXp(this.xpStart, stash.inv.xp, this.xpLines);
+      }
     } else if (w.round > 0) {
       sfx.roundClear();
       this.hud.center('ROUND CLEARED!', '#ffd98a', 2.2);
-      if (was === 'active') this.award(COIN.round); // everyone in the lobby, up or down
+      if (was === 'active') {
+        this.award(COIN.round); // everyone in the lobby, up or down
+        this.gainXp('Rounds', XP.round);
+      }
     }
   }
 
@@ -1476,6 +1521,10 @@ export class Game {
     const who = 'team' in w ? `${TEAMS[w.team].name.toUpperCase()} WINS!` : `${(this.players.get(w.id)?.name ?? '???').toUpperCase()} WINS!`;
     this.hud.center(who, '#' + color.toString(16).padStart(6, '0'), msg.restartIn);
     if (won) this.award(COIN.win);
+    this.gainXp('Match played', XP.battleMatch);
+    if (won) this.gainXp('Win', XP.battleWin);
+    showXp(this.xpOverlay, this.xpStart, stash.inv.xp, this.xpLines);
+    this.xpOverlay.hidden = false;
     if (won) sfx.roundClear();
     else sfx.gameOver();
   }
@@ -1700,6 +1749,7 @@ export class Game {
     this.input.dispose();
     this.hud.dispose();
     this.postgame?.dispose();
+    this.xpOverlay.remove();
     this.gui.destroy();
     for (const id of [...this.remotes.keys()]) this.removeRemote(id);
     this.horde?.dispose();

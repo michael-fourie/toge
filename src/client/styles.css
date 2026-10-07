@@ -1565,66 +1565,12 @@ button:disabled {
   }
 }
 
-/* ---------- Game type picker (Host) ---------- */
-.modes {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.modes legend {
-  margin-bottom: 8px;
-}
-.mode {
-  position: relative;
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px 12px 18px;
-  border-radius: 12px;
-  background: #f4ead2;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: transform 0.15s ease, border-color 0.15s;
-}
-.mode::before {
-  content: '';
-  position: absolute;
-  inset: 8px auto 8px 0;
-  width: 5px;
-  border-radius: 0 3px 3px 0;
-  background: var(--accent);
-}
+/* ---------- Game type tags (lobby list, lobby room) ---------- */
 .mode-battle {
   --accent: var(--kiki);
 }
 .mode-survival {
   --accent: var(--meadow);
-}
-.mode input {
-  position: absolute;
-  opacity: 0;
-}
-.mode b {
-  font-family: var(--display);
-  font-size: 22px;
-}
-.mode span {
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--ink-soft);
-}
-.mode:hover {
-  transform: translateY(-2px);
-}
-.mode:has(input:checked) {
-  border-color: var(--accent);
-  background: var(--paper);
-  box-shadow: 0 6px 18px #2a3e5a25;
-}
-.mode:has(input:focus-visible) {
-  outline: 3px solid var(--sun);
 }
 .mode-tag {
   justify-self: center;
@@ -1639,11 +1585,6 @@ button:disabled {
 }
 .lobby-host .mode-tag {
   margin-left: 6px;
-}
-@media (max-width: 480px) {
-  .modes {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Survival post-game screen */
@@ -1730,18 +1671,6 @@ button:disabled {
 }
 
 /* ---------- Battle format + team picker ---------- */
-.formats[hidden] {
-  display: none;
-}
-.formats {
-  margin-top: 12px;
-}
-.mode-ffa {
-  --accent: var(--kiki);
-}
-.mode-teams {
-  --accent: #4f8fd9;
-}
 .teampick h3 {
   margin: 0 0 8px;
 }
@@ -1790,4 +1719,49 @@ button:disabled {
   padding-top: 10px;
   font-family: var(--display);
   font-size: 18px;
+}
+
+/* ---------- Host: rows of pill choices ---------- */
+.host-row {
+  border: 0;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.host-row[hidden] {
+  display: none;
+}
+.host-row legend {
+  margin-bottom: 6px;
+}
+.host-pill {
+  position: relative;
+  cursor: pointer;
+}
+.host-pill input {
+  position: absolute;
+  opacity: 0;
+}
+.host-pill span {
+  display: block;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: #f4ead2;
+  border: 2px solid transparent;
+  font-weight: 700;
+  font-size: 15px;
+  transition: transform 0.15s ease, border-color 0.15s, background 0.15s;
+}
+.host-pill:hover span {
+  transform: translateY(-1px);
+}
+.host-pill input:checked + span {
+  background: var(--paper);
+  border-color: var(--kiki);
+  box-shadow: 0 4px 12px #2a3e5a22;
+}
+.host-pill input:focus-visible + span {
+  outline: 3px solid var(--sun);
 }

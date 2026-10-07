@@ -30,6 +30,8 @@ Pick your look from the **Skin** chip on the home screen: eight named presets, i
 
 
 ## Cases, loot and the knife
+**Levels**: online play earns XP: 20 per Battle kill, 75 for finishing a match and 100 more for winning; in Survival 5 per zombie, 40 per round cleared, 150 when the Foreman goes down and 75 for finishing a run. Each level needs a little more XP than the last. Your level sits on the home screen, and after every Battle match and Survival run a card shows the XP you earned, what for, and the bar filling toward the next level. Like coins, it's saved in your browser.
+
 Coins come from playing online: **10 per kill and 50 for winning** a Battle match, and in Survival **10 for every round cleared and 50 when the boss goes down** (everyone in the lobby gets those), shown on the home screen and in the corner of the HUD. Spend them in the **Casino**: open a case (Skyline: AWP paints, Windblade: knives, Wardrobe: hats, faces and backs) and watch the reel roll, drop a ball down **Plinko** (bet any amount; slots pay 0.4× up to 30×), or play the house at **Blackjack** (dealer stands on 17, blackjack pays 3:2, double on any two cards). Drops come in CSGO's rarities (Consumer, Industrial, Mil-Spec, Restricted, Classified, Covert, and a gold Exceedingly Rare tier). The **Inventory** lists what you own with a turning preview: equip an item, unequip it, or sell spares for coins. Equipped gear is saved in your browser and everyone in the lobby sees it.
 
 Press **2** for the knife (**3** in Survival, where 2 is your second gun; LMB stabs, one hit kills, no momentum lost) and **1** to bring your gun back. Knives come in four shapes (field knife, karambit, machete, kunai) with many colourways.

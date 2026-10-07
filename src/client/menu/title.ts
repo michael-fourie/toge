@@ -3,6 +3,8 @@ import { account } from '../account.ts';
 import { stash } from '../inventoryStore.ts';
 import { storedSkin } from '../skinStore.ts';
 import { coinText } from './lootui.ts';
+import { levelBadge } from '../xpcard.ts';
+import '../xpcard.css';
 import type { Render, ScreenName } from './router.ts';
 import { DEFAULT_JACKET, mountSkinPreview } from './skinPreview.ts';
 import { $, esc, playerName } from './ui.ts';
@@ -18,6 +20,7 @@ export const title: Render = (root, ctx, screen) => {
       <div class="acct-who">
         <span class="avatar-dot" aria-hidden="true">${esc((account.user ?? 'G')[0].toUpperCase())}</span>
         <span class="acct-name"><small>${account.user ? 'Signed in' : 'Playing as a guest'}</small><b>${esc(playerName())}</b></span>
+        ${levelBadge(stash.inv.xp)}
       </div>
       <button class="coin-pill" data-go="casino" title="Coins: earn them by eliminating things, spend them on cases, Plinko and Blackjack" aria-label="Coins">${coinText(stash.inv.coins)}</button>
       ${
@@ -87,6 +90,8 @@ export const title: Render = (root, ctx, screen) => {
   const offStash = stash.onChange(() => {
     const pill = root.querySelector('.coin-pill');
     if (pill) pill.innerHTML = coinText(stash.inv.coins);
+    const lvl = root.querySelector('.lvl-badge');
+    if (lvl) lvl.outerHTML = levelBadge(stash.inv.xp);
   });
   return () => {
     offAcct();
