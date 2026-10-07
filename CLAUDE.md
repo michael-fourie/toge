@@ -38,6 +38,7 @@ src/shared/   runs on client AND server. No three.js, no DOM. Deterministic.
 src/server/   Cloudflare Worker: worker.ts (routing), room.ts (LobbyRoom Durable Object, one per match),
               directory.ts (Directory DO: codes + lobby list), lobby.ts (game logic: 20 Hz snapshots, kills, respawns),
               survival.ts (rounds, zombie spawning/sim, claws and HP, game over)
+              Survival also owns the per-player economy (`wallet`: points + punched flag, server-authoritative, reset with the run). The `pts` message tells the owner; `shot.up` tells others the rifle is punched; `punch` buys.
 src/client/
   main.ts       boots the menu router; loading screen; starts a Game (practice or online)
   menu/         one file per screen (title, practice, host, join, lobby room, help) + router.ts, ui.ts,
@@ -95,6 +96,7 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 **Game types**: a lobby is `'battle'` (FFA) or `'survival'`, chosen on the Host screen and sent with `host`.
 - Survival is co-op (no friendly fire; the client only hit-tests zombies). `Survival` (server) owns rounds: intermission → active → (all cleared: revive + heal, next round) or (everyone down: game over → post-game board, shared/postgame.ts; restarts at round 1 when all present players send 'again' or after SURVIVAL.gameOverSeconds). Dead players stay down until the round ends.
 - Zombies are server-authoritative: `stepHorde` at 60 Hz, sent as `snapshot.zombies`; shots on zombies are client-detected and sanity-checked like player hits (`shoot.zombie`). Players have HP only in Survival (`hp` message to that player). Tuning lives in `SURVIVAL` and `ZOMBIE` in constants.ts.
+- Points and Pack-a-Punch: pure rules in `shared/punch.ts` (kill points, `punchStatus` range/price/owned, `weaponStats`, damage, `pierced`), tunables in `SURVIVAL` and `WEAPON_PUNCHED`. The machine's spot is `MAP.punchMachine` (visual only, built client-side in `punchmachine.ts`; the server checks distance). Press F to buy; the upgrade lasts until the run restarts. The server uses the punched `fireCooldown` as its rate limit. Tests: `punch.test.ts`.
 - Map data: `survivalSpawns` (players) and `zombieSpawns`.
 
 **Feats** (`achievements.ts`): the shot's context is captured at fire time (`lastHit`), and scored when the kill is confirmed (immediately offline, on `kill`/`zombieDied` online). Feats from one kill stack into one combo popup (`hud.feats`) + `sfx.feats`. Streak resets on death.

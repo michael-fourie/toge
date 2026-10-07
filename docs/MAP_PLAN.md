@@ -69,6 +69,8 @@ Fix: surf (and slide) ramps sometimes rendered inside-out. The ramp mesh wound e
 
 Survival reuses Windward. Players start (and are revived) back to back around the Great Tree at (±9, ±9), facing out. Zombies climb up at ground level on the island's rim and on the ruins terraces (`zombieSpawns`, mirrored), preferring spots at least 12 m from every player. Zombies chase in a straight line: they hop roots and crates, detour sideways along walls, feel along edges, and pounce (a `launchTo` arc) onto ledges, branches and across gaps within 15 m. They ride launch pads but ignore wind gates and puffballs. `zombie.test.ts` checks that a zombie from every spawn reaches both player spawns.
 
+The Pack-a-Punch machine (`MAP.punchMachine`) stands on the centre island at (-12, 0, 0): west of the trunk, clear of the root ridges and walls, about 10 m from the first spawn. It is visual only (no collision); the server checks that you are within 2.5 m when you press F. Players from the far spawn walk around the trunk. `punch.test.ts` checks the spot is clear floor and walkable from both spawns.
+
 ## Lessons from building it
 
 - **Straight-up puffballs next to an overhang don't work** (round 1; puffballs now also push you forward, which helps, but overhangs still need launch pads). Fast runners reach the edge while still rising and bonk the underside. Source air control adds at most 0.76 m/s from standstill, so you can't steer onto the ledge either. Use aimed launch pads (`padTo`) for ledges and branches, and keep puffballs in open air.

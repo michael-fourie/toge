@@ -1,7 +1,8 @@
-import { MOVE, NET, RESPAWN_SECONDS, SURVIVAL, WEAPON } from '../shared/constants.ts';
+import { MOVE, NET, RESPAWN_SECONDS, SURVIVAL } from '../shared/constants.ts';
 import { MAP } from '../shared/map.ts';
 import type { ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
 import { JACKETS, type Skin, encodeSkin } from '../shared/skin.ts';
+import { weaponStats } from '../shared/punch.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import { Survival } from './survival.ts';
 
@@ -106,6 +107,7 @@ export class Lobby {
   remove(client: Client) {
     if (!this.members.delete(client.id)) return;
     this.survival?.left(client.id);
+    this.survival?.forget(client.id);
     client.lobby = null;
     if (this.members.size === 0) {
       clearInterval(this.timer);
@@ -136,6 +138,9 @@ export class Lobby {
       case 'again':
         this.survival?.again(m);
         return;
+      case 'punch':
+        this.survival?.buy(m);
+        return;
       case 'fell':
         if (m.info.alive) this.kill(m, m, 'void', [0, 1, 0]);
         return;
@@ -144,9 +149,10 @@ export class Lobby {
 
   private onShoot(m: Member, msg: Extract<ClientMsg, { t: 'shoot' }>) {
     const now = Date.now();
-    if (!m.info.alive || now - m.lastShot < WEAPON.fireCooldown * 1000 * 0.9) return;
+    const up = this.survival?.isUpgraded(m) ?? false; // a punched rifle cycles faster
+    if (!m.info.alive || now - m.lastShot < weaponStats(up).fireCooldown * 1000 * 0.9) return;
     m.lastShot = now;
-    this.broadcast({ t: 'shot', id: m.info.id, from: msg.from, to: msg.to }, m.info.id);
+    this.broadcast({ t: 'shot', id: m.info.id, from: msg.from, to: msg.to, up: up || undefined }, m.info.id);
 
     if (this.survival) {
       if (msg.zombie !== undefined) this.survival.shoot(m, msg); // co-op: no friendly fire

@@ -1,6 +1,7 @@
 import { SURVIVAL } from '../shared/constants.ts';
 import { MAP } from '../shared/map.ts';
 import { type RunRecord, buildRows, shouldRestart, waitingFor } from '../shared/postgame.ts';
+import { bodyDamage, headDamage, killPoints, pierced, punchStatus } from '../shared/punch.ts';
 import { type ClientMsg, type NetZombie, type V3, type WaveInfo, type WavePhase, ZombieFlag, round3 } from '../shared/protocol.ts';
 import { type Zombie, type ZombieTarget, createZombie, stepHorde } from '../shared/zombie.ts';
 import type { Lobby, Member } from './lobby.ts';
@@ -26,6 +27,8 @@ export class Survival {
   /** Zombie kills this run, per player; players who leave keep their line. Cleared on restart. */
   private run = new Map<number, RunRecord>();
   private ready = new Set<number>();
+  /** Per-player economy, keyed by client id. Points and the punched rifle last until the run restarts. */
+  private wallet = new Map<number, { points: number; upgraded: boolean }>();
 
   constructor(private lobby: Lobby) {}
 
@@ -61,17 +64,63 @@ export class Survival {
     }
   }
 
-  /** A player's shot at a zombie (hit detection is the shooter's; we sanity-check it). */
+  private purse(m: Member) {
+    let w = this.wallet.get(m.info.id);
+    if (!w) this.wallet.set(m.info.id, (w = { points: 0, upgraded: false }));
+    return w;
+  }
+
+  isUpgraded(m: Member) {
+    return this.purse(m).upgraded;
+  }
+
+  forget(id: number) {
+    this.wallet.delete(id);
+  }
+
+  private sendPoints(m: Member) {
+    const w = this.purse(m);
+    this.lobby.sendTo(m, { t: 'pts', pts: w.points, up: w.upgraded || undefined });
+  }
+
+  /** Buy the Pack-a-Punch upgrade: must be at the machine, have the points, and not own it yet. */
+  buy(m: Member) {
+    const w = this.purse(m);
+    const [x, y, z] = m.state.p;
+    if (!m.info.alive || punchStatus(w.points, w.upgraded, { x, y, z }, MAP.punchMachine) !== 'ready') return;
+    w.points -= SURVIVAL.punchPrice;
+    w.upgraded = true;
+    this.sendPoints(m);
+  }
+
+  /** A player's shot at a zombie (hit detection is the shooter's; we sanity-check it). A punched rifle also pierces. */
   shoot(m: Member, msg: Extract<ClientMsg, { t: 'shoot' }>) {
     const z = this.zombies.find((x) => x.id === msg.zombie);
     if (!z) return;
     if (Math.hypot(msg.to[0] - z.pos.x, msg.to[1] - (z.pos.y + 1), msg.to[2] - z.pos.z) > 8) return;
-    z.hp -= msg.headshot ? SURVIVAL.headDamage : SURVIVAL.bodyDamage;
+    const up = this.isUpgraded(m);
+    const dir = unit(sub(msg.to, msg.from));
+    this.hurt(m, z, !!msg.headshot, up, dir);
+    if (up) {
+      const [fx, fy, fz] = msg.from;
+      const [tx, ty, tz] = msg.to;
+      const behind = pierced({ x: fx, y: fy, z: fz }, { x: tx, y: ty, z: tz }, this.zombies, z.id);
+      for (const id of behind) {
+        const o = this.zombies.find((x) => x.id === id);
+        if (o) this.hurt(m, o, false, up, dir);
+      }
+    }
+  }
+
+  private hurt(m: Member, z: Zombie, headshot: boolean, up: boolean, dir: V3) {
+    z.hp -= headshot ? headDamage(up) : bodyDamage(up);
     if (z.hp > 0) return;
     this.zombies.splice(this.zombies.indexOf(z), 1);
     m.info.kills++;
     this.record(m).kills++;
-    this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot: !!msg.headshot, dir: unit(sub(msg.to, msg.from)) });
+    this.purse(m).points += killPoints(headshot);
+    this.sendPoints(m);
+    this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot, dir });
     this.broadcastWave();
   }
 
@@ -94,6 +143,7 @@ export class Survival {
     if (this.phase === 'over') this.broadcastPostgame();
     m.hp = SURVIVAL.playerHp;
     this.lobby.sendTo(m, { t: 'hp', hp: m.hp });
+    this.sendPoints(m); // also syncs a joiner's HUD
   }
 
   private startRound() {
@@ -132,6 +182,7 @@ export class Survival {
     }
     this.zombies = [];
     this.toSpawn = 0;
+    this.wallet.clear();
     this.reviveAll();
     this.setPhase('intermission', SURVIVAL.firstRoundDelay);
   }

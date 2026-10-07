@@ -56,6 +56,7 @@ export class Hud {
             <dt>Shift</dt><dd>slide (hold it in the air to slide on landing; jump out to keep speed)</dd>
             <dt>Run along walls</dt><dd>wallrun, Space to wall-jump</dd>
             <dt>E</dt><dd>grapple: reels you toward what you aim at (40 m rope, 1.5 s to recharge); Space lets go and keeps your speed</dd>
+            <dt>F</dt><dd>Survival: Pack-a-Punch at the machine west of the tree (5000 pts), a much stronger rifle</dd>
             <dt>LMB / RMB</dt><dd>shoot / hold to scope</dd>
             <dt>R</dt><dd>reload (auto when empty)</dd>
             <dt>Tab</dt><dd>scores</dd>

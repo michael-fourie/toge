@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { WEAPON } from '../shared/constants.ts';
+import { weaponStats } from '../shared/punch.ts';
+import { GOLD, MINT } from './punchmachine.ts';
 import { sfx } from './sfx.ts';
 import { type WeaponModel, buildProceduralAwp, loadAwpGlb } from './weapon/awp.ts';
 import { Arm } from './weapon/hands.ts';
@@ -57,6 +59,10 @@ export class ViewModel {
   private readonly muzzleFlash: THREE.Mesh;
   private readonly handMag = new THREE.Group();
   private debris: Debris[] = [];
+  /** Bolt/reload timings for animations: stock AWP, or the Pack-a-Punched one (faster, with a mint glow). */
+  private stats: Pick<typeof WEAPON, 'boltDelay' | 'boltTime' | 'reloadTime'> = WEAPON;
+  private readonly glow = new THREE.Group();
+  private readonly glowMats = [MINT, GOLD, MINT].map((color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false }));
 
   private action: Action | null = null;
   private pendingBolt = -1; // seconds until a queued bolt cycle starts
@@ -107,9 +113,24 @@ export class ViewModel {
     if (this.gun) this.rig.remove(this.gun.root);
     this.gun = m;
     this.rig.add(m.root);
+    m.root.add(this.glow);
     this.handMag.clear();
     if (m.hasMag) this.handMag.add(m.magPivot.clone(true));
     this.handMag.visible = false;
+  }
+
+  /** Pack-a-Punch: faster animations, glowing rings along the barrel, a mint-tinted muzzle flash. */
+  setUpgraded(on: boolean) {
+    this.stats = weaponStats(on);
+    this.glow.visible = on;
+    (this.muzzleFlash.material as THREE.MeshBasicMaterial).color.set(on ? MINT : 0xfff1c4);
+    if (on && !this.glow.children.length) {
+      [-0.5, -0.66, -0.82].forEach((z, i) => {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.034 - i * 0.002, 0.005, 6, 20), this.glowMats[i]);
+        ring.position.set(0, 0.035, z);
+        this.glow.add(ring);
+      });
+    }
   }
 
   setAspect(a: number) {
@@ -125,13 +146,13 @@ export class ViewModel {
     this.recoil = 1;
     this.flash = 1;
     this.action = null;
-    this.pendingBolt = cycle ? WEAPON.boltDelay : -1;
+    this.pendingBolt = cycle ? this.stats.boltDelay : -1;
   }
 
   /** Mag swap; withBolt when the chamber is empty (last round fired), adding a bolt cycle at the end. */
   reload(withBolt: boolean) {
     this.pendingBolt = -1;
-    this.start('reload', WEAPON.reloadTime + (withBolt ? WEAPON.boltTime : 0), withBolt);
+    this.start('reload', this.stats.reloadTime + (withBolt ? this.stats.boltTime : 0), withBolt);
   }
 
   draw() {
@@ -164,7 +185,7 @@ export class ViewModel {
   update(dt: number, speed: number, grounded: boolean, lookX: number, lookY: number, roll: number) {
     if (this.pendingBolt >= 0) {
       this.pendingBolt -= dt;
-      if (this.pendingBolt < 0) this.start('bolt', WEAPON.boltTime);
+      if (this.pendingBolt < 0) this.start('bolt', this.stats.boltTime);
     }
     const a = this.action;
     if (a) {
@@ -180,6 +201,7 @@ export class ViewModel {
     const bobAmt = grounded ? Math.min(speed / 7, 1) : 0;
     this.sway.x += (-lookX * 0.6 - this.sway.x) * Math.min(1, dt * 10);
     this.sway.y += (lookY * 0.6 - this.sway.y) * Math.min(1, dt * 10);
+    if (this.glow.visible) for (const [i, m] of this.glowMats.entries()) m.opacity = 0.55 + 0.4 * Math.sin(performance.now() / 180 - i * 1.2);
     this.recoil = Math.max(0, this.recoil - dt * 5);
     this.dip = Math.max(0, this.dip - dt * 4);
     this.flash = Math.max(0, this.flash - dt * 16);
@@ -208,9 +230,9 @@ export class ViewModel {
     let left: [LeftTarget, number] = ['handguard', 0];
     if (a?.kind === 'bolt') rightW = this.animateBolt(a, a.t / a.dur);
     else if (a?.kind === 'reload') {
-      const magDur = a.dur - (a.withBolt ? WEAPON.boltTime : 0);
+      const magDur = a.dur - (a.withBolt ? this.stats.boltTime : 0);
       if (a.t < magDur) left = this.animateReload(a, a.t / magDur);
-      else rightW = this.animateBolt(a, (a.t - magDur) / WEAPON.boltTime);
+      else rightW = this.animateBolt(a, (a.t - magDur) / this.stats.boltTime);
     } else if (a?.kind === 'draw') {
       const k = 1 - seg(a.t / a.dur, 0, 1);
       this.rig.position.y -= k * 0.28;

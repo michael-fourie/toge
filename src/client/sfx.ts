@@ -178,5 +178,12 @@ export const sfx = {
   roundClear() {
     [523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, 0.22, 0.18, i * 0.1));
   },
+  /** Pack-a-Punch bought: a rising brassy chime with a shimmer on top. */
+  punch() {
+    [392, 523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, 0.3, 0.2, i * 0.07));
+    [1568, 2093, 2637].forEach((f, i) => tone('sine', f, f * 1.01, 0.5, 0.1, 0.35 + i * 0.08));
+    burst(0.3, 0.15, 3000, 0.8, 'highpass');
+  },
+  denied: () => tone('square', 180, 120, 0.15, 0.12),
   gameOver: () => [392, 330, 262, 196].forEach((f, i) => tone('triangle', f, f * 0.98, 0.35, 0.2, i * 0.22)),
 };

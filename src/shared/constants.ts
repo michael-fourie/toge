@@ -106,6 +106,24 @@ export const SURVIVAL = {
   maxAlive: 24, // ...while fewer than this are up
   zombiesBase: 4, // round 1 has base + perRound zombies
   zombiesPerRound: 3,
+
+  // Points and the Pack-a-Punch machine. Points are per player, server-side, and reset with the run.
+  bodyPoints: 60,
+  headPoints: 100,
+  punchPrice: 5000, // ~50-80 kills: a real commitment
+  punchRange: 2.5, // metres from the machine to buy
+  punchDamageMult: 2.5, // on top of the faster rifle: body shots keep one-shotting deep into the rounds
+  punchPierceRadius: 0.75, // a punched shot also hits zombies this close to its line, behind the first
+  punchPierceRange: 40,
+};
+
+/** The Pack-a-Punched rifle: much faster bolt, bigger mag, faster reload. Kept until the run restarts. */
+export const WEAPON_PUNCHED = {
+  boltDelay: 0.06,
+  boltTime: 0.22,
+  fireCooldown: 0.28,
+  magSize: 20,
+  reloadTime: 1.0,
 };
 
 /** Zombie stats and AI tuning. Per-round values grow linearly up to their caps. */

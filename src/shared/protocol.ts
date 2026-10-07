@@ -74,7 +74,8 @@ export type ClientMsg =
   | { t: 'state'; p: V3; v: V3; yaw: number; pitch: number; f: number; g?: V3 }
   | { t: 'shoot'; from: V3; to: V3; victim?: number; zombie?: number; headshot?: boolean }
   | { t: 'fell' }
-  | { t: 'again' }; // Survival post-game: ready for another run
+  | { t: 'again' } // Survival post-game: ready for another run
+  | { t: 'punch' }; // Survival: buy the Pack-a-Punch upgrade (server checks range, points, not owned)
 
 // Server -> client
 export type ServerMsg =
@@ -83,7 +84,7 @@ export type ServerMsg =
   | { t: 'playerJoined'; player: PlayerInfo }
   | { t: 'playerLeft'; id: number; hostId: number }
   | { t: 'snapshot'; players: NetPlayerState[]; zombies?: NetZombie[] }
-  | { t: 'shot'; id: number; from: V3; to: V3 }
+  | { t: 'shot'; id: number; from: V3; to: V3; up?: boolean } // up: fired from a Pack-a-Punched rifle
   | { t: 'kill'; killer: number; victim: number; cause: DeathCause; dir: V3 }
   | { t: 'respawn'; id: number; p: V3; yaw: number }
   // Survival
@@ -91,6 +92,7 @@ export type ServerMsg =
   | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3 }
   | { t: 'postgame'; rounds: number; rows: PostRow[]; waiting: number } // game-over board, resent when readiness changes
   | { t: 'hp'; hp: number; from?: V3 } // only to the player concerned; `from` is where the claw came from
+  | { t: 'pts'; pts: number; up?: boolean } // only to the player concerned: their points, and whether their rifle is punched
   | { t: 'error'; message: string };
 
 export const round3 = (n: number) => Math.round(n * 1000) / 1000;
