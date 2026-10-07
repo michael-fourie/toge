@@ -8,7 +8,7 @@ const KEYS: [string, string][] = [
   ['Walls', 'Run along one in the air to wallrun, or tap Space beside one to kick off it (a new wall each time, and it refreshes your double jump).'],
   ['Q', 'Grenade. Lobs a frag that goes off after about 2 s: kills anyone near it in line of sight and shoves everyone close (you too, so you can grenade-jump). 8 s until the next one.'],
   ['E', 'Grapple. Aim at a surface within 40 m and the rope reels you in; Space lets go and you keep your speed. Hook a player to zip to them, or aim near a glowing ring in the sky. 1.5 s to recharge.'],
-  ['F', 'Survival: with 5000 points, buy the Pack-a-Punch at the machine west of the tree for a much stronger rifle.'],
+  ['F', 'Survival: at a station press F to buy. Juggernog (east of the tree, 2500 pts) raises your health to 250; Pack-a-Punch (west, 5000 pts) gives a much stronger rifle.'],
   ['Blue ramps', 'Surf. Strafe into the slope to ride it.'],
   ['Left / right mouse', 'Shoot / hold to scope. No-scopes spray.'],
   ['R', 'Reload (automatic when empty).'],

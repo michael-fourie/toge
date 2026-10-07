@@ -2,6 +2,7 @@ import { GRENADE, SURVIVAL } from '../shared/constants.ts';
 import { blastTargets } from '../shared/grenade.ts';
 import { MAP } from '../shared/map.ts';
 import { type RunRecord, buildRows, shouldRestart, waitingFor } from '../shared/postgame.ts';
+import { jugStatus, maxHp } from '../shared/jug.ts';
 import { bodyDamage, headDamage, killPoints, pierced, punchStatus } from '../shared/punch.ts';
 import { type ClientMsg, type NetZombie, type V3, type WaveInfo, type WavePhase, ZombieFlag, round3 } from '../shared/protocol.ts';
 import { type Zombie, type ZombieTarget, createZombie, stepHorde } from '../shared/zombie.ts';
@@ -29,7 +30,7 @@ export class Survival {
   private run = new Map<number, RunRecord>();
   private ready = new Set<number>();
   /** Per-player economy, keyed by client id. Points and the punched rifle last until the run restarts. */
-  private wallet = new Map<number, { points: number; upgraded: boolean }>();
+  private wallet = new Map<number, { points: number; upgraded: boolean; jug: boolean }>();
 
   constructor(private lobby: Lobby) {}
 
@@ -67,7 +68,7 @@ export class Survival {
 
   private purse(m: Member) {
     let w = this.wallet.get(m.info.id);
-    if (!w) this.wallet.set(m.info.id, (w = { points: 0, upgraded: false }));
+    if (!w) this.wallet.set(m.info.id, (w = { points: 0, upgraded: false, jug: false }));
     return w;
   }
 
@@ -81,7 +82,7 @@ export class Survival {
 
   private sendPoints(m: Member) {
     const w = this.purse(m);
-    this.lobby.sendTo(m, { t: 'pts', pts: w.points, up: w.upgraded || undefined });
+    this.lobby.sendTo(m, { t: 'pts', pts: w.points, up: w.upgraded || undefined, jug: w.jug || undefined });
   }
 
   /** Buy the Pack-a-Punch upgrade: must be at the machine, have the points, and not own it yet. */
@@ -91,6 +92,18 @@ export class Survival {
     if (!m.info.alive || punchStatus(w.points, w.upgraded, { x, y, z }, MAP.punchMachine) !== 'ready') return;
     w.points -= SURVIVAL.punchPrice;
     w.upgraded = true;
+    this.sendPoints(m);
+  }
+
+  /** Buy Juggernog: at the station, with the points, and not owned yet. Raises max health and heals you to it. */
+  buyJug(m: Member) {
+    const w = this.purse(m);
+    const [x, y, z] = m.state.p;
+    if (!m.info.alive || jugStatus(w.points, w.jug, { x, y, z }, MAP.juggernog) !== 'ready') return;
+    w.points -= SURVIVAL.jugPrice;
+    w.jug = true;
+    m.hp = maxHp(true);
+    this.lobby.sendTo(m, { t: 'hp', hp: m.hp });
     this.sendPoints(m);
   }
 
@@ -151,7 +164,7 @@ export class Survival {
   heal(m: Member) {
     this.record(m);
     if (this.phase === 'over') this.broadcastPostgame();
-    m.hp = SURVIVAL.playerHp;
+    m.hp = maxHp(this.purse(m).jug);
     this.lobby.sendTo(m, { t: 'hp', hp: m.hp });
     this.sendPoints(m); // also syncs a joiner's HUD
   }

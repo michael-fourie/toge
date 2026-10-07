@@ -88,3 +88,7 @@ Battle spawns are 29 spots spread over the whole map (both harbours, centre isla
 ## Grapple hooks
 
 Eight brass rings float over the map (3 per half over the lanes at y 11-13, 1 above the canopy per side at y 44, reached from the north branch). They are tiny solid `hook` boxes with a glowing marker drawn over foliage. The grapple (E) snaps to one if it is within about 8° of your aim, in line of sight and in rope range (40 m), so they work as shortcuts to the middle and a rescue if you fall. `map.test.ts` checks they are free-floating and reachable from a floor.
+
+## Juggernog station (Survival)
+
+A crimson cask with a floating glowing apple stands at (12, 0, 0) on the centre island, directly across the Great Tree from the Pack-a-Punch machine (-12, 0, 0), clear of the roots, the east launch pad and the wind gate. Press F within 2.5 m: 2500 points buys 250 maximum health (100 without), healing you to it; it lasts until the run restarts. `tests/jug.test.ts` checks it stands on clear floor, is walkable from every Survival spawn and that the server purchase rules hold.

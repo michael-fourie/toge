@@ -111,7 +111,9 @@ export const SURVIVAL = {
   bodyPoints: 60,
   headPoints: 100,
   punchPrice: 5000, // ~50-80 kills: a real commitment
-  punchRange: 2.5, // metres from the machine to buy
+  punchRange: 2.5, // metres from a station (Pack-a-Punch or Juggernog) to buy
+  jugPrice: 2500, // Juggernog: half the price of Pack-a-Punch, still ~40 kills
+  jugHp: 250, // maximum health with Juggernog (100 without); lasts until the run restarts
   punchDamageMult: 2.5, // on top of the faster rifle: body shots keep one-shotting deep into the rounds
   punchPierceRadius: 0.75, // a punched shot also hits zombies this close to its line, behind the first
   punchPierceRange: 40,

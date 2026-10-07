@@ -147,6 +147,9 @@ export class Lobby {
       case 'punch':
         this.survival?.buy(m);
         return;
+      case 'jug':
+        this.survival?.buyJug(m);
+        return;
       case 'nade':
         this.onNade(m, msg);
         return;

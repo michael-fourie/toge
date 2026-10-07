@@ -193,6 +193,12 @@ export const sfx = {
     [1568, 2093, 2637].forEach((f, i) => tone('sine', f, f * 1.01, 0.5, 0.1, 0.35 + i * 0.08));
     burst(0.3, 0.15, 3000, 0.8, 'highpass');
   },
+  /** Glug-glug and a bright finish: a perk drink going down. */
+  jug() {
+    tone('sine', 240, 120, 0.12, 0.2);
+    tone('sine', 300, 150, 0.12, 0.2, 0.14);
+    tone('triangle', 420, 880, 0.35, 0.18, 0.3);
+  },
   denied: () => tone('square', 180, 120, 0.15, 0.12),
   gameOver: () => [392, 330, 262, 196].forEach((f, i) => tone('triangle', f, f * 0.98, 0.35, 0.2, i * 0.22)),
 };

@@ -27,6 +27,8 @@ export interface MapData {
   zombieSpawns: Vec3[];
   /** Survival: the Pack-a-Punch machine's feet (visual only; players walk up and press F). */
   punchMachine: Vec3;
+  /** The Juggernog station (Survival): across the tree from the Pack-a-Punch machine. */
+  juggernog: Vec3;
   killY: number;
 }
 
@@ -383,6 +385,7 @@ function buildWindward(): MapData {
     spawns,
     survivalSpawns: [...survivalSpawns, ...survivalSpawns.map((s) => ({ pos: flip(s.pos), yaw: s.yaw + Math.PI }))],
     zombieSpawns: [...zombieSpawns, ...zombieSpawns.map(flip)],
+    juggernog: { x: 12, y: 0, z: 0 }, // opposite the Pack-a-Punch machine, clear of the roots, the east pad and the wind gate
     punchMachine: { x: -12, y: 0, z: 0 }, // on the centre island, clear of roots and walls, ~10 m from the spawns
     killY: -40,
   };

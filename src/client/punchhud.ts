@@ -1,8 +1,14 @@
 import { SURVIVAL } from '../shared/constants.ts';
 import type { PunchStatus } from '../shared/punch.ts';
+
+/** Which station you're standing at and whether you can buy from it. */
+export interface Station {
+  kind: 'punch' | 'jug';
+  status: PunchStatus;
+}
 import './punch.css';
 
-/** Survival points counter (bottom left, above health) and the Pack-a-Punch prompt (below the crosshair). Appends its own elements to the HUD root. */
+/** Survival points counter (bottom left, above health) and the station prompt (Pack-a-Punch / Juggernog, below the crosshair). Appends its own elements to the HUD root. */
 export class PunchHud {
   private pts: HTMLElement;
   private prompt: HTMLElement;
@@ -19,20 +25,24 @@ export class PunchHud {
     root.append(this.pts, this.prompt);
   }
 
-  /** points: null hides the counter (Battle, practice). status: null (or 'far') hides the prompt. */
-  update(points: number | null, status: PunchStatus | null) {
+  /** points: null hides the counter (Battle, practice). station: null (or status 'far') hides the prompt. */
+  update(points: number | null, station: Station | null) {
+    const status = station?.status ?? null;
+    const jug = station?.kind === 'jug';
     this.pts.hidden = points === null;
     if (points !== null && points !== this.lastPts) {
       this.lastPts = points;
       this.pts.querySelector('b')!.textContent = String(points);
     }
+    const name = jug ? 'Juggernog' : 'Pack-a-Punch';
+    const price = jug ? SURVIVAL.jugPrice : SURVIVAL.punchPrice;
     const text =
       status === 'ready'
-        ? `<kbd>F</kbd> Pack-a-Punch <em>${SURVIVAL.punchPrice} pts</em>`
+        ? `<kbd>F</kbd> ${name} <em>${price} pts</em>`
         : status === 'poor'
-          ? `Pack-a-Punch: not enough points <em>${SURVIVAL.punchPrice} pts</em>`
+          ? `${name}: not enough points <em>${price} pts</em>`
           : status === 'owned'
-            ? 'Already Pack-a-Punched'
+            ? `Already ${jug ? 'Juggernogged' : 'Pack-a-Punched'}`
             : '';
     if (text !== this.lastPrompt) {
       this.lastPrompt = text;

@@ -63,3 +63,7 @@
 .hud.replay .nade {
   display: none;
 }
+/* Survival shows health and points down the bottom-left: the grenade sits above them. */
+.hud:has(.health:not([hidden])) .nade {
+  bottom: 116px;
+}

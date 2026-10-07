@@ -77,7 +77,8 @@ export type ClientMsg =
   | { t: 'nade'; p: V3; v: V3 } // threw a grenade (server rate-limits to GRENADE.cooldown and relays it)
   | { t: 'boom'; p: V3 } // our grenade went off here (server checks it's ours, then does the damage)
   | { t: 'again' } // Survival post-game: ready for another run
-  | { t: 'punch' }; // Survival: buy the Pack-a-Punch upgrade (server checks range, points, not owned)
+  | { t: 'punch' } // Survival: buy the Pack-a-Punch upgrade (server checks range, points, not owned)
+  | { t: 'jug' }; // Survival: buy Juggernog (same checks)
 
 // Server -> client
 export type ServerMsg =
@@ -96,7 +97,7 @@ export type ServerMsg =
   | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3 }
   | { t: 'postgame'; rounds: number; rows: PostRow[]; waiting: number } // game-over board, resent when readiness changes
   | { t: 'hp'; hp: number; from?: V3 } // only to the player concerned; `from` is where the claw came from
-  | { t: 'pts'; pts: number; up?: boolean } // only to the player concerned: their points, and whether their rifle is punched
+  | { t: 'pts'; pts: number; up?: boolean; jug?: boolean } // only to the player concerned: their points, and whether their rifle is punched
   | { t: 'error'; message: string };
 
 export const round3 = (n: number) => Math.round(n * 1000) / 1000;

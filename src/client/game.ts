@@ -30,9 +30,11 @@ import { Hud } from './hud.ts';
 import { GrenadeFx } from './grenadefx.ts';
 import { Input } from './input.ts';
 import { KILLCAM, Trail, killcamText, replayTime, replaying } from './killcam.ts';
+import { jugStatus, maxHp } from '../shared/jug.ts';
+import { buildJugMachine } from './jugmachine.ts';
 import { MINT, buildPunchMachine } from './punchmachine.ts';
 import { NadeHud } from './nadehud.ts';
-import { PunchHud } from './punchhud.ts';
+import { PunchHud, type Station } from './punchhud.ts';
 import { Rope } from './rope.ts';
 import { SpeedFx } from './speedfx.ts';
 import type { Net } from './net.ts';
@@ -165,6 +167,8 @@ export class Game {
   // Points and the Pack-a-Punch machine (server-authoritative; we mirror what it tells us)
   private points = 0;
   private upgraded = false;
+  private jug = false;
+  private jugMachine: ReturnType<typeof buildJugMachine> | null = null;
   private punchMachine: ReturnType<typeof buildPunchMachine> | null = null;
   private punchHud!: PunchHud;
 
@@ -191,6 +195,8 @@ export class Game {
       this.horde = new Horde(this.world.scene);
       this.punchMachine = buildPunchMachine(MAP.punchMachine);
       this.world.scene.add(this.punchMachine.obj);
+      this.jugMachine = buildJugMachine(MAP.juggernog);
+      this.world.scene.add(this.jugMachine.obj);
       this.wave = joined?.wave ?? null;
     }
 
@@ -261,6 +267,7 @@ export class Game {
     this.updateTracers(dt);
     this.world.update(this.time);
     this.punchMachine?.update(this.time);
+    this.jugMachine?.update(this.time);
     this.updateGrenades(dt);
     this.updateCamera(dt);
     this.recordSelf();
@@ -900,7 +907,7 @@ export class Game {
         this.hp = msg.hp;
         break;
       case 'pts':
-        this.onPoints(msg.pts, !!msg.up);
+        this.onPoints(msg.pts, !!msg.up, !!msg.jug);
         break;
       case 'nade': {
         const o = { x: msg.p[0], y: msg.p[1], z: msg.p[2] };
@@ -939,8 +946,15 @@ export class Game {
   }
 
   /** Our points and upgrade state, as the server sees them. A change in `up` is a purchase (or a restarted run). */
-  private onPoints(pts: number, up: boolean) {
+  private onPoints(pts: number, up: boolean, jug: boolean) {
     this.points = pts;
+    if (jug !== this.jug) {
+      this.jug = jug;
+      if (jug) {
+        sfx.jug();
+        this.hud.center(`JUGGERNOG! ${maxHp(true)} HP`, '#ff8a6a', 2.2);
+      }
+    }
     if (up === this.upgraded) return;
     this.upgraded = up;
     this.vm.setUpgraded(up);
@@ -955,11 +969,13 @@ export class Game {
     }
   }
 
-  /** Pack-a-Punch prompt state while standing at the machine (null elsewhere and outside Survival). */
-  private nearMachine() {
+  /** The station we're standing at (Pack-a-Punch or Juggernog), or null elsewhere and outside Survival. */
+  private nearMachine(): Station | null {
     if (!this.horde) return null;
-    const s = punchStatus(this.points, this.upgraded, this.me.pos, MAP.punchMachine);
-    return s === 'far' ? null : s;
+    const punch = punchStatus(this.points, this.upgraded, this.me.pos, MAP.punchMachine);
+    if (punch !== 'far') return { kind: 'punch', status: punch };
+    const jug = jugStatus(this.points, this.jug, this.me.pos, MAP.juggernog);
+    return jug === 'far' ? null : { kind: 'jug', status: jug };
   }
 
   private onWave(w: WaveInfo) {
@@ -1081,7 +1097,7 @@ export class Game {
     this.hud.setCredit(this.vm.credit);
     this.hud.death(this.deathText, this.killcam ? null : this.deathSubtitle());
     this.hud.killcam(this.killcam ? this.killcam.text : null);
-    this.hud.health(this.horde ? this.hp : null, SURVIVAL.playerHp);
+    this.hud.health(this.horde ? this.hp : null, maxHp(this.jug));
     this.hud.wave(this.waveText());
     this.postgame?.tick(this.time);
     this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId);
@@ -1113,7 +1129,7 @@ export class Game {
     if ((code === 'Space' || code === 'Enter') && down && this.killcam) this.killcam.start = -Infinity; // skip the replay
     if (code === 'KeyF' && down && this.alive) {
       const near = this.nearMachine();
-      if (near === 'ready') this.opts.net?.send({ t: 'punch' });
+      if (near?.status === 'ready') this.opts.net?.send({ t: near.kind });
       else if (near) sfx.denied();
     }
     if (code === 'Backquote' && down) {
