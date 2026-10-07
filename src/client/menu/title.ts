@@ -5,7 +5,6 @@ import { storedSkin } from '../skinStore.ts';
 import { coinText } from './lootui.ts';
 import type { Render, ScreenName } from './router.ts';
 import { DEFAULT_JACKET, mountSkinPreview } from './skinPreview.ts';
-import { skinLabel } from './skin.ts';
 import { $, esc, playerName } from './ui.ts';
 import './home.css';
 
@@ -57,7 +56,7 @@ export const title: Render = (root, ctx, screen) => {
       </header>
       <section class="hero" aria-label="Your character">
         <canvas class="hero-canvas" aria-hidden="true"></canvas>
-        <div class="nameplate">${plate()}<button class="look-btn" data-go="character">Look: ${esc(skinLabel(storedSkin()))} · Customize</button></div>
+        <div class="nameplate">${plate()}</div>
       </section>
       <nav class="play-menu" aria-label="Play">
         <button class="play-btn play-host" data-go="host"><b>Host</b></button>
@@ -71,7 +70,6 @@ export const title: Render = (root, ctx, screen) => {
 
     const goto = (key: string) => {
       if (key === 'signup') ctx.go({ name: 'account', signup: true });
-      else if (key === 'character') ctx.go({ name: 'inventory', tab: 'character' });
       else ctx.go({ name: key as ScreenName });
     };
     root.querySelectorAll<HTMLElement>('[data-go]').forEach((b) => b.addEventListener('click', () => goto(b.dataset.go!)));

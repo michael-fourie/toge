@@ -197,20 +197,6 @@
   font-style: normal;
   opacity: 0.6;
 }
-.look-btn {
-  padding: 4px 14px;
-  border: 2px solid var(--paper-edge);
-  border-radius: 999px;
-  background: #fbf4e2dd;
-  color: var(--ink-soft);
-  font: 700 13px var(--body);
-  cursor: pointer;
-}
-.look-btn:hover,
-.look-btn:focus-visible {
-  color: var(--ink);
-  border-color: #8cc6ee;
-}
 
 .play-menu {
   grid-area: left;
