@@ -1,5 +1,6 @@
 // Wire protocol. JSON for the prototype; swap to a binary encoding once the shape settles.
 
+import type { KothState } from './koth.ts';
 import type { Team, Winner } from './teams.ts';
 import type { Slot, WeaponId } from './weapons.ts';
 
@@ -18,6 +19,8 @@ export interface LobbyInfo {
   teams?: boolean;
   /** Battle only: which arena. */
   map?: BattleMap;
+  /** Battle teams: King of the Hill (always on Crown) instead of a kill race. */
+  koth?: boolean;
   host: string;
   players: number;
   max: number;
@@ -119,10 +122,10 @@ export type ClientMsg =
 // Server -> client
 export type ServerMsg =
   | { t: 'welcome'; id: number }
-  | { t: 'joined'; code: string; mode: GameMode; hostId: number; teams?: boolean; map?: BattleMap; players: PlayerInfo[]; spawn: { p: V3; yaw: number }; wave?: WaveInfo }
+  | { t: 'joined'; code: string; mode: GameMode; hostId: number; teams?: boolean; map?: BattleMap; koth?: boolean; players: PlayerInfo[]; spawn: { p: V3; yaw: number }; wave?: WaveInfo }
   | { t: 'playerJoined'; player: PlayerInfo }
   | { t: 'playerLeft'; id: number; hostId: number }
-  | { t: 'snapshot'; players: NetPlayerState[]; zombies?: NetZombie[] }
+  | { t: 'snapshot'; players: NetPlayerState[]; zombies?: NetZombie[]; koth?: KothState }
   | { t: 'nade'; id: number; p: V3; v: V3 } // someone else's grenade left their hand
   | { t: 'blast'; id: number; p: V3 } // a grenade exploded here (everyone shows it and takes the shove)
   | { t: 'shot'; id: number; from: V3; to: V3; w?: WeaponId; up?: boolean } // w: Survival gun; up: Pack-a-Punched

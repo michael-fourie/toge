@@ -89,7 +89,7 @@ export const join: Render = (root, ctx, screen) => {
             const full = l.players >= l.max;
             return `<li>
               <b class="lobby-code">${esc(l.code)}</b>
-              <span class="lobby-host">${esc(l.host)}'s sky <small class="mode-tag mode-${l.mode}">${MODES[l.mode].name}${l.teams ? ' · Teams' : ''}${l.map ? ` · ${BATTLE_MAPS[l.map].name}` : ''}</small></span>
+              <span class="lobby-host">${esc(l.host)}'s sky <small class="mode-tag mode-${l.mode}">${MODES[l.mode].name}${l.koth ? ' · King of the Hill' : l.teams ? ' · Teams' : ''}${l.map ? ` · ${BATTLE_MAPS[l.map].name}` : ''}</small></span>
               <em>${l.players}/${l.max}</em>
               <button data-code="${esc(l.code)}" ${full ? 'disabled' : ''}>${full ? 'Full' : 'Join'}</button>
             </li>`;

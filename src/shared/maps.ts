@@ -4,6 +4,7 @@ import { MAP, type MapData } from './map.ts';
 import { RUSTWORKS } from './rustworks.ts';
 import { SUMMIT } from './summit.ts';
 import { DUNE_VILLAGE } from './dunevillage.ts';
+import { CROWN } from './crown.ts';
 
 /** The Battle arenas, in menu order. Survival always plays on the Foundry; Practice on Windward. */
 export const BATTLE_MAPS: Record<BattleMap, { name: string; blurb: string; data: MapData }> = {
@@ -19,4 +20,6 @@ export const isBattleMap = (v: unknown): v is BattleMap => typeof v === 'string'
 /** A random arena, for "Random". Picked once by the host and sent as a concrete id so everyone agrees. */
 export const randomBattleMap = (rand: () => number = Math.random): BattleMap => BATTLE_MAP_IDS[Math.floor(rand() * BATTLE_MAP_IDS.length)];
 
-export const mapFor = (mode: GameMode, map: BattleMap = 'windward'): MapData => (mode === 'survival' ? FOUNDRY : BATTLE_MAPS[map].data);
+/** Survival: the Foundry. King of the Hill: always Crown, which is built around its hill. Otherwise the chosen arena. */
+export const mapFor = (mode: GameMode, map: BattleMap = 'windward', koth = false): MapData =>
+  mode === 'survival' ? FOUNDRY : koth ? CROWN : BATTLE_MAPS[map].data;

@@ -1,0 +1,156 @@
+/* King of the Hill bar (hill.ts): two team clocks either side of the hill, and a status line under it. */
+.hill {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: 200px 76px 200px;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 4px 12px;
+  color: #fffdf3;
+  font-weight: 800;
+  text-shadow: 0 0 3px #1c2a3acc, 0 1px 2px #1c2a3acc;
+  pointer-events: none;
+}
+.hill[hidden] {
+  display: none;
+}
+.hill-team {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 7px 12px 8px;
+  border-radius: 14px;
+  background: #1c2a3a8c;
+  border: 2px solid transparent;
+}
+.hill-team.t1 {
+  text-align: right;
+}
+.hill-team.t1 .hill-name {
+  order: 2;
+}
+.hill-team.t1 .hill-pct {
+  order: 1;
+  text-align: left;
+}
+.hill-team.mine {
+  border-color: #fffdf3aa;
+}
+.hill-team.owns {
+  box-shadow: 0 0 0 2px var(--c), 0 0 18px var(--c);
+}
+.hill-name {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.hill-pct {
+  font-size: 18px;
+  font-family: var(--display);
+}
+.hill-bar {
+  grid-column: 1 / -1;
+  order: 3;
+  height: 8px;
+  border-radius: 4px;
+  background: #ffffff2e;
+  overflow: hidden;
+}
+.hill-team.t1 .hill-bar {
+  direction: rtl;
+}
+.hill-bar i {
+  display: block;
+  height: 100%;
+  background: var(--c);
+  transition: width 0.3s linear;
+}
+.hill-team small {
+  grid-column: 1 / -1;
+  order: 4;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.8;
+}
+.hill-mid {
+  position: relative;
+  width: 76px;
+  height: 76px;
+}
+.hill-mid svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.hill-face {
+  fill: var(--o);
+  stroke: #1c2a3a99;
+  stroke-width: 6;
+}
+.hill-cap {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.15s linear;
+}
+.hill-crown {
+  fill: #fffdf3;
+  stroke: #1c2a3a;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  transform: rotate(90deg);
+  transform-origin: 32px 32px;
+}
+.hill-on {
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+}
+.hill-on i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid #fffdf3;
+}
+.hill-on .d0 {
+  background: #e0674f;
+}
+.hill-on .d1 {
+  background: #4f8fd9;
+}
+.hill-status {
+  grid-column: 1 / -1;
+  justify-self: center;
+  margin-top: 6px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: #1c2a3a8c;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+.hill-status.here {
+  background: #fbf4e2;
+  color: var(--ink);
+  text-shadow: none;
+}
+.hill-status.alert {
+  background: #d9584a;
+  color: #fff;
+  animation: hill-pulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes hill-pulse {
+  to {
+    transform: scale(1.06);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hill-status.alert {
+    animation: none;
+  }
+}

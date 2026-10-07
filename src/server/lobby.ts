@@ -6,6 +6,7 @@ import type { BattleMap, ClientMsg, DeathCause, GameMode, NetPlayerState, Player
 import { type Gear, encodeGear } from '../shared/items.ts';
 import { JACKETS, type Skin, encodeSkin } from '../shared/skin.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
+import { type KothState, inZone, newKoth, stepKoth } from '../shared/koth.ts';
 import { KILL_LIMIT, MATCH_OVER_SECONDS, TEAMS, type Team, sameTeam, shuffleTeams, smallerTeam, winner } from '../shared/teams.ts';
 import { Survival } from './survival.ts';
 
@@ -64,6 +65,8 @@ export class Lobby {
   /** Battle: set once someone reaches the kill limit; the next match starts when it passes. */
   private overAt = 0;
   private readonly data: MapData;
+  /** King of the Hill: the hill's state, stepped every tick and sent with each snapshot. */
+  private hill: KothState | null;
 
   /** `onChange` fires on join/leave and as a heartbeat; `onEmpty` once the last player leaves. */
   constructor(
@@ -75,8 +78,11 @@ export class Lobby {
     readonly map: BattleMap,
     private onChange: (l: Lobby) => void,
     private onEmpty: (l: Lobby) => void,
+    /** Battle teams: King of the Hill on Crown instead of a kill race (the room forces `teams` on for it). */
+    readonly koth = false,
   ) {
-    this.data = mapFor(mode, map);
+    this.data = mapFor(mode, map, koth);
+    this.hill = koth ? newKoth() : null;
     this.survival = mode === 'survival' ? new Survival(this) : null;
     this.timer = setInterval(() => this.tick(), 1000 / NET.snapshotRate);
   }
@@ -93,8 +99,8 @@ export class Lobby {
     const used = new Set([...this.members.values()].map((m) => m.info.color));
     const wanted = client.skin?.jacket === undefined ? undefined : COLORS[client.skin.jacket];
     const color = wanted !== undefined && !used.has(wanted) ? wanted : (COLORS.find((c) => !used.has(c)) ?? COLORS[client.id % COLORS.length]);
-    const spawn = this.pickSpawn();
     const team = this.teams ? smallerTeam([...this.members.values()].map((x) => x.info)) : undefined;
+    const spawn = this.pickSpawn(team);
     const m: Member = {
       client,
       info: { id: client.id, name: client.name, color: team === undefined ? color : TEAMS[team].color, kills: 0, deaths: 0, alive: true, team, skin: client.skin && encodeSkin(client.skin), gear: client.gear && encodeGear(client.gear) },
@@ -115,7 +121,8 @@ export class Lobby {
       mode: this.mode,
       hostId: this.hostId,
       teams: this.teams || undefined,
-      map: this.mode === 'battle' ? this.map : undefined,
+      map: this.mode === 'battle' && !this.koth ? this.map : undefined,
+      koth: this.koth || undefined,
       players: [...this.members.values()].map((x) => x.info),
       spawn,
       wave: this.survival?.info(),
@@ -255,7 +262,7 @@ export class Lobby {
     victim.respawnAt = this.survival ? Infinity : Date.now() + RESPAWN_SECONDS * 1000;
     const l = Math.hypot(...dir) || 1;
     this.broadcast({ t: 'kill', killer: killer.info.id, victim: victim.info.id, cause, dir: [dir[0] / l, dir[1] / l, dir[2] / l] });
-    if (!this.survival) this.checkWinner();
+    if (!this.survival && !this.hill) this.checkWinner(); // King of the Hill is won on the hill, not by kills
   }
 
   private checkWinner() {
@@ -269,6 +276,7 @@ export class Lobby {
   /** Zero the scores and put everyone back on the map. */
   private startMatch() {
     this.overAt = 0;
+    if (this.hill) this.hill = newKoth();
     for (const m of this.members.values()) {
       m.info.kills = 0;
       m.info.deaths = 0;
@@ -278,7 +286,7 @@ export class Lobby {
   }
 
   respawn(m: Member) {
-    const spawn = this.pickSpawn();
+    const spawn = this.pickSpawn(m.info.team);
     m.info.alive = true;
     m.state.p = spawn.p;
     m.state.v = [0, 0, 0];
@@ -297,12 +305,36 @@ export class Lobby {
       if (!m.info.alive && now >= m.respawnAt) this.respawn(m);
       if (m.info.alive) players.push(m.state);
     }
-    this.broadcast({ t: 'snapshot', players, zombies: this.survival?.snapshot() });
+    if (this.hill && !this.overAt) this.stepHill(1 / NET.snapshotRate);
+    this.broadcast({ t: 'snapshot', players, zombies: this.survival?.snapshot(), koth: this.hill ?? undefined });
   }
 
-  /** Battle: a random good spot from across the map (spawn.ts). Survival: the Office, spread out among whoever is already up. */
-  private pickSpawn(): { p: V3; yaw: number } {
+  /** King of the Hill: count who's standing on it (living players, by team) and run the rules; a full clock ends the match. */
+  private stepHill(dt: number) {
+    const zone = this.data.koth!.zone;
+    const on: [number, number] = [0, 0];
+    for (const m of this.members.values()) {
+      if (!m.info.alive || m.info.team === undefined) continue;
+      if (inZone(zone, { x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] })) on[m.info.team]++;
+    }
+    const ev = stepKoth(this.hill!, on, dt);
+    if (ev.won === undefined) return;
+    this.overAt = Date.now() + MATCH_OVER_SECONDS * 1000;
+    this.broadcast({ t: 'matchOver', winner: { team: ev.won }, players: [...this.members.values()].map((m) => m.info), restartIn: MATCH_OVER_SECONDS });
+  }
+
+  /**
+   * Battle: a random good spot from across the map (spawn.ts). King of the Hill: your own team's base.
+   * Survival: the Office, spread out among whoever is already up.
+   */
+  private pickSpawn(team?: Team): { p: V3; yaw: number } {
     const living = [...this.members.values()].filter((m) => m.info.alive);
+    const bases = this.data.koth?.teamSpawns;
+    if (bases && team !== undefined) {
+      const enemies = living.filter((m) => m.info.team !== team).map((m) => ({ x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] }));
+      const s = bases[team][pickSpawn(bases[team], enemies, [], this.data.boxes)];
+      return { p: [s.pos.x, s.pos.y, s.pos.z], yaw: s.yaw };
+    }
     if (this.survival) {
       const starts = this.data.spawns;
       let best = starts[0];

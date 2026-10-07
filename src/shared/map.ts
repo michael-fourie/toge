@@ -2,6 +2,7 @@ import type { Box, BoxKind, RampShape, Trigger } from './collision.ts';
 import { MOVE } from './constants.ts';
 import type { Vec3 } from './math.ts';
 import type { SurvivalLayout } from './layout.ts';
+import type { Zone } from './koth.ts';
 import { launchTo } from './movement.ts';
 
 export interface SpawnPoint {
@@ -22,6 +23,8 @@ export interface MapData {
   triggers: Trigger[];
   decor: Decor[];
   spawns: SpawnPoint[];
+  /** King of the Hill maps: the hill and where each team spawns (index = team). */
+  koth?: { zone: Zone; teamSpawns: [SpawnPoint[], SpawnPoint[]] };
   /** Survival maps: rooms, doors, windows, wall guns and stations. */
   survival?: SurvivalLayout;
   killY: number;

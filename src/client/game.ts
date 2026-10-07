@@ -12,6 +12,7 @@ import { WEAPONS, gunStats } from '../shared/weapons.ts';
 import { type Grenade, applyKnock, blastKnock, blastTargets, stepGrenade, throwVelocity } from '../shared/grenade.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import { TEAMS, sameTeam } from '../shared/teams.ts';
+import { type KothState, KOTH, inZone } from '../shared/koth.ts';
 import {
   type ClientMsg,
   type DeathCause,
@@ -34,6 +35,7 @@ import { storedSkin } from './skinStore.ts';
 import { Avatar, Corpses } from './avatar.ts';
 import { PostGame } from './postgame.ts';
 import { Horde } from './horde.ts';
+import { HillFx, HillHud } from './hill.ts';
 import { Hud } from './hud.ts';
 import { GrenadeFx } from './grenadefx.ts';
 import { Input } from './input.ts';
@@ -177,6 +179,10 @@ export class Game {
   /** Battle with two sides (no friendly fire), and whether the current match has been won (scores frozen). */
   private readonly teams: boolean;
   private matchOver = false;
+  /** King of the Hill: the latest hill state from the server, and its world and HUD drawings. */
+  private hill: KothState | null = null;
+  private hillFx: HillFx | null = null;
+  private hillHud: HillHud | null = null;
   private horde: Horde | null = null;
   private hp: number = SURVIVAL.playerHp;
   private wave: WaveInfo | null = null;
@@ -203,7 +209,7 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.map = mapFor(this.mode, joined?.map);
+    this.map = mapFor(this.mode, joined?.map, joined?.koth);
     this.cols = buildColliders(this.map);
     // Neutral keeps the soft painted palette saturated; ACES washes it toward grey-orange.
     this.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -222,6 +228,7 @@ export class Game {
     this.corpses = new Corpses(this.world.scene);
     this.ropeSelf = new Rope(this.world.scene);
     this.grenadeFx = new GrenadeFx(this.world.scene);
+    if (this.map.koth) this.hillFx = new HillFx(this.world.scene, this.map.koth.zone);
     if (this.mode === 'survival') {
       this.horde = new Horde(this.world.scene);
       this.wave = joined?.wave ?? null;
@@ -251,6 +258,7 @@ export class Game {
     this.hud = new Hud(container, joined ? `${this.mode === 'survival' ? 'SURVIVAL' : 'LOBBY'} ${joined.code}` : 'PRACTICE — shoot the dummies');
     this.hud.coins(stash.inv.coins);
     this.useHud = new UseHud(this.hud.root);
+    if (this.map.koth) this.hillHud = new HillHud(this.hud.root);
     this.nadeHud = new NadeHud(this.hud.root);
     this.input = new Input(this.renderer.domElement);
     if (net && this.mode === 'survival') this.postgame = new PostGame(container, this.selfId, { onAgain: () => { net.send({ t: 'again' }); void this.input.lock(); }, onHome: () => this.exit() });
@@ -1041,6 +1049,7 @@ export class Game {
         const now = performance.now();
         for (const s of msg.players) this.remotes.get(s.id)?.buffer.push({ t: now, s });
         if (msg.zombies) this.horde?.onSnapshot(msg.zombies, now);
+        if (msg.koth) this.onHill(msg.koth);
         break;
       }
       case 'zombieDied': {
@@ -1186,6 +1195,17 @@ export class Game {
     }
   }
 
+  /** A new hill state from the server: announce a change of hands. */
+  private onHill(s: KothState) {
+    const was = this.hill;
+    this.hill = s;
+    if (!was || s.owner === was.owner || s.owner === null) return;
+    const mine = this.players.get(this.selfId)?.team === s.owner;
+    this.hud.center(mine ? 'HILL CAPTURED!' : `${TEAMS[s.owner].name.toUpperCase()} TOOK THE HILL`, '#' + TEAMS[s.owner].color.toString(16).padStart(6, '0'), 2);
+    if (mine) sfx.roundClear();
+    else sfx.roundStart();
+  }
+
   /** A side or a player hit the kill limit: freeze the scores, show the board and name the winner. */
   private onMatchOver(msg: Extract<ServerMsg, { t: 'matchOver' }>) {
     this.matchOver = true;
@@ -1312,7 +1332,9 @@ export class Game {
     this.hud.health(this.horde ? this.hp : null, maxHp(this.jug));
     this.hud.wave(this.waveText());
     this.postgame?.tick(this.time);
-    this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId, this.teams);
+    this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId, this.teams, this.hill ? `Hold the hill for ${KOTH.holdToWin / 60} minutes` : undefined);
+    this.hillFx?.update(this.hill, this.time);
+    this.hillHud?.update(this.hill, this.players.get(this.selfId)?.team, this.alive && !!this.map.koth && inZone(this.map.koth.zone, this.me.pos));
     this.hud.scoreboard(this.showScores || this.matchOver ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.dummy).map((r) => r.info)] : null, this.selfId, this.teams);
   }
 

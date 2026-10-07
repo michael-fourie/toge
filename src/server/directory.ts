@@ -38,8 +38,8 @@ export class Directory extends DurableObject {
     return code;
   }
 
-  async report(code: string, mode: GameMode, teams: boolean, map: BattleMap | undefined, host: string, players: number): Promise<void> {
-    const entry: Entry = { code, mode, teams: teams || undefined, map: mode === 'battle' ? map : undefined, host, players, max: NET.maxPlayersPerLobby, at: Date.now() };
+  async report(code: string, mode: GameMode, teams: boolean, map: BattleMap | undefined, host: string, players: number, koth = false): Promise<void> {
+    const entry: Entry = { code, mode, teams: teams || undefined, map: mode === 'battle' ? map : undefined, koth: koth || undefined, host, players, max: NET.maxPlayersPerLobby, at: Date.now() };
     await this.ctx.storage.put(code, entry);
   }
 

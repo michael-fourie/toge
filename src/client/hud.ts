@@ -235,11 +235,11 @@ export class Hud {
   }
 
   /** Always-on top-right standings (online only; null hides). Rebuilt only when the numbers change. */
-  liveScores(players: PlayerInfo[] | null, selfId: number, teams = false) {
+  liveScores(players: PlayerInfo[] | null, selfId: number, teams = false, goalText = `First to ${KILL_LIMIT} kills`) {
     const el = this.q('.livescore');
     el.classList.toggle('show', !!players?.length);
     if (!players) return;
-    const goal = `<div class="goal">First to ${KILL_LIMIT} kills</div>`;
+    const goal = `<div class="goal">${goalText}</div>`;
     const tally = teams
       ? teamKills(players)
           .map((k, t) => `<div class="team"><i style="background:${hex(TEAMS[t].color)}"></i><span>${TEAMS[t].name}</span><b>${k}</b></div>`)

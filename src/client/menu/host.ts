@@ -1,5 +1,6 @@
 import { NET } from '../../shared/constants.ts';
 import { KILL_LIMIT, TEAMS } from '../../shared/teams.ts';
+import { KOTH } from '../../shared/koth.ts';
 import { BATTLE_MAPS, BATTLE_MAP_IDS, randomBattleMap } from '../../shared/maps.ts';
 import type { BattleMap, GameMode } from '../../shared/protocol.ts';
 import type { Render } from './router.ts';
@@ -38,6 +39,11 @@ export const host: Render = (root, ctx, screen) => {
         <b>Teams</b>
         <span>${TEAMS[0].name} vs ${TEAMS[1].name}. Pick a side in the lobby, or shuffle</span>
       </label>
+      <label class="mode mode-koth">
+        <input type="radio" name="format" value="koth" />
+        <b>👑 King of the Hill</b>
+        <span>Teams fight over the hill on Crown. Hold it for ${KOTH.holdToWin / 60} minutes in total to win</span>
+      </label>
     </fieldset>
     <fieldset class="modes formats" id="maps">
       <legend class="small-caps">Battle map</legend>
@@ -54,7 +60,8 @@ export const host: Render = (root, ctx, screen) => {
         <span>A surprise arena each time you host</span>
       </label>
     </fieldset>
-    <p class="hint">First to ${KILL_LIMIT} kills wins the match. Up to ${NET.maxPlayersPerLobby} players. Share the code to invite friends.</p>
+    <p class="hint" id="koth-note" hidden>King of the Hill always plays on <b>Crown</b>, a map built around its hill. Stand on the hill with no enemies there to capture it; your team's clock runs while you hold it. You can't win while the enemy is still fighting for it: that's overtime.</p>
+    <p class="hint"><span id="kill-goal">First to ${KILL_LIMIT} kills wins the match. </span>Up to ${NET.maxPlayersPerLobby} players. Share the code to invite friends.</p>
     ${SERVER_PILL}
     <p class="notice" role="alert"></p>
     <div class="cta"><button class="primary big" id="create">Create lobby</button></div>`,
@@ -63,9 +70,14 @@ export const host: Render = (root, ctx, screen) => {
   const formats = $(root, '#formats');
   const maps = $(root, '#maps');
   const syncFormats = () => {
-    formats.hidden = maps.hidden = $<HTMLInputElement>(root, 'input[name=mode]:checked').value !== 'battle';
+    const battle = $<HTMLInputElement>(root, 'input[name=mode]:checked').value === 'battle';
+    const koth = battle && $<HTMLInputElement>(root, 'input[name=format]:checked').value === 'koth';
+    formats.hidden = !battle;
+    maps.hidden = !battle || koth; // the hill has its own map
+    $(root, '#koth-note').hidden = !koth;
+    $(root, '#kill-goal').hidden = koth;
   };
-  root.querySelectorAll('input[name=mode]').forEach((i) => i.addEventListener('change', syncFormats));
+  root.querySelectorAll('input[name=mode], input[name=format]').forEach((i) => i.addEventListener('change', syncFormats));
   syncFormats();
   const notice = $(root, '.notice');
   const create = $<HTMLButtonElement>(root, '#create');
@@ -81,10 +93,12 @@ export const host: Render = (root, ctx, screen) => {
     create.disabled = true;
     notice.textContent = '';
     const mode = $<HTMLInputElement>(root, 'input[name=mode]:checked').value as GameMode;
-    const teams = mode === 'battle' && $<HTMLInputElement>(root, 'input[name=format]:checked').value === 'teams';
+    const format = $<HTMLInputElement>(root, 'input[name=format]:checked').value;
+    const koth = mode === 'battle' && format === 'koth';
+    const teams = koth || (mode === 'battle' && format === 'teams');
     const pick = $<HTMLInputElement>(root, 'input[name=map]:checked').value;
     const map = pick === 'random' ? randomBattleMap() : (pick as BattleMap); // chosen here so every player gets the same arena
-    if (await goOnline(root, ctx.net)) ctx.net.host(playerName(), mode, teams, map);
+    if (await goOnline(root, ctx.net)) ctx.net.host(playerName(), mode, teams, map, koth);
     create.disabled = false;
   });
   create.focus();
