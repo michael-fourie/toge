@@ -14,6 +14,8 @@ Requires Node ≥ 20 (Wrangler). Node 22 LTS is recommended, and also unlocks Vi
 
 **The map, Windward:** two harbour islands face each other across a great tree. Three lanes lead to the middle: a slide-and-bhop Windway, a Surf Gorge, and walled Old Ruins. Along the way are multi-storey houses with sniping windows, extra surfs, wind gates (speed boosters) and puffball mushrooms (jump boosters).
 
+**On a phone**: play sideways (it asks you to rotate). Fortnite-style touch controls: drag anywhere on the left for a joystick, swipe on the right to look, hold FIRE and drag to aim while shooting, plus jump, slide, scope, grapple, grenade, reload, weapon swap and pause buttons. The menus have compact landscape layouts too. Desktop is unchanged.
+
 **King of the Hill** (a Battle format when hosting): Sunset vs Tide on **Crown**, a sky island built around one hill. Stand on the hill with no enemies on it to capture it; your team's clock runs while you hold it, and the first team to 3 minutes wins. Overwatch-style: more of you capture faster, enemies on the hill freeze the capture (contested), and you can't win while they're still fighting for it (overtime). The bar at the top shows both clocks, who owns the hill, the capture ring and who is standing on it. Each team respawns in its own base.
 
 **Summit** (Battle): a snowy mountain top above the clouds. A rock ridge splits it with slide ramps into wind gates and a summit nook you pad up to; an ice chute to surf down a gully, a cable station run, a log lodge with a sniper roof, ice walls to wallrun. Step off the edge and the clouds take you.

@@ -17,6 +17,7 @@ import { FIELD_BACKDROP, SKY_BACKDROP, playerName } from './menu/ui.ts';
 import { Net } from './net.ts';
 import { loadSettings } from './settings.ts';
 import { sfx } from './sfx.ts';
+import { setupTouchPage } from './touch.ts';
 
 const app = document.getElementById('app')!;
 const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, host, join, lobby, help, settings, account: accountScreen, casino, inventory };
@@ -121,6 +122,7 @@ async function play(joined?: Joined) {
 // ---------------------------------------------------------------------------
 // Boot. A deep link (/?join=ABCD) lands on the Join page with the code filled in.
 
+setupTouchPage(); // phones: touch styles + the rotate-your-phone card (nothing on desktop)
 void account.refresh(); // who's signed in (the title updates when this lands)
 
 // A reload restores the page you were on, except the lobby room and matches (the connection is gone).

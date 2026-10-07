@@ -14,6 +14,11 @@ export class Input {
   /** KeyboardEvent.code per action, from the saved settings. */
   readonly keymap = { ...DEFAULT_KEYS, ...loadSettings().keys };
 
+  /** Phones: there is no pointer lock or mouse; touchcontrols.ts drives the methods below instead. */
+  touchMode = false;
+  /** Touch joystick: x = strafe right, y = forward, each -1..1. Always 0 on desktop. */
+  readonly stick = { x: 0, y: 0 };
+
   /** Accumulated look delta since last read, for viewmodel sway. */
   lookDX = 0;
   lookDY = 0;
@@ -53,7 +58,7 @@ export class Input {
       this.fireHeld = false;
     });
     this.listen(document, 'mousemove', (e: MouseEvent) => {
-      if (!this.locked) return;
+      if (!this.locked || this.touchMode) return;
       const k = this.sensitivity * this.sensitivityScale;
       this.yaw -= e.movementX * k;
       this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch - e.movementY * k));
@@ -61,7 +66,7 @@ export class Input {
       this.lookDY += e.movementY * k;
     });
     this.listen(document, 'mousedown', (e: MouseEvent) => {
-      if (!this.locked) return;
+      if (!this.locked || this.touchMode) return;
       if (e.button === 0) {
         this.fireQueued = true;
         this.fireHeld = true;
@@ -102,6 +107,7 @@ export class Input {
   }
 
   async lock() {
+    if (this.touchMode) return this.setTouchLock(true);
     if (document.pointerLockElement === this.el) return; // already locked: re-requesting would reset the keys (and every click comes through here)
     try {
       // Raw input skips OS mouse acceleration where supported.
@@ -116,7 +122,55 @@ export class Input {
   }
 
   unlock() {
+    if (this.touchMode) return this.setTouchLock(false);
     if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  // --- Touch (phones only; the keyboard and mouse never call these) -------------------------------
+
+  /** "Locked" on a phone just means playing rather than paused. */
+  private setTouchLock(on: boolean) {
+    if (on === this.locked) return;
+    this.locked = on;
+    this.keys.clear();
+    this.scopeHeld = false;
+    this.fireHeld = false;
+    this.stick.x = this.stick.y = 0;
+    this.onLockChange?.(on);
+  }
+
+  /** A touch button pressed or let go, exactly as if its key were. */
+  press(code: string) {
+    if (!this.keys.has(code)) {
+      if (code === this.keymap.jump) this.jumpQueued = true;
+      if (code === this.keymap.grapple) this.grappleQueued = true;
+      if (code === this.keymap.grenade) this.grenadeQueued = true;
+      this.onKey?.(code, true);
+    }
+    this.keys.add(code);
+  }
+  release(code: string) {
+    if (!this.keys.delete(code)) return;
+    this.onKey?.(code, false);
+  }
+
+  /** A swipe on the look area, in screen pixels (scaled like mouse counts by `touchLook`). */
+  look(dx: number, dy: number) {
+    if (!this.locked) return;
+    const k = this.sensitivity * this.sensitivityScale;
+    this.yaw -= dx * k;
+    this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch - dy * k));
+    this.lookDX += dx * k;
+    this.lookDY += dy * k;
+  }
+
+  setFire(on: boolean) {
+    if (on && this.locked) this.fireQueued = true;
+    this.fireHeld = on && this.locked;
+  }
+
+  setScope(on: boolean) {
+    this.scopeHeld = on && this.locked;
   }
 
   down(code: string) {
@@ -126,8 +180,8 @@ export class Input {
   /** Builds the movement input for one sim tick. Edge-triggered jump is consumed by the first tick. */
   sample(out: MoveInput): MoveInput {
     const k = this.keymap;
-    out.forward = (this.down(k.forward) ? 1 : 0) - (this.down(k.back) ? 1 : 0);
-    out.right = (this.down(k.right) ? 1 : 0) - (this.down(k.left) ? 1 : 0);
+    out.forward = (this.down(k.forward) ? 1 : 0) - (this.down(k.back) ? 1 : 0) + this.stick.y;
+    out.right = (this.down(k.right) ? 1 : 0) - (this.down(k.left) ? 1 : 0) + this.stick.x;
     out.jumpPressed = this.jumpQueued && this.locked;
     out.jump = this.down(k.jump) || out.jumpPressed;
     // Left Shift is the default; the right one always works too.

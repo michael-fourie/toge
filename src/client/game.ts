@@ -36,6 +36,8 @@ import { Avatar, Corpses } from './avatar.ts';
 import { PostGame } from './postgame.ts';
 import { Horde } from './horde.ts';
 import { HillFx, HillHud } from './hill.ts';
+import { IS_TOUCH, goFullscreen } from './touch.ts';
+import { TouchControls } from './touchcontrols.ts';
 import { Hud } from './hud.ts';
 import { GrenadeFx } from './grenadefx.ts';
 import { Input } from './input.ts';
@@ -183,6 +185,8 @@ export class Game {
   private hill: KothState | null = null;
   private hillFx: HillFx | null = null;
   private hillHud: HillHud | null = null;
+  /** Phones only: the on-screen joystick and buttons. */
+  private touch: TouchControls | null = null;
   private horde: Horde | null = null;
   private hp: number = SURVIVAL.playerHp;
   private wave: WaveInfo | null = null;
@@ -206,7 +210,7 @@ export class Game {
     this.mode = joined?.mode ?? 'battle';
     this.teams = !!joined?.teams;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2)); // phones: fewer pixels, steadier frame rate
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.map = mapFor(this.mode, joined?.map, joined?.koth);
@@ -263,7 +267,16 @@ export class Game {
     this.input = new Input(this.renderer.domElement);
     if (net && this.mode === 'survival') this.postgame = new PostGame(container, this.selfId, { onAgain: () => { net.send({ t: 'again' }); void this.input.lock(); }, onHome: () => this.exit() });
     this.input.yaw = spawn.yaw;
-    this.input.onLockChange = (locked) => this.hud.setPaused(!locked);
+    this.input.onLockChange = (locked) => {
+      this.hud.setPaused(!locked);
+      if (!locked) this.touch?.reset();
+    };
+    if (IS_TOUCH) {
+      this.input.touchMode = true;
+      this.touch = new TouchControls(this.hud.root, this.input, { onSwap: () => this.nextWeapon() });
+      this.hud.root.querySelector('.resume')!.textContent = 'Tap to play';
+      this.hud.root.querySelector('.resume')!.addEventListener('click', goFullscreen);
+    }
     this.input.onKey = (code, down) => this.onKey(code, down);
     this.hud.setPaused(true);
     this.hud.onResume = () => this.input.lock();
@@ -487,6 +500,13 @@ export class Game {
     this.autoReloadAt = -1;
     this.vm.holdKnife(on);
     this.selfAvatar.holdKnife(on);
+  }
+
+  /** Touch swap button: gun 1 -> gun 2 (if carried) -> knife -> gun 1. */
+  private nextWeapon() {
+    if (this.knifeOut) this.pickGun(0);
+    else if (this.loadout.cur === 0 && this.loadout.slots[1]) this.pickGun(1);
+    else this.setKnife(true);
   }
 
   /** A gun key (1, 2): back to the guns if the knife was out. */
@@ -1324,6 +1344,7 @@ export class Game {
     const gun = this.loadout.gun!;
     this.hud.ammo(gun.mag, this.stats.mag, this.horde || gun.reserve !== Infinity ? gun.reserve : null, this.reloading > 0, this.stats.label, this.horde ? this.loadout.slots.map((s) => (s ? gunStats(s.w, s.up).label : null)) : [], this.loadout.cur);
     this.useHud.update(this.horde ? this.points : null, this.alive ? this.use : null);
+    this.touch?.update(this.alive && !!this.use);
     this.hud.grapple(this.grappleState());
     sfx.setWind(this.alive && !this.hud.root.classList.contains('paused') ? SpeedFx.strength(hlen(this.me.vel)) : 0);
     this.hud.setCredit(this.vm.credit);

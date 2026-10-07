@@ -1,3 +1,4 @@
+import { IS_TOUCH } from '../touch.ts';
 import type { Render } from './router.ts';
 import { $, sheet } from './ui.ts';
 
@@ -17,12 +18,26 @@ const KEYS: [string, string][] = [
   ['`', 'Live movement tuning panel.'],
 ];
 
+/** On a phone: the on-screen controls instead of keys. */
+const TOUCH: [string, string][] = [
+  ['Left thumb', 'Put it down anywhere on the left and drag: a joystick appears under it. Push past halfway for full speed.'],
+  ['Right thumb', 'Swipe anywhere on the right to look around.'],
+  ['Fire', 'The big red button (or the one on the left). Keep your thumb on it and drag to aim while you shoot.'],
+  ['Jump / slide', 'Hold jump to bhop. Slide is the down arrow; hold it in the air to slide the moment you land.'],
+  ['Bhop', 'In the air, hold the stick sideways and swipe the same way to gain speed.'],
+  ['Scope', 'Tap to zoom in, tap again to zoom out.'],
+  ['Grapple / grenade', 'The hook button reels you toward what you aim at; the grenade sits in its cooldown ring.'],
+  ['Reload / swap', 'The small buttons above fire: reload, and switch between your guns and the knife.'],
+  ['Use', 'Survival: appears when there is something to buy or a window to repair (hold it).'],
+  ['Pause / scores', 'Top-left.'],
+];
+
 export const help: Render = (root) => {
   root.innerHTML = sheet(
     'How to play',
     `
     <p class="lead">Momentum is everything. Keep moving, keep hopping, and line up the shot while you fly.</p>
-    <dl class="help-keys">${KEYS.map(([k, v]) => `<dt><kbd>${k}</kbd></dt><dd>${v}</dd>`).join('')}</dl>`,
+    <dl class="help-keys">${(IS_TOUCH ? TOUCH : KEYS).map(([k, v]) => `<dt><kbd>${k}</kbd></dt><dd>${v}</dd>`).join('')}</dl>`,
   );
   $(root, 'h2').focus();
 };

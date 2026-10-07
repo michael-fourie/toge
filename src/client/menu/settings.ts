@@ -1,4 +1,5 @@
 import { ACTIONS, ACTION_NAME, type Action, DEFAULT_KEYS, keyLabel, loadSettings, saveSettings } from '../settings.ts';
+import { IS_TOUCH } from '../touch.ts';
 import type { Render } from './router.ts';
 import { $, esc, sheet } from './ui.ts';
 
@@ -13,9 +14,9 @@ export const settings: Render = (root) => {
     'Settings',
     `
     <fieldset class="settings">
-      <legend>Mouse &amp; movement <small>saved, and used online too</small></legend>
+      <legend>${IS_TOUCH ? 'Look' : 'Mouse'} &amp; movement <small>saved, and used online too</small></legend>
       <label class="setting">
-        <span>Mouse sensitivity</span>
+        <span>${IS_TOUCH ? 'Look sensitivity' : 'Mouse sensitivity'}</span>
         <input id="sens" type="range" min="0.25" max="3" step="0.05" value="${s.sensitivity}" />
         <output id="sens-out">${s.sensitivity.toFixed(2)}×</output>
       </label>
@@ -24,7 +25,7 @@ export const settings: Render = (root) => {
         <input id="autohop" type="checkbox" role="switch" ${s.autoHop ? 'checked' : ''} />
       </label>
     </fieldset>
-    <fieldset class="settings">
+    <fieldset class="settings key-binds">
       <legend>Controls <small>click a key, then press the new one (Esc cancels)</small></legend>
       <div class="binds" id="binds"></div>
       <div class="cta"><button class="pick" id="reset">Reset controls</button></div>
