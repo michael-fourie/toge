@@ -135,6 +135,7 @@ test('Pack-a-Punch upgrades the gun in your hands, once, and a new run takes it 
   const t = setup();
   try {
     t.s.tick(0.05);
+    (t.s as unknown as { power: boolean }).power = true; // the Pack-a-Punch needs the power on
     const w = t.s.wallet.get(1)!;
     w.points = SURVIVAL.punchPrice + 10;
     t.at(1, stand(lay.start[0].pos));
@@ -184,7 +185,7 @@ test('windows: zombies tear boards off, players nail them back for points, but n
       t.lobby.handle(t.clients[0], { t: 'use', kind: 'board', id: gate.id });
     }
     assert.equal(t.s.boards[gate.id], SURVIVAL.boards, 'capped');
-    assert.equal(findUse({ x: gate.inside.x, y: 0, z: gate.inside.z }, { lay, doorsOpen: t.s.doors, boards: t.s.boards, box: t.s.box, points: 0, slots: [], cur: 0, jug: false, perks: [], downed: [], self: 1 })?.kind === 'board', false, 'no repair prompt for a full window');
+    assert.equal(findUse({ x: gate.inside.x, y: 0, z: gate.inside.z }, { lay, doorsOpen: t.s.doors, boards: t.s.boards, box: t.s.box, points: 0, slots: [], cur: 0, jug: false, perks: [], downed: [], self: 1, power: true, parts: [], scythe: 0 })?.kind === 'board', false, 'no repair prompt for a full window');
     void b;
   } finally {
     t.done();

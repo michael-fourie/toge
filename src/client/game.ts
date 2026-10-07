@@ -1,6 +1,7 @@
 import GUI from 'lil-gui';
 import * as THREE from 'three';
-import { GRENADE, KNIFE, PLAYER, MOVE, NET, RESPAWN_SECONDS, SURVIVAL, TICK_DT, WEAPON } from '../shared/constants.ts';
+import { GRENADE, KNIFE, PLAYER, MOVE, NET, RESPAWN_SECONDS, SCYTHE, SKYLINE, SURVIVAL, TICK_DT, WEAPON } from '../shared/constants.ts';
+import { MOD, MODS } from '../shared/modifiers.ts';
 import { type Colliders, buildColliders } from '../shared/colliders.ts';
 import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
 import { type Use, findUse, maxHp } from '../shared/interact.ts';
@@ -36,6 +37,7 @@ import { storedSkin } from './skinStore.ts';
 import { Avatar, Corpses } from './avatar.ts';
 import { PostGame } from './postgame.ts';
 import { Drops } from './drops.ts';
+import { ScytheFx } from './scythefx.ts';
 import { Horde } from './horde.ts';
 import { HillFx, HillHud } from './hill.ts';
 import { IS_TOUCH, goFullscreen } from './touch.ts';
@@ -148,6 +150,7 @@ export class Game {
   // Grenades (Q): everyone's in flight, the fx, our cooldown (game time of our last throw) and its HUD.
   private grenades: { owner: number; g: Grenade; obj: THREE.Group; fuse: number }[] = [];
   private grenadeFx: GrenadeFx;
+  private scytheFx: ScytheFx;
   private nadeAt = -Infinity;
   private nadeHud: NadeHud;
 
@@ -212,6 +215,14 @@ export class Game {
   private doors: boolean[] = [];
   private boards: number[] = [];
   private box: BoxState = { spot: 0, phase: 'closed', gun: null, owner: 0, left: 0 };
+  private power = false;
+  private parts: boolean[] = [];
+  /** The Gale Scythe: 0 not built, -1 on the workbench, else who carries it. */
+  private scythe = 0;
+  /** Seconds we've been up on the Skyline's roof (it burns after SKYLINE.grace), and whether we've been warned. */
+  private roofT = 0;
+  private roofWarned = false;
+  private fogDefault: [number, number] | null = null;
   private use: Use | null = null;
   private repairAt = 0;
   private shadowTick = 0;
@@ -245,6 +256,7 @@ export class Game {
     this.corpses = new Corpses(this.world.scene);
     this.ropeSelf = new Rope(this.world.scene);
     this.grenadeFx = new GrenadeFx(this.world.scene);
+    this.scytheFx = new ScytheFx(this.world.scene);
     if (this.map.koth) this.hillFx = new HillFx(this.world.scene, this.map.koth.zone);
     if (this.mode === 'survival') {
       this.horde = new Horde(this.world.scene);
@@ -254,8 +266,10 @@ export class Game {
         sfx.roundStart();
       };
       this.wave = joined?.wave ?? null;
+      if (this.wave?.phase === 'active') this.horde.mod = this.wave.mod ?? null; // joined mid-round
+      this.setSmog(this.wave?.phase === 'active' && this.wave.mod === 'smog');
       this.foundry!.onEvent = (e, at) => this.onFoundryEvent(e, at);
-      this.foundry!.sync([], [], this.box);
+      this.foundry!.sync({ doors: [], boards: [], box: this.box, power: false, parts: [], scythe: 0 });
     }
 
     // Players.
@@ -363,6 +377,7 @@ export class Game {
       this.moveInput.grappleTargets = this.grappleTargets();
       const input = this.input.sample(this.moveInput);
       input.speedMult = this.perks.includes('zephyr') ? ZEPHYR_SPEED : 1;
+      input.gravMult = this.wave?.phase === 'active' && this.wave.mod === 'moon' ? MOD.moonGravity : 1;
       if (this.isDown) {
         // Down: you stay where you fell (gravity still settles you onto the floor).
         input.forward = input.right = 0;
@@ -370,6 +385,7 @@ export class Game {
       }
       stepPlayer(this.me, input, TICK_DT, this.cols.move, this.map.triggers);
       this.onMoveEvents(this.me.events, fallSpeed);
+      if (this.horde) this.roofTick(TICK_DT);
       this.airTime = this.me.onGround ? 0 : this.airTime + TICK_DT;
       this.acc -= TICK_DT;
     }
@@ -502,12 +518,12 @@ export class Game {
     let best = rayWorld(o, d, this.cols.shot, range);
     let hit: { id: number; zombie: boolean } | null = null;
     let headshot = false;
-    const targets: { id: number; pos: THREE.Vector3; zombie: boolean; s: number }[] = this.horde
-      ? [...this.horde.zombies.values()].map((z) => ({ id: z.id, pos: z.pos, zombie: true, s: z.scale })) // co-op: shots pass through friends
-      : [...this.remotes.values()].filter((r) => r.info.alive && !(this.teams && sameTeam(r.info, this.players.get(this.selfId)!))).map((r) => ({ id: r.info.id, pos: r.pos, zombie: false, s: 1 }));
-    for (const { id, pos: p, zombie, s } of targets) {
+    const targets: { id: number; pos: THREE.Vector3; zombie: boolean; s: number; head: number }[] = this.horde
+      ? [...this.horde.zombies.values()].map((z) => ({ id: z.id, pos: z.pos, zombie: true, s: z.scale, head: z.head })) // co-op: shots pass through friends
+      : [...this.remotes.values()].filter((r) => r.info.alive && !(this.teams && sameTeam(r.info, this.players.get(this.selfId)!))).map((r) => ({ id: r.info.id, pos: r.pos, zombie: false, s: 1, head: 1 }));
+    for (const { id, pos: p, zombie, s, head } of targets) {
       const hw = PLAYER.halfWidth * s; // a boss is bigger all over
-      const th = raySphere(o, d, { x: p.x, y: p.y + PLAYER.headCenter * s, z: p.z }, (PLAYER.headRadius + 0.04) * s, best);
+      const th = raySphere(o, d, { x: p.x, y: p.y + PLAYER.headCenter * s, z: p.z }, (PLAYER.headRadius + 0.04) * s * head, best);
       if (th >= 0 && th < best) {
         best = th;
         hit = { id, zombie };
@@ -549,8 +565,18 @@ export class Game {
     if (!wasKnife || this.loadout.cur !== slot) this.equip(slot);
   }
 
+  /** A Gale Scythe swing: the server cuts every zombie around us; we just show it. */
+  private swing() {
+    this.vm.stab();
+    this.bolt = SCYTHE.cooldown;
+    this.scytheFx.swing(this.renderPos, this.input.yaw);
+    const p = this.renderPos;
+    this.opts.net?.send({ t: 'shoot', from: [round3(p.x), round3(p.y + this.eyeHeight), round3(p.z)], to: [round3(p.x), round3(p.y + this.eyeHeight), round3(p.z)], knife: true });
+  }
+
   /** A knife stab: a short ray along the look direction; any hit on a player or zombie is a kill. Never costs momentum. */
   private stab() {
+    if (this.scythe === this.selfId) return this.swing();
     const look = lookDir(this.input.yaw, this.input.pitch);
     const o = { x: this.renderPos.x, y: this.renderPos.y + this.eyeHeight, z: this.renderPos.z };
     const { best, hit } = this.cast(o, look, 0, KNIFE.range);
@@ -650,7 +676,7 @@ export class Game {
     const downed = [...this.downed.keys()]
       .filter((id) => id !== this.selfId && this.remotes.has(id))
       .map((id) => ({ id, pos: this.remotes.get(id)!.pos, name: this.players.get(id)?.name ?? '???' }));
-    return { lay: this.map.survival!, doorsOpen: this.doors, boards: this.boards, box: this.box, points: this.points, slots: this.loadout.slots.map((s) => (s ? { w: s.w, up: s.up } : null)), cur: this.loadout.cur, jug: this.jug, perks: this.perks, downed, self: this.selfId };
+    return { lay: this.map.survival!, doorsOpen: this.doors, boards: this.boards, box: this.box, points: this.points, slots: this.loadout.slots.map((s) => (s ? { w: s.w, up: s.up } : null)), cur: this.loadout.cur, jug: this.jug, perks: this.perks, downed, self: this.selfId, power: this.power, parts: this.parts, scythe: this.scythe };
   }
 
   /** Works out what F would do here (for the prompt) and, while F is held at a window, nails boards back up. */
@@ -781,6 +807,7 @@ export class Game {
       }
     }
     this.grenadeFx.update(dt);
+    this.scytheFx.update(dt);
     this.nadeHud.update(this.nadeProgress(), GRENADE.cooldown - (this.time - this.nadeAt));
   }
 
@@ -1032,6 +1059,7 @@ export class Game {
     avatar.root.visible = info.alive && !!dummy;
     this.world.scene.add(avatar.root);
     this.remotes.set(info.id, { info, avatar, buffer: [], pos: new THREE.Vector3(), yaw: 0, trail: new Trail(), dummy });
+    if (info.id === this.scythe) avatar.holdScythe(true);
   }
 
   private removeRemote(id: number) {
@@ -1088,6 +1116,20 @@ export class Game {
     const who = by === this.selfId ? '' : ` (${this.players.get(by)?.name ?? '?'})`;
     this.hud.center(`MAX AMMO!${who}`, '#b8ff9a', 2.5);
     sfx.maxAmmo();
+  }
+
+  /** The Skyline's roof burns if you hang about up there: warn a couple of seconds before it starts (the server does the burning). */
+  private roofTick(dt: number) {
+    if (!this.alive || this.me.pos.y < SKYLINE.roofY) {
+      this.roofT = 0;
+      this.roofWarned = false;
+      return;
+    }
+    this.roofT += dt;
+    if (this.roofT > SKYLINE.grace - 2 && !this.roofWarned) {
+      this.roofWarned = true;
+      this.hud.center('THE ROOF IS SCORCHING! GET DOWN', '#ff7a4a', 2);
+    }
   }
 
   private updateHorde() {
@@ -1186,6 +1228,11 @@ export class Game {
         if (killer) killer.kills++;
         const feats = msg.killer === this.selfId ? this.celebrate(msg.id, true, msg.headshot) : null;
         this.hud.killfeed(killer, ZOMBIE_INFO, feats ?? (msg.headshot ? verbFor.headshot : verbFor.snipe));
+        const at = this.horde?.zombies.get(msg.id)?.pos;
+        if (msg.job === 'stoker' && at) {
+          this.scytheFx.embers(at);
+          sfx.embers();
+        }
         this.horde?.kill(msg.id, new THREE.Vector3(...msg.dir), msg.headshot, this.corpses);
         sfx.zombieDown();
         if (msg.boss) {
@@ -1334,14 +1381,41 @@ export class Game {
     }
   }
 
-  /** The building changed: a door opened, a board came off or went up, the box moved or did something. */
+  /** The building changed: a door opened, a board came off or went up, the box moved, the power, the scythe... */
   private onWorld(m: Extract<ServerMsg, { t: 'world' }>) {
     const colliders = m.doors.some((d, i) => d !== !!this.doors[i]) || m.boards.some((b, i) => b > 0 !== (this.boards[i] > 0));
+    const first = !this.parts.length;
+    if (!first) this.announceWorld(m);
     this.doors = m.doors;
     this.boards = m.boards;
     this.box = m.box;
+    this.power = m.power;
+    this.parts = m.parts;
+    this.scythe = m.scythe;
     if (colliders || !this.foundry) this.cols = buildColliders(this.map, this.doors, this.boards);
-    this.foundry?.sync(m.doors, m.boards, m.box);
+    this.foundry?.sync(m);
+    this.vm.setScythe(m.scythe === this.selfId);
+    this.selfAvatar.holdScythe(m.scythe === this.selfId);
+    for (const r of this.remotes.values()) r.avatar.holdScythe(m.scythe === r.info.id);
+  }
+
+  /** Banners and sounds for what just changed in the building. */
+  private announceWorld(m: Extract<ServerMsg, { t: 'world' }>) {
+    if (m.power && !this.power) {
+      this.hud.center('POWER ON!', '#ffe27a', 2.5);
+      sfx.powerOn();
+    }
+    const found = m.parts.filter(Boolean).length;
+    if (found > this.parts.filter(Boolean).length) {
+      this.hud.center(found === m.parts.length ? 'ALL SCYTHE PARTS FOUND: BUILD IT ON THE MEZZANINE' : `SCYTHE PART ${found}/${m.parts.length}`, '#8ff5e0', 2.5);
+      sfx.part();
+    }
+    if (m.scythe !== this.scythe) {
+      if (m.scythe === -1 && this.scythe === 0) this.hud.center('THE GALE SCYTHE IS BUILT!', '#8ff5e0', 2.5);
+      else if (m.scythe === this.selfId) this.hud.center('YOU CARRY THE GALE SCYTHE · knife key, then swing', '#8ff5e0', 3);
+      else if (m.scythe > 0) this.hud.center(`${this.players.get(m.scythe)?.name ?? 'Someone'} took the Gale Scythe`, '#8ff5e0', 2.5);
+      if (m.scythe !== 0) sfx.part();
+    }
   }
 
   private onWave(w: WaveInfo) {
@@ -1350,9 +1424,12 @@ export class Game {
     this.waveAt = this.time;
     if (w.phase !== 'over') this.postgame?.hide();
     if (w.phase === was) return;
+    if (this.horde) this.horde.mod = w.phase === 'active' ? (w.mod ?? null) : null;
+    this.setSmog(w.phase === 'active' && w.mod === 'smog');
     if (w.phase === 'active') {
       sfx.roundStart();
-      this.hud.center(`ROUND ${w.round}`, '#ff9ec4', 2.2);
+      if (w.mod) this.hud.center(`ROUND ${w.round}: ${MODS[w.mod].name.toUpperCase()} · ${MODS[w.mod].blurb}`, MODS[w.mod].color, 3);
+      else this.hud.center(`ROUND ${w.round}`, '#ff9ec4', 2.2);
     } else if (w.phase === 'over') {
       sfx.gameOver();
       if (!this.postgame) this.hud.center('GAME OVER', '#f08a6b', 3);
@@ -1361,6 +1438,14 @@ export class Game {
       this.hud.center('ROUND CLEARED!', '#ffd98a', 2.2);
       if (was === 'active') this.award(COIN.round); // everyone in the lobby, up or down
     }
+  }
+
+  /** Smog rounds pull the fog right in. */
+  private setSmog(on: boolean) {
+    const fog = this.world.scene.fog;
+    if (!(fog instanceof THREE.Fog)) return;
+    this.fogDefault ??= [fog.near, fog.far];
+    [fog.near, fog.far] = on ? [2, 22] : this.fogDefault;
   }
 
   /** A new hill state from the server: announce a change of hands. */
@@ -1400,7 +1485,7 @@ export class Game {
     const w = this.wave;
     if (!w) return null;
     const secs = Math.max(0, Math.ceil(w.timer - (this.time - this.waveAt)));
-    if (w.phase === 'active') return `<b>ROUND ${w.round}${w.boss ? ' · BOSS' : ''}</b>${w.left} zombie${w.left === 1 ? '' : 's'} left`;
+    if (w.phase === 'active') return `<b>ROUND ${w.round}${w.boss ? ' · BOSS' : ''}${w.mod ? ` · ${MODS[w.mod].name.toUpperCase()}` : ''}</b>${w.left} zombie${w.left === 1 ? '' : 's'} left`;
     const survived = Math.max(0, w.round - 1);
     if (w.phase === 'over') return `<b>GAME OVER</b>survived ${survived} round${survived === 1 ? '' : 's'}`;
     if (w.round === 0) return `<b>SURVIVAL</b>the horde rises in ${secs}s`;

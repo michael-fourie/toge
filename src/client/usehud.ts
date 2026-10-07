@@ -33,6 +33,7 @@ export class UseHud {
       else if (use.status === 'ready') text = `<kbd>F</kbd> ${use.text} ${price}`;
       else if (use.status === 'poor') text = `${use.text}: not enough points ${price}`;
       else if (use.status === 'busy') text = `${use.text} is busy`;
+      else if (use.status === 'off') text = `${use.text}: turn the power on first`;
       else text = use.text;
     }
     if (text !== this.lastPrompt) {

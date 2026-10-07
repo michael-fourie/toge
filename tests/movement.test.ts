@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { Box, Trigger } from '../src/shared/collision.ts';
 import { MOVE, TICK_DT } from '../src/shared/constants.ts';
 import { hlen } from '../src/shared/math.ts';
-import { Ev, type MoveInput, createPlayerState, emptyInput, stepPlayer } from '../src/shared/movement.ts';
+import { Ev, type MoveInput, createPlayerState, emptyInput, launchTo, stepPlayer } from '../src/shared/movement.ts';
 
 const floor: Box = { min: { x: -500, y: -1, z: -500 }, max: { x: 500, y: 0, z: 500 }, kind: 'floor' };
 
@@ -129,6 +129,31 @@ test('jump pad launches', () => {
   const ev = run(s, emptyInput(), 0.4, [floor, pad]);
   assert.ok(ev & Ev.JumpPad);
   assert.ok(s.pos.y > 1, `should be airborne, y=${s.pos.y}`);
+});
+
+test('Moon Shift (gravMult) slows falling only: horizontal speed is untouched and a pad still lands on its target', () => {
+  const fall = (gravMult: number) => {
+    const s = createPlayerState({ x: 0, y: 20, z: 0 });
+    s.vel.x = 12;
+    run(s, { ...emptyInput(), gravMult }, 0.5, []);
+    return s;
+  };
+  const earth = fall(1);
+  const moon = fall(0.45);
+  assert.ok(moon.pos.y > earth.pos.y + 0.5, 'falls slower');
+  assert.ok(Math.abs(moon.vel.y / earth.vel.y - 0.45) < 0.02, 'by the multiplier');
+  assert.equal(hlen(moon.vel), 12, 'no speed lost');
+  const to = { x: 10, y: 0, z: 0 };
+  const pad: Box = { min: { x: -1, y: 0, z: -1 }, max: { x: 1, y: 0.2, z: 1 }, kind: 'pad', launch: launchTo({ x: 0, y: 0.2, z: 0 }, to, 3) };
+  const land = (gravMult: number) => {
+    const s = createPlayerState({ x: 0, y: 0.5, z: 0 });
+    let x = NaN;
+    run(s, { ...emptyInput(), gravMult }, 4, [floor, pad], () => {
+      if (Number.isNaN(x) && s.onGround && s.pos.x > 2) x = s.pos.x;
+    });
+    return x;
+  };
+  assert.ok(Math.abs(land(1) - to.x) < 0.6 && Math.abs(land(0.45) - to.x) < 0.6, `pad lands at ${land(1)} and ${land(0.45)}`);
 });
 
 // --- Momentum (CS:GO bhop behaviour) ------------------------------------------------------

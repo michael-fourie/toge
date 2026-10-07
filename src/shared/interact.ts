@@ -6,7 +6,7 @@ import { PERKS, type PerkId } from './perks.ts';
 import type { BoxState, UseKind } from './protocol.ts';
 import { type Slot, WEAPONS, ammoPrice, gunStats } from './weapons.ts';
 
-type UseStatus = 'ready' | 'poor' | 'owned' | 'busy';
+type UseStatus = 'ready' | 'poor' | 'owned' | 'busy' | 'off';
 
 /** Something within reach that F does something to. */
 export interface Use {
@@ -32,6 +32,11 @@ export interface UseCtx {
   /** Teammates who are down (not this player), for reviving. */
   downed: readonly { id: number; pos: Vec3; name: string }[];
   self: number;
+  /** The power is on (perk machines and the Pack-a-Punch work). */
+  power: boolean;
+  /** Scythe parts found, and the scythe: 0 not built, -1 on the bench, else who carries it. */
+  parts: readonly boolean[];
+  scythe: number;
 }
 
 /** Points from a zombie kill. */
@@ -47,6 +52,7 @@ export function findUse(pos: Vec3, c: UseCtx): Use | null {
   const { lay } = c;
   const R = SURVIVAL.useRange;
   const afford = (price: number): UseStatus => (c.points >= price ? 'ready' : 'poor');
+  const powered = (price: number): UseStatus => (c.power ? afford(price) : 'off');
   let best: Use | null = null;
   let bestD = Infinity;
   const offer = (d: number, u: Use) => {
@@ -87,12 +93,12 @@ export function findUse(pos: Vec3, c: UseCtx): Use | null {
   const here = c.slots[c.cur];
   const dPunch = flat(pos, lay.punch);
   if (dPunch <= SURVIVAL.punchRange && Math.abs(pos.y - lay.punch.y) < 3) {
-    const status: UseStatus = !here || here.up ? 'owned' : afford(SURVIVAL.punchPrice);
+    const status: UseStatus = !here || here.up ? 'owned' : powered(SURVIVAL.punchPrice);
     offer(dPunch, { kind: 'punch', id: 0, status, price: SURVIVAL.punchPrice, text: here?.up ? 'Already Pack-a-Punched' : 'Pack-a-Punch' });
   }
   const dJug = flat(pos, lay.jug);
   if (dJug <= SURVIVAL.punchRange && Math.abs(pos.y - lay.jug.y) < 3) {
-    offer(dJug, { kind: 'jug', id: 0, status: c.jug ? 'owned' : afford(SURVIVAL.jugPrice), price: SURVIVAL.jugPrice, text: c.jug ? 'Already Juggernogged' : 'Juggernog' });
+    offer(dJug, { kind: 'jug', id: 0, status: c.jug ? 'owned' : powered(SURVIVAL.jugPrice), price: SURVIVAL.jugPrice, text: c.jug ? 'Already Juggernogged' : 'Juggernog' });
   }
 
   lay.perks.forEach((p, id) => {
@@ -100,8 +106,27 @@ export function findUse(pos: Vec3, c: UseCtx): Use | null {
     if (d > SURVIVAL.punchRange || Math.abs(pos.y - p.pos.y) >= 3) return;
     const def = PERKS[p.kind];
     const have = c.perks.includes(p.kind);
-    offer(d, { kind: 'perk', id, status: have ? 'owned' : afford(def.price), price: def.price, text: have ? `Already have ${def.name}` : `${def.name}: ${def.blurb}` });
+    offer(d, { kind: 'perk', id, status: have ? 'owned' : powered(def.price), price: def.price, text: have ? `Already have ${def.name}` : `${def.name}: ${def.blurb}` });
   });
+
+  const near = (p: Vec3, range = R) => {
+    const d = flat(pos, p);
+    return d <= range && Math.abs(pos.y - p.y) < 2.5 ? d : -1;
+  };
+  const dPower = near(lay.power.pos);
+  if (dPower >= 0) offer(dPower, c.power ? { kind: 'power', id: 0, status: 'owned', price: 0, text: 'The power is on' } : { kind: 'power', id: 0, status: 'ready', price: 0, text: 'Turn the power on' });
+  lay.parts.forEach((p, id) => {
+    const d = near(p.pos);
+    if (d >= 0 && !c.parts[id]) offer(d, { kind: 'part', id, status: 'ready', price: 0, text: 'Pick up a scythe part' });
+  });
+  const dBench = near(lay.bench.pos);
+  if (dBench >= 0) {
+    const found = lay.parts.filter((_, i) => c.parts[i]).length;
+    if (c.scythe === 0 && found < lay.parts.length) offer(dBench, { kind: 'bench', id: 0, status: 'owned', price: 0, text: `Gale Scythe: ${found}/${lay.parts.length} parts found` });
+    else if (c.scythe === 0) offer(dBench, { kind: 'bench', id: 0, status: 'ready', price: 0, text: 'Build the Gale Scythe' });
+    else if (c.scythe === -1) offer(dBench, { kind: 'bench', id: 0, status: 'ready', price: 0, text: 'Take the Gale Scythe' });
+    else offer(dBench, { kind: 'bench', id: 0, status: 'owned', price: 0, text: c.scythe === c.self ? 'You carry the Gale Scythe' : 'Someone carries the Gale Scythe' });
+  }
 
   // A teammate down beside you comes before anything else in reach.
   for (const t of c.downed) {

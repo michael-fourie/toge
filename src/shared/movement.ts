@@ -15,6 +15,8 @@ export interface MoveInput {
   grappleTargets?: readonly GrappleTarget[];
   /** Ground run speed multiplier (Survival's Zephyr Fizz perk). Only raises the top run speed; air strafing is untouched. */
   speedMult?: number;
+  /** Gravity multiplier (Survival's Moon Shift). Only changes falling; launch pads scale so they still land on target. */
+  gravMult?: number;
 }
 
 export interface GrappleTarget {
@@ -369,7 +371,8 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
   if (!s.onGround) s.airTime += dt;
 
   // --- Acceleration --------------------------------------------------------
-  let gravity = MOVE.gravity;
+  const gm = input.gravMult ?? 1;
+  let gravity = MOVE.gravity * gm;
   if (s.onGround) {
     if (s.sliding && !input.slide) endSlide(s, false);
     if (!s.sliding && input.slide && !s.slideLocked && hlen(vel) >= MOVE.slideMinSpeed) {
@@ -404,7 +407,7 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
     if (dot(wish, tangent) > 0) accelerate(vel, tangent, MOVE.wallrunSpeed, MOVE.wallrunAccel, dt);
     // Gravity ramps from light to full over the run.
     const t = Math.min(1, s.wallrunTime / MOVE.wallrunMaxTime);
-    gravity = MOVE.wallrunGravityStart + (MOVE.gravity - MOVE.wallrunGravityStart) * t * t;
+    gravity = (MOVE.wallrunGravityStart + (MOVE.gravity - MOVE.wallrunGravityStart) * t * t) * gm;
 
     const along = Math.abs(dot(tangent, vel));
     const pullingAway = wishAmount > 0 && dot(wish, n) > 0.7;
@@ -445,7 +448,8 @@ export function stepPlayer(s: PlayerState, input: MoveInput, dt: number, boxes: 
     vel.y = -(n.x * vel.x + n.z * vel.z) / n.y;
     land(s);
     if (ground.kind === 'pad' && ground.launch) {
-      set(vel, ground.launch.x, ground.launch.y, ground.launch.z);
+      const k = Math.sqrt(gm); // the same arc under any gravity
+      set(vel, ground.launch.x * k, ground.launch.y * k, ground.launch.z * k);
       s.onGround = false;
       s.events |= Ev.JumpPad;
     }

@@ -196,6 +196,35 @@ export const ZOMBIE = {
   separation: 0.9, // zombies shove apart inside this radius
 };
 
+/**
+ * Zombies with jobs (Survival): from round `from` on, a growing share of the horde turns up in work clothes.
+ * Welder: a welding mask, so headshots land as body shots, and a tough apron. Courier: quick and flimsy, pays a tip.
+ * Stoker: full of embers; it bursts when it dies, scorching players and zombies close by.
+ */
+export const JOBS = {
+  from: 2,
+  chancePerRound: 0.05, // round 2: 5%, round 3: 10%...
+  chanceMax: 0.4,
+  welder: { hp: 1.8, speed: 0.9 },
+  courier: { hp: 0.55, speed: 1.5, points: 60 }, // extra points on top of the kill
+  stoker: { hp: 1.1, speed: 1, burst: 3, burstDamage: 30, burstZombieDamage: 300 },
+};
+
+/** The Gale Scythe (Survival wonder weapon): built from three parts, carried by one player in place of the knife. */
+export const SCYTHE = {
+  range: 4.2, // metres around you a swing reaches (all the way round)
+  height: 2.6, // ...and up or down
+  damage: 1500, // per zombie per swing
+  cooldown: 0.75,
+};
+
+/** The Skyline: the buyable roof surf over the Foundry. The roof is scorching: stand up there too long and it burns. */
+export const SKYLINE = {
+  roofY: 9.5, // above this you are on the roof (or surfing over it)
+  grace: 6, // seconds up there before it starts to burn
+  burn: 20, // hp per second after that
+};
+
 /** Frag grenade (Q). You get another a fixed time after throwing one. */
 export const GRENADE = {
   cooldown: 8, // seconds from the throw until you have another

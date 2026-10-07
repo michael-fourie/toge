@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { type Gear, type RiflePaint, itemById } from '../shared/items.ts';
 import { DEFAULT_KNIFE, buildKnife } from './knife.ts';
+import { buildScythe } from './scythe.ts';
 import { sfx } from './sfx.ts';
 import { GOLD, MINT } from './punchmachine.ts';
 import { buildProceduralAwp, loadAwpGlb } from './weapon/awp.ts';
@@ -14,7 +15,7 @@ const VIEW_SCALE = 0.85;
 const LEFT_OFFSCREEN = new THREE.Vector3(-0.3, -0.85, -0.5);
 const RIGHT_OFFSCREEN = new THREE.Vector3(0.7, -0.85, -0.3);
 
-type Action = { kind: 'reload' | 'draw' | 'stab'; t: number; dur: number; empty: boolean; cues: Set<string> };
+type Action = { kind: 'reload' | 'draw' | 'stab' | 'sweep'; t: number; dur: number; empty: boolean; cues: Set<string> };
 
 interface Debris {
   obj: THREE.Object3D;
@@ -49,6 +50,9 @@ export class ViewModel {
   private readonly muzzleFlash: THREE.Mesh;
   private readonly knife = new THREE.Group();
   private knifeOut = false;
+  /** The Gale Scythe replaces the knife while we carry it. */
+  private readonly scythe = buildScythe();
+  private scytheHeld = false;
   private readonly paint?: RiflePaint;
   private debris: Debris[] = [];
   private readonly glow = new THREE.Group();
@@ -90,6 +94,8 @@ export class ViewModel {
     this.knife.add(buildKnife(knifeItem?.slot === 'knife' ? knifeItem.paint : DEFAULT_KNIFE));
     this.knife.visible = false;
     this.rig.add(this.knife);
+    this.scythe.visible = false;
+    this.rig.add(this.scythe);
 
     this.right = new Arm(this.view, color, new THREE.Vector3(0.62, -0.7, 0.02), 1);
     this.left = new Arm(this.view, color, new THREE.Vector3(-0.3, -0.85, -0.3), -1);
@@ -202,16 +208,25 @@ export class ViewModel {
     this.start('draw', 0.35, false);
   }
 
+  /** Carrying the Gale Scythe: it comes out instead of the knife. */
+  setScythe(on: boolean) {
+    if (on === this.scytheHeld) return;
+    this.scytheHeld = on;
+    this.setKnifeOut(this.knifeOut);
+  }
+
   private setKnifeOut(on: boolean) {
     this.knifeOut = on;
-    this.knife.visible = on;
+    this.knife.visible = on && !this.scytheHeld;
+    this.scythe.visible = on && this.scytheHeld;
     this.gun.rig.root.visible = !on;
     this.muzzleFlash.visible = !on;
   }
 
-  /** A stab/slash: lunge across the screen. */
+  /** A stab/slash: lunge across the screen. With the scythe, a wide sweeping spin. */
   stab() {
-    this.start('stab', 0.32, false);
+    if (this.scytheHeld) this.start('sweep', 0.55, false);
+    else this.start('stab', 0.32, false);
   }
 
   /** Hold to aim down the sights. */
@@ -342,9 +357,27 @@ export class ViewModel {
         a.cues.add('whoosh');
         sfx.knife();
       }
+    } else if (a?.kind === 'sweep') {
+      // Raise it high on the right, then a big flat sweep all the way across to the left, and back.
+      const u = a.t / a.dur;
+      const wind = seg(u, 0, 0.2) - seg(u, 0.2, 0.3);
+      const swing = seg(u, 0.2, 0.55) - seg(u, 0.65, 1);
+      this.rig.position.x += wind * 0.15 - swing * 0.5;
+      this.rig.position.y += wind * 0.1 - swing * 0.05;
+      this.rig.rotation.y += wind * 0.6 - swing * 2.4;
+      this.rig.rotation.x -= swing * 0.6;
+      if (u >= 0.2 && !a.cues.has('whoosh')) {
+        a.cues.add('whoosh');
+        sfx.scythe();
+      }
+    }
+    if (this.scytheHeld) {
+      // The staff rides up and forward: the blade hangs over the middle of the screen.
+      this.rig.rotation.x += 0.35;
+      this.rig.position.y -= 0.08;
     }
     this.rig.updateMatrixWorld(true);
-    this.right.hand.position.copy(this.view.worldToLocal(this.knife.getWorldPosition(this.v)));
+    this.right.hand.position.copy(this.view.worldToLocal((this.scytheHeld ? this.scythe : this.knife).getWorldPosition(this.v)));
     this.right.hand.quaternion.copy(this.rig.quaternion).multiply(POSES.grip);
     this.right.curl(1);
     this.right.updateForearm();

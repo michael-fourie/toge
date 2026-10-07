@@ -5,7 +5,9 @@ import { SURVIVAL } from '../shared/constants.ts';
 import type { Barricade, Room, SurvivalLayout } from '../shared/layout.ts';
 import type { MapData } from '../shared/map.ts';
 import type { Vec3 } from '../shared/math.ts';
-import type { BoxState } from '../shared/protocol.ts';
+import type { BoxState, WorldState } from '../shared/protocol.ts';
+import { openRooms } from '../shared/colliders.ts';
+import { buildScythe } from './scythe.ts';
 import { boilerTexture, brickTexture, concreteTexture, conveyorTexture, crateTexture, gravelTexture, hazardTexture, machineTexture, paneTexture, plankTexture, signTexture, steelTexture } from './foundrytextures.ts';
 import { buildMysteryBox, buildWallBuy } from './foundrybox.ts';
 import { buildJugMachine, buildPerkMachine } from './jugmachine.ts';
@@ -22,8 +24,8 @@ import { type World, makeSky, rampGeometry } from './world.ts';
 type FoundryEvent = 'plank' | 'nail' | 'door' | 'tick' | 'plush';
 
 export interface FoundryWorld extends World {
-  /** Doors, boards and box as the server sent them. The first call sets the scene up without any show. */
-  sync(doors: readonly boolean[], boards: readonly number[], box: BoxState): void;
+  /** The building as the server sent it. The first call sets the scene up without any show. */
+  sync(st: WorldState): void;
   /** Our lamp follows the viewer. */
   setViewer(p: THREE.Vector3): void;
   /** Sounds and such, with where they happened. */
@@ -186,6 +188,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
 
   // Hazard-striped door frames, and the dark steel of each window frame.
   for (const d of lay.doors) {
+    if (d.id === lay.hatch) continue; // the roof hatch has no frame
     const { min, max } = d.box;
     const alongX = max.x - min.x > max.z - min.z;
     const f = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => put('hazard', boxGeo({ min: { x: x0, y: y0, z: z0 }, max: { x: x1, y: y1, z: z1 }, kind: 'steel' }, 0.8, false));
@@ -319,7 +322,10 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   const panes: THREE.BufferGeometry[] = [];
   const shafts: THREE.BufferGeometry[] = [];
   const shear = new THREE.Matrix4().set(1, 0.32, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+  const holes = [...lay.chutes.map((c) => c.lid), lay.doors[lay.hatch].box];
+  const overHole = (x: number, z: number) => holes.some((h) => x > h.min.x - 2 && x < h.max.x + 2 && z > h.min.z - 2 && z < h.max.z + 2);
   for (const [x, z] of [[-10, -4], [10, -4], [-10, 6], [10, 6], [-8, -26], [8, -26], [26, -22], [28, 0], [-28, -4], [-28, -24]]) {
+    if (overHole(x, z)) continue;
     panes.push(new THREE.PlaneGeometry(3, 3).rotateX(Math.PI / 2).translate(x, 8.97, z));
     const s = new THREE.CylinderGeometry(1.45, 2.7, 9, 4, 1, true).rotateY(Math.PI / 4);
     s.translate(0, 4.5, 0);
@@ -421,12 +427,21 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
     const sx = d.box.max.x - d.box.min.x;
     const sy = d.box.max.y - d.box.min.y;
     const sz = d.box.max.z - d.box.min.z;
-    g.position.set((d.box.min.x + d.box.max.x) / 2, sy / 2, (d.box.min.z + d.box.max.z) / 2);
+    g.position.set((d.box.min.x + d.box.max.x) / 2, d.box.min.y + sy / 2, (d.box.min.z + d.box.max.z) / 2);
     const slab = new THREE.Mesh(boxGeo({ min: { x: -sx / 2, y: -sy / 2, z: -sz / 2 }, max: { x: sx / 2, y: sy / 2, z: sz / 2 }, kind: 'steel' }, 1.6, false), M.plate);
     slab.castShadow = slab.receiveShadow = true;
     g.add(slab);
     const alongX = sx > sz;
     const sign = new THREE.MeshBasicMaterial({ map: signTexture(renderer, [d.name.toUpperCase(), `${d.price}`], { w: 512, h: 256, bg: '#202429', fg: '#f5efd6' }), color: 0xd8dff0 });
+    if (d.id === lay.hatch) {
+      // The roof hatch: its sign faces down into the hall.
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), sign);
+      p.rotation.x = Math.PI / 2;
+      p.position.y = -sy / 2 - 0.02;
+      g.add(p);
+      scene.add(g);
+      return { g, baseY: g.position.y, rise: 0, open: false, h: sy };
+    }
     for (const side of [-1, 1]) {
       const p = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), sign);
       p.position.set(alongX ? 0 : side * (sx / 2 + 0.02), 0.2, alongX ? side * (sz / 2 + 0.02) : 0);
@@ -436,6 +451,105 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
     scene.add(g);
     return { g, baseY: sy / 2, rise: 0, open: false, h: sy };
   });
+
+  // --- The Skyline: chute lids (shut until their room is open) and the hatch's launch pad ---
+  const lids = lay.chutes.map((c) => {
+    const b = c.lid;
+    const m = new THREE.Mesh(boxGeo({ min: { x: 0, y: 0, z: 0 }, max: { x: b.max.x - b.min.x, y: b.max.y - b.min.y, z: b.max.z - b.min.z }, kind: 'steel' }, 2.4, false), M.hazard);
+    m.position.set(b.min.x, b.min.y, b.min.z);
+    m.receiveShadow = true;
+    scene.add(m);
+    return m;
+  });
+  const hp = lay.hatchPad;
+  const padMat = new THREE.MeshBasicMaterial({ color: 0x2c4a52 });
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry((hp.max.x - hp.min.x) / 2, (hp.max.x - hp.min.x) / 2 + 0.1, hp.max.y - hp.min.y, 24), padMat);
+  pad.position.set((hp.min.x + hp.max.x) / 2, (hp.min.y + hp.max.y) / 2, (hp.min.z + hp.max.z) / 2);
+  scene.add(pad);
+  const padGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0x8ff5e0, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  padGlow.scale.set(4, 4, 1);
+  padGlow.position.copy(pad.position).setY(0.6);
+  scene.add(padGlow);
+  let hatchOpen = false;
+
+  // --- The power switch: a lever on the generator, a bulb that goes red to green ---
+  const powerOff = new THREE.MeshBasicMaterial({ color: 0xff3a2a });
+  const powerOn = new THREE.MeshBasicMaterial({ color: 0x6aff7a });
+  const lever = new THREE.Group();
+  lever.position.set(lay.power.pos.x, 1.3, lay.power.pos.z + 0.6);
+  lever.rotation.y = lay.power.yaw;
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.12), toon({ color: 0x3a4048 }));
+  lever.add(panel);
+  const arm = new THREE.Group();
+  arm.position.set(0, 0, 0.1);
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8), toon({ color: 0xb8bcc4 }));
+  stick.position.y = 0.25;
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), toon({ color: 0xd23c33 }));
+  knob.position.y = 0.5;
+  arm.add(stick, knob);
+  lever.add(arm);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), powerOff);
+  bulb.position.set(0.3, 0.4, 0.08);
+  lever.add(bulb);
+  const powerSign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.45), new THREE.MeshBasicMaterial({ map: signTexture(renderer, ['POWER'], { w: 512, h: 160, bg: '#2a2e35', fg: '#ffd45a', border: '#8a8f99' }), color: 0xd8dff0 }));
+  powerSign.position.set(0, 0.95, 0.02);
+  lever.add(powerSign);
+  scene.add(lever);
+  let power = false;
+  let powerAt = -9;
+
+  // --- The Gale Scythe: parts glowing where they lie, and the workbench on the mezzanine ---
+  const partGlow = (color: number) => {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending }));
+    s.scale.set(1.6, 1.6, 1);
+    return s;
+  };
+  const scytheModel = buildScythe();
+  const partModels = [
+    () => scytheModel.children.find((c) => (c as THREE.Mesh).geometry instanceof THREE.ExtrudeGeometry)!.clone(), // the blade
+    () => scytheModel.children[0].clone(), // the staff
+    () => new THREE.Mesh(new THREE.OctahedronGeometry(0.16), new THREE.MeshBasicMaterial({ color: 0x8ff5e0 })), // the gem
+  ];
+  const parts = lay.parts.map((p, i) => {
+    const g = new THREE.Group();
+    g.position.set(p.pos.x, 1.1, p.pos.z);
+    const m = partModels[i % partModels.length]();
+    m.position.set(0, 0, 0);
+    if (i === 0) m.position.set(0.3, 0, 0.9); // the blade sits at the staff's tip: bring it back to the middle
+    if (i === 1) m.position.set(0, 0, 0.33);
+    g.add(m, partGlow(0x8ff5e0));
+    const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.6, 12), toon({ color: 0x3a3f47 }));
+    plinth.position.set(p.pos.x, 0.3, p.pos.z);
+    scene.add(g, plinth);
+    return g;
+  });
+  const bench = new THREE.Group();
+  bench.position.set(lay.bench.pos.x, lay.bench.pos.y, lay.bench.pos.z - 0.9);
+  const wood = toon({ color: 0x7a5a3c });
+  const top = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.12, 0.8), wood);
+  top.position.y = 0.89;
+  bench.add(top);
+  for (const [x, z] of [[-1.1, -0.32], [1.1, -0.32], [-1.1, 0.32], [1.1, 0.32]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.85, 0.1), wood);
+    leg.position.set(x, 0.42, z);
+    bench.add(leg);
+  }
+  const benchSign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), new THREE.MeshBasicMaterial({ map: signTexture(renderer, ['GALE SCYTHE'], { w: 512, h: 128, bg: '#1d3a38', fg: '#8ff5e0', border: '#5a9a92' }), color: 0xd8dff0 }));
+  benchSign.position.set(0, 1.9, -0.38);
+  bench.add(benchSign);
+  const benchParts = lay.parts.map((_, i) => {
+    const m = partModels[i % partModels.length]();
+    m.position.set(-0.7 + i * 0.7, 1.05, 0.05);
+    m.scale.setScalar(0.7);
+    bench.add(m);
+    return m;
+  });
+  const onBench = buildScythe();
+  onBench.rotation.y = Math.PI / 2; // lying flat along the bench, blade toward the back wall
+  onBench.position.set(0.35, 1.0, 0.15);
+  bench.add(onBench, partGlow(0x8ff5e0));
+  scene.add(bench);
+  let scytheState = 0;
 
   // --- Window boards ------------------------------------------------------
   const plankGeo = new THREE.BoxGeometry(3.45, 0.27, 0.1);
@@ -522,8 +636,20 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
       lamp.position.set(p.x, p.y + 1.9, p.z);
       viewer.copy(p);
     },
-    sync(doors, boards, st) {
+    sync(w) {
+      const { doors, boards, box: st } = w;
       const first = boxSpot < 0;
+      const open = openRooms(map, doors);
+      lay.chutes.forEach((c, i) => (lids[i].visible = !open.has(c.room)));
+      hatchOpen = !!doors[lay.hatch];
+      if (w.power && !power) powerAt = first ? -9 : lastT;
+      power = w.power;
+      bulb.material = power ? powerOn : powerOff;
+      arm.rotation.x = power ? 2.4 : 0.5;
+      scytheState = w.scythe;
+      parts.forEach((g, i) => (g.visible = !w.parts[i]));
+      benchParts.forEach((m, i) => (m.visible = w.scythe === 0 && !!w.parts[i]));
+      onBench.visible = w.scythe === -1;
       lay.doors.forEach((_, i) => {
         const dm = doorMeshes[i];
         if (!!doors[i] === dm.open) return;
@@ -564,7 +690,10 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
       lastT = time;
       stars.update(time);
       // Lamps: steady, or a nervous flicker; their glow and pools follow.
-      const fl = (i: number, l: Lamp) => (l.flicker ? (Math.sin(time * 31 + i * 7) > 0.6 && Math.sin(time * 3.1 + i) > 0.1 ? 0.25 : 0.9 + 0.1 * Math.sin(time * 50 + i)) : 0.95);
+      // No power: the lamps are all but dark. Thrown on, they stutter up over a second and a half.
+      const since = time - powerAt;
+      const pk = !power ? 0.08 : since > 1.5 ? 1 : Math.sin(since * 40) > 0 ? since / 1.5 : 0.08;
+      const fl = (i: number, l: Lamp) => pk * (l.flicker ? (Math.sin(time * 31 + i * 7) > 0.6 && Math.sin(time * 3.1 + i) > 0.1 ? 0.25 : 0.9 + 0.1 * Math.sin(time * 50 + i)) : 0.95);
       lamps.forEach((l, i) => {
         const k = fl(i, l);
         glowCol.set([l.color.r * k, l.color.g * k, l.color.b * k], i * 3);
@@ -616,7 +745,15 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
       }
       for (const g of wallGuns) g.visible = Math.hypot(g.position.x - viewer.x, g.position.z - viewer.z) < 26;
       furnaceGlow.scale.setScalar(1 + Math.sin(time * 7) * 0.02);
-      (furnaceHalo.material as THREE.SpriteMaterial).opacity = 0.45 + 0.15 * Math.sin(time * 5.3) + 0.1 * Math.sin(time * 13);
+      (furnaceHalo.material as THREE.SpriteMaterial).opacity = (0.45 + 0.15 * Math.sin(time * 5.3) + 0.1 * Math.sin(time * 13)) * (power ? 1 : 0.25);
+      // The Skyline pad hums once the hatch is open; scythe parts bob and spin.
+      padMat.color.setHex(hatchOpen ? 0x5fe0c8 : 0x2c4a52);
+      (padGlow.material as THREE.SpriteMaterial).opacity = hatchOpen ? 0.5 + 0.2 * Math.sin(time * 4) : 0;
+      parts.forEach((g, i) => {
+        g.rotation.y = time * 1.6 + i;
+        g.position.y = 1.1 + Math.sin(time * 2.2 + i) * 0.12;
+      });
+      onBench.position.y = scytheState === -1 ? 1.0 + Math.sin(time * 2) * 0.04 : 1.0;
       punch.update(time);
       jug.update(time);
       for (const m of perkMachines) m.update(time);

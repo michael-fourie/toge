@@ -91,4 +91,16 @@ export interface SurvivalLayout {
   perks: { kind: PerkId; pos: Vec3; yaw: number; room: number }[];
   start: SpawnPoint[];
   startRoom: number;
+  /** The power switch: perk machines and the Pack-a-Punch are dead (and the lamps dark) until someone throws it. */
+  power: { pos: Vec3; yaw: number };
+  /** Scythe parts lying in the far rooms, and the workbench where they are put together. */
+  parts: { pos: Vec3; room: number }[];
+  bench: { pos: Vec3; yaw: number };
+  /**
+   * The Skyline (roof surf): the door that is its roof hatch, the launch pad under it (live once the hatch is open), and
+   * the chutes where the surf lines dive into rooms. A chute's lid stays shut until its room is open.
+   */
+  hatch: number;
+  hatchPad: Box;
+  chutes: { room: number; lid: Box }[];
 }

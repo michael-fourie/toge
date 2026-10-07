@@ -28,6 +28,7 @@ interface Internals {
   claw(z: unknown, id: number): void;
   hurt(m: Member, z: unknown, headshot: boolean, damage: number, dir: V3, scored: boolean): boolean;
   drops: { id: number; pos: { x: number; y: number; z: number } }[];
+  power: boolean;
   rand: () => number;
   reset(): void;
 }
@@ -64,7 +65,7 @@ test('every gun can be Pack-a-Punched: each has a punched twin that hits harder,
     assert.notEqual(up.label, stock.label, `${id} has its own punched name`);
     const u = findUse(lay.punch, {
       lay, doorsOpen: [], boards: [], box: { spot: 0, phase: 'closed', gun: null, owner: 0, left: 0 },
-      points: 99999, slots: [{ w: id, up: false }, null], cur: 0, jug: false, perks: [], downed: [], self: 1,
+      points: 99999, slots: [{ w: id, up: false }, null], cur: 0, jug: false, perks: [], downed: [], self: 1, power: true, parts: [], scythe: 0,
     });
     assert.equal(u?.kind, 'punch', id);
     assert.equal(u?.status, 'ready', id);
@@ -144,6 +145,7 @@ test('the three new perk machines stand in rooms you have to buy your way into, 
 test('server: buying a perk at its machine takes the points once; you need to be there and afford it', () => {
   const t = setup();
   try {
+    t.s.power = true;
     lay.perks.forEach((p, id) => {
       const w = t.wallet();
       t.at(1, [p.pos.x + 1, 0.01, p.pos.z]);

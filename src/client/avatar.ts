@@ -4,6 +4,7 @@ import { PLAYER } from '../shared/constants.ts';
 import { type Accessory, HAIR, type HairStyle, type Mouth, SCARF, type Skin, encodeSkin, seededSkin } from '../shared/skin.ts';
 import { type Gear, itemById } from '../shared/items.ts';
 import { DEFAULT_KNIFE, buildKnife } from './knife.ts';
+import { buildScythe } from './scythe.ts';
 import { toonRamp } from './textures.ts';
 import { buildWear } from './wear.ts';
 
@@ -499,6 +500,7 @@ export class Avatar {
   private readonly ahoge?: THREE.Group;
   private readonly rifle: THREE.Group;
   private readonly knife: THREE.Group;
+  private scythe?: THREE.Object3D;
   private readonly rifleArm: THREE.Group;
   private readonly restArm: THREE.Group;
   private readonly wings: THREE.Object3D[] = [];
@@ -715,6 +717,22 @@ export class Avatar {
   }
 
   /** A copy without the name tag, for flinging across the map. Knocked out, naturally. */
+  /** Put on extra clothes (a zombie's work outfit): on the head, the torso, or the arms. */
+  wear(obj: THREE.Object3D, on: 'head' | 'upper' | 'aim') {
+    (on === 'head' ? this.head : on === 'upper' ? this.upper : this.aim).add(inked(obj));
+  }
+
+  /** Carrying the Gale Scythe: it takes the knife's place in hand. */
+  holdScythe(on: boolean) {
+    if (on && !this.scythe) {
+      this.scythe = inked(buildScythe());
+      this.scythe.scale.setScalar(1.3);
+      this.knife.add(this.scythe);
+    }
+    if (this.scythe) this.scythe.visible = on;
+    for (const c of this.knife.children) if (c !== this.scythe) c.visible = !on;
+  }
+
   /** Knife out (true) or rifle out (false). */
   holdKnife(on: boolean) {
     this.knife.visible = on;

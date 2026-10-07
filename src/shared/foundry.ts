@@ -8,12 +8,17 @@
 //                     │D0
 //                   Office (start)
 //
-// Perks: Swift Mend in the Boiler Room, Second Wind in the Locker Room, Zephyr Fizz on the Loading Dock.
+// Perks: Swift Mend in the Boiler Room, Second Wind in the Locker Room, Zephyr Fizz on the Loading Dock. They (and the
+// Pack-a-Punch) need the power on: the switch is in the Boiler Room. Scythe parts lie in the Locker Room, on the Loading Dock
+// and in the Furnace; the workbench is on the mezzanine.
+//
+// The Skyline: buy the hatch in the Hall roof and a pad throws you up onto a tower on the roof. Three surf lines run from
+// it and dive through chutes into the Boiler Room, Storage and the Furnace (a chute stays shut until its room is open).
 //
 // Windows are walled off from players by invisible bars (colliders.ts), so nobody wanders out into the yard.
 import type { Box } from './collision.ts';
 import type { Barricade, Door, Link, Room, SurvivalLayout, WallBuy } from './layout.ts';
-import { type MapData, type SpawnPoint, box, span, wedge } from './map.ts';
+import { type MapData, type SpawnPoint, box, padTo, span, surfFrame, wedge } from './map.ts';
 
 const T = 0.6; // wall thickness
 const H = 9; // wall height: the ceiling
@@ -135,6 +140,46 @@ const WALLS: [Axis, number, number, number][] = [
 
 const v = (x: number, y: number, z: number) => ({ x, y, z });
 
+interface Rect {
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+}
+
+/** A flat slab from y0 to y1 over a rectangle, with rectangular holes cut out (split on a grid, merged along x). */
+function slab(r: Rect, y0: number, y1: number, holes: Rect[]): Box[] {
+  const xs = [...new Set([r.x0, r.x1, ...holes.flatMap((h) => [h.x0, h.x1])])].sort((a, b) => a - b);
+  const zs = [...new Set([r.z0, r.z1, ...holes.flatMap((h) => [h.z0, h.z1])])].sort((a, b) => a - b);
+  const out: Box[] = [];
+  for (let j = 0; j < zs.length - 1; j++) {
+    let start = -1;
+    for (let i = 0; i <= xs.length - 1; i++) {
+      const cx = (xs[i] + xs[i + 1]) / 2;
+      const cz = (zs[j] + zs[j + 1]) / 2;
+      const solid = i < xs.length - 1 && !holes.some((h) => cx > h.x0 && cx < h.x1 && cz > h.z0 && cz < h.z1);
+      if (solid && start < 0) start = i;
+      if (!solid && start >= 0) {
+        out.push(span(xs[start], y0, zs[j], xs[i], y1, zs[j + 1], 'steel'));
+        start = -1;
+      }
+    }
+  }
+  return out;
+}
+
+// The Skyline: the hatch in the Hall roof, the tower it throws you onto, and the chutes the surf lines dive through.
+const HATCH: Rect = { x0: -2, z0: -1, x1: 2, z1: 3 };
+const TOWER = { x: 0, z: -5.5, top: 16 };
+const LINE_Y = 14.2; // the surf lines over the roof
+const DIVE_Y = 6.5; // the lines inside the rooms
+const CHUTES: { room: number; hole: Rect }[] = [
+  { room: BOILER, hole: { x0: -33, z0: -9.5, x1: -19, z1: -1.5 } },
+  { room: STORAGE, hole: { x0: 19, z0: -9.5, x1: 33, z1: -1.5 } },
+  { room: FURNACE, hole: { x0: -4, z0: -31, x1: 4, z1: -19 } },
+];
+const lid = (h: Rect) => span(h.x0, H, h.z0, h.x1, H + 0.8, h.z1, 'steel');
+
 /** Where a wall gun hangs: on the wall face at `wall`, facing `yaw` (the way the display faces), with `at` the spot to stand. */
 function wallBuy(id: number, weapon: WallBuy['weapon'], price: number, room: number, x: number, y: number, z: number, yaw: number): WallBuy {
   const fx = Math.sin(yaw);
@@ -150,8 +195,8 @@ function buildFoundry(): MapData {
     span(-51, 0, 38, 51, 14, 39, 'brick'),
     span(-51, 0, -46, -50, 14, 38, 'brick'),
     span(50, 0, -46, 51, 14, 38, 'brick'),
-    // Roofs: they keep the grapple honest, too.
-    span(-36.4, H, -32.4, 36.4, H + 0.8, 8.4, 'steel'),
+    // Roofs: they keep the grapple honest, too. The main one has the Skyline's hatch and chutes in it.
+    ...slab({ x0: -36.4, z0: -32.4, x1: 36.4, z1: 8.4 }, H, H + 0.8, [HATCH, ...CHUTES.map((c) => c.hole)]),
     span(-18.4, H, 8.4, 18.4, H + 0.8, 12.4, 'steel'),
     span(-6.4, H, 12.4, 6.4, H + 0.8, 24.4, 'steel'),
   ];
@@ -203,6 +248,19 @@ function buildFoundry(): MapData {
     box(8, 1.8, -12.2, 0.5, 3.6, 0.5, 'steel'),
     wedge('ramp', -17.6, 0, -12, -14.2, 4, 0, { axis: 'z', rise: -1 }),
   );
+  // --- The Skyline: a tower over the hatch, surf lines out to three rooms, each diving through its chute ---
+  boxes.push(
+    span(TOWER.x - 1.5, H + 0.8, TOWER.z - 1.5, TOWER.x + 1.5, TOWER.top, TOWER.z + 1.5, 'steel'),
+    ...surfFrame('x', TOWER.z, LINE_Y, TOWER.x - 1.5, -16, 3), // west, to the Boiler Room
+    ...surfFrame('x', TOWER.z, DIVE_Y, -21, -34, 2),
+    ...surfFrame('x', TOWER.z, LINE_Y, TOWER.x + 1.5, 16, 3), // east, to Storage
+    ...surfFrame('x', TOWER.z, DIVE_Y, 21, 34, 2),
+    ...surfFrame('z', TOWER.x, LINE_Y, TOWER.z - 1.5, -16, 3), // north, to the Furnace
+    ...surfFrame('z', TOWER.x, DIVE_Y, -20.5, -30, 2),
+  );
+  // The power switch's generator (Boiler Room) and the scythe's workbench (mezzanine; drawn by the client, so 'cover').
+  boxes.push(span(-23, 0, 6.8, -20, 2.4, 7.7, 'machine'));
+  boxes.push(span(-7.2, 4, -17.7, -4.8, 4.95, -16.9, 'cover'));
   // --- Office ---
   boxes.push(span(-5, 0, 13.2, -2.2, 0.9, 14.6, 'crate'), span(3, 0, 13, 5.5, 1.5, 14, 'steel'), span(-5.5, 0, 21.2, -3, 0.6, 23.6, 'crate'));
   // --- Boiler Room ---
@@ -276,7 +334,19 @@ function buildFoundry(): MapData {
     ],
     start,
     startRoom: OFFICE,
+    power: { pos: v(-21.5, 0, 6.1), yaw: Math.PI },
+    parts: [
+      { pos: v(-25, 0, -26), room: LOCKER },
+      { pos: v(27, 0, -28), room: DOCK },
+      { pos: v(-10, 0, -22), room: FURNACE },
+    ],
+    bench: { pos: v(-6, 4, -16.2), yaw: 0 },
+    hatch: doors.length,
+    hatchPad: padTo((HATCH.x0 + HATCH.x1) / 2, 0, HATCH.z1 + 0.6, v(TOWER.x, TOWER.top + 0.01, TOWER.z), 1.6),
+    chutes: CHUTES.map((c) => ({ room: c.room, lid: lid(c.hole) })),
   };
+  // The hatch is a door like the rest (bought the same way) but joins no rooms: it opens the way up.
+  doors.push({ id: doors.length, name: 'Skyline', price: 2000, box: lid(HATCH), rooms: [HALL, HALL] });
 
   return { name: 'The Foundry', boxes, triggers: [], decor: [], spawns: start, survival: lay, killY: -40 };
 }

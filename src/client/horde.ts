@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { BOSS, NET } from '../shared/constants.ts';
 import { lerp } from '../shared/math.ts';
 import { type NetZombie, ZombieFlag } from '../shared/protocol.ts';
+import { MOD, type ModId } from '../shared/modifiers.ts';
 import { Avatar, type Corpses } from './avatar.ts';
+import { JOB_COAT, dressJob } from './jobwear.ts';
 
 /** Raggedy jacket colours; the look (hair, outfit) is seeded from these, so a few distinct zombies. */
 const RAGS = [0x6f7d5c, 0x7d6a8f, 0x8f6f5a, 0x5a6f7d, 0x8a8456, 0x6d5a5a];
@@ -18,6 +20,8 @@ interface ZombieView {
   yaw: number;
   /** Drawn (and hit-tested) this much bigger: BOSS.scale for the boss, else 1. */
   scale: number;
+  /** Head size (and head hitbox) over normal: Big Heads rounds. */
+  head: number;
   /** Bosses: health left, 0..1. */
   hp: number;
 }
@@ -27,6 +31,8 @@ export class Horde {
   readonly zombies = new Map<number, ZombieView>();
   /** A boss just broke in. */
   onBoss?: () => void;
+  /** The round's modifier: zombies that turn up during Shrink Ray are small, during Big Heads big-headed. */
+  mod: ModId | null = null;
 
   constructor(private scene: THREE.Scene) {}
 
@@ -37,12 +43,15 @@ export class Horde {
       let v = this.zombies.get(z.id);
       if (!v) {
         const boss = (z.f & ZombieFlag.Boss) !== 0;
-        const avatar = new Avatar(boss ? BOSS_COAT : RAGS[z.id % RAGS.length], undefined, true);
-        const scale = boss ? BOSS.scale : 1;
+        const avatar = new Avatar(boss ? BOSS_COAT : z.j ? JOB_COAT[z.j] : RAGS[z.id % RAGS.length], undefined, true);
+        if (z.j) dressJob(avatar, z.j);
+        const scale = boss ? BOSS.scale : this.mod === 'tiny' ? MOD.tinyScale : 1;
+        const head = !boss && this.mod === 'bighead' ? MOD.bigHead : 1;
         avatar.root.scale.setScalar(scale);
+        avatar.head.scale.setScalar(head);
         avatar.root.visible = false; // until the first interpolated pose
         this.scene.add(avatar.root);
-        v = { id: z.id, avatar, buffer: [], pos: new THREE.Vector3(...z.p), yaw: z.yaw, scale, hp: 1 };
+        v = { id: z.id, avatar, buffer: [], pos: new THREE.Vector3(...z.p), yaw: z.yaw, scale, head, hp: 1 };
         this.zombies.set(z.id, v);
         if (boss) this.onBoss?.();
       }

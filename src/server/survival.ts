@@ -1,15 +1,16 @@
-import { BOSS, GRENADE, KNIFE, SURVIVAL, WEAPON } from '../shared/constants.ts';
+import { BOSS, GRENADE, JOBS, KNIFE, SCYTHE, SKYLINE, SURVIVAL, WEAPON } from '../shared/constants.ts';
 import { type Colliders, buildColliders } from '../shared/colliders.ts';
 import { blastTargets } from '../shared/grenade.ts';
 import { findUse, killPoints, maxHp, pierced } from '../shared/interact.ts';
 import { FOUNDRY } from '../shared/foundry.ts';
+import { MOD, type ModId, modFor } from '../shared/modifiers.ts';
 import { Nav } from '../shared/nav.ts';
 import { type RunRecord, buildRows, shouldRestart, waitingFor } from '../shared/postgame.ts';
 import { type BoxState, type ClientMsg, type NetZombie, type V3, type WaveInfo, type WavePhase, ZombieFlag, round3 } from '../shared/protocol.ts';
 import { isThrough, makeBrain } from '../shared/siege.ts';
 import type { PerkId } from '../shared/perks.ts';
 import { STARTER, type Slot, type WeaponId, bodyDamage, boxPool, gunStats, headDamage } from '../shared/weapons.ts';
-import { type Zombie, type ZombieTarget, bossRound, createBoss, createZombie, stepHorde } from '../shared/zombie.ts';
+import { type Zombie, type ZombieTarget, bossRound, createBoss, createZombie, pickJob, stepHorde } from '../shared/zombie.ts';
 import type { Lobby, Member } from './lobby.ts';
 
 const SIM_DT = 1 / 60; // zombie physics sub-step
@@ -62,14 +63,24 @@ export class Survival {
   private drops: { id: number; pos: { x: number; y: number; z: number }; until: number }[] = [];
   private hordeDropRound = -Infinity;
   private nextDrop = 1;
-  /** Dice for drops (tests swap it). */
+  /** Dice for drops, jobs and round modifiers (tests swap it). */
   rand: () => number = Math.random;
+  /** This round's modifier, and the last one there was (never twice in a row). */
+  private mod: ModId | null = null;
+  private lastMod: ModId | null = null;
+  /** Seconds each player has spent up on the Skyline's roof without coming down, and each scythe swing's time. */
+  private roofTime = new Map<number, number>();
+  private swungAt = new Map<number, number>();
 
   // The building: which doors are open, the planks in each window, the Mystery Box.
   private doors: boolean[] = [];
   private boards: number[] = [];
   private box: BoxState = { spot: 0, phase: 'closed', gun: null, owner: 0, left: 0 };
   private boxUses = 0;
+  private power = false;
+  private parts: boolean[] = [];
+  /** The Gale Scythe: 0 not built yet, -1 on the workbench, else the id of whoever carries it. */
+  private scythe = 0;
   private dirty = false;
   private nav = new Nav(LAY);
   private cols: Colliders = buildColliders(FOUNDRY);
@@ -86,6 +97,7 @@ export class Survival {
       left: this.toSpawn + this.zombies.length + (this.bossDue ? 1 : 0),
       timer: Math.round(this.timer * 10) / 10,
       boss: bossRound(this.round) || undefined,
+      mod: this.mod ?? undefined,
     };
   }
 
@@ -97,6 +109,7 @@ export class Survival {
       yaw: r2(z.yaw),
       f: (z.claw > 0 || z.tear > 0 ? ZombieFlag.Clawing : 0) | (z.crouch > 0 ? ZombieFlag.Crouching : 0) | (z.boss ? ZombieFlag.Boss : 0),
       hp: z.boss ? Math.round((Math.max(0, z.hp) / z.maxHp!) * 100) / 100 : undefined,
+      j: z.job,
     }));
   }
 
@@ -112,6 +125,7 @@ export class Survival {
     this.simulate(dt);
     this.tickDowns(dt);
     this.tickDrops();
+    this.tickRoof(dt);
     this.tickBox(dt);
     this.regen(dt);
     if (this.dirty) this.sendWorld();
@@ -119,6 +133,7 @@ export class Survival {
     const anyoneUp = [...this.lobby.members.values()].some((m) => m.info.alive && !this.downs.has(m.info.id));
     if (!anyoneUp && this.lobby.members.size > 0) this.setPhase('over', SURVIVAL.gameOverSeconds);
     else if (this.toSpawn === 0 && !this.bossDue && this.zombies.length === 0) {
+      this.mod = null; // a modifier lasts its round
       this.reviveAll();
       this.setPhase('intermission', SURVIVAL.intermission);
     }
@@ -134,6 +149,9 @@ export class Survival {
     this.brain = makeBrain(this.nav, LAY, this.boards);
     this.box = { spot: Math.floor(Math.random() * LAY.boxSpots.length), phase: 'closed', gun: null, owner: 0, left: 0 };
     this.boxUses = 0;
+    this.power = false;
+    this.parts = LAY.parts.map(() => false);
+    this.scythe = 0;
     this.nav.setDoors(this.doors);
     this.rebuildColliders();
     this.dirty = true;
@@ -144,7 +162,7 @@ export class Survival {
   }
 
   private sendWorld(to?: Member) {
-    const msg = { t: 'world', doors: this.doors, boards: this.boards, box: this.box } as const;
+    const msg = { t: 'world', doors: this.doors, boards: this.boards, box: this.box, power: this.power, parts: this.parts, scythe: this.scythe } as const;
     if (to) this.lobby.sendTo(to, msg);
     else {
       this.dirty = false;
@@ -191,6 +209,9 @@ export class Survival {
   }
 
   forget(id: number) {
+    this.dropScythe(id);
+    this.roofTime.delete(id);
+    this.swungAt.delete(id);
     this.wallet.delete(id);
     this.downs.delete(id);
     this.hurtAt.delete(id);
@@ -240,7 +261,7 @@ export class Survival {
     if (!m.info.alive || this.isDown(m.info.id)) return;
     const w = this.purse(m);
     const [x, y, z] = m.state.p;
-    const u = findUse({ x, y, z }, { lay: LAY, doorsOpen: this.doors, boards: this.boards, box: this.box, points: w.points, slots: w.slots, cur: w.cur, jug: w.jug, perks: w.perks, downed: this.downedNear(m), self: m.info.id });
+    const u = findUse({ x, y, z }, { lay: LAY, doorsOpen: this.doors, boards: this.boards, box: this.box, points: w.points, slots: w.slots, cur: w.cur, jug: w.jug, perks: w.perks, downed: this.downedNear(m), self: m.info.id, power: this.power, parts: this.parts, scythe: this.scythe });
     if (!u || u.kind !== msg.kind || u.id !== msg.id || u.status !== 'ready') return;
 
     let fill: number[] | undefined;
@@ -292,8 +313,68 @@ export class Survival {
       case 'revive':
         this.reviving(m, u.id);
         return; // nothing of ours changed
+      case 'power':
+        this.power = true;
+        this.dirty = true;
+        return;
+      case 'part':
+        this.parts[u.id] = true;
+        this.dirty = true;
+        return;
+      case 'bench':
+        this.scythe = this.scythe === 0 ? -1 : m.info.id; // build it, then whoever takes it carries it
+        this.dirty = true;
+        return;
     }
     this.sendMe(m, fill);
+  }
+
+  // ---------------------------------------------------------------------------
+  // The Gale Scythe and the Skyline
+
+  /** Whoever carried the scythe left or bled out: it goes back on the bench. */
+  private dropScythe(id: number) {
+    if (this.scythe !== id) return;
+    this.scythe = -1;
+    this.dirty = true;
+  }
+
+  /** A scythe swing: every zombie all the way round within reach. We know where everyone is, so the client names no one. */
+  private swing(m: Member) {
+    if (this.clock - (this.swungAt.get(m.info.id) ?? -9) < SCYTHE.cooldown * 0.9) return;
+    this.swungAt.set(m.info.id, this.clock);
+    const [px, py, pz] = m.state.p;
+    let scored = false;
+    for (const z of [...this.zombies]) {
+      const dx = z.pos.x - px;
+      const dz = z.pos.z - pz;
+      const d = Math.hypot(dx, dz);
+      if (d > SCYTHE.range * (z.boss ? 1.3 : 1) || Math.abs(z.pos.y - py) > SCYTHE.height || !this.zombies.includes(z)) continue;
+      scored = this.hurt(m, z, false, SCYTHE.damage, unit([dx, 0.4, dz]), scored);
+    }
+  }
+
+  /** The roof is scorching: up there longer than the grace and it burns (surfing past is fine, camping isn't). */
+  private tickRoof(dt: number) {
+    for (const m of this.lobby.members.values()) {
+      const id = m.info.id;
+      if (!m.info.alive || this.isDown(id) || m.state.p[1] < SKYLINE.roofY) {
+        this.roofTime.delete(id);
+        continue;
+      }
+      const t = (this.roofTime.get(id) ?? 0) + dt;
+      this.roofTime.set(id, t);
+      if (t > SKYLINE.grace) this.damage(m, SKYLINE.burn * dt);
+    }
+  }
+
+  /** Damage that isn't a claw (the roof, a Stoker's burst): costs health, holds off regen, can put you down. */
+  private damage(m: Member, hp: number, from?: V3) {
+    if (!m.info.alive || this.isDown(m.info.id)) return;
+    m.hp = Math.max(0, m.hp - hp);
+    this.hurtAt.set(m.info.id, this.clock);
+    this.lobby.sendTo(m, { t: 'hp', hp: Math.round(m.hp), from });
+    if (m.hp === 0) this.goDown(m);
   }
 
   // ---------------------------------------------------------------------------
@@ -401,6 +482,7 @@ export class Survival {
       this.downs.delete(id);
       m.info.down = false;
       this.lobby.kill(m, m, 'zombie', [0, 1, 0]);
+      this.dropScythe(id);
       this.sendMe(m);
     }
   }
@@ -436,7 +518,7 @@ export class Survival {
   /** A player's shot (hit detection is the shooter's; we sanity-check it). Damage comes from the gun we know they hold. */
   shoot(m: Member, msg: Extract<ClientMsg, { t: 'shoot' }>) {
     if (this.isDown(m.info.id)) return;
-    if (msg.knife) return this.stab(m, msg);
+    if (msg.knife) return this.scythe === m.info.id ? this.swing(m) : this.stab(m, msg);
     const w = this.purse(m);
     const slot = w.slots[w.cur];
     if (!slot) return;
@@ -451,7 +533,8 @@ export class Survival {
       const z = this.zombies.find((x) => x.id === h.z);
       if (!z || Math.hypot(fx - z.pos.x, fy - z.pos.y - 1, fz - z.pos.z) > WEAPON.range) continue;
       hitIds.add(z.id);
-      scored = this.hurt(m, z, !!h.h, h.h ? headDamage(g) : bodyDamage(g), dir, scored);
+      const head = !!h.h && z.job !== 'welder'; // the welding mask takes headshots like a chest
+      scored = this.hurt(m, z, head, head ? headDamage(g) : bodyDamage(g), dir, scored);
     }
     if (g.pierces && slot.up && hitIds.size) {
       const first = this.zombies.find((x) => x.id === [...hitIds][0]);
@@ -489,22 +572,34 @@ export class Survival {
 
   /** Damages a zombie; pays 10 for a hit (once per shot) and kill points when it dies. Returns whether this shot has paid its hit points. */
   private hurt(m: Member, z: Zombie, headshot: boolean, damage: number, dir: V3, scored: boolean): boolean {
+    if (!this.zombies.includes(z)) return scored; // already dead (a Stoker's burst took it a moment ago)
     z.hp -= damage;
     const w = this.purse(m);
+    const k = this.mod === 'double' ? 2 : 1;
     if (z.hp > 0) {
-      if (!scored) w.points += SURVIVAL.hitPoints;
+      if (!scored) w.points += SURVIVAL.hitPoints * k;
       this.sendMe(m);
       return true;
     }
     this.zombies.splice(this.zombies.indexOf(z), 1);
     m.info.kills++;
     this.record(m).kills++;
-    w.points += z.boss ? BOSS.points : killPoints(headshot);
+    w.points += k * ((z.boss ? BOSS.points : killPoints(headshot)) + (z.job === 'courier' ? JOBS.courier.points : 0));
     this.sendMe(m);
     this.maybeDrop(z);
-    this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot, dir, boss: z.boss ? true : undefined });
+    this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot, dir, boss: z.boss ? true : undefined, job: z.job });
+    if (z.job === 'stoker') this.burst(m, z);
     this.broadcastWave();
     return scored;
+  }
+
+  /** A Stoker bursts into embers: it scorches players close by, and the zombies around it (those count as the killer's). */
+  private burst(killer: Member, s: Zombie) {
+    const { burst, burstDamage, burstZombieDamage } = JOBS.stoker;
+    const near = (p: { x: number; y: number; z: number }) => Math.hypot(p.x - s.pos.x, p.z - s.pos.z) <= burst && Math.abs(p.y - s.pos.y) < 2.5;
+    const from: V3 = [round3(s.pos.x), round3(s.pos.y), round3(s.pos.z)];
+    for (const m of this.lobby.members.values()) if (near({ x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] })) this.damage(m, burstDamage, from);
+    for (const z of this.zombies.filter((o) => near(o.pos))) this.hurt(killer, z, false, burstZombieDamage, unit([z.pos.x - s.pos.x, 0.5, z.pos.z - s.pos.z]), true);
   }
 
   // ---------------------------------------------------------------------------
@@ -539,6 +634,8 @@ export class Survival {
   private startRound() {
     this.round++;
     this.toSpawn = SURVIVAL.zombiesBase + SURVIVAL.zombiesPerRound * this.round;
+    this.mod = modFor(this.round, this.rand(), this.lastMod);
+    if (this.mod) this.lastMod = this.mod;
     this.bossDue = bossRound(this.round); // the boss breaks in first, then the horde behind it
     this.spawnTimer = 0;
     this.setPhase('active', 0);
@@ -577,6 +674,7 @@ export class Survival {
     for (const d of this.drops) this.lobby.broadcast({ t: 'dropGone', id: d.id });
     this.drops = [];
     this.hordeDropRound = -Infinity;
+    this.mod = this.lastMod = null;
     this.wallet.clear();
     for (const id of [...this.downs.keys()]) {
       const m = this.lobby.members.get(id);
@@ -625,7 +723,9 @@ export class Survival {
       return;
     }
     this.toSpawn--;
-    this.zombies.push(createZombie(this.nextId++, at, this.round, b.id));
+    const job = pickJob(this.round, this.rand(), this.rand());
+    const mult = { speed: this.mod === 'rush' ? MOD.rushSpeed : 1, hp: this.mod === 'tiny' ? MOD.tinyHp : 1 };
+    this.zombies.push(createZombie(this.nextId++, at, this.round, b.id, job, mult));
   }
 
   /** A window in a room the players can reach, chosen from the few closest to someone (so the action keeps coming to you). */

@@ -267,6 +267,26 @@ export const sfx = {
     tone('sine', 300, 150, 0.12, 0.2, 0.14);
     tone('triangle', 420, 880, 0.35, 0.18, 0.3);
   },
+  /** The Gale Scythe: a deep whoosh of wind with a chime on top. */
+  scythe() {
+    burst(0.45, 0.35, 700, 1.2);
+    tone('sine', 880, 1320, 0.3, 0.12, 0.08);
+  },
+  /** A Stoker bursts: a crackling pop. */
+  embers() {
+    burst(0.4, 0.4, 1800);
+    tone('sawtooth', 160, 50, 0.4, 0.2);
+  },
+  /** The power comes on: a big clunk, then a rising hum. */
+  powerOn() {
+    burst(0.15, 0.5, 300);
+    tone('sawtooth', 50, 120, 1.6, 0.18, 0.1);
+    tone('sine', 100, 240, 1.6, 0.12, 0.1);
+  },
+  /** Picked up a scythe part / built the scythe. */
+  part() {
+    [659, 880, 1175].forEach((f, i) => tone('triangle', f, f, 0.18, 0.14, i * 0.07));
+  },
   /** Max Ammo: a clatter of shells and a fanfare. */
   maxAmmo() {
     for (let i = 0; i < 5; i++) tone('square', 1800 + i * 150, 900, 0.05, 0.08, i * 0.04);

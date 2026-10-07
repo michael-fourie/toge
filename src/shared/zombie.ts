@@ -1,5 +1,5 @@
 import { type Box, moveAndCollide, newContacts, snapToGround } from './collision.ts';
-import { BOSS, MOVE, ZOMBIE } from './constants.ts';
+import { BOSS, JOBS, MOVE, ZOMBIE } from './constants.ts';
 import { type Vec3, copy, v3 } from './math.ts';
 import { launchTo } from './movement.ts';
 
@@ -35,6 +35,18 @@ export interface Zombie {
   /** Bosses only: which boss this is (1 at round 5, 2 at round 10, ...) and the health it started with. */
   boss?: number;
   maxHp?: number;
+  /** A zombie with a job (JOBS): its outfit and its quirk. */
+  job?: JobId;
+}
+
+export type JobId = 'welder' | 'courier' | 'stoker';
+const JOB_IDS: JobId[] = ['welder', 'courier', 'stoker'];
+
+/** The job a new zombie turns up with, if any: none before JOBS.from, then a growing share. `a`, `b` are dice in [0, 1). */
+export function pickJob(round: number, a: number, b: number): JobId | undefined {
+  if (round < JOBS.from) return undefined;
+  const chance = Math.min(JOBS.chanceMax, JOBS.chancePerRound * (round - JOBS.from + 1));
+  return a < chance ? JOB_IDS[Math.min(JOB_IDS.length - 1, Math.floor(b * JOB_IDS.length))] : undefined;
 }
 
 export interface ZombieTarget {
@@ -88,14 +100,20 @@ export function createBoss(id: number, pos: Vec3, round: number, players: number
   return { ...createZombie(id, pos, round, gate), hp: b.hp, maxHp: b.hp, speed: b.speed, damage: b.damage, boss: b.tier };
 }
 
-export function createZombie(id: number, pos: Vec3, round: number, gate = -1): Zombie {
+/** A new zombie for `round`. A job changes its health and speed; `mult` scales them on top (round modifiers). */
+export function createZombie(id: number, pos: Vec3, round: number, gate = -1, job?: JobId, mult: { hp?: number; speed?: number } = {}): Zombie {
+  const s = zombieStats(round);
+  const j = job ? JOBS[job] : { hp: 1, speed: 1 };
   return {
     id,
     pos: { ...pos },
     vel: v3(),
     yaw: 0,
     onGround: false,
-    ...zombieStats(round),
+    hp: Math.round(s.hp * j.hp * (mult.hp ?? 1)),
+    speed: s.speed * j.speed * (mult.speed ?? 1),
+    damage: s.damage,
+    job,
     claw: 0,
     clawCooldown: 0,
     crouch: 0,

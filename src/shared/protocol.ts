@@ -1,9 +1,11 @@
 // Wire protocol. JSON for the prototype; swap to a binary encoding once the shape settles.
 
 import type { KothState } from './koth.ts';
+import type { ModId } from './modifiers.ts';
 import type { PerkId } from './perks.ts';
 import type { Team, Winner } from './teams.ts';
 import type { Slot, WeaponId } from './weapons.ts';
+import type { JobId } from './zombie.ts';
 
 export type V3 = [number, number, number];
 
@@ -67,6 +69,8 @@ export interface NetZombie {
   f: number;
   /** Bosses only: health left, 0..1 (for the boss bar). */
   hp?: number;
+  /** A zombie with a job: its outfit. */
+  j?: JobId;
 }
 
 export const ZombieFlag = { Clawing: 1, Crouching: 2, Boss: 4 } as const;
@@ -77,7 +81,7 @@ export interface ZombieHit {
   h?: boolean;
 }
 
-export type UseKind = 'door' | 'wall' | 'box' | 'take' | 'punch' | 'jug' | 'board' | 'perk' | 'revive';
+export type UseKind = 'door' | 'wall' | 'box' | 'take' | 'punch' | 'jug' | 'board' | 'perk' | 'revive' | 'power' | 'part' | 'bench';
 
 /** The Mystery Box. Closed: pay to open. Rolling: cycling guns. Ready: `owner` may take `gun` (null: the plush, which gives the points back). Leaving: it is moving to another spot. */
 type BoxPhase = 'closed' | 'rolling' | 'ready' | 'leaving';
@@ -99,6 +103,18 @@ export interface WaveInfo {
   timer: number;
   /** A boss round (every BOSS.every rounds). */
   boss?: boolean;
+  /** This round's modifier (every few rounds; modifiers.ts). */
+  mod?: ModId;
+}
+
+/** The Foundry's changing parts: open doors, planks per window, the Mystery Box, the power, the scythe parts found and the scythe (0: not built, -1: on the bench, else who carries it). */
+export interface WorldState {
+  doors: boolean[];
+  boards: number[];
+  box: BoxState;
+  power: boolean;
+  parts: boolean[];
+  scythe: number;
 }
 
 /** One line of the Survival post-game board. `gone` players left mid-run but keep their kills. */
@@ -144,7 +160,7 @@ export type ServerMsg =
   | { t: 'matchStart'; players: PlayerInfo[] } // scores zeroed, everyone respawns (a `respawn` follows for each)
   // Survival
   | { t: 'wave'; wave: WaveInfo }
-  | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3; boss?: boolean } // a boss: everyone gets the coins
+  | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3; boss?: boolean; job?: JobId } // a boss: everyone gets the coins; a Stoker bursts
   | { t: 'postgame'; rounds: number; rows: PostRow[]; waiting: number } // game-over board, resent when readiness changes
   | { t: 'hp'; hp: number; from?: V3 } // only to the player concerned; `from` is where the claw came from
   | { t: 'me'; pts: number; jug?: boolean; perks?: PerkId[]; slots: (Slot | null)[]; cur: number; fill?: number[] } // only to the player concerned; fill: slots that start with a full mag and ammo
@@ -154,7 +170,7 @@ export type ServerMsg =
   | { t: 'drop'; id: number; p: V3; life: number } // a Max Ammo appeared here; it fades after `life` seconds
   | { t: 'maxAmmo'; id: number; by: number } // someone grabbed it: every player's guns are full
   | { t: 'dropGone'; id: number } // it faded
-  | { t: 'world'; doors: boolean[]; boards: number[]; box: BoxState } // Survival: doors that are open, planks per window, and the Mystery Box
+  | ({ t: 'world' } & WorldState) // Survival: the building as it is now
   | { t: 'error'; message: string };
 
 export const round3 = (n: number) => Math.round(n * 1000) / 1000;
