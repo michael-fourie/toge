@@ -95,10 +95,10 @@ test('server: buying needs range and points, deducts them, and the upgrade stick
   lobby.add(client);
   try {
     const m = lobby.members.get(1)!;
-    const survival = (lobby as unknown as { survival: { wallet: Map<number, { points: number; upgraded: boolean }>; reset(): void } }).survival;
+    const survival = (lobby as unknown as { survival: { wallet: Map<number, { points: number; upgraded: boolean; jug: boolean }>; reset(): void } }).survival;
     const lastPts = () => sent.filter((x) => x.t === 'pts').at(-1)!;
     const wallet = () => survival.wallet.get(1)!;
-    survival.wallet.set(1, { points: SURVIVAL.punchPrice + 70, upgraded: false });
+    survival.wallet.set(1, { points: SURVIVAL.punchPrice + 70, upgraded: false, jug: false });
 
     lobby.handle(client, { t: 'punch' }); // spawned by the trunk: out of range
     assert.equal(wallet().upgraded, false);
@@ -110,7 +110,7 @@ test('server: buying needs range and points, deducts them, and the upgrade stick
 
     wallet().points = SURVIVAL.punchPrice + 70;
     lobby.handle(client, { t: 'punch' });
-    assert.deepEqual({ ...wallet() }, { points: 70, upgraded: true });
+    assert.deepEqual({ ...wallet() }, { points: 70, upgraded: true, jug: false });
     assert.deepEqual({ pts: lastPts().pts, up: lastPts().up }, { pts: 70, up: true });
 
     wallet().points = SURVIVAL.punchPrice * 2;
@@ -118,7 +118,7 @@ test('server: buying needs range and points, deducts them, and the upgrade stick
     assert.equal(wallet().points, SURVIVAL.punchPrice * 2, 'no second purchase');
 
     survival.reset(); // new run
-    assert.deepEqual({ ...wallet() }, { points: 0, upgraded: false });
+    assert.deepEqual({ ...wallet() }, { points: 0, upgraded: false, jug: false });
     assert.deepEqual({ pts: lastPts().pts, up: lastPts().up }, { pts: 0, up: undefined });
   } finally {
     lobby.remove(client);
@@ -132,11 +132,11 @@ test('server: "play again" is its own message and never buys the upgrade', () =>
   lobby.add(client);
   try {
     const m = lobby.members.get(1)!;
-    const survival = (lobby as unknown as { survival: { wallet: Map<number, { points: number; upgraded: boolean }> } }).survival;
+    const survival = (lobby as unknown as { survival: { wallet: Map<number, { points: number; upgraded: boolean; jug: boolean }> } }).survival;
     m.state.p = [M.x + 1, M.y, M.z]; // in range and rich: a punch message would succeed
-    survival.wallet.set(1, { points: SURVIVAL.punchPrice * 2, upgraded: false });
+    survival.wallet.set(1, { points: SURVIVAL.punchPrice * 2, upgraded: false, jug: false });
     lobby.handle(client, { t: 'again' });
-    assert.deepEqual({ ...survival.wallet.get(1)! }, { points: SURVIVAL.punchPrice * 2, upgraded: false });
+    assert.deepEqual({ ...survival.wallet.get(1)! }, { points: SURVIVAL.punchPrice * 2, upgraded: false, jug: false });
   } finally {
     lobby.remove(client);
   }
