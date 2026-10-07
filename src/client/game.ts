@@ -26,7 +26,7 @@ import { PostGame } from './postgame.ts';
 import { Horde } from './horde.ts';
 import { Hud } from './hud.ts';
 import { Input } from './input.ts';
-import { KILLCAM, Trail, replayTime, replaying } from './killcam.ts';
+import { KILLCAM, Trail, killcamText, replayTime, replaying } from './killcam.ts';
 import { Rope } from './rope.ts';
 import { SpeedFx } from './speedfx.ts';
 import type { Net } from './net.ts';
@@ -120,7 +120,7 @@ export class Game {
   // Kill-cam: trails of everyone, recent shots, and the replay in progress (if any).
   private selfTrail = new Trail();
   private shotLog: { t: number; id: number; from: THREE.Vector3; to: THREE.Vector3 }[] = [];
-  private killcam: { deathTime: number; start: number; killerId: number; shot: { t: number; from: THREE.Vector3; to: THREE.Vector3 } | null; shotShown: boolean } | null = null;
+  private killcam: { deathTime: number; start: number; killerId: number; text: string; shot: { t: number; from: THREE.Vector3; to: THREE.Vector3 } | null; shotShown: boolean } | null = null;
 
   private scoped = false;
   private bolt = 0; // seconds until the next shot is chambered
@@ -541,7 +541,9 @@ export class Game {
     const killer = this.remotes.get(killerId);
     if (!killer || killer.dummy || killer.trail.length < 2 || this.selfTrail.length < 2) return;
     const shot = [...this.shotLog].reverse().find((s) => s.id === killerId && this.time - s.t < 1.2) ?? null;
-    this.killcam = { deathTime: this.time, start: this.time, killerId, shot, shotShown: false };
+    const at = killer.trail.at(Infinity)!;
+    const metres = Math.hypot(at.x - this.me.pos.x, at.y - this.me.pos.y, at.z - this.me.pos.z);
+    this.killcam = { deathTime: this.time, start: this.time, killerId, text: killcamText(this.deathText, metres), shot, shotShown: false };
     this.world.scene.add(this.selfAvatar.root);
     if (this.deathCorpse) this.deathCorpse.obj.visible = false; // it flies at the end of the replay, not the start
   }
@@ -550,20 +552,23 @@ export class Game {
     this.killcam = null;
     this.selfAvatar.root.removeFromParent();
     if (this.deathCorpse) this.deathCorpse.obj.visible = true;
+    // Replay poses ignore who is alive now: hide the dead again (updateRemotes skips them).
+    for (const r of this.remotes.values()) if (!r.dummy) r.avatar.root.visible = r.info.alive;
   }
 
   private updateKillcam() {
     const kc = this.killcam!;
     const elapsed = this.time - kc.start;
-    if (this.alive || !replaying(elapsed)) {
+    if (this.alive || !replaying(elapsed) || !this.remotes.has(kc.killerId)) {
       this.endKillcam();
       this.updateRemotes();
       return;
     }
     const T = replayTime(elapsed, kc.deathTime);
+    const Tr = T + KILLCAM.remoteLag;
     for (const r of this.remotes.values()) {
       if (r.dummy) continue;
-      const p = r.trail.at(T);
+      const p = r.trail.at(Tr);
       if (!p || r.info.id === kc.killerId) {
         r.avatar.root.visible = false; // the killer's head is the camera
         continue;
@@ -579,7 +584,8 @@ export class Game {
       this.addTracer(kc.shot.from, kc.shot.to, this.players.get(kc.killerId)?.color ?? 0xffffff);
       sfx.distantShot(8);
     }
-    const k = this.remotes.get(kc.killerId)?.trail.at(T);
+    const kt = this.remotes.get(kc.killerId)!.trail;
+    const k = kt.at(Tr) ?? kt.at(Infinity); // joined mid-window: start from their earliest pose
     if (k) {
       this.camera.position.set(k.x, k.y + (k.sliding ? KILLCAM.killerEyeSliding : KILLCAM.killerEye), k.z);
       this.camera.rotation.set(k.pitch, k.yaw, 0);
@@ -926,7 +932,7 @@ export class Game {
     sfx.setWind(this.alive && !this.hud.root.classList.contains('paused') ? SpeedFx.strength(hlen(this.me.vel)) : 0);
     this.hud.setCredit(this.vm.credit);
     this.hud.death(this.deathText, this.killcam ? null : this.deathSubtitle());
-    this.hud.killcam(this.killcam ? this.deathText : null);
+    this.hud.killcam(this.killcam ? this.killcam.text : null);
     this.hud.health(this.horde ? this.hp : null, SURVIVAL.playerHp);
     this.hud.wave(this.waveText());
     this.postgame?.tick(this.time);
@@ -956,6 +962,7 @@ export class Game {
   private onKey(code: string, down: boolean) {
     if (code === 'Tab') this.showScores = down;
     if (code === 'KeyR' && down) this.startReload();
+    if ((code === 'Space' || code === 'Enter') && down && this.killcam) this.killcam.start = -Infinity; // skip the replay
     if (code === 'Backquote' && down) {
       const show = this.gui._hidden;
       this.gui.show(show);
