@@ -324,10 +324,15 @@
 
 /* ---------- Title: Roboto with a slight glitch ---------- */
 .home .logo {
-  font: 800 clamp(34px, 4.4vw, 56px) / 1 var(--display);
-  letter-spacing: 0.14em;
-  color: var(--ink);
-  text-shadow: 0 2px 0 #fffdf3;
+  /* Titan One: chunky, bouncy letters like a toy-box sign, with an ink outline and a hard red drop shadow. */
+  font: 400 clamp(40px, 5vw, 66px) / 1 'Titan One', var(--display);
+  letter-spacing: 0.06em;
+  color: #fff7dc;
+  -webkit-text-stroke: 6px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 5px 0 var(--ink), 4px 8px 0 var(--kiki);
+  transform: rotate(-3deg);
+  transform-origin: left center;
   position: relative;
   user-select: none;
 }
@@ -338,6 +343,7 @@
   inset: 0;
   pointer-events: none;
   text-shadow: none;
+  -webkit-text-stroke: 0;
   opacity: 0.85;
 }
 .glitch::before {
