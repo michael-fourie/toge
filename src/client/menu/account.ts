@@ -5,7 +5,7 @@ import './account.css';
 import { $, sheet } from './ui.ts';
 
 /** Sign in / create account. Accounts are optional: guests can play, an account just reserves your name. */
-export const accountScreen: Render = (root, ctx) => {
+export const accountScreen: Render = (root, ctx, screen) => {
   let mode: 'login' | 'register' = 'login';
   root.innerHTML = sheet(
     'Account',
@@ -48,5 +48,6 @@ export const accountScreen: Render = (root, ctx) => {
     if (err) notice.textContent = err;
     else ctx.back();
   });
+  if (screen.signup) setMode('register');
   user.focus();
 };

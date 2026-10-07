@@ -1,15 +1,18 @@
 // A tiny history-backed screen router: every screen change is a history entry, so the
 // browser's Back button, the on-screen ← Back and Esc all behave the same.
 
-import type { ServerMsg } from '../../shared/protocol.ts';
+import type { GameMode, ServerMsg } from '../../shared/protocol.ts';
 import type { Net } from '../net.ts';
 
-export type ScreenName = 'title' | 'practice' | 'host' | 'join' | 'lobby' | 'help' | 'skin' | 'account' | 'store' | 'inventory' | 'game';
+export type ScreenName = 'title' | 'host' | 'join' | 'lobby' | 'help' | 'settings' | 'account' | 'store' | 'inventory' | 'game';
 
 export interface Screen {
   name: ScreenName;
   notice?: string; // title: why we came back (e.g. "Disconnected")
   code?: string; // join: prefilled lobby code
+  mode?: GameMode; // host: which game type starts selected
+  tab?: 'items' | 'character'; // inventory: which tab opens
+  signup?: boolean; // account: open on Create account
   depth?: number; // how many entries deep we are; Back at depth 0 goes to the title instead of leaving the site
 }
 

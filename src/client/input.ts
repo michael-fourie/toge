@@ -1,5 +1,5 @@
 import type { MoveInput } from '../shared/movement.ts';
-import { loadSettings } from './settings.ts';
+import { DEFAULT_KEYS, loadSettings } from './settings.ts';
 
 /**
  * Keyboard + raw mouse via Pointer Lock. Look angles update immediately per mouse event
@@ -11,6 +11,8 @@ export class Input {
   sensitivity = 0.0022 * loadSettings().sensitivity; // radians per mouse count, at 1x zoom
   sensitivityScale = 1; // reduced while scoped
   locked = false;
+  /** KeyboardEvent.code per action, from the saved settings. */
+  readonly keymap = { ...DEFAULT_KEYS, ...loadSettings().keys };
 
   /** Accumulated look delta since last read, for viewmodel sway. */
   lookDX = 0;
@@ -32,11 +34,11 @@ export class Input {
 
   constructor(private el: HTMLElement) {
     this.listen(document, 'keydown', (e: KeyboardEvent) => {
-      if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
+      if (e.code === 'Tab' || e.code === 'Space' || e.code === this.keymap.jump) e.preventDefault();
       if (!e.repeat) {
-        if (e.code === 'Space') this.jumpQueued = true;
-        if (e.code === 'KeyE') this.grappleQueued = true;
-        if (e.code === 'KeyQ') this.grenadeQueued = true;
+        if (e.code === this.keymap.jump) this.jumpQueued = true;
+        if (e.code === this.keymap.grapple) this.grappleQueued = true;
+        if (e.code === this.keymap.grenade) this.grenadeQueued = true;
         this.onKey?.(e.code, true);
       }
       this.keys.add(e.code);
@@ -123,11 +125,13 @@ export class Input {
 
   /** Builds the movement input for one sim tick. Edge-triggered jump is consumed by the first tick. */
   sample(out: MoveInput): MoveInput {
-    out.forward = (this.down('KeyW') ? 1 : 0) - (this.down('KeyS') ? 1 : 0);
-    out.right = (this.down('KeyD') ? 1 : 0) - (this.down('KeyA') ? 1 : 0);
+    const k = this.keymap;
+    out.forward = (this.down(k.forward) ? 1 : 0) - (this.down(k.back) ? 1 : 0);
+    out.right = (this.down(k.right) ? 1 : 0) - (this.down(k.left) ? 1 : 0);
     out.jumpPressed = this.jumpQueued && this.locked;
-    out.jump = this.down('Space') || out.jumpPressed;
-    out.slide = this.down('ShiftLeft') || this.down('ShiftRight');
+    out.jump = this.down(k.jump) || out.jumpPressed;
+    // Left Shift is the default; the right one always works too.
+    out.slide = this.down(k.slide) || (k.slide === 'ShiftLeft' && this.down('ShiftRight'));
     out.yaw = this.yaw;
     out.pitch = this.pitch;
     out.grapplePressed = this.grappleQueued && this.locked;

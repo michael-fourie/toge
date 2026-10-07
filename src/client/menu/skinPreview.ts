@@ -9,7 +9,7 @@ export const DEFAULT_JACKET = JACKETS[0];
  * A small WebGL canvas showing the real Avatar turning slowly. `show` swaps the look;
  * `dispose` stops the loop and frees the renderer (call it when the screen is left).
  */
-export function mountSkinPreview(canvas: HTMLCanvasElement, turntable = false) {
+export function mountSkinPreview(canvas: HTMLCanvasElement, turntable = false, swing = 1.1) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
   renderer.toneMapping = THREE.NeutralToneMapping;
@@ -41,7 +41,7 @@ export function mountSkinPreview(canvas: HTMLCanvasElement, turntable = false) {
     const t = (now - t0) / 1000;
     // Swing around gently rather than a full spin, so the face is on show most of the time.
     // (The inventory spins all the way round so you can see what's on your back.)
-    avatar?.pose(0, 0, 0, turntable ? t * 0.8 : Math.sin(t * 0.7) * 1.1, 0, 0, t);
+    avatar?.pose(0, 0, 0, turntable ? t * 0.8 : Math.sin(t * 0.7) * swing, 0, 0, t);
     renderer.render(scene, camera);
   };
   raf = requestAnimationFrame(frame);

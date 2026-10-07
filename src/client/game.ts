@@ -592,7 +592,7 @@ export class Game {
     const p = this.me.pos;
     this.use = findUse(p, this.useCtx());
     const u = this.use;
-    if (u?.kind === 'board' && this.input.down('KeyF') && this.time >= this.repairAt) {
+    if (u?.kind === 'board' && this.input.down(this.input.keymap.use) && this.time >= this.repairAt) {
       this.repairAt = this.time + SURVIVAL.repairTime;
       this.opts.net?.send({ t: 'use', kind: 'board', id: u.id });
     }
@@ -1333,10 +1333,11 @@ export class Game {
   }
 
   private onKey(code: string, down: boolean) {
-    if (code === 'Tab') this.showScores = down;
-    if (code === 'KeyR' && down && !this.knifeOut) this.startReload();
+    const k = this.input.keymap;
+    if (code === k.scores) this.showScores = down;
+    if (code === k.reload && down && !this.knifeOut) this.startReload();
     if ((code === 'Space' || code === 'Enter') && down && this.killcam) this.killcam.start = -Infinity; // skip the replay
-    if (code === 'KeyF' && down && this.alive) this.pressUse();
+    if (code === k.use && down && this.alive) this.pressUse();
     if (code === 'Digit1' && down) this.pickGun(0);
     // The knife is 2 when you carry one gun, 3 when you carry two (2 is then your second gun).
     if (code === 'Digit2' && down) this.loadout.slots[1] ? this.pickGun(1) : this.setKnife(true);

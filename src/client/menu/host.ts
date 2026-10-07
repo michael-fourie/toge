@@ -9,7 +9,7 @@ export const MODES: Record<GameMode, { name: string; blurb: string }> = {
   survival: { name: 'Survival', blurb: 'Co-op vs zombies in a night factory' },
 };
 
-export const host: Render = (root, ctx) => {
+export const host: Render = (root, ctx, screen) => {
   root.innerHTML = sheet(
     'Host a game',
     `
@@ -17,8 +17,8 @@ export const host: Render = (root, ctx) => {
       <legend class="small-caps">Game type</legend>
       ${(Object.keys(MODES) as GameMode[])
         .map(
-          (m, i) => `<label class="mode mode-${m}">
-            <input type="radio" name="mode" value="${m}" ${i === 0 ? 'checked' : ''} />
+          (m) => `<label class="mode mode-${m}">
+            <input type="radio" name="mode" value="${m}" ${m === (screen.mode ?? 'battle') ? 'checked' : ''} />
             <b>${MODES[m].name}</b>
             <span>${MODES[m].blurb}</span>
           </label>`,
@@ -47,6 +47,7 @@ export const host: Render = (root, ctx) => {
   const formats = $(root, '#formats');
   const syncFormats = () => (formats.hidden = $<HTMLInputElement>(root, 'input[name=mode]:checked').value !== 'battle');
   root.querySelectorAll('input[name=mode]').forEach((i) => i.addEventListener('change', syncFormats));
+  syncFormats();
   const notice = $(root, '.notice');
   const create = $<HTMLButtonElement>(root, '#create');
   const off = ctx.net.on((m) => {

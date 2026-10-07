@@ -1,82 +1,76 @@
+import { JACKETS } from '../../shared/skin.ts';
 import { account } from '../account.ts';
-import type { Render } from './router.ts';
-import { mountLogo } from './logo.ts';
-import { skinLabel } from './skin.ts';
 import { stash } from '../inventoryStore.ts';
 import { storedSkin } from '../skinStore.ts';
 import { coinText } from './lootui.ts';
+import { mountLogo } from './logo.ts';
+import type { Render, ScreenName } from './router.ts';
+import { DEFAULT_JACKET, mountSkinPreview } from './skinPreview.ts';
+import { skinLabel } from './skin.ts';
 import { $, esc, saveName, storedName } from './ui.ts';
+import './home.css';
 
-// Small storybook icons for the three buttons.
-const ICONS = {
-  practice: `<svg viewBox="0 0 64 64" aria-hidden="true">
-      <circle cx="32" cy="34" r="22" fill="#fbf4e2" stroke="#d9584a" stroke-width="4"/>
-      <circle cx="32" cy="34" r="12" fill="none" stroke="#d9584a" stroke-width="4"/>
-      <circle cx="32" cy="34" r="4" fill="#d9584a"/>
-      <path d="M44 8 q10 2 12 12 q-10 0 -12 -12z" fill="#6fa64a"/></svg>`,
-  host: `<svg viewBox="0 0 64 64" aria-hidden="true">
-      <path d="M10 40 Q32 34 54 40 L46 46 Q38 60 32 62 Q26 56 18 46Z" fill="#a98c6c"/>
-      <path d="M8 40 Q32 32 56 40 Q48 44 32 42 Q16 44 8 40Z" fill="#7fb24e"/>
-      <rect x="30" y="8" width="3" height="32" rx="1.5" fill="#7a5236"/>
-      <path d="M33 9 L52 15 L33 22Z" fill="#d9584a"/></svg>`,
-  store: `<svg viewBox="0 0 64 64" aria-hidden="true">
-      <rect x="8" y="26" width="48" height="30" rx="4" fill="#a98c6c" stroke="#4a3726" stroke-width="3"/>
-      <rect x="5" y="16" width="54" height="14" rx="4" fill="#e0b84a" stroke="#4a3726" stroke-width="3"/>
-      <rect x="28" y="16" width="8" height="40" fill="#fbf4e2" stroke="#4a3726" stroke-width="2.5"/>
-      <path d="M50 4 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2z" fill="#fff6c8"/></svg>`,
-  inventory: `<svg viewBox="0 0 64 64" aria-hidden="true">
-      <path d="M14 22 Q32 6 50 22 L54 56 H10Z" fill="#76ac5a" stroke="#4a3726" stroke-width="3" stroke-linejoin="round"/>
-      <rect x="20" y="34" width="24" height="16" rx="4" fill="#fbf4e2" stroke="#4a3726" stroke-width="2.5"/>
-      <path d="M24 22 q8 -12 16 0" fill="none" stroke="#4a3726" stroke-width="3"/></svg>`,
-  join: `<svg viewBox="0 0 64 64" aria-hidden="true">
-      <path d="M6 30 L58 10 L44 54 L32 38Z" fill="#fbf4e2" stroke="#4a3726" stroke-width="3" stroke-linejoin="round"/>
-      <path d="M32 38 L58 10 L28 34Z" fill="#8cc6ee"/>
-      <path d="M6 58 q10 -8 22 -10" stroke="#fffdf3" stroke-width="3" fill="none" stroke-dasharray="4 5" stroke-linecap="round"/></svg>`,
-};
-
-const door = (name: 'practice' | 'host' | 'join', title: string) => `
-  <button class="door door-${name}" data-go="${name}">
-    <span class="door-art">${ICONS[name]}</span>
-    <b>${title}</b>
-  </button>`;
+/** The main buttons down the left, Fortnite-lobby style. */
+const PLAY = [
+  { id: 'practice', label: 'Practice', sub: 'Free-fly against scarecrows' },
+  { id: 'survival', label: 'Survival', sub: 'Co-op vs zombies' },
+  { id: 'battle', label: 'Battle', sub: 'Snipers, first to 30' },
+  { id: 'settings', label: 'Settings', sub: 'Mouse and controls' },
+] as const;
 
 export const title: Render = (root, ctx, screen) => {
   let stopLogo = () => {};
+  let preview: ReturnType<typeof mountSkinPreview> | null = null;
   let notice = screen.notice;
 
-  /** Signed in: your name is your username (locked) with a Sign out button. Guest: a free name box and a Sign in button. */
-  const nameChips = () =>
+  /** Top-right: a guest sees Log in / Create account; a signed-in player sees their name and Sign out. */
+  const accountBox = () =>
     account.user
-      ? `<span class="name-chip signed"><span>Signed in as</span><b>${esc(account.user)}</b></span>
-         <button class="name-chip" data-signout>Sign out</button>`
-      : `<label class="name-chip">
-           <span>Playing as</span>
-           <input id="name" maxlength="16" placeholder="your name" autocomplete="nickname" spellcheck="false" value="${esc(storedName())}" />
-           <i aria-hidden="true">✎</i>
-         </label>
-         <button class="name-chip" data-go="account">Sign in</button>`;
+      ? `<div class="acct signed"><span class="avatar-dot" aria-hidden="true">${esc(account.user[0].toUpperCase())}</span>
+           <span class="acct-name"><small>Signed in</small><b>${esc(account.user)}</b></span>
+           <button class="nav-btn" data-signout>Sign out</button></div>`
+      : `<div class="acct guest"><button class="login-btn" data-go="account">Log in</button>
+           <button class="nav-btn" data-go="signup">Create account</button></div>`;
 
-  const draw = (first: boolean) => {
+  const plate = () =>
+    account.user
+      ? `<b class="plate-name">${esc(account.user)}</b>`
+      : `<label class="plate-name"><input id="name" maxlength="16" placeholder="your name" autocomplete="nickname" spellcheck="false" value="${esc(storedName())}" aria-label="Your name" /><i aria-hidden="true">✎</i></label>`;
+
+  const drawHero = () => {
+    preview?.dispose();
+    const skin = storedSkin();
+    const canvas = $<HTMLCanvasElement>(root, '.hero-canvas');
+    preview = mountSkinPreview(canvas, false, 0.35);
+    preview.show(skin, skin?.jacket === undefined ? DEFAULT_JACKET : JACKETS[skin.jacket], account.user ?? storedName().trim(), stash.gear);
+  };
+
+  const draw = () => {
     stopLogo();
     root.innerHTML = `
-    <main class="screen title-screen">
-      <h1 class="logo" tabindex="-1" aria-label="Gambol"><canvas aria-hidden="true"></canvas></h1>
-      <div class="chips">
-      ${nameChips()}
-      <button class="name-chip skin-chip" data-go="skin">Skin: <b>${esc(skinLabel(storedSkin()))}</b></button>
-      <span class="name-chip coin-chip" title="Acorns: earn them by eliminating things, spend them on cases"><b>${coinText(stash.inv.coins)}</b></span>
-      </div>
-      <nav class="doors" aria-label="Play">
-        ${door('practice', 'Practice')}
-        ${door('host', 'Host')}
-        ${door('join', 'Join')}
-      </nav>
-      <nav class="doors-mini" aria-label="Loot">
-        <button class="door door-store" data-go="store"><span class="door-art">${ICONS.store}</span><b>Store</b></button>
-        <button class="door door-inventory" data-go="inventory"><span class="door-art">${ICONS.inventory}</span><b>Inventory</b></button>
+    <main class="screen home">
+      <header class="topbar">
+        <h1 class="logo" tabindex="-1" aria-label="Gambol"><canvas aria-hidden="true"></canvas></h1>
+        <nav class="top-tabs" aria-label="Sections">
+          <button class="tab on" aria-current="page">Play</button>
+          <button class="tab" data-go="inventory">Inventory</button>
+          <button class="tab" data-go="store">Store</button>
+          <button class="tab" data-go="help">How to play</button>
+        </nav>
+        <div class="top-right">
+          <button class="coin-pill" data-go="store" title="Acorns: earn them by eliminating things, spend them on cases" aria-label="Acorns">${coinText(stash.inv.coins)}</button>
+          ${accountBox()}
+        </div>
+      </header>
+      <section class="hero" aria-label="Your character">
+        <canvas class="hero-canvas" aria-hidden="true"></canvas>
+        <div class="nameplate">${plate()}<button class="look-btn" data-go="character">Look: ${esc(skinLabel(storedSkin()))} · Customize</button></div>
+      </section>
+      <nav class="play-menu" aria-label="Play">
+        ${PLAY.map((p) => `<button class="play-btn play-${p.id}" data-play="${p.id}"><b>${p.label}</b><small>${p.sub}</small></button>`).join('')}
+        <button class="link join-link" data-go="join">Have a code? Join a lobby</button>
       </nav>
       <p class="notice" role="status">${notice ? esc(notice) : ''}</p>
-      <footer class="menu-foot"><button class="link" data-go="help">How to play</button></footer>
     </main>`;
     notice = undefined; // shown once; a redraw (e.g. after signing in) shouldn't bring it back
 
@@ -85,20 +79,39 @@ export const title: Render = (root, ctx, screen) => {
       nameInput.addEventListener('input', () => saveName(nameInput.value));
       nameInput.addEventListener('keydown', (e) => e.key === 'Enter' && nameInput.blur());
     }
-    root.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) =>
-      b.addEventListener('click', () => ctx.go({ name: b.dataset.go as 'practice' | 'host' | 'join' | 'help' | 'skin' | 'account' | 'store' | 'inventory' })),
+    const goto = (key: string) => {
+      if (key === 'signup') ctx.go({ name: 'account', signup: true });
+      else if (key === 'character') ctx.go({ name: 'inventory', tab: 'character' });
+      else ctx.go({ name: key as ScreenName });
+    };
+    root.querySelectorAll<HTMLElement>('[data-go]').forEach((b) => b.addEventListener('click', () => goto(b.dataset.go!)));
+    root.querySelectorAll<HTMLElement>('[data-play]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const id = b.dataset.play;
+        if (id === 'practice') ctx.play();
+        else if (id === 'settings') ctx.go({ name: 'settings' });
+        else ctx.go({ name: 'host', mode: id as 'survival' | 'battle' });
+      }),
     );
     root.querySelector('[data-signout]')?.addEventListener('click', () => void account.signOut());
-    if (first) $(root, '.door-practice').focus();
     stopLogo = mountLogo($(root, '.logo canvas') as HTMLCanvasElement);
+    drawHero();
   };
 
-  draw(true);
+  draw();
+  $(root, '.play-practice').focus();
   // A notice is shown once; don't replay it when navigating back here later.
   if (screen.notice) history.replaceState({ ...screen, notice: undefined }, '');
-  const off = account.onChange(() => draw(false)); // signed in or out
+  const offAcct = account.onChange(draw); // signed in or out
+  // Acorns change when kills pay out or cases open; only the pill needs to move.
+  const offStash = stash.onChange(() => {
+    const pill = root.querySelector('.coin-pill');
+    if (pill) pill.textContent = coinText(stash.inv.coins);
+  });
   return () => {
-    off();
+    offAcct();
+    offStash();
     stopLogo();
+    preview?.dispose();
   };
 };

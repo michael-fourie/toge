@@ -46,7 +46,7 @@ src/server/   Cloudflare Worker: worker.ts (routing), room.ts (LobbyRoom Durable
               Survival also owns everything with a price, server-authoritative and reset with the run: per-player `wallet` (points, Juggernog, two gun slots), doors, window boards, the Mystery Box. Clients send `use {kind,id}` (the server re-checks with `findUse`) and `equip`; the owner hears `me` (points, guns, which slots start full), everyone hears `world` (open doors, boards per window, box state), others see `shot.w/up`.
 src/client/
   main.ts       boots the menu router; loading screen; starts a Game (practice or online)
-  menu/         one file per screen (title, practice, host, join, lobby room, help) + router.ts, ui.ts,
+  menu/         one file per screen (title = the Fortnite-style home with the character in the middle, host, join, lobby room, help, settings = sensitivity + rebindable keys, inventory = items tab + Character tab, store, account) + router.ts, ui.ts,
                 skirmish.ts (the animated island backdrop)
   settings.ts   saved player settings (name, sensitivity, auto-bhop) in localStorage
   game.ts       the Game: loop, fixed-tick sim + render interpolation, weapon state, remotes, net, camera
@@ -66,7 +66,7 @@ src/client/
                 (equipped ids sent to the server as `gear=` and relayed in `PlayerInfo.gear`, validated by `decodeGear`), and the pure stash rules (coins, buy/open, equip, sell).
                 client/inventoryStore.ts saves it in localStorage; menu/store.ts (case reel), menu/inventory.ts, menu/itemIcon.ts (renders each item once to a PNG); knife.ts + wear.ts build the models;
                 avatar.ts / viewmodel.ts show the equipped gear. Currency is Acorns: kills pay (COIN in items.ts). Tests: loot.test.ts.
-  skin.ts (src/shared) skin spec: option lists, presets, seeded default, encode/decode ('3.0.1.3.0.0.x', validated on the server). client/skinStore.ts saves it; menu/skin.ts + skinPreview.ts are the picker.
+  skin.ts (src/shared) skin spec: option lists, presets, seeded default, encode/decode ('3.0.1.3.0.0.x', validated on the server). client/skinStore.ts saves it; menu/skin.ts (mountSkinEditor, used by the inventory's Character tab) + skinPreview.ts are the picker.
   avatar.ts     chibi anime players (look = chosen skin, else seeded from name+colour, ink outlines, canvas faces), a zombie variant
                 (poseZombie) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
 dev/viewmodel.html  dev-only lab for tuning the rifle/hands (Vite serves it; not part of the build)

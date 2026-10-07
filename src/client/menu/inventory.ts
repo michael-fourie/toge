@@ -1,20 +1,26 @@
 import { RARITIES, RARITY, SLOTS, SLOT_NAME, type Slot, itemById } from '../../shared/items.ts';
 import { JACKETS } from '../../shared/skin.ts';
+import { account } from '../account.ts';
 import { stash } from '../inventoryStore.ts';
 import { sfx } from '../sfx.ts';
 import { storedSkin } from '../skinStore.ts';
 import { coinText, itemCard } from './lootui.ts';
 import type { Render } from './router.ts';
 import { $, esc, sheet, storedName } from './ui.ts';
+import { mountSkinEditor, skinLabel } from './skin.ts';
 import { DEFAULT_JACKET, mountSkinPreview } from './skinPreview.ts';
 import './skin.css';
 
 type Filter = Slot | 'all';
 
-export const inventory: Render = (root) => {
+export const inventory: Render = (root, _ctx, screen) => {
   root.innerHTML = sheet(
     'Inventory',
-    `<div class="loot-bar"><span class="coin-total" id="coins"></span><small id="count"></small></div>
+    `<div class="loot-bar"><span class="coin-total" id="coins"></span><small id="count"></small>
+      <div class="tabs inv-tabs" role="tablist">
+        <button role="tab" data-tab="items">Items</button>
+        <button role="tab" data-tab="character">Character</button>
+      </div></div>
     <div class="inv-layout">
       <div class="inv-side">
         <canvas class="skin-preview" aria-label="Preview of your character"></canvas>
@@ -25,22 +31,40 @@ export const inventory: Render = (root) => {
         <div class="slots" id="slots"></div>
       </div>
       <div class="inv-main">
-        <div class="skin-row" id="filters"></div>
-        <div class="loot-grid" id="grid"></div>
-        <div class="inv-detail" id="detail"></div>
+        <div id="items-pane">
+          <div class="skin-row" id="filters"></div>
+          <div class="loot-grid" id="grid"></div>
+          <div class="inv-detail" id="detail"></div>
+        </div>
+        <div id="char-pane" hidden>
+          <p class="skin-name" id="skin-name"></p>
+          <div class="skin-opts" id="opts"></div>
+        </div>
       </div>
     </div>`,
   );
   $(root, '.sheet').classList.add('wide');
 
-  const skin = storedSkin();
-  const color = skin?.jacket === undefined ? DEFAULT_JACKET : JACKETS[skin.jacket];
+  const name = () => (account.user ?? storedName()).trim();
   const preview = mountSkinPreview($<HTMLCanvasElement>(root, '.skin-preview'), true);
   let filter: Filter = 'all';
   let selected: number | null = null;
   let knifeOut = false;
+  let tab: 'items' | 'character' = screen.tab ?? 'items';
   let armed = false; // the Sell button asks twice
   let armTimer = 0;
+
+  const showPreview = () => {
+    const skin = storedSkin();
+    preview.show(skin, skin?.jacket === undefined ? DEFAULT_JACKET : JACKETS[skin.jacket], name(), stash.gear, knifeOut);
+    $(root, '#skin-name').textContent = `Look: ${skinLabel(skin)}`;
+  };
+
+  const showTab = () => {
+    root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+    $(root, '#items-pane').hidden = tab !== 'items';
+    $(root, '#char-pane').hidden = tab !== 'character';
+  };
 
   const draw = () => {
     const { inv } = stash;
@@ -76,7 +100,7 @@ export const inventory: Render = (root) => {
           <button data-act="sell">${armed ? 'Sure? Sell it' : `Sell +${coinText(RARITY[item.rarity].sell)}`}</button>
         </div></div>`
       : '';
-    preview.show(skin, color, storedName().trim(), stash.gear, knifeOut);
+    showPreview();
     root.querySelectorAll<HTMLElement>('[data-hand]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.hand === 'knife') === knifeOut)));
   };
 
@@ -89,8 +113,14 @@ export const inventory: Render = (root) => {
     const card = t.closest<HTMLElement>('[data-item]');
     const filterBtn = t.closest<HTMLElement>('[data-filter]');
     const hand = t.closest<HTMLElement>('[data-hand]');
+    const tabBtn = t.closest<HTMLElement>('[data-tab]');
     const unequip = t.closest<HTMLElement>('[data-unequip]');
     const act = t.closest<HTMLElement>('[data-act]')?.dataset.act;
+    if (tabBtn) {
+      tab = tabBtn.dataset.tab as typeof tab;
+      showTab();
+      return;
+    }
     if (card) {
       selected = Number(card.dataset.item);
       disarm();
@@ -118,7 +148,9 @@ export const inventory: Render = (root) => {
     draw();
   });
 
+  mountSkinEditor($(root, '#opts'), name(), showPreview);
   const off = stash.onChange(draw);
+  showTab();
   draw();
   return () => {
     off();

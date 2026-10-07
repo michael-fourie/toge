@@ -12,10 +12,7 @@ import {
   seededSkin,
 } from '../../shared/skin.ts';
 import { saveSkin, storedSkin } from '../skinStore.ts';
-import type { Render } from './router.ts';
-import { $, esc, hex, sheet, storedName } from './ui.ts';
-import './skin.css';
-import { DEFAULT_JACKET, mountSkinPreview } from './skinPreview.ts';
+import { esc, hex } from './ui.ts';
 
 /** Short label for the home-screen chip: the preset's name, "Custom", or "Default". */
 export function skinLabel(skin: Skin | null): string {
@@ -29,33 +26,19 @@ const chip = (act: string, val: string | number, label: string, on: boolean) =>
 const swatch = (act: string, val: string | number, color: number | null, label: string, on: boolean) =>
   `<button class="swatch${color === null ? ' auto' : ''}" data-act="${act}" data-val="${val}" aria-pressed="${on}" aria-label="${esc(label)}" title="${esc(label)}"${color === null ? '' : ` style="--c:${hex(color)}"`}>${color === null ? 'A' : ''}</button>`;
 
-export const skin: Render = (root) => {
+/**
+ * The character customiser: renders the option chips into `opts` and keeps the saved skin up to date.
+ * `onChange` fires after every edit so the caller can refresh its preview and the home screen.
+ */
+export function mountSkinEditor(opts: HTMLElement, name: string, onChange: (skin: Skin | null) => void) {
   // null = the seeded default. Editing a piece first materialises the default so you tweak what you see.
   let cur: Skin | null = storedSkin();
-  const name = storedName().trim();
   const effective = (): Skin => cur ?? seededSkin(JACKETS[0], name);
-
-  root.innerHTML = sheet(
-    'Skin',
-    `<div class="skin-layout">
-      <div class="skin-stage"><canvas class="skin-preview" aria-label="Preview of your character"></canvas><p class="skin-name" id="skin-name"></p></div>
-      <div class="skin-opts" id="opts"></div>
-    </div>
-    <div class="cta"><button class="primary big" data-back>Done</button></div>`,
-  );
-  const preview = mountSkinPreview($<HTMLCanvasElement>(root, '.skin-preview'));
-
-  const apply = () => {
-    const s = effective();
-    saveSkin(cur);
-    preview.show(cur, s.jacket === undefined ? DEFAULT_JACKET : JACKETS[s.jacket], name);
-    $(root, '#skin-name').textContent = skinLabel(cur);
-  };
 
   const render = () => {
     const s = effective();
     const group = (title: string, body: string) => `<section class="skin-group"><h3>${title}</h3><div class="skin-row">${body}</div></section>`;
-    $(root, '#opts').innerHTML = `
+    opts.innerHTML = `
       <section class="skin-group"><h3>Looks</h3><div class="skin-row">
         ${PRESETS.map((p, i) => chip('preset', i, p.name, !!cur && sameSkin({ ...s, jacket: undefined }, p.skin))).join('')}
       </div></section>
@@ -74,7 +57,7 @@ export const skin: Render = (root) => {
       )}`;
   };
 
-  $(root, '#opts').addEventListener('click', (e) => {
+  opts.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-act]');
     if (!b) return;
     const { act, val } = b.dataset as { act: string; val: string };
@@ -95,12 +78,10 @@ export const skin: Render = (root) => {
       }
       cur = s;
     }
+    saveSkin(cur);
     render();
-    root.querySelector<HTMLElement>(`[data-act="${act}"][data-val="${val}"]`)?.focus();
-    apply();
+    opts.querySelector<HTMLElement>(`[data-act="${act}"][data-val="${val}"]`)?.focus();
+    onChange(cur);
   });
-
   render();
-  apply();
-  return () => preview.dispose();
-};
+}

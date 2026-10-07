@@ -5,11 +5,10 @@ import { help } from './menu/help.ts';
 import { host } from './menu/host.ts';
 import { join } from './menu/join.ts';
 import { lobby } from './menu/lobby.ts';
-import { practice } from './menu/practice.ts';
 import { type Ctx, type Joined, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
 import { accountScreen } from './menu/account.ts';
 import { inventory } from './menu/inventory.ts';
-import { skin } from './menu/skin.ts';
+import { settings } from './menu/settings.ts';
 import { store } from './menu/store.ts';
 import { title } from './menu/title.ts';
 import { startSkirmish } from './menu/skirmish.ts';
@@ -20,7 +19,7 @@ import { loadSettings } from './settings.ts';
 import { sfx } from './sfx.ts';
 
 const app = document.getElementById('app')!;
-const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, practice, host, join, lobby, help, skin, account: accountScreen, store, inventory };
+const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, host, join, lobby, help, settings, account: accountScreen, store, inventory };
 
 let game: Game | null = null;
 let leaveScreen: (() => void) | null = null;
