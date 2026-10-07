@@ -56,6 +56,10 @@ src/client/
   rope.ts       grapple rope + hook meshes
   killcam.ts    Trail (rolling per-player poses) + replay timing; game.ts records everyone and replays your death from the killer's eyes
   speedfx.ts    wind streaks overlay that scale with speed (hud.ts owns it); sfx.setWind adds the rushing-wind loop
+  items.ts + inventory.ts (src/shared) loot: rarities (CSGO colours/names), the three cases, every item (rifle paints, knives, wearables), the dice (`rollCase`), gear codes
+                (equipped ids sent to the server as `gear=` and relayed in `PlayerInfo.gear`, validated by `decodeGear`), and the pure stash rules (coins, buy/open, equip, sell).
+                client/inventoryStore.ts saves it in localStorage; menu/store.ts (case reel), menu/inventory.ts, menu/itemIcon.ts (renders each item once to a PNG); knife.ts + wear.ts build the models;
+                avatar.ts / viewmodel.ts show the equipped gear. Currency is Acorns: kills pay (COIN in items.ts). Tests: loot.test.ts.
   skin.ts (src/shared) skin spec: option lists, presets, seeded default, encode/decode ('3.0.1.3.0.0.x', validated on the server). client/skinStore.ts saves it; menu/skin.ts + skinPreview.ts are the picker.
   avatar.ts     chibi anime players (look = chosen skin, else seeded from name+colour, ink outlines, canvas faces), a zombie variant
                 (poseZombie) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
@@ -134,10 +138,13 @@ docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (f
 - Prefer small exact edits. When several agents or sessions work in parallel, give each one clear file ownership and keep each test area in its own file.
 - Don't commit unless asked. The remote is `origin` → github.com/michael-fourie/atrous (private), default branch `master`.
 
+**Knife (key 2; key 1 returns to the rifle)**: LMB stabs a ray of `KNIFE.range` and one hit kills (or `KNIFE.zombieDamage` on a zombie). It sends `shoot` with `knife: true`, which the server checks for reach and does not relay as a rifle shot. Stabs share the rifle's rate limit, so `KNIFE.cooldown` must stay above 0.9 x `WEAPON.fireCooldown`. The held weapon travels in `StateFlag.Knife`. It never touches velocity.
+
 ## Status and known gaps
 
 A playable prototype covering practice and online lobbies. Everything listed in README works and is covered by tests or was checked in the browser. Known gaps, roughly in priority order:
 
+- **Loot is client-side:** acorns, owned items and equips live in localStorage, so they are as trustworthy as the client (cosmetic only, no gameplay edge). Real accounts would move the stash into the Accounts DO and make case opens server-side rolls.
 - **Netcode is a prototype:** client-authoritative movement, client-side hit detection, JSON messages. The upgrade path is under Netcode above and in `docs/DEPLOYMENT.md`.
 - **Deployment:** Cloudflare Worker + Durable Objects on the free plan, see `docs/DEPLOYMENT.md`. Next: Google sign-in + D1 player stats, rate limiting, reconnection tokens.
 - **Lobby room:** while you sit in the room, your bean is already in the live match, idle at spawn. The fix is a server "ready" flag.

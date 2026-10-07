@@ -1,4 +1,4 @@
-import { GRENADE, SURVIVAL } from '../shared/constants.ts';
+import { GRENADE, KNIFE, SURVIVAL } from '../shared/constants.ts';
 import { blastTargets } from '../shared/grenade.ts';
 import { MAP } from '../shared/map.ts';
 import { type RunRecord, buildRows, shouldRestart, waitingFor } from '../shared/postgame.ts';
@@ -112,8 +112,9 @@ export class Survival {
     const z = this.zombies.find((x) => x.id === msg.zombie);
     if (!z) return;
     if (Math.hypot(msg.to[0] - z.pos.x, msg.to[1] - (z.pos.y + 1), msg.to[2] - z.pos.z) > 8) return;
-    const up = this.isUpgraded(m);
     const dir = unit(sub(msg.to, msg.from));
+    if (msg.knife) return this.hurt(m, z, false, false, dir, KNIFE.zombieDamage);
+    const up = this.isUpgraded(m);
     this.hurt(m, z, !!msg.headshot, up, dir);
     if (up) {
       const [fx, fy, fz] = msg.from;

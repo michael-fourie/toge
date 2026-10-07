@@ -1,7 +1,8 @@
-import { GRENADE, MOVE, NET, RESPAWN_SECONDS, SURVIVAL } from '../shared/constants.ts';
+import { GRENADE, KNIFE, MOVE, NET, RESPAWN_SECONDS, SURVIVAL } from '../shared/constants.ts';
 import { blastTargets } from '../shared/grenade.ts';
 import { MAP } from '../shared/map.ts';
 import type { ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
+import { type Gear, encodeGear } from '../shared/items.ts';
 import { JACKETS, type Skin, encodeSkin } from '../shared/skin.ts';
 import { weaponStats } from '../shared/punch.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
@@ -20,6 +21,7 @@ export interface Client {
   name: string;
   /** Chosen look; relayed to everyone. Its `jacket` is a colour preference, honoured when free. */
   skin?: Skin;
+  gear?: Gear;
   lobby: Lobby | null;
 }
 
@@ -85,7 +87,7 @@ export class Lobby {
     const spawn = this.pickSpawn();
     const m: Member = {
       client,
-      info: { id: client.id, name: client.name, color, kills: 0, deaths: 0, alive: true, skin: client.skin && encodeSkin(client.skin) },
+      info: { id: client.id, name: client.name, color, kills: 0, deaths: 0, alive: true, skin: client.skin && encodeSkin(client.skin), gear: client.gear && encodeGear(client.gear) },
       state: { id: client.id, p: spawn.p, v: [0, 0, 0], yaw: spawn.yaw, pitch: 0, f: 0 },
       lastShot: 0,
       nadeAt: 0,
@@ -195,7 +197,9 @@ export class Lobby {
     const up = this.survival?.isUpgraded(m) ?? false; // a punched rifle cycles faster
     if (!m.info.alive || now - m.lastShot < weaponStats(up).fireCooldown * 1000 * 0.9) return;
     m.lastShot = now;
-    this.broadcast({ t: 'shot', id: m.info.id, from: msg.from, to: msg.to, up: up || undefined }, m.info.id);
+    // A stab is silent to everyone else and must be within arm's reach (plus a little for lag).
+    if (msg.knife && Math.hypot(...sub(msg.to, msg.from)) > KNIFE.range + 1) return;
+    if (!msg.knife) this.broadcast({ t: 'shot', id: m.info.id, from: msg.from, to: msg.to, up: up || undefined }, m.info.id);
 
     if (this.survival) {
       if (msg.zombie !== undefined) this.survival.shoot(m, msg); // co-op: no friendly fire
@@ -208,7 +212,7 @@ export class Lobby {
     const [x, y, z] = v.state.p;
     if (Math.hypot(msg.to[0] - x, msg.to[1] - (y + 1), msg.to[2] - z) > 6) return;
     const dir = sub(msg.to, msg.from);
-    this.kill(v, m, msg.headshot ? 'headshot' : 'snipe', dir);
+    this.kill(v, m, msg.knife ? 'knife' : msg.headshot ? 'headshot' : 'snipe', dir);
   }
 
   kill(victim: Member, killer: Member, cause: DeathCause, dir: V3) {

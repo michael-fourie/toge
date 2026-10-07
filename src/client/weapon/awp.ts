@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import type { RiflePaint } from '../../shared/items.ts';
 import { toonRamp } from '../textures.ts';
 
 /**
@@ -39,15 +40,18 @@ const ANCHORS = {
   ejectPort: new THREE.Vector3(0.03, 0.05, -0.04),
 };
 
-function mats(accent: number) {
+/** Lightens (f > 1) a colour towards white; used to derive the light metal from a skin's trim. */
+const lighten = (c: number, f: number) => new THREE.Color(c).lerp(new THREE.Color(0xffffff), f - 1).getHex();
+
+function mats(accent: number, paint?: RiflePaint) {
   const gradientMap = toonRamp();
-  const toon = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap });
+  const toon = (color: number, glow = false) => new THREE.MeshToonMaterial({ color, gradientMap, emissive: glow ? color : 0, emissiveIntensity: glow ? 0.35 : 0 });
   return {
-    // The classic AWP green, nudged toward the softer Ghibli palette.
-    polymer: toon(0x5f7444),
-    polymerDark: toon(0x4a5c35),
-    metal: toon(0x2e3136),
-    metalLight: toon(0x4b5058),
+    // The classic AWP green, nudged toward the softer Ghibli palette (or an equipped skin).
+    polymer: toon(paint?.body ?? 0x5f7444, paint?.glow),
+    polymerDark: toon(paint?.dark ?? 0x4a5c35),
+    metal: toon(paint?.trim ?? 0x2e3136),
+    metalLight: toon(paint ? lighten(paint.trim, 1.25) : 0x4b5058),
     rubber: toon(0x26272b),
     lens: new THREE.MeshBasicMaterial({ color: 0x9fd6e8 }),
     accent: toon(accent),
@@ -60,8 +64,8 @@ function cyl(r0: number, r1: number, len: number, seg = 16) {
 }
 
 /** CS-style AWP: green thumbhole stock, black receiver, long barrel + brake, big scope, bolt with ball knob. */
-export function buildProceduralAwp(accent: number): WeaponModel {
-  const m = mats(accent);
+export function buildProceduralAwp(accent: number, paint?: RiflePaint): WeaponModel {
+  const m = mats(accent, paint);
   const root = new THREE.Group();
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = root) => {
     const mesh = new THREE.Mesh(geo, mat);

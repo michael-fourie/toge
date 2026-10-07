@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { WEAPON } from '../shared/constants.ts';
+import { type Gear, itemById } from '../shared/items.ts';
 import { weaponStats } from '../shared/punch.ts';
+import { DEFAULT_KNIFE, buildKnife } from './knife.ts';
 import { GOLD, MINT } from './punchmachine.ts';
 import { sfx } from './sfx.ts';
 import { type WeaponModel, buildProceduralAwp, loadAwpGlb } from './weapon/awp.ts';
@@ -31,7 +33,7 @@ const UNDER_MAG = new THREE.Vector3(0, -0.12, 0);
 const LEFT_OFFSCREEN = new THREE.Vector3(-0.3, -0.85, -0.5);
 
 type LeftTarget = 'handguard' | 'mag' | 'down';
-type Action = { kind: 'bolt' | 'reload' | 'draw'; t: number; dur: number; withBolt: boolean; cues: Set<string> };
+type Action = { kind: 'bolt' | 'reload' | 'draw' | 'stab'; t: number; dur: number; withBolt: boolean; cues: Set<string> };
 
 interface Debris {
   obj: THREE.Object3D;
@@ -58,6 +60,8 @@ export class ViewModel {
   private readonly left: Arm;
   private readonly muzzleFlash: THREE.Mesh;
   private readonly handMag = new THREE.Group();
+  private readonly knife = new THREE.Group();
+  private knifeOut = false;
   private debris: Debris[] = [];
   /** Bolt/reload timings for animations: stock AWP, or the Pack-a-Punched one (faster, with a mint glow). */
   private stats: Pick<typeof WEAPON, 'boltDelay' | 'boltTime' | 'reloadTime'> = WEAPON;
@@ -78,7 +82,7 @@ export class ViewModel {
   private readonly qa = new THREE.Quaternion();
   private readonly qb = new THREE.Quaternion();
 
-  constructor(color: number) {
+  constructor(color: number, gear: Gear = {}) {
     this.scene.add(new THREE.HemisphereLight(0xcde8ff, 0x7c9a58, 1.6));
     const key = new THREE.DirectionalLight(0xffe3b3, 2.4);
     key.position.set(1, 2, 1);
@@ -87,11 +91,17 @@ export class ViewModel {
     this.scene.add(this.view);
     this.view.add(this.rig);
 
-    this.setModel(buildProceduralAwp(color));
-    // Swap in the real AWP if one has been dropped into public/models/.
+    const rifleItem = itemById(gear.rifle ?? '');
+    const paint = rifleItem?.slot === 'rifle' ? rifleItem.paint : undefined;
+    this.setModel(buildProceduralAwp(color, paint));
+    const knifeItem = itemById(gear.knife ?? '');
+    this.knife.add(buildKnife(knifeItem?.slot === 'knife' ? knifeItem.paint : DEFAULT_KNIFE));
+    this.knife.visible = false;
+    this.rig.add(this.knife);
+    // Swap in the real AWP if one has been dropped into public/models/ (a paint job means you want the built-in one).
     void loadAwpGlb()
       .then((m) => {
-        if (!m) return;
+        if (!m || paint) return;
         this.setModel(m);
         this.credit = m.credit ?? null;
       })
@@ -112,6 +122,7 @@ export class ViewModel {
   private setModel(m: WeaponModel) {
     if (this.gun) this.rig.remove(this.gun.root);
     this.gun = m;
+    m.root.visible = !this.knifeOut;
     this.rig.add(m.root);
     m.root.add(this.glow);
     this.handMag.clear();
@@ -158,6 +169,22 @@ export class ViewModel {
   draw() {
     this.pendingBolt = -1;
     this.start('draw', 0.4);
+  }
+
+  /** Switch between the rifle (false) and the knife (true), with a draw animation. */
+  holdKnife(on: boolean) {
+    if (on === this.knifeOut) return;
+    this.knifeOut = on;
+    this.knife.visible = on;
+    this.gun.root.visible = !on;
+    this.handMag.visible = false;
+    this.pendingBolt = -1;
+    this.start('draw', 0.35);
+  }
+
+  /** A stab/slash: lunge across the screen. */
+  stab() {
+    this.start('stab', 0.32);
   }
 
   land(impact: number) {
@@ -220,6 +247,14 @@ export class ViewModel {
       GUN_ROT.z + roll * 1.5 + this.sway.x * 0.15,
     );
 
+    if (this.knifeOut) {
+      this.poseKnife(a);
+      this.muzzleFlash.visible = false;
+      this.updateDebris(dt);
+      return;
+    }
+    this.muzzleFlash.visible = true;
+
     // Bolt + mag at rest, then the active action overrides.
     const g = this.gun;
     g.boltPivot.rotation.z = 0;
@@ -249,6 +284,37 @@ export class ViewModel {
     this.muzzleFlash.scale.setScalar(0.5 + this.flash * 1.8);
 
     this.updateDebris(dt);
+  }
+
+  /** Knife pose: held out in the right hand, blade forward and tilted in; the left hand stays out of view. */
+  private poseKnife(a: Action | null) {
+    this.rig.position.add(this.v.set(-0.04, 0.1, 0.14));
+    this.rig.rotation.x += 0.5;
+    this.rig.rotation.y += 0.35;
+    if (a?.kind === 'draw') {
+      const k = 1 - seg(a.t / a.dur, 0, 1);
+      this.rig.position.y -= k * 0.3;
+      this.rig.rotation.x -= k * 0.8;
+    } else if (a?.kind === 'stab') {
+      // Wind back and up, sweep across to the left with a lunge, then recover.
+      const u = a.t / a.dur;
+      const wind = hold(u, 0, 0.25, 0.25, 0.3);
+      const swing = hold(u, 0.25, 0.5, 0.55, 1);
+      this.rig.position.x += wind * 0.12 - swing * 0.34;
+      this.rig.position.z -= swing * 0.22;
+      this.rig.rotation.y += wind * 0.5 - swing * 1.5;
+      this.rig.rotation.z += wind * 0.6 - swing * 0.9;
+      this.cue(a, u, 0.25, 'whoosh', () => sfx.knife());
+    }
+    this.rig.updateMatrixWorld(true);
+    const grip = this.view.worldToLocal(this.knife.getWorldPosition(this.v));
+    this.right.hand.position.copy(grip);
+    this.right.hand.quaternion.copy(this.rig.quaternion).multiply(POSE.grip);
+    this.right.curl(1);
+    this.right.updateForearm();
+    this.left.hand.position.copy(LEFT_OFFSCREEN);
+    this.left.hand.quaternion.copy(this.rig.quaternion).multiply(POSE.handguard);
+    this.left.updateForearm();
   }
 
   /**

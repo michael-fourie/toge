@@ -106,6 +106,20 @@ export const sfx = {
     tone('sine', 90, 28, 0.55, 0.7 * v);
     burst(0.12, 0.5 * v, 3000, 0.6, 'highpass');
   },
+  knife() {
+    burst(0.12, 0.4, 4200, 1.2, 'highpass'); // whoosh
+    tone('triangle', 900, 300, 0.1, 0.12);
+  },
+  /** Case reel: one tick as an item passes the marker. */
+  caseTick: () => tone('square', 1500, 1100, 0.025, 0.07),
+  /** The drop lands: a chime that climbs with rarity (0..6), plus a big shimmer from classified up. */
+  caseReveal(tier: number) {
+    const scale = [523, 587, 659, 784, 880, 1047, 1319];
+    for (let i = 0; i <= Math.min(tier, 6); i++) tone('triangle', scale[i], scale[i], 0.3, 0.14, i * 0.08);
+    if (tier >= 4) tone('sine', 1568, 2093, 0.6, 0.14, 0.4);
+    if (tier >= 6) tone('sine', 2093, 3136, 0.9, 0.12, 0.6);
+  },
+  coin: () => tone('square', 1320, 1760, 0.1, 0.1),
   grappleMiss: () => burst(0.25, 0.16, 1800, 1.4, 'bandpass'),
   grappleRelease: () => tone('sine', 520, 260, 0.1, 0.08),
   airJump: () => tone('sine', 380, 640, 0.1, 0.14), // a soft puff, higher than the ground jump

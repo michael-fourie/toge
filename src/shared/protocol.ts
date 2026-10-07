@@ -22,6 +22,8 @@ export interface PlayerInfo {
   alive: boolean;
   /** Chosen look, as an encoded skin (shared/skin.ts); absent = seeded from name + colour. */
   skin?: string;
+  /** Equipped loot (shared/items.ts gear code): rifle paint, knife, hat, face, back. */
+  gear?: string;
 }
 
 /** Per-player state inside a snapshot. Flags: 1 = on ground, 2 = wallrunning. */
@@ -36,7 +38,8 @@ export interface NetPlayerState {
   g?: V3;
 }
 
-export const StateFlag = { Wallrun: 1, Sliding: 2 } as const;
+/** Knife: holding the knife instead of the rifle. */
+export const StateFlag = { Wallrun: 1, Sliding: 2, Knife: 4 } as const;
 
 /** A zombie inside a snapshot. Flags: ZombieFlag. */
 export interface NetZombie {
@@ -67,12 +70,12 @@ export interface PostRow {
   gone: boolean;
 }
 
-export type DeathCause = 'snipe' | 'headshot' | 'void' | 'zombie' | 'grenade';
+export type DeathCause = 'snipe' | 'headshot' | 'void' | 'zombie' | 'grenade' | 'knife';
 
 // Client -> server
 export type ClientMsg =
   | { t: 'state'; p: V3; v: V3; yaw: number; pitch: number; f: number; g?: V3 }
-  | { t: 'shoot'; from: V3; to: V3; victim?: number; zombie?: number; headshot?: boolean }
+  | { t: 'shoot'; from: V3; to: V3; victim?: number; zombie?: number; headshot?: boolean; knife?: boolean } // knife: a stab, not a rifle shot
   | { t: 'fell' }
   | { t: 'nade'; p: V3; v: V3 } // threw a grenade (server rate-limits to GRENADE.cooldown and relays it)
   | { t: 'boom'; p: V3 } // our grenade went off here (server checks it's ours, then does the damage)

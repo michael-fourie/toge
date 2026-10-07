@@ -35,6 +35,7 @@ export class Hud {
       <div class="chips"><span class="chip wallrun">WALLRUN</span><span class="chip grapple">GRAPPLE [E]</span></div>
       <div class="ammo"><b>10</b><small>/ 10</small><span>reloading…</span></div>
       <div class="credit"></div>
+      <div class="coins" title="Acorns"><b></b><i></i></div>
       <div class="lobby-tag">${esc(lobbyLabel)}</div>
       <div class="topright"><div class="livescore"></div><div class="killfeed"></div></div>
       <div class="center-msg"></div>
@@ -58,6 +59,7 @@ export class Hud {
             <dt>Q</dt><dd>grenade (a new one 8 s after throwing)</dd>
             <dt>E</dt><dd>grapple: reels you toward what you aim at (40 m rope, 1.5 s to recharge); Space lets go and keeps your speed</dd>
             <dt>F</dt><dd>Survival: buy at a station. Juggernog east of the tree (2500 pts): 250 health. Pack-a-Punch west (5000 pts): a much stronger rifle</dd>
+            <dt>1 / 2</dt><dd>rifle / knife (LMB stabs, one hit kills)</dd>
             <dt>LMB / RMB</dt><dd>shoot / hold to scope</dd>
             <dt>R</dt><dd>reload (auto when empty)</dd>
             <dt>Tab</dt><dd>scores</dd>
@@ -119,6 +121,17 @@ export class Hud {
     this.q('.ammo small').textContent = `/ ${mag}`;
     this.root.classList.toggle('reloading', reloading);
     this.root.classList.toggle('low-ammo', rounds <= 2);
+  }
+
+  /** The acorn counter (bottom left); `gained` floats up beside it for a moment. */
+  coins(total: number, gained = 0) {
+    this.q('.coins b').textContent = `🌰 ${total}`;
+    if (!gained) return;
+    const pop = this.q('.coins i');
+    pop.textContent = `+${gained}`;
+    pop.classList.remove('pop');
+    void pop.offsetWidth;
+    pop.classList.add('pop');
   }
 
   /** Attribution line for a CC BY model, shown small in the pause menu corner. */

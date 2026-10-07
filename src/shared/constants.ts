@@ -92,6 +92,13 @@ export const WEAPON = {
   range: 500,
 };
 
+/** The knife (key 2): one stab kills a player. `cooldown` must stay above the server's 0.9 x WEAPON.fireCooldown rate limit, which stabs share with rifle shots. */
+export const KNIFE = {
+  range: 2.8, // metres from the eye
+  cooldown: 0.62,
+  zombieDamage: 100, // about an AWP body shot
+};
+
 export const RESPAWN_SECONDS = 2.5;
 
 /** Survival (co-op vs zombie rounds). Damage numbers are CS-ish AWP values; zombies scale up per round. */

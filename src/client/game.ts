@@ -1,6 +1,6 @@
 import GUI from 'lil-gui';
 import * as THREE from 'three';
-import { GRENADE, PLAYER, MOVE, NET, RESPAWN_SECONDS, SURVIVAL, TICK_DT, WEAPON } from '../shared/constants.ts';
+import { GRENADE, KNIFE, PLAYER, MOVE, NET, RESPAWN_SECONDS, SURVIVAL, TICK_DT, WEAPON } from '../shared/constants.ts';
 import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
 import { MAP } from '../shared/map.ts';
 import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/math.ts';
@@ -22,6 +22,8 @@ import {
 } from '../shared/protocol.ts';
 import { type ShotContext, SpinMeter, Streak, featsFor } from './achievements.ts';
 import { JACKETS, decodeSkin, encodeSkin } from '../shared/skin.ts';
+import { COIN, decodeGear } from '../shared/items.ts';
+import { stash } from './inventoryStore.ts';
 import { storedSkin } from './skinStore.ts';
 import { Avatar, Corpses } from './avatar.ts';
 import { PostGame } from './postgame.ts';
@@ -73,7 +75,7 @@ interface Tracer {
 const BASE_FOV = 78; // vertical; ~106° horizontal at 16:9
 const tracerGeo = new THREE.CylinderGeometry(0.025, 0.025, 1, 6, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
 
-const verbFor: Record<DeathCause, string> = { snipe: 'sniped', headshot: '💥 HEADSHOT', void: 'fell into the void', zombie: 'got munched 🧟', grenade: 'blew up 💣' };
+const verbFor: Record<DeathCause, string> = { snipe: 'sniped', headshot: '💥 HEADSHOT', void: 'fell into the void', zombie: 'got munched 🧟', grenade: 'blew up 💣', knife: 'stabbed 🔪' };
 /** Stand-in for the killfeed when a zombie goes down. */
 const ZOMBIE_INFO: PlayerInfo = { id: -1, name: 'zombie', color: 0x7fae6a, kills: 0, deaths: 0, alive: false };
 const YEETS = ['YEET', 'SNIPED', 'BONK', 'GOT EM', 'SENT FLYING'];
@@ -137,6 +139,7 @@ export class Game {
   private killcam: { deathTime: number; start: number; killerId: number; text: string; shot: { t: number; from: THREE.Vector3; to: THREE.Vector3 } | null; shotShown: boolean } | null = null;
 
   private scoped = false;
+  private knifeOut = false; // key 2: the knife is out instead of the rifle
   private bolt = 0; // seconds until the next shot is chambered
   private ammo = WEAPON.magSize;
   private reloading = 0; // seconds left on a reload
@@ -210,14 +213,15 @@ export class Game {
       this.players.set(0, { id: 0, name: opts.name, color, kills: 0, deaths: 0, alive: true, skin: skin ? encodeSkin(skin) : undefined });
     }
     const self = this.players.get(this.selfId)!;
-    this.selfAvatar = new Avatar(self.color, self.name, false, decodeSkin(self.skin));
-    this.vm = new ViewModel(self.color);
+    this.selfAvatar = new Avatar(self.color, self.name, false, decodeSkin(self.skin), stash.gear);
+    this.vm = new ViewModel(self.color, stash.gear);
 
     const spawn = joined ? { pos: arr(joined.spawn.p), yaw: joined.spawn.yaw } : this.randomSpawn();
     this.me = createPlayerState(spawn.pos);
     copy(this.prevPos, this.me.pos);
 
     this.hud = new Hud(container, joined ? `${this.mode === 'survival' ? 'SURVIVAL' : 'LOBBY'} ${joined.code}` : 'PRACTICE — shoot the dummies');
+    this.hud.coins(stash.inv.coins);
     this.punchHud = new PunchHud(this.hud.root);
     this.nadeHud = new NadeHud(this.hud.root);
     this.input = new Input(this.renderer.domElement);
@@ -362,7 +366,7 @@ export class Game {
     }
     // Hold RMB to scope. The bolt cycle (and reloads) knock you out of scope, CS-style;
     // if RMB is still held when it finishes, you scope straight back in.
-    const wantScope = this.alive && this.input.scopeHeld && this.bolt === 0 && this.reloading === 0;
+    const wantScope = this.alive && !this.knifeOut && this.input.scopeHeld && this.bolt === 0 && this.reloading === 0;
     if (wantScope && !this.scoped) sfx.scope();
     this.scoped = wantScope;
     if (this.input.takeFire()) this.fire();
@@ -378,30 +382,13 @@ export class Game {
     this.vm.reload(fromEmpty);
   }
 
-  private fire() {
-    if (!this.alive || this.bolt > 0 || this.reloading > 0) return;
-    if (this.ammo === 0) {
-      sfx.dryFire();
-      this.startReload();
-      return;
-    }
-    const pitch = this.input.pitch;
-    const yaw = this.input.yaw;
-    const d = lookDir(yaw, pitch);
-    if (!this.scoped) {
-      // No-scope spread, uniform-ish in a cone.
-      d.x += (Math.random() - 0.5) * 2 * WEAPON.hipSpread;
-      d.y += (Math.random() - 0.5) * 2 * WEAPON.hipSpread;
-      d.z += (Math.random() - 0.5) * 2 * WEAPON.hipSpread;
-      const l = Math.hypot(d.x, d.y, d.z);
-      d.x /= l;
-      d.y /= l;
-      d.z /= l;
-    }
-    // Shoot from where the camera actually is (lower while sliding).
-    const o = { x: this.renderPos.x, y: this.renderPos.y + this.eyeHeight, z: this.renderPos.z };
+  private eye() {
+    return { x: this.renderPos.x, y: this.renderPos.y + this.eyeHeight, z: this.renderPos.z };
+  }
 
-    let best = rayWorld(o, d, MAP.boxes, WEAPON.range);
+  /** Casts a ray from `o` along `d`: the nearest of the world, a head or a body (zombies in co-op, other players otherwise). */
+  private trace(o: Vec3, d: Vec3, range: number) {
+    let best = rayWorld(o, d, MAP.boxes, range);
     let hit: { id: number; zombie: boolean } | null = null;
     let headshot = false;
     const hw = PLAYER.halfWidth;
@@ -422,6 +409,67 @@ export class Game {
         headshot = false;
       }
     }
+    return { best, hit, headshot };
+  }
+
+  /** Key 1 / 2. Switching keeps any bolt cooldown running, so it can't be used to skip it. */
+  private setKnife(on: boolean) {
+    if (on === this.knifeOut || !this.alive) return;
+    this.knifeOut = on;
+    this.scoped = false;
+    this.autoReloadAt = -1;
+    this.vm.holdKnife(on);
+    this.selfAvatar.holdKnife(on);
+  }
+
+  /** A knife stab: a short ray along the look direction; any hit on a player or zombie is a kill. Never costs momentum. */
+  private stab() {
+    const d = lookDir(this.input.yaw, this.input.pitch);
+    const o = this.eye();
+    const { best, hit } = this.trace(o, d, KNIFE.range);
+    this.vm.stab();
+    this.bolt = KNIFE.cooldown;
+    if (!hit) return;
+    this.hud.hitmarker();
+    sfx.hit();
+    this.lastHit = { ...hit, ctx: { ...PLAIN_SHOT, scoped: true /* a stab isn't a no-scope */, distance: best, speed: hlen(this.me.vel) } };
+    const end = { x: o.x + d.x * best, y: o.y + d.y * best, z: o.z + d.z * best };
+    if (this.opts.net) {
+      this.opts.net.send({
+        t: 'shoot',
+        from: [round3(o.x), round3(o.y), round3(o.z)],
+        to: [round3(end.x), round3(end.y), round3(end.z)],
+        victim: hit.zombie ? undefined : hit.id,
+        zombie: hit.zombie ? hit.id : undefined,
+        knife: true,
+      });
+    } else this.onKill(this.selfId, hit.id, 'knife', [d.x, d.y, d.z]);
+  }
+
+  private fire() {
+    if (!this.alive || this.bolt > 0 || this.reloading > 0) return;
+    if (this.knifeOut) return this.stab();
+    if (this.ammo === 0) {
+      sfx.dryFire();
+      this.startReload();
+      return;
+    }
+    const pitch = this.input.pitch;
+    const yaw = this.input.yaw;
+    const d = lookDir(yaw, pitch);
+    if (!this.scoped) {
+      // No-scope spread, uniform-ish in a cone.
+      d.x += (Math.random() - 0.5) * 2 * WEAPON.hipSpread;
+      d.y += (Math.random() - 0.5) * 2 * WEAPON.hipSpread;
+      d.z += (Math.random() - 0.5) * 2 * WEAPON.hipSpread;
+      const l = Math.hypot(d.x, d.y, d.z);
+      d.x /= l;
+      d.y /= l;
+      d.z /= l;
+    }
+    // Shoot from where the camera actually is (lower while sliding).
+    const o = this.eye();
+    const { best, hit, headshot } = this.trace(o, d, WEAPON.range);
     const end = new THREE.Vector3(o.x + d.x * best, o.y + d.y * best, o.z + d.z * best);
     const muzzle = this.camera.localToWorld(new THREE.Vector3(0.22, -0.2, -1.1));
     this.addTracer(muzzle, end, this.upgraded ? MINT : this.players.get(this.selfId)!.color);
@@ -607,6 +655,9 @@ export class Game {
     const style = h && h.id === id && h.zombie === zombie ? featsFor(h.ctx) : headshot ? featsFor({ ...PLAIN_SHOT, headshot }) : [];
     const extra = this.streak.kill(this.time);
     sfx.kill();
+    const gained = zombie ? COIN.zombie : COIN.kill + (headshot ? COIN.headshot : 0);
+    stash.earn(gained);
+    this.hud.coins(stash.inv.coins, gained);
     const all = [...style, ...extra];
     if (all.length === 0) this.hud.center(pick(YEETS));
     else if (all.length === 1 && style[0]?.label === 'HEADSHOT') this.hud.center('HEADSHOT!', '#ffd43b'); // the classic
@@ -633,7 +684,7 @@ export class Game {
           ? 'Munched by a zombie'
           : cause === 'grenade'
             ? `Blown up by ${killer?.name ?? '???'}`
-            : `${cause === 'headshot' ? 'Headshot' : 'Sniped'} by ${killer?.name ?? '???'}`;
+            : `${cause === 'headshot' ? 'Headshot' : cause === 'knife' ? 'Stabbed' : 'Sniped'} by ${killer?.name ?? '???'}`;
     const pos = new THREE.Vector3(this.me.pos.x, this.me.pos.y, this.me.pos.z);
     this.deathCam.copy(pos).add(new THREE.Vector3(0, PLAYER.eyeHeight, 0));
     this.deathCorpse =
@@ -722,6 +773,7 @@ export class Game {
     this.ammo = this.stats.magSize;
     this.bolt = this.reloading = 0;
     this.autoReloadAt = -1;
+    this.setKnife(false); // back to the rifle
     this.vm.draw();
     const self = this.players.get(this.selfId);
     if (self) self.alive = true;
@@ -745,7 +797,7 @@ export class Game {
   // Remote players
 
   private addRemote(info: PlayerInfo, dummy?: Remote['dummy']) {
-    const avatar = new Avatar(info.color, info.name, false, decodeSkin(info.skin));
+    const avatar = new Avatar(info.color, info.name, false, decodeSkin(info.skin), decodeGear(info.gear));
     avatar.root.visible = info.alive && !!dummy;
     this.world.scene.add(avatar.root);
     this.remotes.set(info.id, { info, avatar, buffer: [], pos: new THREE.Vector3(), yaw: 0, trail: new Trail(), dummy });
@@ -788,6 +840,7 @@ export class Game {
       this.remoteRopes.set(r.info.id, rope);
       rope.set(this.tmpA.set(r.pos.x, r.pos.y + 1.2, r.pos.z), e.g ? this.tmpB.set(e.g[0], e.g[1], e.g[2]) : null);
       r.avatar.root.visible = true;
+      r.avatar.holdKnife((e.f & StateFlag.Knife) !== 0);
       const sliding = (e.f & StateFlag.Sliding) !== 0;
       r.avatar.pose(r.pos.x, r.pos.y, r.pos.z, r.yaw, pitch, side, this.time, sliding);
       r.trail.push(this.time, { x: r.pos.x, y: r.pos.y, z: r.pos.z, yaw: r.yaw, pitch, side, sliding });
@@ -855,7 +908,7 @@ export class Game {
       v: [round3(m.vel.x), round3(m.vel.y), round3(m.vel.z)],
       yaw: round3(this.input.yaw),
       pitch: round3(this.input.pitch),
-      f: (m.wallrunning ? StateFlag.Wallrun : 0) | (m.sliding ? StateFlag.Sliding : 0),
+      f: (m.wallrunning ? StateFlag.Wallrun : 0) | (m.sliding ? StateFlag.Sliding : 0) | (this.knifeOut ? StateFlag.Knife : 0),
     };
     if (m.grapple) msg.g = [round3(m.grapple.x), round3(m.grapple.y), round3(m.grapple.z)];
     // The server keeps our last state, so standing still costs nothing (every message is a billed request on Cloudflare).
@@ -1125,7 +1178,8 @@ export class Game {
 
   private onKey(code: string, down: boolean) {
     if (code === 'Tab') this.showScores = down;
-    if (code === 'KeyR' && down) this.startReload();
+    if (code === 'KeyR' && down && !this.knifeOut) this.startReload();
+    if ((code === 'Digit1' || code === 'Digit2') && down) this.setKnife(code === 'Digit2');
     if ((code === 'Space' || code === 'Enter') && down && this.killcam) this.killcam.start = -Infinity; // skip the replay
     if (code === 'KeyF' && down && this.alive) {
       const near = this.nearMachine();

@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PLAYER } from '../shared/constants.ts';
 import { type Accessory, HAIR, type HairStyle, type Mouth, SCARF, type Skin, encodeSkin, seededSkin } from '../shared/skin.ts';
+import { type Gear, itemById } from '../shared/items.ts';
+import { DEFAULT_KNIFE, buildKnife } from './knife.ts';
 import { toonRamp } from './textures.ts';
+import { buildWear } from './wear.ts';
 
 // Chibi anime sniper: big head (it *is* the head hitbox), huge eyes, spiky hair, a scarf that
 // streams behind at speed, and an AWP. Every player has a look (hair, mouth, accessory): the skin they
@@ -463,6 +466,14 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, parent: THREE.Obje
   return m;
 }
 
+/** Adds the ink outline to every lit mesh under `obj` (glowing halos stay clean). */
+function inked(obj: THREE.Object3D) {
+  const meshes: THREE.Mesh[] = [];
+  obj.traverse((o) => o instanceof THREE.Mesh && !(o.material instanceof THREE.MeshBasicMaterial) && meshes.push(o));
+  for (const m of meshes) m.add(new THREE.Mesh(m.geometry, outlineMat));
+  return obj;
+}
+
 function pivot(parent: THREE.Object3D, x: number, y: number, z: number) {
   const g = new THREE.Group();
   g.position.set(x, y, z);
@@ -485,6 +496,9 @@ export class Avatar {
   private readonly scarfTails: THREE.Group[] = [];
   private readonly hairTails: THREE.Group[] = [];
   private readonly ahoge?: THREE.Group;
+  private readonly rifle: THREE.Group;
+  private readonly knife: THREE.Group;
+  private readonly wings: THREE.Object3D[] = [];
   private readonly face: THREE.Mesh;
   private readonly look: Look;
   private readonly vel = new THREE.Vector3();
@@ -502,6 +516,7 @@ export class Avatar {
     name?: string,
     zombie = false,
     skin?: Skin | null,
+    gear?: Gear | null,
   ) {
     const look = (this.look = lookFor(color, name, zombie, skin));
     this.root.add(this.lean);
@@ -535,9 +550,21 @@ export class Avatar {
     } else {
       mesh(GEO.sleeves, look.jacket, this.aim);
       mesh(GEO.hands, look.skin, this.aim);
-      mesh(GEO.gunGreen, gunGreenMat, this.aim);
-      mesh(GEO.gunDark, gunDarkMat, this.aim);
     }
+    this.rifle = pivot(this.aim, 0, 0, 0);
+    this.knife = pivot(this.aim, 0.13, -0.09, -0.24);
+    if (!zombie) {
+      const rifleItem = itemById(gear?.rifle ?? '');
+      const paint = rifleItem?.slot === 'rifle' ? rifleItem.paint : undefined;
+      const glow = (c: number) => new THREE.MeshToonMaterial({ color: c, gradientMap: toonRamp(), emissive: paint?.glow ? c : 0, emissiveIntensity: 0.35 });
+      mesh(GEO.gunGreen, paint ? glow(paint.body) : gunGreenMat, this.rifle);
+      mesh(GEO.gunDark, paint ? toon(paint.trim) : gunDarkMat, this.rifle);
+      const knifeItem = itemById(gear?.knife ?? '');
+      const blade = buildKnife(knifeItem?.slot === 'knife' ? knifeItem.paint : DEFAULT_KNIFE);
+      blade.scale.setScalar(1.3);
+      this.knife.add(inked(blade));
+    }
+    this.knife.visible = false;
 
     this.head = pivot(this.upper, 0, PLAYER.headCenter - HIP_Y, 0);
     mesh(GEO.head, look.skin, this.head);
@@ -546,6 +573,13 @@ export class Avatar {
     mesh(hairGeo(look.style), look.hair, this.head);
     for (const part of accessoryParts(look.accessory)) {
       mesh(part.geo, part.mat === 'hair' ? look.hair : part.mat === 'inner' ? innerEarMat : look.jacket, this.head, part.mat !== 'inner');
+    }
+    for (const slot of ['hat', 'face', 'back'] as const) {
+      const item = itemById(gear?.[slot] ?? '');
+      if (zombie || !item || !('wear' in item)) continue;
+      const w = inked(buildWear(item.wear));
+      (slot === 'back' ? this.upper : this.head).add(w);
+      w.traverse((o) => o.userData.wing && this.wings.push(o));
     }
     if (look.ahoge) {
       this.ahoge = pivot(this.head, 0.02, HEAD_R * 1.02, 0.02);
@@ -637,6 +671,8 @@ export class Avatar {
       this.ahoge.rotation.x = -Math.min(0.7, hs * 0.04);
     }
 
+    for (const w of this.wings) w.rotation.y = (w.userData.wing as number) * (0.08 + Math.sin(time * 11) * 0.4 * this.air);
+
     // Expressions: hyped at speed or mid-trick, otherwise blink every few seconds.
     if (time > this.nextBlink + 0.13) this.nextBlink = time + 2 + Math.random() * 3;
     const f = this.look.faces;
@@ -666,6 +702,12 @@ export class Avatar {
   }
 
   /** A copy without the name tag, for flinging across the map. Knocked out, naturally. */
+  /** Knife out (true) or rifle out (false). */
+  holdKnife(on: boolean) {
+    this.knife.visible = on;
+    this.rifle.visible = !on;
+  }
+
   cloneBody(): THREE.Group {
     const g = new THREE.Group();
     const inner = this.lean.clone(true);
