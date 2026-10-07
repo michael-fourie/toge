@@ -128,6 +128,39 @@ test('Control Tower: both ground-floor doors let you in', () => {
   assert.ok(south.pos.z >= 23, `stuck outside the south door at z=${south.pos.z.toFixed(2)}`);
 });
 
+test('back-wall run: the ramp at the +x end leads up to the walkway, and the gate flings you along it', () => {
+  const s = createPlayerState({ x: 47, y: 0.01, z: 32.5 });
+  play(s, { ...emptyInput(), forward: 1, yaw: Math.PI / 2 }, 8, () => s.pos.x > 29);
+  assert.ok(s.pos.y > 7.9, `ramp only reached y=${s.pos.y.toFixed(2)}`);
+  const fast = createPlayerState({ x: 0, y: 8.01, z: 32.5 });
+  fast.vel = { x: -6, y: 0, z: 0 };
+  let top = 0;
+  play(fast, { ...emptyInput(), forward: 1, yaw: Math.PI / 2 }, 4, () => {
+    top = Math.max(top, Math.hypot(fast.vel.x, fast.vel.z));
+    return fast.pos.x > -30;
+  });
+  assert.ok(top >= 17.5, `gate never boosted: top speed ${top.toFixed(1)}`);
+});
+
+test('mezzanine: walk up its ramp from the north onto the deck, and run underneath it', () => {
+  const up = createPlayerState({ x: 6, y: 0.01, z: 8 });
+  play(up, { ...emptyInput(), forward: 1, yaw: Math.PI }, 4, () => up.pos.z < 18); // yaw π looks +Z
+  assert.ok(up.pos.y > 3.4 && up.pos.z >= 18, `deck: ${JSON.stringify(up.pos)}`);
+  const under = createPlayerState({ x: 6, y: 0.01, z: 14.5 });
+  let top = 0;
+  play(under, { ...emptyInput(), forward: 1, yaw: Math.PI }, 3, () => {
+    top = Math.max(top, under.pos.y);
+    return under.pos.z < 28;
+  });
+  assert.ok(top < 0.5 && under.pos.z >= 28, `walked ${JSON.stringify(under.pos)}`); // reached the far end on the floor
+});
+
+test('Boiler House: its east door lets you in', () => {
+  const s = createPlayerState({ x: -33, y: 0.01, z: 12.85 });
+  play(s, { ...emptyInput(), forward: 1, yaw: -Math.PI / 2 * -1 }, 2, () => s.pos.x > -39); // yaw π/2 looks -X
+  assert.ok(s.pos.x <= -37, `stuck outside at x=${s.pos.x.toFixed(2)}`);
+});
+
 test('the hall is sealed: nothing leads off the floor except by jumping up', () => {
   const s = createPlayerState({ x: 0, y: 0.01, z: 20 });
   play(s, { ...emptyInput(), forward: 1, yaw: 0 }, 6); // run -Z toward the far wall... and the middle

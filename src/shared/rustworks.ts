@@ -22,8 +22,11 @@ function buildRustworks(): MapData {
     span(-49, 0, 34, 49, 16, 35, 'wall'),
     span(48, 0, 0, 49, 16, 35, 'wall'),
     span(-49, 0, 0, -48, 16, 35, 'wall'),
-    // A steel walkway along the back wall, high over the dock: a grapple spot for the brave.
-    span(-47, 7.4, 31.5, 47, 8, 33.5, 'branch'),
+    // Back-wall run: a long steel walkway at y 8 over the dock, reached by a ramp at the +x end (the mirror gives
+    // the same run along the other wall, entered from the -x end). A wind gate halfway makes it a speed lane.
+    span(-47, 7.4, 31.5, 30, 8, 33.5, 'branch'),
+    wedge('ramp', 30, 0, 31.5, 46, 8, 33.5, { axis: 'x', rise: -1 }),
+    span(-47, 8, 33.1, 30, 9, 33.5, 'cover'), // a rail on the wall side so you don't clip the brick
 
     // Loading dock (top 3) with a slide ramp down to the hall.
     span(-47, 0, 22, -33, 3, 33, 'floor'),
@@ -53,18 +56,33 @@ function buildRustworks(): MapData {
     ...house(24, 20, 32, 30, 0, 3, ['-x', '-z'], '-z'),
     padTo(40, 0, 25, { x: 28, y: 12, z: 25 }, 4, 2.5),
 
+    // Mezzanine (top 3.5): a deck on posts you reach by a ramp from the north. Run under it for a low,
+    // hidden route, or hold it for a mid-height view over the conveyor lane.
+    span(0, 3, 16, 12, 3.5, 30, 'floor'),
+    wedge('ramp', 4, 0, 10, 8, 3.5, 16, { axis: 'z', rise: 1 }),
+    span(0, 0, 16, 0.6, 3, 16.6, 'wall'),
+    span(11.4, 0, 16, 12, 3, 16.6, 'wall'),
+    span(0, 0, 29.4, 0.6, 3, 30, 'wall'),
+    span(11.4, 0, 29.4, 12, 3, 30, 'wall'),
+    span(0, 3.5, 16, 3.6, 4.4, 16.4, 'cover'),
+    span(8.4, 3.5, 16, 12, 4.4, 16.4, 'cover'), // rails, with the ramp's mouth left open between them
+    span(11.6, 3.5, 16, 12, 4.4, 30, 'cover'),
+    box(9, 4.3, 27, 1.6, 1.6, 1.6, 'cover'),
+    box(2.6, 4.3, 22, 1.6, 1.6, 1.6, 'cover'),
+
+    // Boiler House (west flank): two storeys, doors east and south, a balcony onto the flank, a roof to hold.
+    ...house(-46, 4, -36, 14, 0, 2, ['+x', '-z'], '+x'),
+
     // The silo: a tall blocker that splits the +x flank's sightlines.
     span(35, 0, 2, 41, 9, 8, 'wall'),
 
     // Cover: crates, a low pipe run, and broken brick partitions.
     box(-8, 0.9, 10, 1.8, 1.8, 1.8, 'cover'),
-    box(6, 1.1, 14, 2.2, 2.2, 2.2, 'cover'),
-    box(-36, 0.9, 12, 1.8, 1.8, 1.8, 'cover'),
-    box(-34.3, 0.6, 13.3, 1.2, 1.2, 1.2, 'cover'),
+    box(-8, 1.1, 14, 2.2, 2.2, 2.2, 'cover'),
+    box(-32, 0.6, 17, 1.2, 1.2, 1.2, 'cover'),
     box(-2, 1.1, 26, 2.2, 2.2, 2.2, 'cover'),
     box(20, 1.0, 16, 2, 2, 2, 'cover'),
     box(30, 0.9, 38 - 24, 1.8, 1.8, 1.8, 'cover'),
-    span(-46, 0, 8, -38, 0.9, 9.2, 'cover'),
     span(-12, 0, 6, -11.4, 3.5, 12, 'wall'),
     span(2, 0, 30, 2.6, 4, 34, 'wall'),
     span(40, 0, 17, 47, 3.2, 17.6, 'wall'),
@@ -72,7 +90,7 @@ function buildRustworks(): MapData {
     // Grapple rings: over the press hall, over the silo, and above the west flank.
     hook(-3, 13, 16),
     hook(38, 14, 12),
-    hook(-40, 12, 14),
+    hook(-30, 12, 8),
   ];
 
   const halfTriggers: Trigger[] = [
@@ -80,6 +98,7 @@ function buildRustworks(): MapData {
     gate(14, 1.2, 12, 16.5, 4.2, 13, '+z', 16), // conveyor speed lane
     gate(14, 1.2, 23, 16.5, 4.2, 24, '+z', 18),
     gate(8, 6, 11, 9, 9, 13.5, '-x', 16), // along the catwalk
+    gate(-14, 8, 31.5, -13, 11, 33.5, '-x', 18), // down the back-wall run
     gate(-27, 11, 19.2, -17, 14, 20.2, '-z', 14), // off the gantry onto the duct
   ];
 
