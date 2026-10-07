@@ -39,8 +39,8 @@ export function plinkoRtp(): number {
 // ---------------------------------------------------------------------------
 // Blackjack: six decks, dealer stands on every 17, blackjack pays 3:2, double on any first two cards. No split or insurance.
 
-export const SUITS = ['♠', '♥', '♦', '♣'] as const;
-export const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'] as const;
+const SUITS = ['♠', '♥', '♦', '♣'] as const;
+const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'] as const;
 export interface Card {
   rank: (typeof RANKS)[number];
   suit: (typeof SUITS)[number];
@@ -69,7 +69,7 @@ export function handValue(cards: readonly Card[]): { total: number; soft: boolea
   return { total, soft: aces > 0 };
 }
 
-export const isBlackjack = (cards: readonly Card[]) => cards.length === 2 && handValue(cards).total === 21;
+const isBlackjack = (cards: readonly Card[]) => cards.length === 2 && handValue(cards).total === 21;
 
 export type Outcome = 'blackjack' | 'win' | 'push' | 'lose' | 'bust';
 
