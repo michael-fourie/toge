@@ -185,7 +185,42 @@
   font-size: 13px;
   font-weight: 700;
 }
+/* Crash */
+.crash {
+  display: grid;
+  grid-template-columns: minmax(280px, 560px) minmax(220px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.crash canvas {
+  width: 100%;
+  aspect-ratio: 560 / 380;
+  display: block;
+}
+.crash .notice.win {
+  color: #4a7a3a;
+}
+.crash .primary.cash {
+  background: #4a7a3a;
+}
+.crash-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.crash-log li {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fffdf6;
+  border: 2px solid var(--c);
+  font-weight: 800;
+  font-size: 13px;
+}
 @media (max-width: 760px) {
+  .crash,
   .plinko,
   .bj {
     grid-template-columns: 1fr;

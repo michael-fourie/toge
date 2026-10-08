@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  CRASH,
   type Card,
+  crashMult,
+  crashPayout,
+  crashPoint,
+  crashTime,
   PLINKO_MULT,
   PLINKO_ROWS,
   canDouble,
@@ -150,4 +155,30 @@ test('blackjack: hitting to exactly 21 stands automatically and the dealer then 
   const r = deal(shoe, 20);
   hit(r, shoe);
   assert.ok(r.done && r.outcome === 'win');
+});
+
+test('crash: snaps at 1x or more, about 4% at 1.00x, and every cash-out target returns about 97% on average', () => {
+  let s = 7;
+  const rng = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const N = 200000;
+  const points = Array.from({ length: N }, () => crashPoint(rng));
+  assert.ok(points.every((p) => p >= 1 && p <= CRASH.max));
+  const instant = points.filter((p) => p === 1).length / N;
+  assert.ok(Math.abs(instant - (1 - (1 - CRASH.edge) / 1.01)) < 0.005, `instant ${instant}`); // everything under 1.01x shows as 1.00x
+  for (const target of [1.5, 2, 5, 10]) {
+    const rtp = points.filter((p) => p >= target).length * target / N;
+    assert.ok(Math.abs(rtp - (1 - CRASH.edge)) < 0.03, `cash out at ${target}x returns ${rtp.toFixed(3)}`);
+  }
+});
+
+test('crash: the multiplier starts at 1x, only climbs, and the time to reach a multiplier matches it', () => {
+  assert.equal(crashMult(0), 1);
+  let last = 1;
+  for (let t = 0; t < 30; t += 0.1) {
+    assert.ok(crashMult(t) >= last);
+    last = crashMult(t);
+  }
+  for (const m of [1.5, 2, 7.25, 40]) assert.ok(Math.abs(crashMult(crashTime(m) + 1e-6) - m) < 0.011, `${m}`);
+  assert.equal(crashPayout(10, 2.37), 23);
+  assert.equal(crashPayout(3, 1), 3, 'cashing out at 1x gives the bet back');
 });
