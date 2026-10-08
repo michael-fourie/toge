@@ -1302,7 +1302,7 @@ export class Game {
     (laser.material as THREE.LineBasicMaterial).opacity = 0.2 + 0.6 * ready;
     laser.visible = true;
     glint.position.set(o.x + d.x * 0.5, o.y + d.y * 0.5, o.z + d.z * 0.5);
-    glint.scale.setScalar(0.03 + 0.05 * ready);
+    glint.scale.setScalar(0.012 + 0.02 * ready);
     glint.material.opacity = 0.45 + 0.55 * ready; // a red glint that swells just before it fires
     glint.visible = true;
   }
