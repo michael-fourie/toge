@@ -1,6 +1,7 @@
 import { stash } from '../inventoryStore.ts';
 import { mountBlackjack } from './blackjack.ts';
 import { mountCases } from './cases.ts';
+import { mountCrash } from './crash.ts';
 import { coinText } from './lootui.ts';
 import { mountPlinko } from './plinko.ts';
 import type { Render } from './router.ts';
@@ -11,10 +12,11 @@ const GAMES = [
   { id: 'cases', label: 'Cases', mount: mountCases },
   { id: 'plinko', label: 'Plinko', mount: mountPlinko },
   { id: 'blackjack', label: 'Blackjack', mount: mountBlackjack },
+  { id: 'crash', label: 'Crash', mount: mountCrash },
 ] as const;
 type Game = (typeof GAMES)[number]['id'];
 
-/** The Casino: spend coins on cases, drop Plinko balls, or play the house at Blackjack. */
+/** The Casino: spend coins on cases, drop Plinko balls, play the house at Blackjack, or fly a Crash kite. */
 export const casino: Render = (root, _ctx, screen) => {
   root.innerHTML = sheet(
     'Casino',

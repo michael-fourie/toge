@@ -1,4 +1,4 @@
-// The Casino's two table games, as pure rules so they can be tested: Plinko and Blackjack.
+// The Casino's table games, as pure rules so they can be tested: Plinko, Blackjack and Crash.
 // Prototype shortcut (same as the rest of the loot): coins live in the browser, so these are as fair as the client.
 
 // ---------------------------------------------------------------------------
@@ -135,3 +135,28 @@ export function double(r: Round, shoe: Card[]) {
 
 /** The shoe is replaced when fewer than this many cards remain, before dealing. */
 export const SHOE_MIN = 52;
+
+// ---------------------------------------------------------------------------
+// Crash: a kite climbs on the wind while the multiplier rises; at a random point its string snaps. Cash out before then.
+
+export const CRASH = {
+  edge: 0.03, // house edge: whatever you cash out at, you get back 97% on average (and 3% of rounds snap at once)
+  growth: 0.12, // the multiplier is e^(growth·seconds): 2× at ~5.8 s, 10× at ~19 s
+  max: 1000,
+};
+
+/**
+ * Where a round's string snaps. P(snap ≥ m) = (1 - edge) / m for every m ≥ 1, so every cash-out target is worth the
+ * same on average (a 1 - edge return) and no strategy beats another. Rounded down to 0.01.
+ */
+export function crashPoint(rng: () => number = Math.random): number {
+  const m = (1 - CRASH.edge) / (1 - rng());
+  return Math.max(1, Math.min(CRASH.max, Math.floor(m * 100) / 100));
+}
+
+/** The multiplier `t` seconds into a round (rounded down to 0.01, as shown), and when it reaches `m`. */
+export const crashMult = (t: number) => Math.floor(Math.exp(CRASH.growth * Math.max(0, t)) * 100) / 100;
+export const crashTime = (m: number) => Math.log(m) / CRASH.growth;
+
+/** What a bet returns (stake included) when cashed out at `m`: whole coins, rounded down. */
+export const crashPayout = (bet: number, m: number) => Math.floor(bet * m);
