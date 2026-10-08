@@ -3,8 +3,9 @@
 
 import type { GameMode, ServerMsg } from '../../shared/protocol.ts';
 import type { Net } from '../net.ts';
+import type { BotLevel } from '../../shared/bot.ts';
 
-export type ScreenName = 'title' | 'host' | 'join' | 'lobby' | 'help' | 'settings' | 'account' | 'casino' | 'inventory' | 'game';
+export type ScreenName = 'title' | 'host' | 'join' | 'lobby' | 'help' | 'settings' | 'account' | 'casino' | 'inventory' | 'practice' | 'game';
 
 export interface Screen {
   name: ScreenName;
@@ -25,8 +26,8 @@ export interface Ctx {
   go(s: Screen): void;
   replace(s: Screen): void;
   back(): void;
-  /** Start a match: offline practice without `joined`, online with it. */
-  play(joined?: Joined): void;
+  /** Start a match: offline practice (with bots of `bots` difficulty) without `joined`, online with it. */
+  play(joined?: Joined, bots?: BotLevel): void;
   /** The lobby we're sitting in (lobby room), kept fresh until we enter the match. */
   joined: Joined | null;
 }

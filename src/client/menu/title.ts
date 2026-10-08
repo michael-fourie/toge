@@ -76,7 +76,7 @@ export const title: Render = (root, ctx, screen) => {
       else ctx.go({ name: key as ScreenName });
     };
     root.querySelectorAll<HTMLElement>('[data-go]').forEach((b) => b.addEventListener('click', () => goto(b.dataset.go!)));
-    root.querySelector('[data-play]')?.addEventListener('click', () => ctx.play()); // Practice
+    root.querySelector('[data-play]')?.addEventListener('click', () => ctx.go({ name: 'practice' })); // pick the bots first
     root.querySelector('[data-signout]')?.addEventListener('click', () => void account.signOut());
     drawHero();
   };

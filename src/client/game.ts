@@ -4,6 +4,10 @@ import { GRENADE, KNIFE, PLAYER, MOVE, NET, RESPAWN_SECONDS, SCYTHE, SKYLINE, SU
 import { MOD, MODS } from '../shared/modifiers.ts';
 import { type Colliders, buildColliders } from '../shared/colliders.ts';
 import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
+import { BOT, BOT_SPAWN_GRACE, type Bot, type BotLevel, botBoxes, createBot, flankSpot, shotHits, thinkBot, wantsRelocate } from '../shared/bot.ts';
+import type { Box } from '../shared/collision.ts';
+
+const NO_TRIGGERS: never[] = []; // bots ride no wind gates or puffballs
 import { type Use, findUse, maxHp } from '../shared/interact.ts';
 import type { MapData } from '../shared/map.ts';
 import { mapFor } from '../shared/maps.ts';
@@ -37,6 +41,7 @@ import { storedSkin } from './skinStore.ts';
 import { Avatar, Corpses } from './avatar.ts';
 import { PostGame } from './postgame.ts';
 import { Drops } from './drops.ts';
+import { softDot } from './textures.ts';
 import { type XpLine, showXp } from './xpcard.ts';
 import './xpcard.css';
 import { XP, levelOf } from '../shared/levels.ts';
@@ -69,9 +74,11 @@ type Joined = Extract<ServerMsg, { t: 'joined' }>;
 interface GameOptions {
   container: HTMLElement;
   name: string;
-  /** Omit for offline practice (with target dummies). */
+  /** Omit for offline practice (against bots). */
   net?: Net;
   joined?: Joined;
+  /** Practice: how good the bots are. */
+  bots?: BotLevel;
   onExit: (reason?: string) => void;
 }
 
@@ -84,7 +91,8 @@ interface Remote {
   /** Recent poses, for the kill-cam. */
   trail: Trail;
   /** Offline practice targets drive themselves. */
-  dummy?: { base: Vec3; phase: number; respawnAt: number };
+  /** Practice bots drive themselves (shared/bot.ts); the laser shows where one is aiming. */
+  bot?: { b: Bot; respawnAt: number; relocateAt: number; laser: THREE.Line; glint: THREE.Sprite };
 }
 
 interface Tracer {
@@ -136,6 +144,11 @@ export class Game {
   private prevPos = v3();
   private renderPos = new THREE.Vector3();
   private acc = 0;
+  private botAcc = 0;
+  /** What bots walk on: the map with its launch pads made plain floor (shared/bot.ts botBoxes). */
+  private botWorld: Box[] = [];
+  /** Bots hold fire until then: a moment to find your feet after a respawn. */
+  private botGraceUntil = BOT_SPAWN_GRACE;
   private time = 0;
   private last = performance.now();
   private raf = 0;
@@ -298,7 +311,7 @@ export class Game {
     this.me = createPlayerState(spawn.pos);
     copy(this.prevPos, this.me.pos);
 
-    this.hud = new Hud(container, joined ? `${this.mode === 'survival' ? 'SURVIVAL' : 'LOBBY'} ${joined.code}` : 'PRACTICE — shoot the dummies');
+    this.hud = new Hud(container, joined ? `${this.mode === 'survival' ? 'SURVIVAL' : 'LOBBY'} ${joined.code}` : `PRACTICE · ${BOT[opts.bots ?? 'normal'].name.toUpperCase()} BOTS`);
     this.hud.coins(stash.inv.coins);
     this.useHud = new UseHud(this.hud.root);
     if (this.map.koth) this.hillHud = new HillHud(this.hud.root);
@@ -331,7 +344,7 @@ export class Game {
       this.unsubscribe = net.on((m) => this.onNet(m));
       net.onClose = () => this.exit('Disconnected from server');
     } else {
-      this.spawnDummies();
+      this.spawnBots(opts.bots ?? 'normal');
     }
 
     this.gui = this.buildGui();
@@ -354,6 +367,7 @@ export class Game {
     this.updateWeapon(dt);
     if (this.alive) this.simulate(dt);
     else if (!this.opts.net && this.time >= this.respawnAt) this.respawn(this.randomSpawn());
+    if (!this.opts.net) this.updateBots(dt);
 
     if (this.opts.net) this.sendState(dt);
     if (this.killcam) this.updateKillcam();
@@ -847,9 +861,9 @@ export class Game {
     }
   }
 
-  /** Offline practice: the dummies inside the blast go down. */
+  /** Offline practice: the bots inside the blast go down. */
   private practiceBlast(p: Vec3) {
-    const targets = [...this.remotes.values()].filter((r) => r.dummy && r.info.alive).map((r) => ({ id: r.info.id, pos: { x: r.pos.x, y: r.pos.y, z: r.pos.z } }));
+    const targets = [...this.remotes.values()].filter((r) => r.bot && r.info.alive).map((r) => ({ id: r.info.id, pos: { x: r.pos.x, y: r.pos.y, z: r.pos.z } }));
     for (const id of blastTargets(p, targets, this.cols.shot)) {
       const r = this.remotes.get(id)!;
       this.onKill(this.selfId, id, 'grenade', [r.pos.x - p.x, r.pos.y + 1.8 - p.y, r.pos.z - p.z]);
@@ -905,7 +919,7 @@ export class Game {
         r.avatar.root.visible = false;
         r.buffer.length = 0;
         if (cause !== 'void') this.corpses.spawn(r.avatar.cloneBody(), r.pos, r.yaw, d, this.horde ? 0 : cause === 'headshot' ? 38 : 26); // Survival: no flinging, they just lie there
-        if (r.dummy) r.dummy.respawnAt = this.time + RESPAWN_SECONDS;
+        if (r.bot) r.bot.respawnAt = this.time + RESPAWN_SECONDS;
       }
     }
   }
@@ -919,7 +933,8 @@ export class Game {
     const style = h && h.id === id && h.zombie === zombie ? featsFor(h.ctx) : headshot ? featsFor({ ...PLAIN_SHOT, headshot }) : [];
     const extra = this.streak.kill(this.time);
     sfx.kill();
-    if (!zombie && this.opts.net && this.mode === 'battle') this.award(COIN.kill); // practice dummies pay nothing
+    if (!zombie && this.opts.net && this.mode === 'battle') this.award(COIN.kill);
+    if (!zombie && !this.opts.net) this.award(COIN.bot); // practice bots pay a little (and no XP)
     if (this.opts.net) this.gainXp(zombie ? 'Zombies' : 'Kills', zombie ? XP.zombieKill : XP.battleKill);
     const all = [...style, ...extra];
     if (all.length === 0) this.hud.center(pick(YEETS));
@@ -997,7 +1012,7 @@ export class Game {
 
   private startKillcam(killerId: number) {
     const killer = this.remotes.get(killerId);
-    if (!killer || killer.dummy || killer.trail.length < 2 || this.selfTrail.length < 2) return;
+    if (!killer || killer.bot || killer.trail.length < 2 || this.selfTrail.length < 2) return;
     const shot = [...this.shotLog].reverse().find((s) => s.id === killerId && this.time - s.t < 1.2) ?? null;
     const at = killer.trail.at(Infinity)!;
     const metres = Math.hypot(at.x - this.me.pos.x, at.y - this.me.pos.y, at.z - this.me.pos.z);
@@ -1011,7 +1026,7 @@ export class Game {
     this.selfAvatar.root.removeFromParent();
     if (this.deathCorpse) this.deathCorpse.obj.visible = true;
     // Replay poses ignore who is alive now: hide the dead again (updateRemotes skips them).
-    for (const r of this.remotes.values()) if (!r.dummy) r.avatar.root.visible = r.info.alive;
+    for (const r of this.remotes.values()) if (!r.bot) r.avatar.root.visible = r.info.alive;
   }
 
   private updateKillcam() {
@@ -1025,7 +1040,7 @@ export class Game {
     const T = replayTime(elapsed, kc.deathTime);
     const Tr = T + KILLCAM.remoteLag;
     for (const r of this.remotes.values()) {
-      if (r.dummy) continue;
+      if (r.bot) continue;
       const p = r.trail.at(Tr);
       if (!p || r.info.id === kc.killerId) {
         r.avatar.root.visible = false; // the killer's head is the camera
@@ -1054,6 +1069,7 @@ export class Game {
 
   private respawn(spawn: { pos: Vec3; yaw: number }) {
     this.me = createPlayerState(spawn.pos);
+    this.botGraceUntil = this.time + BOT_SPAWN_GRACE;
     copy(this.prevPos, this.me.pos);
     this.acc = 0;
     this.input.yaw = spawn.yaw;
@@ -1075,10 +1091,10 @@ export class Game {
     return this.players.get(id) ?? this.remotes.get(id)?.info;
   }
 
-  /** Practice respawn: a random good spot away from the dummies (same chooser the server uses). */
+  /** Practice respawn: a random good spot away from the bots (same chooser the server uses). */
   private randomSpawn() {
-    const dummies = [...this.remotes.values()].filter((r) => r.dummy && r.info.alive).map((r) => ({ x: r.dummy!.base.x, y: r.dummy!.base.y, z: r.dummy!.base.z }));
-    const i = pickSpawn(this.map.spawns, dummies, this.recentSpawns, this.map.boxes);
+    const bots = [...this.remotes.values()].filter((r) => r.bot && r.info.alive).map((r) => r.bot!.b.s.pos);
+    const i = pickSpawn(this.map.spawns, bots, this.recentSpawns, this.map.boxes);
     this.recentSpawns.push(i);
     if (this.recentSpawns.length > RECENT_SPAWNS) this.recentSpawns.shift();
     const s = this.map.spawns[i];
@@ -1088,11 +1104,11 @@ export class Game {
   // ---------------------------------------------------------------------------
   // Remote players
 
-  private addRemote(info: PlayerInfo, dummy?: Remote['dummy']) {
+  private addRemote(info: PlayerInfo, bot?: Remote['bot']) {
     const avatar = new Avatar(info.color, info.name, false, decodeSkin(info.skin), decodeGear(info.gear));
-    avatar.root.visible = info.alive && !!dummy;
+    avatar.root.visible = info.alive && !!bot;
     this.world.scene.add(avatar.root);
-    this.remotes.set(info.id, { info, avatar, buffer: [], pos: new THREE.Vector3(), yaw: 0, trail: new Trail(), dummy });
+    this.remotes.set(info.id, { info, avatar, buffer: [], pos: new THREE.Vector3(), yaw: 0, trail: new Trail(), bot });
     if (info.id === this.scythe) avatar.holdScythe(true);
   }
 
@@ -1106,8 +1122,8 @@ export class Game {
   private updateRemotes() {
     const renderT = performance.now() - NET.interpDelayMs;
     for (const r of this.remotes.values()) {
-      if (r.dummy) {
-        this.updateDummy(r);
+      if (r.bot) {
+        this.poseBot(r);
         continue;
       }
       const buf = r.buffer;
@@ -1176,41 +1192,111 @@ export class Game {
     }
   }
 
-  private spawnDummies() {
-    const spots: Vec3[] = [
-      { x: -12, y: 0, z: -8 }, // centre island, beside the tree
-      { x: 8, y: 8, z: 0 }, // east branch
-      { x: 0, y: 23, z: -5 }, // the crown
-      { x: -29, y: 10, z: -25 }, // far ruins watchtower
-      { x: -27, y: 0, z: -33 }, // far ruins approach
-      { x: 0, y: 4, z: -58 }, // far Windway runway
-      { x: 35, y: -2, z: -21 }, // far gorge exit terrace
-      { x: 0, y: 12, z: -98 }, // far harbour
-      { x: -14, y: 15, z: -55 }, // far Mill House roof
-      { x: 20, y: 10, z: -51 }, // far Cliff House roof
-    ];
-    const colors = [0xc9a27e, 0x9bb7d4, 0xd9a3a0, 0xa9c48f]; // soft scarecrow tones
-    spots.forEach((base, i) =>
-      this.addRemote(
-        { id: 1000 + i, name: `dummy ${i + 1}`, color: colors[i % colors.length], kills: 0, deaths: 0, alive: true },
-        { base, phase: i * 1.7, respawnAt: 0 },
-      ),
-    );
+  /** Practice: snipers that hunt you, spread out over the map's spawns. */
+  private spawnBots(level: BotLevel) {
+    this.botWorld = botBoxes(this.cols.move);
+    const names = ['Pip', 'Mochi', 'Tofu', 'Biscuit', 'Sprout', 'Nori'];
+    const colors = [0xc9a27e, 0x9bb7d4, 0xd9a3a0, 0xa9c48f, 0xc7a8d8, 0xe0c27a];
+    for (let i = 0; i < BOT[level].count; i++) {
+      const id = 1000 + i;
+      const spot = this.botSpawn();
+      const laser = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+        new THREE.LineBasicMaterial({ color: 0xff3a3a, transparent: true, opacity: 0, depthWrite: false }),
+      );
+      laser.frustumCulled = false;
+      // A scope glint: the laser points at you end-on, so this is what you actually see. Fixed screen size, so it reads at range.
+      const glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: 0xff5a3a, transparent: true, depthWrite: false, sizeAttenuation: false }));
+      glint.visible = false;
+      this.world.scene.add(laser, glint);
+      this.addRemote({ id, name: `${names[i % names.length]} (bot)`, color: colors[i % colors.length], kills: 0, deaths: 0, alive: true }, { b: createBot(id, level, spot.pos, spot.yaw), respawnAt: 0, relocateAt: 0, laser, glint });
+    }
   }
 
-  private updateDummy(r: Remote) {
-    const d = r.dummy!;
-    if (!r.info.alive) {
-      if (this.time < d.respawnAt) return;
-      r.info.alive = true;
-      r.avatar.root.visible = true;
+  /** A spawn for a bot: away from you and the other bots. */
+  private botSpawn() {
+    const others = [this.me.pos, ...[...this.remotes.values()].filter((r) => r.bot && r.info.alive).map((r) => r.bot!.b.s.pos)];
+    const s = this.map.spawns[pickSpawn(this.map.spawns, others, [], this.map.boxes)];
+    return { pos: { ...s.pos }, yaw: s.yaw };
+  }
+
+  /** Practice bots think and move at the movement tick, whether we're alive or not. */
+  private updateBots(dt: number) {
+    this.botAcc += dt;
+    const spots = this.map.spawns.map((s) => s.pos);
+    let ticks = 0;
+    while (this.botAcc >= TICK_DT && ticks++ < 20) {
+      this.botAcc -= TICK_DT;
+      for (const r of this.remotes.values()) {
+        const bot = r.bot;
+        if (!bot) continue;
+        if (!r.info.alive) {
+          if (this.time < bot.respawnAt) continue;
+          const spot = this.botSpawn();
+          bot.b = createBot(r.info.id, bot.b.level, spot.pos, spot.yaw);
+          r.info.alive = true;
+          r.avatar.root.visible = true;
+        }
+        const t = thinkBot(bot.b, { pos: this.me.pos, alive: this.alive, grace: this.botGraceUntil - this.time }, this.botWorld, spots, TICK_DT);
+        stepPlayer(bot.b.s, t.input, TICK_DT, this.botWorld, NO_TRIGGERS);
+        if (bot.b.s.pos.y < this.map.killY) {
+          // Fell off an island: quietly back in a moment (no killfeed spam).
+          r.info.alive = false;
+          r.avatar.root.visible = false;
+          bot.respawnAt = this.time + 1;
+          continue;
+        }
+        if (wantsRelocate(bot.b) && this.time >= bot.relocateAt) {
+          bot.relocateAt = this.time + 0.5; // looking for a spot costs a few rays: not every tick
+          const others = [...this.remotes.values()].filter((o) => o !== r && o.bot && o.info.alive).map((o) => o.bot!.b.s.pos);
+          const spot = this.alive ? flankSpot(spots, this.me.pos, lookDir(this.input.yaw, this.input.pitch), this.cols.shot, Math.random, others) : null;
+          if (spot) {
+            const yaw = Math.atan2(-(this.me.pos.x - spot.x), -(this.me.pos.z - spot.z));
+            bot.b = createBot(r.info.id, bot.b.level, spot, yaw);
+            continue;
+          }
+        }
+        if (t.shot) this.botFire(r, t.shot);
+      }
     }
-    // Strafe side to side and hop occasionally so they're not completely free.
-    const t = this.time * 0.9 + d.phase;
-    const hop = Math.max(0, Math.sin(t * 2.3)) * 1.1;
-    r.pos.set(d.base.x + Math.sin(t) * 2.5, d.base.y + hop, d.base.z + Math.cos(t * 0.7) * 1.2);
-    r.yaw = Math.atan2(r.pos.x - this.me.pos.x, r.pos.z - this.me.pos.z); // stare at the player, menacingly
-    r.avatar.pose(r.pos.x, r.pos.y, r.pos.z, r.yaw, 0, 0, this.time);
+    if (ticks > 20) this.botAcc = 0;
+  }
+
+  /** A bot's AWP shot: a tracer, the crack, and you're down if it was on target. */
+  private botFire(r: Remote, dir: Vec3) {
+    const p = r.bot!.b.s.pos;
+    const o = { x: p.x, y: p.y + PLAYER.eyeHeight, z: p.z };
+    const hit = this.alive ? shotHits(o, dir, this.me.pos, this.cols.shot) : null;
+    const len = hit?.dist ?? Math.min(rayWorld(o, dir, this.cols.shot, WEAPON.range), 300);
+    const from = new THREE.Vector3(o.x, o.y, o.z);
+    this.addTracer(from, new THREE.Vector3(o.x + dir.x * len, o.y + dir.y * len, o.z + dir.z * len), r.info.color);
+    sfx.distantShot(from.distanceTo(this.renderPos));
+    if (hit) this.onKill(r.info.id, this.selfId, hit.head ? 'headshot' : 'snipe', [dir.x, dir.y, dir.z]);
+  }
+
+  /** Draw a bot where its sim has it, with its red laser while it has you in its sights. */
+  private poseBot(r: Remote) {
+    const { b, laser, glint } = r.bot!;
+    laser.visible = glint.visible = false;
+    if (!r.info.alive) return;
+    r.pos.set(b.s.pos.x, b.s.pos.y, b.s.pos.z);
+    r.yaw = b.yaw;
+    r.avatar.pose(b.s.pos.x, b.s.pos.y, b.s.pos.z, b.yaw, b.pitch, 0, this.time, b.s.sliding);
+    if (b.seen <= 0) return;
+    const o = { x: b.s.pos.x, y: b.s.pos.y + PLAYER.eyeHeight, z: b.s.pos.z };
+    const d = lookDir(b.yaw, b.pitch);
+    const len = Math.min(rayWorld(o, d, this.cols.shot, 120), 120);
+    const pos = laser.geometry.attributes.position as THREE.BufferAttribute;
+    pos.setXYZ(0, o.x + d.x * 0.6, o.y + d.y * 0.6, o.z + d.z * 0.6);
+    pos.setXYZ(1, o.x + d.x * len, o.y + d.y * len, o.z + d.z * len);
+    pos.needsUpdate = true;
+    const ready = Math.min(1, b.seen / BOT[b.level].reaction); // brighter just before it fires
+    (laser.material as THREE.LineBasicMaterial).opacity = 0.2 + 0.6 * ready;
+    laser.visible = true;
+    glint.position.set(o.x + d.x * 0.5, o.y + d.y * 0.5, o.z + d.z * 0.5);
+    glint.scale.setScalar(0.03 + 0.05 * ready);
+    glint.material.opacity = 0.45 + 0.55 * ready; // a red glint that swells just before it fires
+    glint.visible = true;
   }
 
   // ---------------------------------------------------------------------------
@@ -1651,7 +1737,7 @@ export class Game {
     this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId, this.teams, this.hill ? `Hold the hill for ${KOTH.holdToWin / 60} minutes` : undefined);
     this.hillFx?.update(this.hill, this.time);
     this.hillHud?.update(this.hill, this.players.get(this.selfId)?.team, this.alive && !!this.map.koth && inZone(this.map.koth.zone, this.me.pos));
-    this.hud.scoreboard(this.showScores || this.matchOver ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.dummy).map((r) => r.info)] : null, this.selfId, this.teams);
+    this.hud.scoreboard(this.showScores || this.matchOver ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.bot).map((r) => r.info)] : null, this.selfId, this.teams);
   }
 
   /** 'ready' lights up when pressing E right now would catch something. */

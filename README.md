@@ -22,7 +22,7 @@ Requires Node ≥ 20 (Wrangler). Node 22 LTS is recommended, and also unlocks Vi
 
 **Dune Village** (pick it when hosting a Battle): a sunbaked market town inside a sandstone wall. Snipe from flat roofs and the gatehouse towers, surf the glazed-tile aqueduct, slide down the dune into a wind-gate run, swing roof to roof over the market.
 
-**Practice** runs offline against target dummies. **Host** creates a lobby with a 4-letter code. Others join with that code, from the lobby list, or with `/?join=CODE`.
+**Practice** runs offline on Windward against sniper bots. Pick **Easy**, **Normal** or **Hard** first (it's remembered): Easy bots are slow to spot you and miss a lot, Normal bots hunt you, strafe and hop, Hard bots react fast, rarely miss and go for the head. A bot that's aiming at you shows a red laser and a red glint that swells just before it fires; you get 1.5 s after respawning before they shoot. Bots that lose you slip round to a new angle on you. Each bot kill pays 1 coin (no XP). **Host** creates a lobby with a 4-letter code. Others join with that code, from the lobby list, or with `/?join=CODE`.
 
 ## Skins
 

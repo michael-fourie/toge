@@ -1,5 +1,7 @@
 // Player settings, saved per browser. Only things the game actually honours live here.
 
+import { BOT_LEVELS, type BotLevel } from '../shared/bot.ts';
+
 /** Rebindable actions. Weapon slots (1/2/3), Esc, Tab-free extras like ` stay fixed. */
 export const ACTIONS = ['forward', 'back', 'left', 'right', 'jump', 'slide', 'grapple', 'grenade', 'reload', 'use', 'scores'] as const;
 export type Action = (typeof ACTIONS)[number];
@@ -39,17 +41,20 @@ interface Settings {
   autoHop: boolean;
   /** KeyboardEvent.code for each action. */
   keys: Record<Action, string>;
+  /** Practice bots' difficulty, last picked. */
+  bots: BotLevel;
 }
 
 const KEY = 'atrous.settings';
-const DEFAULTS: Settings = { sensitivity: 1, autoHop: true, keys: DEFAULT_KEYS };
+const DEFAULTS: Settings = { sensitivity: 1, autoHop: true, keys: DEFAULT_KEYS, bots: 'normal' };
 
 export function loadSettings(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}');
     const keys = { ...DEFAULT_KEYS };
     for (const a of ACTIONS) if (typeof raw.keys?.[a] === 'string') keys[a] = raw.keys[a];
-    return { ...DEFAULTS, ...raw, keys };
+    const bots = BOT_LEVELS.includes(raw.bots) ? raw.bots : DEFAULTS.bots;
+    return { ...DEFAULTS, ...raw, keys, bots };
   } catch {
     return { ...DEFAULTS, keys: { ...DEFAULT_KEYS } };
   }

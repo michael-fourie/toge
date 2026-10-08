@@ -10,6 +10,8 @@ import { accountScreen } from './menu/account.ts';
 import { inventory } from './menu/inventory.ts';
 import { settings } from './menu/settings.ts';
 import { casino } from './menu/casino.ts';
+import { practice } from './menu/practice.ts';
+import type { BotLevel } from '../shared/bot.ts';
 import { title } from './menu/title.ts';
 import { startSkirmish } from './menu/skirmish.ts';
 import { account } from './account.ts';
@@ -20,7 +22,7 @@ import { sfx } from './sfx.ts';
 import { setupTouchPage } from './touch.ts';
 
 const app = document.getElementById('app')!;
-const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, host, join, lobby, help, settings, account: accountScreen, casino, inventory };
+const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, host, join, lobby, help, settings, account: accountScreen, casino, inventory, practice };
 
 let game: Game | null = null;
 let leaveScreen: (() => void) | null = null;
@@ -51,7 +53,7 @@ const ctx: Ctx = {
   go: router.push,
   replace: router.replace,
   back: router.back,
-  play: (joined) => void play(joined),
+  play: (joined, bots) => void play(joined, bots),
   joined: null,
 };
 
@@ -91,7 +93,7 @@ function showLoading(): () => void {
   };
 }
 
-async function play(joined?: Joined) {
+async function play(joined?: Joined, bots?: BotLevel) {
   sfx.unlock();
   leaveScreen?.();
   leaveScreen = null;
@@ -107,6 +109,7 @@ async function play(joined?: Joined) {
     name: playerName(),
     net: joined ? ctx.net : undefined,
     joined,
+    bots,
     onExit: (reason) => {
       game = null;
       ctx.joined = null;
