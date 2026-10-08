@@ -5,6 +5,7 @@ import { TICK_DT } from '../src/shared/constants.ts';
 import { CROWN as M, CROWN_ZONE as Z } from '../src/shared/crown.ts';
 import { inZone } from '../src/shared/koth.ts';
 import { mapFor } from '../src/shared/maps.ts';
+import { SAFE_DISTANCE, pickSpawn } from '../src/shared/spawn.ts';
 import { Ev, type MoveInput, type PlayerState, createPlayerState, emptyInput, stepPlayer } from '../src/shared/movement.ts';
 
 function play(s: PlayerState, input: MoveInput, seconds: number, onTick?: () => boolean | void) {
@@ -39,21 +40,41 @@ test('ramps: slide ramps are walkable, the surf is too steep to stand on', () =>
   }
 });
 
-test('team spawns: each team starts in its own base, on solid ground, far from the hill and facing it', () => {
+test('team spawns: spread over each team\'s whole half (not just the base), on solid ground, back from the hill, facing it', () => {
   const [sunset, tide] = M.koth!.teamSpawns;
   for (const [team, list] of [[0, sunset], [1, tide]] as const) {
+    assert.ok(list.length >= 16, `${list.length} spawns`);
+    const xs = list.map((s) => s.pos.x);
+    const zs = list.map((s) => Math.abs(s.pos.z));
+    assert.ok(Math.max(...xs) - Math.min(...xs) > 50 && Math.max(...zs) - Math.min(...zs) > 25, 'they cover the half, not one corner');
+    assert.ok(list.some((s) => s.pos.y > 4) && list.some((s) => s.pos.y < 1), 'up on the base and ledges, and down on the field');
     for (const sp of list) {
-      assert.ok(team === 0 ? sp.pos.z > 40 : sp.pos.z < -40, `team ${team} spawn on the wrong side: ${JSON.stringify(sp.pos)}`);
-      assert.ok(Math.hypot(sp.pos.x, sp.pos.z) > 45);
+      assert.ok(team === 0 ? sp.pos.z > 10 : sp.pos.z < -10, `team ${team} spawn on the wrong side: ${JSON.stringify(sp.pos)}`);
+      assert.ok(Math.hypot(sp.pos.x, sp.pos.z) > 20, 'back from the hill');
       const s = createPlayerState(sp.pos);
       play(s, emptyInput(), 1);
       assert.ok(s.onGround && Math.abs(s.pos.y - sp.pos.y) < 0.05, `spawn ${JSON.stringify(sp.pos)} -> ${JSON.stringify(s.pos)}`);
-      // Facing the hill: within 45° of straight at it.
       const want = yawTo(sp.pos, Z);
       const d = Math.atan2(Math.sin(sp.yaw - want), Math.cos(sp.yaw - want));
       assert.ok(Math.abs(d) < Math.PI / 4, `spawn faces away from the hill: ${sp.yaw} vs ${want}`);
     }
   }
+});
+
+test('spawn camping: with three enemies holding the base exit, you still spawn well away from them, and not always in one spot', () => {
+  const [sunset] = M.koth!.teamSpawns;
+  const campers = [{ x: 0, y: 0.01, z: 34 }, { x: -6, y: 0.01, z: 38 }, { x: 8, y: 0.01, z: 36 }]; // at the foot of the base ramp
+  let s = 3;
+  const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const used = new Set<number>();
+  for (let k = 0; k < 40; k++) {
+    const i = pickSpawn(sunset, campers, [], M.boxes, rand);
+    used.add(i);
+    const p = sunset[i].pos;
+    const near = Math.min(...campers.map((c) => Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z)));
+    assert.ok(near >= SAFE_DISTANCE, `spawned ${near.toFixed(0)} m from a camper at ${JSON.stringify(p)}`);
+  }
+  assert.ok(used.size >= 2, `and it isn't always the same spot (${used.size})`);
 });
 
 test('the plateau is the hill: standing anywhere in the circle on top counts, the field around it does not', () => {

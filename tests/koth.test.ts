@@ -169,7 +169,7 @@ function hillLobby(n = 4) {
   return { lobby, clients, inbox, at, tick, last, stop: () => clients.forEach((c) => lobby.remove(c)) };
 }
 
-test('server: a King of the Hill lobby is a team game on Crown; each team spawns in its own base', () => {
+test('server: a King of the Hill lobby is a team game on Crown; each team spawns on its own half', () => {
   const h = hillLobby();
   try {
     const joined = h.inbox.get(1)!.find((m) => m.t === 'joined') as Extract<ServerMsg, { t: 'joined' }>;
@@ -177,7 +177,7 @@ test('server: a King of the Hill lobby is a team game on Crown; each team spawns
     assert.equal(joined.map, undefined, 'the arena is always Crown');
     for (const m of h.lobby.members.values()) {
       const z = m.state.p[2];
-      assert.ok(m.info.team === 0 ? z > 40 : z < -40, `team ${m.info.team} spawned at z=${z}`);
+      assert.ok(m.info.team === 0 ? z > 10 : z < -10, `team ${m.info.team} spawned at z=${z}`);
     }
   } finally {
     h.stop();

@@ -1,6 +1,7 @@
 import type { Box, Trigger } from './collision.ts';
 import type { Zone } from './koth.ts';
 import { type MapData, type SpawnPoint, box, gate, hook, house, mirror, mirrorTrigger, padTo, span, surfFrame, wedge } from './map.ts';
+import { spawnSpots } from './rustworks.ts';
 
 /**
  * "Crown": the King of the Hill arena. One sky island with the hill in the middle and a team base at each end
@@ -14,6 +15,9 @@ import { type MapData, type SpawnPoint, box, gate, hook, house, mirror, mirrorTr
  *   Ruin house  a two-storey house off each flank of the hill: cover for the approach, a roof to contest from
  *   Hooks       one over the main lane, one over each flank, one high above the hill to dive in from
  */
+
+/** Team spawns keep at least this far from the middle of the hill. */
+const SPAWN_FROM_HILL = 22;
 
 /** The hill itself: the circle on the plateau. */
 export const CROWN_ZONE: Zone = { x: 0, y: 3, z: 0, r: 8, h: 5 };
@@ -81,15 +85,18 @@ function buildCrown(): MapData {
     ...crownHalf.map(mirror),
   ];
 
-  // Team spawns on each base, facing the hill. Sunset (team 0) is +Z; Tide's are the mirror image.
-  const sunset: SpawnPoint[] = [];
-  for (const x of [-10, -5, 0, 5, 10]) for (const z of [52, 56]) sunset.push({ pos: { x, y: 5.01, z }, yaw: 0 });
-  const tide: SpawnPoint[] = sunset.map((s) => ({ pos: { x: -s.pos.x, y: s.pos.y, z: -s.pos.z }, yaw: Math.PI }));
+  // Team spawns spread over each team's whole half (base, bluff, gorge ledge, the field), facing the hill, so a base
+  // can't be camped: the server picks among them away from enemies and out of their sight. Sunset (team 0) is +Z;
+  // Tide's are the mirror image.
+  const boxes = [...centre, ...half, ...half.map(mirror)];
+  const triggers = [...halfTriggers, ...halfTriggers.map(mirrorTrigger)];
+  const sunset = spawnSpots(boxes, triggers, 80).filter((s) => s.pos.z > SPAWN_FROM_HILL / 2 && Math.hypot(s.pos.x, s.pos.z) > SPAWN_FROM_HILL);
+  const tide: SpawnPoint[] = sunset.map((s) => ({ pos: { x: -s.pos.x, y: s.pos.y, z: -s.pos.z }, yaw: s.yaw + Math.PI }));
 
   return {
     name: 'Crown',
-    boxes: [...centre, ...half, ...half.map(mirror)],
-    triggers: [...halfTriggers, ...halfTriggers.map(mirrorTrigger)],
+    boxes,
+    triggers,
     decor: [],
     spawns: [...sunset, ...tide],
     koth: { zone: CROWN_ZONE, teamSpawns: [sunset, tide] },

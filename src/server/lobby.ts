@@ -61,6 +61,8 @@ export class Lobby {
   private timer: ReturnType<typeof setInterval>;
   private ticks = 0;
   private recentSpawns: number[] = [];
+  /** King of the Hill: each team's recently used spawns (indexes into its own list). */
+  private teamRecent: [number[], number[]] = [[], []];
   private survival: Survival | null;
   /** Battle: set once someone reaches the kill limit; the next match starts when it passes. */
   private overAt = 0;
@@ -324,7 +326,7 @@ export class Lobby {
   }
 
   /**
-   * Battle: a random good spot from across the map (spawn.ts). King of the Hill: your own team's base.
+   * Battle: a random good spot from across the map (spawn.ts). King of the Hill: the same, from your own team's half.
    * Survival: the Office, spread out among whoever is already up.
    */
   private pickSpawn(team?: Team): { p: V3; yaw: number } {
@@ -332,7 +334,11 @@ export class Lobby {
     const bases = this.data.koth?.teamSpawns;
     if (bases && team !== undefined) {
       const enemies = living.filter((m) => m.info.team !== team).map((m) => ({ x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] }));
-      const s = bases[team][pickSpawn(bases[team], enemies, [], this.data.boxes)];
+      const recent = this.teamRecent[team];
+      const i = pickSpawn(bases[team], enemies, recent, this.data.boxes);
+      recent.push(i);
+      if (recent.length > RECENT_SPAWNS) recent.shift();
+      const s = bases[team][i];
       return { p: [s.pos.x, s.pos.y, s.pos.z], yaw: s.yaw };
     }
     if (this.survival) {
