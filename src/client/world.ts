@@ -276,10 +276,13 @@ export function buildWorld(map: MapData, renderer: THREE.WebGLRenderer): World {
         p.scale.setScalar(1 - k * 0.5);
         (p as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.opacity = Math.sin(k * Math.PI) * 0.85;
       }
-      clouds.children.forEach((c, i) => {
-        c.position.x += Math.sin(i) * 0.002 + 0.01;
-        if (c.position.x > 700) c.position.x = -700;
-      });
+      // Clouds circle the horizon at their own distance: they drift, but never across the play space.
+      for (const c of clouds.children) {
+        const { a, dist } = c.userData as { a: number; dist: number };
+        const ang = a + time * CLOUD_DRIFT * (300 / dist);
+        c.position.x = Math.cos(ang) * dist;
+        c.position.z = Math.sin(ang) * dist;
+      }
       motes.update(time);
       for (const b of boosters) b.update(time);
     },
@@ -555,6 +558,9 @@ function grassClump(): THREE.BufferGeometry {
   return g;
 }
 
+/** Radians per second the horizon clouds circle at 300 m (farther ones go slower, so they don't all move as one). */
+const CLOUD_DRIFT = 0.004;
+
 /** Sea of clouds far below: the void you fall into. */
 function cloudSea(renderer: THREE.WebGLRenderer): THREE.Mesh {
   const tex = cloudSeaTexture(renderer);
@@ -580,10 +586,12 @@ function cumulus(): THREE.Group {
     const sp = new THREE.Sprite(mat);
     sp.position.set(Math.cos(a) * dist, y, Math.sin(a) * dist);
     sp.scale.set(w, w * 0.5, 1);
+    sp.userData = { a, dist };
     g.add(sp);
   };
-  for (let i = 0; i < 26; i++) add(380 + r() * 300, 10 + r() * 130, 180 + r() * 220);
-  for (let i = 0; i < 26; i++) add(120 + r() * 300, -50 + r() * 15, 70 + r() * 90, 0.9);
+  // Far enough out (and wide enough apart from the islands) that none ever hangs in front of a sightline.
+  for (let i = 0; i < 26; i++) add(450 + r() * 250, 10 + r() * 130, 180 + r() * 220);
+  for (let i = 0; i < 26; i++) add(170 + r() * 300, -62 + r() * 12, 70 + r() * 90, 0.9); // their tops stay well under the islands
   return g;
 }
 
