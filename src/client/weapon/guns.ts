@@ -101,7 +101,6 @@ const sparrow: GunAnim = {
   kick: { back: 0.035, flip: 0.12 },
   flash: 0xfff1c4,
   hip: hip(0.17, -0.105, -0.42, -0.04, -0.04),
-  ads: { pos: v(0, -0.058, -0.36), rot: e(0, 0, 0) },
   rest(g) {
     g.parts.slide.position.z = 0;
     g.parts.hammer.rotation.x = 0;
@@ -171,7 +170,6 @@ const marshal: GunAnim = {
   kick: { back: 0.07, flip: 0.34 },
   flash: 0xffd9a0,
   hip: hip(0.17, -0.105, -0.46, -0.04, -0.04),
-  ads: { pos: v(0, -0.062, -0.4), rot: e(0, 0, 0) },
   rest(g) {
     g.parts.crane.rotation.z = 0;
     g.parts.hammer.rotation.x = 0;
@@ -254,7 +252,6 @@ const rattler: GunAnim = {
   kick: { back: 0.022, flip: 0.05 },
   flash: 0xffe0a0,
   hip: hip(0.23, -0.19, -0.5),
-  ads: { pos: v(0, -0.08, -0.38), rot: e(0, 0, 0) },
   rest(g) {
     g.parts.bolt.position.z = 0;
     g.parts.mag.visible = true;
@@ -312,7 +309,6 @@ const warden: GunAnim = {
   kick: { back: 0.03, flip: 0.07 },
   flash: 0xffe0a0,
   hip: hip(0.26, -0.2, -0.56),
-  ads: { pos: v(0, -0.083, -0.4), rot: e(0, 0, 0) },
   rest(g) {
     g.parts.handle.position.z = 0;
     g.parts.bolt.position.z = 0;
@@ -371,7 +367,6 @@ const bramble: GunAnim = {
   kick: { back: 0.09, flip: 0.24 },
   flash: 0xffc890,
   hip: hip(0.25, -0.2, -0.56),
-  ads: { pos: v(0, -0.058, -0.42), rot: e(0, 0, 0) },
   rest(g) {
     g.parts.pump.position.z = 0;
     g.parts.shell.visible = false;
@@ -469,7 +464,6 @@ const kestrel: GunAnim = {
   kick: { back: 0.06, flip: 0.2 },
   flash: 0xffd9a0,
   hip: hip(0.25, -0.19, -0.55),
-  ads: { pos: v(0, -0.058, -0.4), rot: e(0, 0, 0) },
   rest(g) {
     g.parts.lever.rotation.x = 0;
     g.parts.hammer.rotation.x = 0;
@@ -548,7 +542,6 @@ const hammer: GunAnim = {
   kick: { back: 0.03, flip: 0.06 },
   flash: 0xffd090,
   hip: hip(0.28, -0.23, -0.6),
-  ads: { pos: v(0, -0.1, -0.44), rot: e(0, 0, 0) },
   rest(g) {
     g.parts.cover.rotation.x = 0;
     g.parts.handle.position.z = 0;
@@ -615,7 +608,6 @@ const awp: GunAnim = {
   kick: { back: 0.07, flip: 0.16 },
   flash: 0xfff1c4,
   hip: hip(0.27, -0.2, -0.64),
-  ads: { pos: v(0, -0.12, -0.5), rot: e(0, 0, 0) },
   rest(g) {
     g.parts.bolt.rotation.z = 0;
     g.parts.bolt.position.z = 0.03;
@@ -693,7 +685,6 @@ const sunbeam: GunAnim = {
   kick: { back: 0.04, flip: 0.1 },
   flash: 0xaaffee,
   hip: hip(0.23, -0.18, -0.52, -0.04, -0.04),
-  ads: { pos: v(0, -0.14, -0.4), rot: e(0, 0, 0) },
   rest(g) {
     g.parts.bulb.scale.setScalar(1);
     g.parts.mag.visible = true;

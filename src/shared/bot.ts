@@ -27,17 +27,21 @@ interface LevelDef {
 }
 
 export const BOT: Record<BotLevel, LevelDef> = {
-  easy: { name: 'Easy', count: 3, reaction: 1.6, turn: 2.2, spread: 0.05, fireEvery: 3.5, sight: 60, strafe: false, hop: false, head: false, relocate: 16 },
-  normal: { name: 'Normal', count: 5, reaction: 0.8, turn: 4.5, spread: 0.013, fireEvery: 2, sight: 90, strafe: true, hop: true, head: false, relocate: 10 },
-  hard: { name: 'Hard', count: 5, reaction: 0.32, turn: 11, spread: 0.0035, fireEvery: WEAPON.fireCooldown + 0.15, sight: 140, strafe: true, hop: true, head: true, relocate: 6 },
+  easy: { name: 'Easy', count: 3, reaction: 2.4, turn: 1.4, spread: 0.045, fireEvery: 4, sight: 45, strafe: false, hop: false, head: false, relocate: 25 },
+  normal: { name: 'Normal', count: 4, reaction: 1.5, turn: 2.6, spread: 0.025, fireEvery: 3, sight: 70, strafe: true, hop: false, head: false, relocate: 16 },
+  hard: { name: 'Hard', count: 5, reaction: 0.75, turn: 5, spread: 0.009, fireEvery: 1.8, sight: 110, strafe: true, hop: true, head: true, relocate: 10 },
 };
 
 /** Seconds after you respawn before a bot may shoot you. */
-export const BOT_SPAWN_GRACE = 1.5;
+export const BOT_SPAWN_GRACE = 3;
+
+/** Seconds after any bot fires at you before another may: you never eat a volley from several at once. */
+export const BOT_VOLLEY_GAP = 1.2;
 
 /** How the bots behave whatever their level. */
 const AI = {
   ledgeAhead: 1.3, // metres ahead it checks for ground before walking on
+  dodgeSpeed: 9, // m/s of your speed that doubles a bot's spread (bhop and it struggles)
   ledgeDrop: 1.5, // ...and how far down that ground may be (a drop to a lower deck is fine, a gap isn't)
   strafeEvery: [0.35, 0.9], // seconds between ADAD direction changes
   stuckTime: 1.2, // seconds without progress before it jumps, then picks another way round
@@ -100,6 +104,8 @@ export interface BotTarget {
   alive: boolean;
   /** Seconds of spawn grace left. */
   grace?: number;
+  /** Your velocity: the faster you move, the more a bot's shot goes astray. */
+  vel?: Vec3;
 }
 
 /** A bot's decision for one tick: its keys, and a shot (the direction it fired) if it pulled the trigger. */
@@ -202,7 +208,10 @@ export function thinkBot(b: Bot, target: BotTarget, boxes: readonly Box[], spots
     const dz = aimAt.z - me.z;
     const off = Math.abs(wrap(Math.atan2(-dx, -dz) - b.yaw)) + Math.abs(Math.atan2(aimAt.y - me.y, Math.hypot(dx, dz)) - b.pitch);
     if (off < Math.max(0.02, L.spread * 3)) {
-      shot = lookDir(b.yaw + (rand() * 2 - 1) * L.spread, b.pitch + (rand() * 2 - 1) * L.spread);
+      // Wider when it has only just found you, and when you're moving fast: stand still in its sights and it settles in.
+      const speed = target.vel ? Math.hypot(target.vel.x, target.vel.z) : 0;
+      const spread = L.spread * (1 + 2 * Math.exp(-(b.seen - L.reaction) / 1.5)) * (1 + speed / AI.dodgeSpeed);
+      shot = lookDir(b.yaw + (rand() * 2 - 1) * spread, b.pitch + (rand() * 2 - 1) * spread);
       b.cooldown = L.fireEvery;
     }
   }

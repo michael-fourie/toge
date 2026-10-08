@@ -33,21 +33,40 @@ function duel(level: BotLevel, target: BotTarget, boxes: Box[], seconds: number,
   return { at: null, first, shots, b };
 }
 
-test('a Hard bot that can see you at 40 m kills you within a second or two, nearly every time', () => {
+test('a Hard bot that can see you at 40 m gets you within a few seconds if you stand still, but not instantly', () => {
   let kills = 0;
   for (let seed = 1; seed <= 20; seed++) {
-    const r = duel('hard', { pos: { x: 30, y: 0, z: -26 }, alive: true }, [floor], 2.5, seed);
-    if (r.at !== null && r.at < 2.5) kills++;
+    const r = duel('hard', { pos: { x: 30, y: 0, z: -26 }, alive: true }, [floor], 8, seed);
+    if (r.at !== null) {
+      kills++;
+      assert.ok(r.at + TICK_DT >= BOT.hard.reaction, 'never before it has reacted');
+    }
   }
-  assert.ok(kills >= 18, `${kills}/20`);
+  assert.ok(kills >= 15, `${kills}/20`);
 });
 
-test('the levels really differ: Easy misses most long shots, Normal some, Hard almost none', () => {
+test('moving fast makes you harder to hit', () => {
+  const rate = (speed: number) => {
+    let hits = 0;
+    let shots = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const r = duel('hard', { pos: { x: 0, y: 0, z: -50 }, vel: { x: speed, y: 0, z: 0 }, alive: true }, [floor], 6, seed);
+      shots += r.shots;
+      if (r.at !== null) hits++;
+    }
+    return hits / Math.max(1, shots);
+  };
+  const still = rate(0);
+  const bhop = rate(12);
+  assert.ok(bhop < still * 0.75, `still ${still.toFixed(2)}, bhopping ${bhop.toFixed(2)}`);
+});
+
+test('the levels really differ: Easy rarely hits at range, Normal sometimes, Hard often', () => {
   const rate = (level: BotLevel) => {
     let hits = 0;
     let shots = 0;
     for (let seed = 1; seed <= 40; seed++) {
-      const r = duel(level, { pos: { x: 0, y: 0, z: -60 }, alive: true }, [floor], BOT[level].reaction + 0.6, seed);
+      const r = duel(level, { pos: { x: 0, y: 0, z: -60 }, alive: true }, [floor], 10, seed);
       shots += r.shots;
       if (r.at !== null) hits++;
     }
@@ -56,7 +75,7 @@ test('the levels really differ: Easy misses most long shots, Normal some, Hard a
   const easy = rate('easy');
   const normal = rate('normal');
   const hard = rate('hard');
-  assert.ok(easy < 0.5 && normal > easy && hard > 0.9, `easy ${easy.toFixed(2)}, normal ${normal.toFixed(2)}, hard ${hard.toFixed(2)}`);
+  assert.ok(easy < 0.15 && normal > easy && hard > normal && hard > 0.2, `easy ${easy.toFixed(2)}, normal ${normal.toFixed(2)}, hard ${hard.toFixed(2)}`);
 });
 
 test('no bot fires before its reaction time, or during your spawn grace', () => {

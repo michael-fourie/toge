@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { type Gear, type RiflePaint, itemById } from '../shared/items.ts';
 import { DEFAULT_KNIFE, buildKnife } from './knife.ts';
+import { type Sights, buildSights } from './weapon/sights.ts';
 import { buildScythe } from './scythe.ts';
 import { sfx } from './sfx.ts';
 import { GOLD, MINT } from './punchmachine.ts';
@@ -27,6 +28,8 @@ interface Debris {
 interface Loaded {
   rig: GunRig;
   anim: GunAnim;
+  /** Iron sights and a red dot (all but the scoped AWP), with where the gun sits when aiming through each. */
+  sights?: Sights;
 }
 
 /**
@@ -140,7 +143,7 @@ export class ViewModel {
       const style = WEAPONS[id].style;
       const rig = style === 'bolt' ? buildProceduralAwp(this.color, this.paint) : GUN_BUILDERS[style]!(this.color);
       rig.root.traverse((o) => (o.castShadow = false));
-      g = { rig, anim: GUN_ANIMS[style] };
+      g = { rig, anim: GUN_ANIMS[style], sights: style === 'bolt' ? undefined : buildSights(rig) };
       this.guns.set(id, g);
     }
     return g;
@@ -157,6 +160,10 @@ export class ViewModel {
     this.gun.rig.root.add(this.glow);
     this.glow.visible = punched;
     this.glow.clear();
+    if (this.gun.sights) {
+      this.gun.sights.iron.visible = !punched; // Pack-a-Punch swaps the irons for a red dot
+      this.gun.sights.dot.visible = punched;
+    }
     if (punched) {
       const m = this.gun.rig.anchors.muzzle;
       [0.14, 0.2, 0.26].forEach((d, i) => {
@@ -266,7 +273,7 @@ export class ViewModel {
     const bobAmt = grounded ? Math.min(speed / 7, 1) * calm : 0;
     this.sway.x += (-lookX * 0.6 - this.sway.x) * Math.min(1, dt * 10);
     this.sway.y += (lookY * 0.6 - this.sway.y) * Math.min(1, dt * 10);
-    if (this.glow.visible) for (const [i, m] of this.glowMats.entries()) m.opacity = 0.55 + 0.4 * Math.sin(performance.now() / 180 - i * 1.2);
+    if (this.glow.visible) for (const [i, m] of this.glowMats.entries()) m.opacity = (0.55 + 0.4 * Math.sin(performance.now() / 180 - i * 1.2)) * (1 - this.aim); // out of the way of the sights
     this.recoil = Math.max(0, this.recoil - dt * 5);
     this.dip = Math.max(0, this.dip - dt * 4);
     this.flash = Math.max(0, this.flash - dt * 16);
@@ -275,7 +282,8 @@ export class ViewModel {
     const t = performance.now() / 1000;
     const kick = this.recoil * this.recoil;
     const hipP = anim.hip.pos;
-    const adsP = anim.ads.pos;
+    const sights = this.gun.sights;
+    const adsP = sights ? (this.up ? sights.dotAds : sights.ironAds) : hipP; // the AWP has its scope overlay instead
     const k = anim.kick;
     this.rig.position.set(
       hipP.x + (adsP.x - hipP.x) * this.aim + Math.sin(this.bobT) * 0.01 * bobAmt + this.sway.x * 0.04 * calm,
@@ -283,9 +291,9 @@ export class ViewModel {
       hipP.z + (adsP.z - hipP.z) * this.aim + kick * k.back,
     );
     this.rig.rotation.set(
-      anim.hip.rot.x + (anim.ads.rot.x - anim.hip.rot.x) * this.aim + kick * k.flip * (1 - this.aim * 0.4) + this.sway.y * 0.25 * calm,
-      anim.hip.rot.y + (anim.ads.rot.y - anim.hip.rot.y) * this.aim + this.sway.x * 0.35 * calm,
-      anim.hip.rot.z + roll * 1.5 * calm + this.sway.x * 0.15 * calm,
+      anim.hip.rot.x * (1 - this.aim) + kick * k.flip * (1 - this.aim * 0.4) + this.sway.y * 0.25 * calm,
+      anim.hip.rot.y * (1 - this.aim) + this.sway.x * 0.35 * calm,
+      anim.hip.rot.z * (1 - this.aim) + roll * 1.5 * calm + this.sway.x * 0.15 * calm,
     );
 
     // The gun's own motion.

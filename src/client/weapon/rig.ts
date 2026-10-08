@@ -113,9 +113,8 @@ export interface GunAnim {
   reload(rig: GunRig, u: number, p: Plan, k: Kit): void;
   /** How the left hand rests on the gun when no animation moves it (default: 'fore', cradling the forend). */
   support?: HandPose;
-  /** Camera position and rotation of the gun at rest, and when aiming down the sights. */
+  /** Camera position and rotation of the gun at rest. Aiming down the sights is worked out from the sights (sights.ts). */
   hip: { pos: THREE.Vector3; rot: THREE.Euler };
-  ads: { pos: THREE.Vector3; rot: THREE.Euler };
 }
 
 // ---------------------------------------------------------------------------

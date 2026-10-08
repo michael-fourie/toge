@@ -86,8 +86,10 @@ export class Hud {
     this.root.classList.toggle('paused', p);
   }
 
-  setScoped(s: boolean) {
+  /** Through the AWP's scope (the overlay), or down a gun's own sights (they replace the crosshair). */
+  setScoped(s: boolean, sights = false) {
     this.root.classList.toggle('scoped', s);
+    this.root.classList.toggle('sights', sights);
   }
 
   /** Chip lights when E would catch a surface (ready) and goes warm while the rope is out (attached). */

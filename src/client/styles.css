@@ -856,6 +856,7 @@ button:disabled {
   box-shadow: 0 0 0 1.5px var(--ink);
 }
 .hud.scoped .crosshair,
+.hud.sights .crosshair,
 .hud.paused .crosshair {
   display: none;
 }

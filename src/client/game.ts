@@ -4,7 +4,7 @@ import { GRENADE, KNIFE, PLAYER, MOVE, NET, RESPAWN_SECONDS, SCYTHE, SKYLINE, SU
 import { MOD, MODS } from '../shared/modifiers.ts';
 import { type Colliders, buildColliders } from '../shared/colliders.ts';
 import { raySphere, rayBox, rayWorld } from '../shared/collision.ts';
-import { BOT, BOT_SPAWN_GRACE, type Bot, type BotLevel, botBoxes, createBot, flankSpot, shotHits, thinkBot, wantsRelocate } from '../shared/bot.ts';
+import { BOT, BOT_SPAWN_GRACE, BOT_VOLLEY_GAP, type Bot, type BotLevel, botBoxes, createBot, flankSpot, shotHits, thinkBot, wantsRelocate } from '../shared/bot.ts';
 import type { Box } from '../shared/collision.ts';
 
 const NO_TRIGGERS: never[] = []; // bots ride no wind gates or puffballs
@@ -145,6 +145,7 @@ export class Game {
   private renderPos = new THREE.Vector3();
   private acc = 0;
   private botAcc = 0;
+  private botVolleyAt = 0;
   /** What bots walk on: the map with its launch pads made plain floor (shared/bot.ts botBoxes). */
   private botWorld: Box[] = [];
   /** Bots hold fire until then: a moment to find your feet after a respawn. */
@@ -1237,7 +1238,7 @@ export class Game {
           r.info.alive = true;
           r.avatar.root.visible = true;
         }
-        const t = thinkBot(bot.b, { pos: this.me.pos, alive: this.alive, grace: this.botGraceUntil - this.time }, this.botWorld, spots, TICK_DT);
+        const t = thinkBot(bot.b, { pos: this.me.pos, vel: this.me.vel, alive: this.alive, grace: this.botGraceUntil - this.time }, this.botWorld, spots, TICK_DT);
         stepPlayer(bot.b.s, t.input, TICK_DT, this.botWorld, NO_TRIGGERS);
         if (bot.b.s.pos.y < this.map.killY) {
           // Fell off an island: quietly back in a moment (no killfeed spam).
@@ -1256,7 +1257,14 @@ export class Game {
             continue;
           }
         }
-        if (t.shot) this.botFire(r, t.shot);
+        if (t.shot) {
+          // One bot at a time: if another just fired, this one holds a moment longer.
+          if (this.time < this.botVolleyAt) bot.b.cooldown = 0.4;
+          else {
+            this.botVolleyAt = this.time + BOT_VOLLEY_GAP;
+            this.botFire(r, t.shot);
+          }
+        }
       }
     }
     if (ticks > 20) this.botAcc = 0;
@@ -1717,7 +1725,7 @@ export class Game {
   }
 
   private updateHud(dt: number) {
-    this.hud.setScoped(this.scoped && this.alive);
+    this.hud.setScoped(this.scoped && this.alive, this.aiming && this.alive);
     this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, this.bolt / this.stats.fireCooldown);
     const gun = this.loadout.gun!;
     this.hud.ammo(gun.mag, this.stats.mag, this.horde || gun.reserve !== Infinity ? gun.reserve : null, this.reloading > 0, this.stats.label, this.horde ? this.loadout.slots.map((s) => (s ? gunStats(s.w, s.up).label : null)) : [], this.loadout.cur);
