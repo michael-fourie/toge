@@ -10,6 +10,7 @@ export const XP = {
   round: 40, // a Survival round cleared (everyone in the lobby)
   boss: 150, // the Foreman goes down (everyone)
   survivalGame: 75, // a Survival run ends
+  royaleWin: 200, // last one standing in a Battle Royale (on top of battleMatch)
 };
 
 /** XP to go from `level` to the next one: a little more every level. */

@@ -20,6 +20,7 @@ import { type Grenade, applyKnock, blastKnock, blastTargets, stepGrenade, throwV
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import { TEAMS, sameTeam } from '../shared/teams.ts';
 import { type KothState, KOTH, inZone } from '../shared/koth.ts';
+import { ROYALE } from '../shared/royale.ts';
 import {
   type ClientMsg,
   type DeathCause,
@@ -70,6 +71,8 @@ import { ViewModel } from './viewmodel.ts';
 import { buildRustworks } from './rustworld.ts';
 import { buildSummit } from './summitworld.ts';
 import { buildDuneVillage } from './duneworld.ts';
+import { RoyaleView } from './royale.ts';
+import { type WildWorld, buildWildmere } from './royaleworld.ts';
 import { type World, buildWorld } from './world.ts';
 
 type Joined = Extract<ServerMsg, { t: 'joined' }>;
@@ -106,7 +109,7 @@ interface Tracer {
 const BASE_FOV = 78; // vertical; ~106° horizontal at 16:9
 const tracerGeo = new THREE.CylinderGeometry(0.025, 0.025, 1, 6, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
 
-const verbFor: Record<DeathCause, string> = { snipe: 'sniped', headshot: '💥 HEADSHOT', void: 'fell into the void', zombie: 'got munched 🧟', grenade: 'blew up 💣', knife: 'stabbed 🔪' };
+const verbFor: Record<DeathCause, string> = { snipe: 'sniped', headshot: '💥 HEADSHOT', void: 'fell into the void', zombie: 'got munched 🧟', grenade: 'blew up 💣', knife: 'stabbed 🔪', shot: 'shot', zone: 'was swallowed by the zone 🌀' };
 /** Stand-in for the killfeed when a zombie goes down. */
 const ZOMBIE_INFO: PlayerInfo = { id: -1, name: 'zombie', color: 0x7fae6a, kills: 0, deaths: 0, alive: false };
 const YEETS = ['YEET', 'SNIPED', 'BONK', 'GOT EM', 'SENT FLYING'];
@@ -210,6 +213,11 @@ export class Game {
   private hill: KothState | null = null;
   private hillFx: HillFx | null = null;
   private hillHud: HillHud | null = null;
+  /** Battle Royale: the phase, zone, loot, shield and grenades as the server tells them (royale.ts), and its world. */
+  private br: RoyaleView | null = null;
+  private wild: WildWorld | null = null;
+  /** Out of a Royale: how long we've been watching our own body before following someone else. */
+  private outFor = 0;
   /** Phones only: the on-screen joystick and buttons. */
   private touch: TouchControls | null = null;
   private horde: Horde | null = null;
@@ -263,7 +271,7 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2)); // phones: fewer pixels, steadier frame rate
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.map = mapFor(this.mode, joined?.map, joined?.koth);
+    this.map = mapFor(this.mode, joined?.map, joined?.koth, !!joined?.br);
     this.cols = buildColliders(this.map);
     // Neutral keeps the soft painted palette saturated; ACES washes it toward grey-orange.
     this.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -278,7 +286,8 @@ export class Game {
       this.foundry = buildFoundry(this.map, this.renderer, color0); // Survival is the Foundry, at night
       this.world = this.foundry;
       this.renderer.shadowMap.autoUpdate = false; // the moon's shadows are redrawn every few frames, not every frame
-    } else this.world = (joined?.map === 'rustworks' ? buildRustworks : joined?.map === 'summit' ? buildSummit : joined?.map === 'dunevillage' ? buildDuneVillage : buildWorld)(this.map, this.renderer);
+    } else if (joined?.br) this.world = this.wild = buildWildmere(this.map, this.renderer);
+    else this.world = (joined?.map === 'rustworks' ? buildRustworks : joined?.map === 'summit' ? buildSummit : joined?.map === 'dunevillage' ? buildDuneVillage : buildWorld)(this.map, this.renderer);
     this.corpses = new Corpses(this.world.scene);
     this.ropeSelf = new Rope(this.world.scene);
     this.grenadeFx = new GrenadeFx(this.world.scene);
@@ -310,7 +319,8 @@ export class Game {
     const self = this.players.get(this.selfId)!;
     this.selfAvatar = new Avatar(self.color, self.name, false, decodeSkin(self.skin), stash.gear);
     this.vm = new ViewModel(self.color, stash.gear);
-    this.loadout = new Loadout(this.mode !== 'survival', this.mode === 'survival' ? 'sparrow' : 'awp');
+    // Survival and Royale start with the pistol (Royale: and only a little spare ammo); Battle is the AWP with endless mags.
+    this.loadout = new Loadout(this.mode !== 'survival' && !joined?.br, this.mode === 'survival' || joined?.br ? 'sparrow' : 'awp', joined?.br ? ROYALE.spare : 1);
     this.vm.equip(this.loadout.gun!.w, false);
 
     const spawn = joined ? { pos: arr(joined.spawn.p), yaw: joined.spawn.yaw } : this.randomSpawn();
@@ -321,6 +331,11 @@ export class Game {
     this.hud.coins(stash.inv.coins);
     this.useHud = new UseHud(this.hud.root);
     if (this.map.koth) this.hillHud = new HillHud(this.hud.root);
+    if (joined?.br) {
+      this.br = new RoyaleView(this.world.scene, this.hud.root, this.map, joined.br, 0);
+      if (!self.alive) this.alive = false; // joined mid-match: watch until the next one
+      net?.send({ t: 'sync' }); // the loot and our kit (sent while we sat in the lobby room)
+    }
     this.nadeHud = new NadeHud(this.hud.root);
     this.input = new Input(this.renderer.domElement);
     if (this.mode === 'survival') this.workshop = this.makeWorkshop();
@@ -391,6 +406,7 @@ export class Game {
     this.recordSelf();
     this.updateRopes(dt);
     this.foundry?.setViewer(this.renderPos);
+    this.wild?.setViewer(this.camera.position);
     this.updateHud(dt);
 
     if (this.foundry && this.shadowTick++ % 3 === 0) this.renderer.shadowMap.needsUpdate = true;
@@ -519,9 +535,10 @@ export class Game {
       this.use = null;
       return;
     }
+    if (fire && !this.alive && this.br) this.spectateNext();
     if (fire) this.fire();
     if (nade) this.throwGrenade();
-    if (this.horde && this.alive) this.useKeys();
+    if ((this.horde || this.br) && this.alive) this.useKeys();
   }
 
   /** Reload the gun in hand: not if the mag is full or there is nothing to put in it. */
@@ -664,6 +681,7 @@ export class Game {
     let first: { id: number; zombie: boolean; headshot: boolean; best: number } | null = null;
     let end = new THREE.Vector3();
     let victim: { id: number; headshot: boolean } | null = null;
+    let onVictim = 0; // pellets that hit that player (Royale: a shotgun blast does damage per pellet)
     for (let i = 0; i < st.pellets; i++) {
       const r = this.cast(o, look, spread, WEAPON.range);
       end = new THREE.Vector3(o.x + r.d.x * r.best, o.y + r.d.y * r.best, o.z + r.d.z * r.best);
@@ -671,7 +689,12 @@ export class Game {
       if (!r.hit) continue;
       if (!first) first = { ...r.hit, headshot: r.headshot, best: r.best };
       if (r.hit.zombie) hits.push({ z: r.hit.id, h: r.headshot || undefined });
-      else victim = { id: r.hit.id, headshot: r.headshot };
+      else {
+        const prev = victim as { id: number; headshot: boolean } | null;
+        const same = prev !== null && prev.id === r.hit.id;
+        onVictim = same ? onVictim + 1 : 1;
+        victim = { id: r.hit.id, headshot: r.headshot || (same && prev.headshot) };
+      }
     }
     if (first) {
       this.hud.hitmarker();
@@ -706,6 +729,7 @@ export class Game {
         victim: victim?.id,
         headshot: victim?.headshot,
         hits: hits.length ? hits : undefined,
+        ph: onVictim > 1 ? onVictim : undefined,
       });
     } else if (victim) {
       this.onKill(this.selfId, victim.id, victim.headshot ? 'headshot' : 'snipe', [look.x, look.y, look.z]);
@@ -724,6 +748,10 @@ export class Game {
 
   /** Works out what F would do here (for the prompt) and, while F is held at a window, nails boards back up. */
   private useKeys() {
+    if (this.br) {
+      this.use = this.br.findUse(this.me.pos, this.hp, this.loadout.slots.map((s) => s?.w ?? null));
+      return;
+    }
     if (!this.map.survival) return;
     const p = this.me.pos;
     this.use = findUse(p, this.useCtx());
@@ -837,11 +865,13 @@ export class Game {
 
   /** Progress 0..1 to our next grenade; 1 = one in hand. */
   private nadeProgress() {
+    if (this.br && this.br.nades <= 0) return 0; // Royale: grenades are found, not refilled
     return Math.min(1, (this.time - this.nadeAt) / GRENADE.cooldown);
   }
 
   private throwGrenade() {
     if (!this.alive || this.nadeProgress() < 1) return;
+    if (this.br) this.br.nades--;
     const look = lookDir(this.input.yaw, this.input.pitch);
     const o = { x: this.renderPos.x + look.x * 0.5, y: this.renderPos.y + this.eyeHeight - 0.15 + look.y * 0.5, z: this.renderPos.z + look.z * 0.5 };
     const v = throwVelocity(this.input.yaw, this.input.pitch, this.me.vel); // your own velocity rides along: throws keep your momentum
@@ -877,7 +907,7 @@ export class Game {
     }
     this.grenadeFx.update(dt);
     this.scytheFx.update(dt);
-    this.nadeHud.update(this.nadeProgress(), GRENADE.cooldown - (this.time - this.nadeAt));
+    this.nadeHud.update(this.nadeProgress(), GRENADE.cooldown - (this.time - this.nadeAt), this.br?.nades);
   }
 
   private removeGrenade(i: number) {
@@ -1032,15 +1062,18 @@ export class Game {
         ? 'You fell into the void'
         : cause === 'zombie'
           ? 'Munched by a zombie'
-          : cause === 'grenade'
-            ? `Blown up by ${killer?.name ?? '???'}`
-            : `${cause === 'headshot' ? 'Headshot' : cause === 'knife' ? 'Stabbed' : 'Sniped'} by ${killer?.name ?? '???'}`;
+          : cause === 'zone'
+            ? 'The zone swallowed you'
+            : cause === 'grenade'
+              ? `Blown up by ${killer?.name ?? '???'}`
+              : `${cause === 'headshot' ? 'Headshot' : cause === 'knife' ? 'Stabbed' : cause === 'shot' ? 'Shot' : 'Sniped'} by ${killer?.name ?? '???'}`;
+    this.outFor = 0;
     const pos = new THREE.Vector3(this.me.pos.x, this.me.pos.y, this.me.pos.z);
     this.deathCam.copy(pos).add(new THREE.Vector3(0, PLAYER.eyeHeight, 0));
     // Survival: you bled out where you lay, so the body just slumps there instead of being flung.
     const power = this.horde ? 0 : cause === 'headshot' ? 38 : 26;
     this.deathCorpse = cause === 'void' ? null : this.corpses.spawn(this.selfAvatar.cloneBody(), pos, this.input.yaw, dir, power);
-    if ((cause === 'snipe' || cause === 'headshot') && killerId !== this.selfId) this.startKillcam(killerId);
+    if ((cause === 'snipe' || cause === 'headshot' || cause === 'shot') && killerId !== this.selfId) this.startKillcam(killerId);
   }
 
   /** Records where we were this frame, so a replay can show us too. */
@@ -1399,8 +1432,22 @@ export class Game {
         for (const s of msg.players) this.remotes.get(s.id)?.buffer.push({ t: now, s });
         if (msg.zombies) this.horde?.onSnapshot(msg.zombies, now);
         if (msg.koth) this.onHill(msg.koth);
+        if (this.br) this.br.zone = msg.zone ?? null;
         break;
       }
+      case 'royale':
+        this.onRoyale(msg.info);
+        break;
+      case 'loot':
+        this.br?.onLoot(msg.items, msg.reset);
+        break;
+      case 'looted':
+        this.br?.onLooted(msg.id);
+        if (msg.by === this.selfId) sfx.cash();
+        break;
+      case 'ammo':
+        this.loadout.addReserve(msg.add);
+        break;
       case 'zombieDied': {
         const killer = this.players.get(msg.killer);
         if (killer) killer.kills++;
@@ -1460,6 +1507,7 @@ export class Game {
           this.landDip = Math.min(0.25, this.landDip + 0.08);
         }
         this.hp = msg.hp;
+        if (this.br && msg.sh !== undefined) this.br.shield = msg.sh;
         break;
       case 'me':
         this.onMe(msg);
@@ -1521,6 +1569,7 @@ export class Game {
       case 'respawn': {
         const p = this.players.get(msg.id);
         if (p) p.alive = true;
+        if (msg.id === this.selfId && this.br) this.br.spectating = null;
         if (msg.id === this.selfId) this.respawn({ pos: arr(msg.p), yaw: msg.yaw });
         else {
           const r = this.remotes.get(msg.id);
@@ -1549,7 +1598,8 @@ export class Game {
       }
     }
     const was = this.loadout.gun;
-    const changed = this.loadout.sync(m.slots, m.cur, m.fill);
+    if (this.br && m.nades !== undefined) this.br.nades = m.nades;
+    const changed = this.loadout.sync(m.slots, m.cur, m.fill, m.rounds);
     const now = this.loadout.gun!;
     if (changed || m.fill?.includes(this.loadout.cur)) {
       this.bolt = this.reloading = 0;
@@ -1653,6 +1703,16 @@ export class Game {
     else sfx.roundStart();
   }
 
+  /** The Royale changed phase: the drop (everyone back in with a pistol), or the warmup clock moved. */
+  private onRoyale(info: Extract<ServerMsg, { t: 'royale' }>['info']) {
+    const was = this.br?.info.phase;
+    this.br?.onInfo(info, this.time);
+    if (info.phase === 'live' && was !== 'live') {
+      this.hud.center('DROP IN! LAST ONE STANDING WINS', '#c9a8ff', 3);
+      sfx.roundStart();
+    }
+  }
+
   /** A side or a player hit the kill limit: freeze the scores, show the board and name the winner. */
   private onMatchOver(msg: Extract<ServerMsg, { t: 'matchOver' }>) {
     this.matchOver = true;
@@ -1667,11 +1727,12 @@ export class Game {
     const w = msg.winner;
     const won = 'team' in w ? me?.team === w.team : w.id === this.selfId;
     const color = 'team' in w ? TEAMS[w.team].color : (this.players.get(w.id)?.color ?? 0xffffff);
-    const who = 'team' in w ? `${TEAMS[w.team].name.toUpperCase()} WINS!` : `${(this.players.get(w.id)?.name ?? '???').toUpperCase()} WINS!`;
+    let who = 'team' in w ? `${TEAMS[w.team].name.toUpperCase()} WINS!` : `${(this.players.get(w.id)?.name ?? '???').toUpperCase()} WINS!`;
+    if (this.br && 'id' in w) who = won ? 'WINNER WINNER, ONIGIRI DINNER! 🍙' : w.id === -1 ? 'THE ZONE WINS THIS TIME' : `${(this.players.get(w.id)?.name ?? '???').toUpperCase()} IS THE LAST ONE STANDING`;
     this.hud.center(who, '#' + color.toString(16).padStart(6, '0'), msg.restartIn);
-    if (won) this.award(COIN.win);
+    if (won) this.award(this.br ? COIN.royaleWin : COIN.win);
     this.gainXp('Match played', XP.battleMatch);
-    if (won) this.gainXp('Win', XP.battleWin);
+    if (won) this.gainXp('Win', this.br ? XP.royaleWin : XP.battleWin);
     showXp(this.xpOverlay, this.xpStart, stash.inv.xp, this.xpLines);
     this.xpOverlay.hidden = false;
     if (won) sfx.roundClear();
@@ -1700,6 +1761,7 @@ export class Game {
   private deathSubtitle(): string | null {
     if (this.alive) return null;
     if (this.mode === 'survival') return this.wave?.phase === 'over' ? 'The horde won this time' : 'You are down. Back when the round ends';
+    if (this.br?.live || this.br?.info.phase === 'over') return `Out of the match · ${this.aliveCount()} left standing`;
     const left = Math.max(0, this.respawnAt - this.time);
     return left > 0 ? `respawning in ${left.toFixed(1)}s` : 'respawning…';
   }
@@ -1711,6 +1773,8 @@ export class Game {
     const cam = this.camera;
     if (!this.alive) {
       if (this.killcam) return; // updateKillcam owns the camera
+      this.outFor += dt;
+      if (this.br && this.spectate(dt)) return;
       // Spectate our own flying corpse.
       if (this.deathCorpse?.obj.parent) {
         const target = this.deathCorpse.obj.position;
@@ -1761,6 +1825,38 @@ export class Game {
     this.vm.update(dt, speed, this.me.onGround, lx, ly, this.roll);
   }
 
+  /** Living players (us included). */
+  private aliveCount() {
+    return [...this.players.values()].filter((p) => p.alive).length;
+  }
+
+  /** Out of a Royale: after a few seconds over our body, follow a living player (click for the next one). */
+  private spectate(dt: number): boolean {
+    if (this.br!.info.phase === 'warmup' || (this.deathCorpse && this.outFor < 3)) return false;
+    let r = this.br!.spectating === null ? undefined : this.remotes.get(this.br!.spectating);
+    if (!r?.info.alive) {
+      this.spectateNext();
+      r = this.br!.spectating === null ? undefined : this.remotes.get(this.br!.spectating);
+    }
+    if (!r) return false;
+    // Over their shoulder, a little above, looking where they look.
+    const d = lookDir(r.yaw, 0);
+    const want = this.tmpA.set(r.pos.x - d.x * 4.5, r.pos.y + 2.6, r.pos.z - d.z * 4.5);
+    const cam = this.camera;
+    cam.position.lerp(want, Math.min(1, dt * 6));
+    cam.lookAt(this.tmpB.set(r.pos.x + d.x * 6, r.pos.y + 1.4, r.pos.z + d.z * 6));
+    cam.fov += (BASE_FOV - cam.fov) * Math.min(1, dt * 8);
+    cam.updateProjectionMatrix();
+    return true;
+  }
+
+  /** The next living player to watch. */
+  private spectateNext() {
+    const ids = [...this.remotes.values()].filter((r) => r.info.alive && !r.bot).map((r) => r.info.id);
+    const at = this.br!.spectating === null ? -1 : ids.indexOf(this.br!.spectating);
+    this.br!.spectating = ids.length ? ids[(at + 1) % ids.length] : null;
+  }
+
   /** Our rope runs from just below the camera (where the hand holds the reel) to the anchor. */
   private updateRopes(dt: number) {
     if (!this.alive) {
@@ -1783,7 +1879,7 @@ export class Game {
     this.hud.setScoped(this.scoped && this.alive, this.aiming && this.alive);
     this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, this.bolt / this.stats.fireCooldown);
     const gun = this.loadout.gun!;
-    this.hud.ammo(gun.mag, this.stats.mag, this.horde || gun.reserve !== Infinity ? gun.reserve : null, this.reloading > 0, this.stats.label, this.horde ? this.loadout.slots.map((s) => (s ? gunStats(s.w, s.up).label : null)) : [], this.loadout.cur);
+    this.hud.ammo(gun.mag, this.stats.mag, this.horde || gun.reserve !== Infinity ? gun.reserve : null, this.reloading > 0, this.stats.label, this.horde || this.br ? this.loadout.slots.map((s) => (s ? gunStats(s.w, s.up).label : null)) : [], this.loadout.cur);
     this.useHud.update(this.horde ? this.points : null, this.alive && !this.workshop?.menuOpen ? this.use : null);
     this.touch?.update(this.alive && !!this.use);
     this.hud.grapple(this.grappleState());
@@ -1791,13 +1887,16 @@ export class Game {
     this.hud.setCredit(this.vm.credit);
     const down = this.downed.get(this.selfId);
     if (down) this.hud.death('You are down!', this.downText(down));
+    else if (this.br?.spectating) this.hud.death('', null); // the spectating line says enough
     else this.hud.death(this.deathText, this.killcam ? null : this.deathSubtitle());
     this.hud.killcam(this.killcam ? this.killcam.text : null);
-    this.hud.health(this.horde ? this.hp : null, maxHp(this.jug));
+    this.hud.health(this.horde || (this.br && this.alive) ? this.hp : null, this.br ? ROYALE.hp : maxHp(this.jug));
     this.hud.wave(this.waveText());
     this.hud.boss(this.horde?.bossHp() ?? null);
     this.postgame?.tick(this.time);
-    this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId, this.teams, this.hill ? `Hold the hill for ${KOTH.holdToWin / 60} minutes` : undefined);
+    this.hud.liveScores(this.opts.net ? [...this.players.values()] : null, this.selfId, this.teams, this.hill ? `Hold the hill for ${KOTH.holdToWin / 60} minutes` : this.br ? 'Last one standing wins' : undefined);
+    const watched = this.br?.spectating ? this.players.get(this.br.spectating) : undefined;
+    this.br?.update(this.time, this.camera.position, { alive: this.aliveCount(), me: this.alive ? this.me.pos : this.camera.position, yaw: this.alive ? this.input.yaw : this.camera.rotation.y, living: this.alive, spectating: !this.alive && watched ? watched.name : null });
     this.hillFx?.update(this.hill, this.time);
     this.hillHud?.update(this.hill, this.players.get(this.selfId)?.team, this.alive && !!this.map.koth && inZone(this.map.koth.zone, this.me.pos));
     this.hud.scoreboard(this.showScores || this.matchOver ? [...this.players.values(), ...[...this.remotes.values()].filter((r) => r.bot).map((r) => r.info)] : null, this.selfId, this.teams);
@@ -1898,6 +1997,7 @@ export class Game {
     this.input.dispose();
     this.hud.dispose();
     this.postgame?.dispose();
+    this.br?.dispose();
     this.xpOverlay.remove();
     this.gui.destroy();
     for (const id of [...this.remotes.keys()]) this.removeRemote(id);

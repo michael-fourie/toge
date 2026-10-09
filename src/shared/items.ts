@@ -22,7 +22,7 @@ export const RARITY: Record<Rarity, { name: string; color: number; weight: numbe
  * Coins (client-side, like the rest of the stash). Battle pays per kill and for winning the match;
  * Survival pays everyone in the lobby for every round cleared and for every boss killed. Practice pays nothing.
  */
-export const COIN = { name: 'Coins', start: 300, kill: 10, win: 50, round: 10, boss: 50, bot: 1 } as const;
+export const COIN = { name: 'Coins', start: 300, kill: 10, win: 50, round: 10, boss: 50, bot: 1, royaleWin: 100 } as const;
 
 export type Slot = 'rifle' | 'knife' | 'hat' | 'face' | 'back';
 export const SLOTS: readonly Slot[] = ['rifle', 'knife', 'hat', 'face', 'back'];

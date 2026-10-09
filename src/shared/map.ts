@@ -27,6 +27,8 @@ export interface MapData {
   koth?: { zone: Zone; teamSpawns: [SpawnPoint[], SpawnPoint[]] };
   /** Survival maps: rooms, doors, windows, wall guns and stations. */
   survival?: SurvivalLayout;
+  /** Battle Royale maps: where loot lies (feet height) and the first zone, which covers the whole island. */
+  royale?: { loot: Vec3[]; zone: { x: number; z: number; r: number } };
   killY: number;
 }
 
@@ -106,7 +108,7 @@ export const mirrorTrigger = (t: Trigger): Trigger => (t.kind === 'boost' ? { ..
  * A little stone shrine: 4 walls with doorways on the ±Z sides, sniping windows on the ±X sides,
  * and a flat roof you can stand on.
  */
-function shrine(cx: number, floorY: number, cz: number, size: number, height: number): Box[] {
+export function shrine(cx: number, floorY: number, cz: number, size: number, height: number): Box[] {
   const h = size / 2;
   const t = 0.6; // wall thickness
   const y0 = floorY;

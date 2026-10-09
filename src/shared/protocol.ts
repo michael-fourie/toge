@@ -4,6 +4,7 @@ import type { ContraptionKind } from './contraptions.ts';
 import type { KothState } from './koth.ts';
 import type { ModId } from './modifiers.ts';
 import type { PerkId } from './perks.ts';
+import type { LootItem, ZoneState } from './royale.ts';
 import type { Team, Winner } from './teams.ts';
 import type { Slot, WeaponId } from './weapons.ts';
 import type { JobId } from './zombie.ts';
@@ -25,6 +26,8 @@ export interface LobbyInfo {
   map?: BattleMap;
   /** Battle teams: King of the Hill (always on Crown) instead of a kill race. */
   koth?: boolean;
+  /** Battle: Battle Royale (always on Wildmere), last one standing. */
+  br?: boolean;
   host: string;
   players: number;
   max: number;
@@ -82,7 +85,7 @@ export interface ZombieHit {
   h?: boolean;
 }
 
-export type UseKind = 'door' | 'wall' | 'box' | 'take' | 'punch' | 'jug' | 'board' | 'perk' | 'revive' | 'power' | 'part' | 'bench' | 'tinker' | 'scrap';
+export type UseKind = 'door' | 'wall' | 'box' | 'take' | 'punch' | 'jug' | 'board' | 'perk' | 'revive' | 'power' | 'part' | 'bench' | 'tinker' | 'scrap' | 'loot';
 
 /** A contraption someone built (Survival): what it is, where it stands (its base), which way it faces, whose it is. */
 export interface NetContraption {
@@ -144,29 +147,40 @@ export interface PostRow {
   gone: boolean;
 }
 
-export type DeathCause = 'snipe' | 'headshot' | 'void' | 'zombie' | 'grenade' | 'knife';
+export type DeathCause = 'snipe' | 'headshot' | 'void' | 'zombie' | 'grenade' | 'knife' | 'shot' | 'zone';
+
+/**
+ * Battle Royale: warmup (everyone runs about with respawns while friends join; `left` seconds to go), live (no
+ * respawns; `n` players started) or over (a winner is being shown).
+ */
+export interface RoyaleInfo {
+  phase: 'warmup' | 'live' | 'over';
+  left: number;
+  n: number;
+}
 
 // Client -> server
 export type ClientMsg =
   | { t: 'state'; p: V3; v: V3; yaw: number; pitch: number; f: number; g?: V3 }
-  | { t: 'shoot'; from: V3; to: V3; victim?: number; headshot?: boolean; hits?: ZombieHit[]; knife?: boolean } // knife: a stab, not a gun shot
+  | { t: 'shoot'; from: V3; to: V3; victim?: number; headshot?: boolean; hits?: ZombieHit[]; knife?: boolean; ph?: number } // knife: a stab, not a gun shot; ph: Royale, pellets that hit the victim
   | { t: 'fell' }
   | { t: 'nade'; p: V3; v: V3 } // threw a grenade (server rate-limits to GRENADE.cooldown and relays it)
   | { t: 'boom'; p: V3 } // our grenade went off here (server checks it's ours, then does the damage)
   | { t: 'again' } // Survival post-game: ready for another run
-  | { t: 'use'; kind: UseKind; id: number } // Survival: buy, take, repair... (the server re-checks range, points and state)
-  | { t: 'equip'; slot: number } // Survival: switch to the gun in this slot
+  | { t: 'use'; kind: UseKind; id: number } // Survival: buy, take, repair... Royale: pick up loot (the server re-checks range, points and state)
+  | { t: 'equip'; slot: number } // Survival and Royale: switch to the gun in this slot
   | { t: 'team'; team: Team } // Battle teams: switch to this side
   | { t: 'shuffle' } // Battle teams: host only, randomise everyone's side
-  | { t: 'build'; k: ContraptionKind; p: V3; yaw: number }; // Survival: put a contraption here (the client already paid the coins)
+  | { t: 'build'; k: ContraptionKind; p: V3; yaw: number } // Survival: put a contraption here (the client already paid the coins)
+  | { t: 'sync' }; // Royale: the game screen opened; resend the loot and what I carry (missed while in the lobby room)
 
 // Server -> client
 export type ServerMsg =
   | { t: 'welcome'; id: number }
-  | { t: 'joined'; code: string; mode: GameMode; hostId: number; teams?: boolean; map?: BattleMap; koth?: boolean; players: PlayerInfo[]; spawn: { p: V3; yaw: number }; wave?: WaveInfo }
+  | { t: 'joined'; code: string; mode: GameMode; hostId: number; teams?: boolean; map?: BattleMap; koth?: boolean; br?: RoyaleInfo; players: PlayerInfo[]; spawn: { p: V3; yaw: number }; wave?: WaveInfo }
   | { t: 'playerJoined'; player: PlayerInfo }
   | { t: 'playerLeft'; id: number; hostId: number }
-  | { t: 'snapshot'; players: NetPlayerState[]; zombies?: NetZombie[]; koth?: KothState }
+  | { t: 'snapshot'; players: NetPlayerState[]; zombies?: NetZombie[]; koth?: KothState; zone?: ZoneState }
   | { t: 'nade'; id: number; p: V3; v: V3 } // someone else's grenade left their hand
   | { t: 'blast'; id: number; p: V3 } // a grenade exploded here (everyone shows it and takes the shove)
   | { t: 'shot'; id: number; from: V3; to: V3; w?: WeaponId; up?: boolean } // w: Survival gun; up: Pack-a-Punched
@@ -180,8 +194,8 @@ export type ServerMsg =
   | { t: 'wave'; wave: WaveInfo }
   | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3; boss?: boolean; job?: JobId; by?: ContraptionKind } // a boss: everyone gets the coins; a Stoker bursts; by: the killer's contraption did it
   | { t: 'postgame'; rounds: number; rows: PostRow[]; waiting: number } // game-over board, resent when readiness changes
-  | { t: 'hp'; hp: number; from?: V3 } // only to the player concerned; `from` is where the claw came from
-  | { t: 'me'; pts: number; jug?: boolean; perks?: PerkId[]; slots: (Slot | null)[]; cur: number; fill?: number[] } // only to the player concerned; fill: slots that start with a full mag and ammo
+  | { t: 'hp'; hp: number; from?: V3; sh?: number } // only to the player concerned; `from` is where the claw (or shot) came from; sh: Royale shield
+  | { t: 'me'; pts: number; jug?: boolean; perks?: PerkId[]; slots: (Slot | null)[]; cur: number; fill?: number[]; rounds?: (number | null)[]; nades?: number } // only to the player concerned; fill: slots that start with a full mag and ammo (Royale: with `rounds[i]` rounds in all)
   | { t: 'downed'; id: number; bleed: number; self?: number } // went down: `bleed` seconds to be revived; `self`: Second Wind gets them up after this long
   | { t: 'reviving'; id: number; by: number; prog: number } // a teammate is reviving them (prog 0..1; 0 = they let go)
   | { t: 'revived'; id: number } // back on their feet
@@ -192,6 +206,11 @@ export type ServerMsg =
   | { t: 'contraptions'; list: NetContraption[]; piles: { n: number; p: V3 }[] } // Survival: every contraption (and spike pile) there is, on any change
   | { t: 'cfx'; id: number; fx: ContraptionFx; p?: V3[]; n?: number } // a contraption did something
   | { t: 'refund'; k: ContraptionKind; share: number; why: string } // only to the builder: give back this share of its coin price (refused, or scrapped)
+  // Battle Royale
+  | { t: 'royale'; info: RoyaleInfo } // the match changed phase (or the warmup clock moved)
+  | { t: 'loot'; items: LootItem[]; reset?: boolean } // loot appeared (reset: this is all of it now)
+  | { t: 'looted'; id: number; by: number } // someone took it
+  | { t: 'ammo'; add: number[] } // only to the player concerned: rounds added to each gun slot's spare ammo
   | { t: 'error'; message: string };
 
 export const round3 = (n: number) => Math.round(n * 1000) / 1000;

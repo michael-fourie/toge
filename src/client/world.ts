@@ -149,7 +149,7 @@ export function rampGeometry(b: Box, tile: number): THREE.BufferGeometry {
   return geo;
 }
 
-function toon(params: THREE.MeshToonMaterialParameters) {
+export function toon(params: THREE.MeshToonMaterialParameters) {
   return new THREE.MeshToonMaterial({ gradientMap: toonRamp(), ...params });
 }
 
@@ -490,13 +490,13 @@ function canopy(d: Decor, r: () => number): THREE.Group {
 }
 
 /** Instanced grass tufts and flowers on floor tops (tiny, so they never hide players). */
-function meadow(floors: Box[], pads: Box[], all: Box[], r: () => number): THREE.Group {
+export function meadow(floors: Box[], pads: Box[], all: Box[], r: () => number, count = 2500): THREE.Group {
   const group = new THREE.Group();
   const tuftGeo = grassClump();
   const flowerGeo = new THREE.IcosahedronGeometry(0.07, 0);
   flowerGeo.translate(0, 0.2, 0);
-  const tufts = new THREE.InstancedMesh(tuftGeo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), 2500);
-  const flowers = new THREE.InstancedMesh(flowerGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }), 700);
+  const tufts = new THREE.InstancedMesh(tuftGeo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), count);
+  const flowers = new THREE.InstancedMesh(flowerGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }), Math.round(count * 0.28));
   const blocked = (x: number, y: number, z: number) =>
     pads.some((p) => x > p.min.x - 0.2 && x < p.max.x + 0.2 && z > p.min.z - 0.2 && z < p.max.z + 0.2) ||
     all.some((o) => o.kind !== 'floor' && x > o.min.x && x < o.max.x && z > o.min.z && z < o.max.z && o.min.y <= y + 0.3 && o.max.y > y);
@@ -559,10 +559,10 @@ function grassClump(): THREE.BufferGeometry {
 }
 
 /** Radians per second the horizon clouds circle at 300 m (farther ones go slower, so they don't all move as one). */
-const CLOUD_DRIFT = 0.004;
+export const CLOUD_DRIFT = 0.004;
 
 /** Sea of clouds far below: the void you fall into. */
-function cloudSea(renderer: THREE.WebGLRenderer): THREE.Mesh {
+export function cloudSea(renderer: THREE.WebGLRenderer): THREE.Mesh {
   const tex = cloudSeaTexture(renderer);
   tex.repeat.set(8, 8);
   const sea = new THREE.Mesh(
@@ -576,7 +576,7 @@ function cloudSea(renderer: THREE.WebGLRenderer): THREE.Mesh {
 }
 
 /** Big sunlit cumulus billboards around the horizon, plus puffs rising out of the cloud sea. */
-function cumulus(): THREE.Group {
+export function cumulus(scale = 1): THREE.Group {
   const g = new THREE.Group();
   const textures = [1, 2, 3, 4].map((s) => cloudTexture(s * 97));
   const r = rng(9);
@@ -590,20 +590,20 @@ function cumulus(): THREE.Group {
     g.add(sp);
   };
   // Far enough out (and wide enough apart from the islands) that none ever hangs in front of a sightline.
-  for (let i = 0; i < 26; i++) add(450 + r() * 250, 10 + r() * 130, 180 + r() * 220);
-  for (let i = 0; i < 26; i++) add(170 + r() * 300, -62 + r() * 12, 70 + r() * 90, 0.9); // their tops stay well under the islands
+  for (let i = 0; i < 26; i++) add((450 + r() * 250) * scale, 10 + r() * 130 * scale, (180 + r() * 220) * scale);
+  for (let i = 0; i < 26; i++) add((170 + r() * 300) * scale, -62 + r() * 12, (70 + r() * 90) * scale, 0.9); // their tops stay well under the islands
   return g;
 }
 
 /** Hazy floating islands in the distance, some with a tree or a ruined column. */
-function distantIslands(rock: THREE.Material, grass: THREE.Material, r: () => number): THREE.Group {
+export function distantIslands(rock: THREE.Material, grass: THREE.Material, r: () => number, near = 150, spread = 220): THREE.Group {
   const g = new THREE.Group();
   const trunk = toon({ color: 0x7a5236 });
   const leaves = [toon({ color: 0x4f8a3c }), toon({ color: 0x6aa548 }), toon({ color: 0x3f7434 })];
   const stone = toon({ color: 0xe8d8bb });
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2 + r() * 0.4;
-    const dist = 150 + r() * 220;
+    const dist = near + r() * spread;
     const rad = 8 + r() * 22;
     const island = new THREE.Group();
     const top = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad * 0.92, rad * 0.25, 14), [grass, grass, grass]);
