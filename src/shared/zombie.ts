@@ -2,6 +2,7 @@ import { type Box, moveAndCollide, newContacts, snapToGround } from './collision
 import { BOSS, JOBS, MOVE, ZOMBIE } from './constants.ts';
 import { type Vec3, copy, v3 } from './math.ts';
 import { launchTo } from './movement.ts';
+import { WORKSHOP } from './contraptions.ts';
 
 // Survival zombies: a dumb, deterministic chase AI on top of the shared collision. The server runs it.
 // They shamble straight at the nearest player, swipe when close, hop over roots and crates, and
@@ -37,6 +38,8 @@ export interface Zombie {
   maxHp?: number;
   /** A zombie with a job (JOBS): its outfit and its quirk. */
   job?: JobId;
+  /** Seconds of Goo Sprayer goo left on it (contraptions.ts): it walks at WORKSHOP.gooSlow of its speed meanwhile. */
+  goo?: number;
 }
 
 export type JobId = 'welder' | 'courier' | 'stoker';
@@ -197,6 +200,8 @@ function stepZombie(z: Zombie, targets: readonly ZombieTarget[], shove: Vec3, dt
   z.clawCooldown = Math.max(0, z.clawCooldown - dt);
   z.leapCooldown = Math.max(0, z.leapCooldown - dt);
   z.detour = Math.max(0, z.detour - dt);
+  const speed = z.goo ? z.speed * WORKSHOP.gooSlow : z.speed;
+  if (z.goo) z.goo = Math.max(0, z.goo - dt);
   let hit = -1;
   let wantX = 0;
   let wantZ = 0;
@@ -266,12 +271,12 @@ function stepZombie(z: Zombie, targets: readonly ZombieTarget[], shove: Vec3, dt
 
   const walking = wantX !== 0 || wantZ !== 0;
   if (z.onGround) {
-    z.vel.x = wantX * z.speed + shove.x;
-    z.vel.z = wantZ * z.speed + shove.z;
+    z.vel.x = wantX * speed + shove.x;
+    z.vel.z = wantZ * speed + shove.z;
   } else if (z.stuck > 0) {
     // Mid-hop over an obstacle: keep pressing toward them, or its face stops us dead on the way up.
-    z.vel.x = -Math.sin(z.yaw) * z.speed;
-    z.vel.z = -Math.cos(z.yaw) * z.speed;
+    z.vel.x = -Math.sin(z.yaw) * speed;
+    z.vel.z = -Math.cos(z.yaw) * speed;
   }
   const wasGround = z.onGround;
   const x0 = z.pos.x;

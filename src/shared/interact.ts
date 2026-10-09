@@ -1,4 +1,5 @@
 // Survival "press F" rules, shared so the client can show the right prompt and the server can check it. Pure.
+import { CONTRAPTIONS, type ContraptionKind, WORKSHOP } from './contraptions.ts';
 import { SURVIVAL } from './constants.ts';
 import type { SurvivalLayout } from './layout.ts';
 import type { Vec3 } from './math.ts';
@@ -37,6 +38,8 @@ export interface UseCtx {
   /** Scythe parts found, and the scythe: 0 not built, -1 on the bench, else who carries it. */
   parts: readonly boolean[];
   scythe: number;
+  /** Contraptions out in the building (F on one of your own scraps it). */
+  contraptions?: readonly { id: number; k: ContraptionKind; pos: Vec3; owner: number }[];
 }
 
 /** Points from a zombie kill. */
@@ -126,6 +129,15 @@ export function findUse(pos: Vec3, c: UseCtx): Use | null {
     else if (c.scythe === 0) offer(dBench, { kind: 'bench', id: 0, status: 'ready', price: 0, text: 'Build the Gale Scythe' });
     else if (c.scythe === -1) offer(dBench, { kind: 'bench', id: 0, status: 'ready', price: 0, text: 'Take the Gale Scythe' });
     else offer(dBench, { kind: 'bench', id: 0, status: 'owned', price: 0, text: c.scythe === c.self ? 'You carry the Gale Scythe' : 'Someone carries the Gale Scythe' });
+  }
+
+  const dTinker = near(lay.tinker.pos);
+  if (dTinker >= 0) offer(dTinker, { kind: 'tinker', id: 0, status: 'ready', price: 0, text: "Tinker's Workbench: build contraptions (coins)" });
+  for (const g of c.contraptions ?? []) {
+    const d = near(g.pos, WORKSHOP.scrapRange);
+    if (d < 0 || g.owner !== c.self) continue;
+    const def = CONTRAPTIONS[g.k];
+    offer(d + 0.3, { kind: 'scrap', id: g.id, status: 'ready', price: 0, text: `Scrap your ${def.name} (+${Math.floor(def.price * WORKSHOP.scrapShare)} coins)` });
   }
 
   // A teammate down beside you comes before anything else in reach.

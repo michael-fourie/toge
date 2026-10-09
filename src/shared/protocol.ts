@@ -1,5 +1,6 @@
 // Wire protocol. JSON for the prototype; swap to a binary encoding once the shape settles.
 
+import type { ContraptionKind } from './contraptions.ts';
 import type { KothState } from './koth.ts';
 import type { ModId } from './modifiers.ts';
 import type { PerkId } from './perks.ts';
@@ -81,7 +82,23 @@ export interface ZombieHit {
   h?: boolean;
 }
 
-export type UseKind = 'door' | 'wall' | 'box' | 'take' | 'punch' | 'jug' | 'board' | 'perk' | 'revive' | 'power' | 'part' | 'bench';
+export type UseKind = 'door' | 'wall' | 'box' | 'take' | 'punch' | 'jug' | 'board' | 'perk' | 'revive' | 'power' | 'part' | 'bench' | 'tinker' | 'scrap';
+
+/** A contraption someone built (Survival): what it is, where it stands (its base), which way it faces, whose it is. */
+export interface NetContraption {
+  id: number;
+  k: ContraptionKind;
+  p: V3;
+  yaw: number;
+  owner: number;
+}
+
+/**
+ * Something a contraption just did, for the client to animate. pile/pileGone: a spike pile `n` appeared at p[0] or wore
+ * out; tacks: a spray all round; goo: a squirt at p[0]; bomb: lobbed at p[0] (it lands after WORKSHOP.bombFlight);
+ * zap: lightning through p[0], p[1], ...; owl: a shot at p[0].
+ */
+export type ContraptionFx = 'pile' | 'pileGone' | 'tacks' | 'goo' | 'bomb' | 'zap' | 'owl';
 
 /** The Mystery Box. Closed: pay to open. Rolling: cycling guns. Ready: `owner` may take `gun` (null: the plush, which gives the points back). Leaving: it is moving to another spot. */
 type BoxPhase = 'closed' | 'rolling' | 'ready' | 'leaving';
@@ -140,7 +157,8 @@ export type ClientMsg =
   | { t: 'use'; kind: UseKind; id: number } // Survival: buy, take, repair... (the server re-checks range, points and state)
   | { t: 'equip'; slot: number } // Survival: switch to the gun in this slot
   | { t: 'team'; team: Team } // Battle teams: switch to this side
-  | { t: 'shuffle' }; // Battle teams: host only, randomise everyone's side
+  | { t: 'shuffle' } // Battle teams: host only, randomise everyone's side
+  | { t: 'build'; k: ContraptionKind; p: V3; yaw: number }; // Survival: put a contraption here (the client already paid the coins)
 
 // Server -> client
 export type ServerMsg =
@@ -160,7 +178,7 @@ export type ServerMsg =
   | { t: 'matchStart'; players: PlayerInfo[] } // scores zeroed, everyone respawns (a `respawn` follows for each)
   // Survival
   | { t: 'wave'; wave: WaveInfo }
-  | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3; boss?: boolean; job?: JobId } // a boss: everyone gets the coins; a Stoker bursts
+  | { t: 'zombieDied'; id: number; killer: number; headshot: boolean; dir: V3; boss?: boolean; job?: JobId; by?: ContraptionKind } // a boss: everyone gets the coins; a Stoker bursts; by: the killer's contraption did it
   | { t: 'postgame'; rounds: number; rows: PostRow[]; waiting: number } // game-over board, resent when readiness changes
   | { t: 'hp'; hp: number; from?: V3 } // only to the player concerned; `from` is where the claw came from
   | { t: 'me'; pts: number; jug?: boolean; perks?: PerkId[]; slots: (Slot | null)[]; cur: number; fill?: number[] } // only to the player concerned; fill: slots that start with a full mag and ammo
@@ -171,6 +189,9 @@ export type ServerMsg =
   | { t: 'maxAmmo'; id: number; by: number } // someone grabbed it: every player's guns are full
   | { t: 'dropGone'; id: number } // it faded
   | ({ t: 'world' } & WorldState) // Survival: the building as it is now
+  | { t: 'contraptions'; list: NetContraption[]; piles: { n: number; p: V3 }[] } // Survival: every contraption (and spike pile) there is, on any change
+  | { t: 'cfx'; id: number; fx: ContraptionFx; p?: V3[]; n?: number } // a contraption did something
+  | { t: 'refund'; k: ContraptionKind; share: number; why: string } // only to the builder: give back this share of its coin price (refused, or scrapped)
   | { t: 'error'; message: string };
 
 export const round3 = (n: number) => Math.round(n * 1000) / 1000;

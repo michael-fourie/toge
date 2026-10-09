@@ -26,6 +26,7 @@ test('everything you stand on or spawn at is clear and on the floor', () => {
     ...lay.boxSpots.map((b, i): [string, Vec3] => [`box spot ${i}`, { ...b.pos }]),
     ['punch', lay.punch],
     ['jug', lay.jug],
+    ['in front of the tinker bench', { x: lay.tinker.pos.x - 1.3, y: 0, z: lay.tinker.pos.z }],
     ...lay.barricades.flatMap((b): [string, Vec3][] => [[`outside ${b.id}`, b.outside], [`inside ${b.id}`, b.inside], ...b.spawns.map((s, i): [string, Vec3] => [`spawn ${b.id}.${i}`, s])]),
   ];
   for (const [name, p] of spots) assert.ok(clear({ ...p, y: p.y + 0.01 }, open.zombie), `${name} is inside something: ${JSON.stringify(p)}`);

@@ -179,6 +179,9 @@ export class Lobby {
       case 'equip':
         this.survival?.equip(m, msg.slot);
         return;
+      case 'build':
+        this.survival?.build(m, msg);
+        return;
       case 'nade':
         this.onNade(m, msg);
         return;

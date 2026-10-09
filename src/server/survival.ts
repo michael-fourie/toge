@@ -12,6 +12,8 @@ import type { PerkId } from '../shared/perks.ts';
 import { STARTER, type Slot, type WeaponId, bodyDamage, boxPool, gunStats, headDamage } from '../shared/weapons.ts';
 import { type Zombie, type ZombieTarget, bossRound, createBoss, createZombie, pickJob, stepHorde } from '../shared/zombie.ts';
 import type { Lobby, Member } from './lobby.ts';
+import { Workshop } from './workshop.ts';
+import type { ContraptionKind } from '../shared/contraptions.ts';
 
 const SIM_DT = 1 / 60; // zombie physics sub-step
 const LAY = FOUNDRY.survival!;
@@ -84,6 +86,21 @@ export class Survival {
   private nav = new Nav(LAY);
   private cols: Colliders = buildColliders(FOUNDRY);
   private brain = makeBrain(this.nav, LAY, this.boards);
+  /** Contraptions built at the Tinker's Workbench (workshop.ts). */
+  private workshop: Workshop = new Workshop({
+    zombies: () => this.zombies,
+    cols: () => this.cols,
+    doors: () => this.doors,
+    round: () => this.round,
+    rand: () => this.rand(),
+    clock: () => this.clock,
+    hurt: (owner, z, damage, dir, by) => {
+      const m = this.lobby.members.get(owner);
+      if (m) this.hurt(m, z, false, damage, dir, true, by);
+    },
+    broadcast: (msg) => this.lobby.broadcast(msg),
+    sendTo: (m, msg) => this.lobby.sendTo(m, msg),
+  });
 
   constructor(private lobby: Lobby) {
     this.resetBuilding();
@@ -122,6 +139,7 @@ export class Survival {
       } else if (this.timer <= 0) this.startRound();
     }
     this.simulate(dt);
+    this.workshop.tick(dt);
     this.tickDowns(dt);
     this.tickDrops();
     this.tickBox(dt);
@@ -208,6 +226,7 @@ export class Survival {
 
   forget(id: number) {
     this.dropScythe(id);
+    this.workshop.forget(id);
     this.swungAt.delete(id);
     this.wallet.delete(id);
     this.downs.delete(id);
@@ -258,7 +277,7 @@ export class Survival {
     if (!m.info.alive || this.isDown(m.info.id)) return;
     const w = this.purse(m);
     const [x, y, z] = m.state.p;
-    const u = findUse({ x, y, z }, { lay: LAY, doorsOpen: this.doors, boards: this.boards, box: this.box, points: w.points, slots: w.slots, cur: w.cur, jug: w.jug, perks: w.perks, downed: this.downedNear(m), self: m.info.id, power: this.power, parts: this.parts, scythe: this.scythe });
+    const u = findUse({ x, y, z }, { lay: LAY, doorsOpen: this.doors, boards: this.boards, box: this.box, points: w.points, slots: w.slots, cur: w.cur, jug: w.jug, perks: w.perks, downed: this.downedNear(m), self: m.info.id, power: this.power, parts: this.parts, scythe: this.scythe, contraptions: this.workshop.forUse() });
     if (!u || u.kind !== msg.kind || u.id !== msg.id || u.status !== 'ready') return;
 
     let fill: number[] | undefined;
@@ -321,6 +340,11 @@ export class Survival {
       case 'bench':
         this.scythe = this.scythe === 0 ? -1 : m.info.id; // build it, then whoever takes it carries it
         this.dirty = true;
+        return;
+      case 'tinker':
+        return; // the menu is the client's; building comes as 'build'
+      case 'scrap':
+        this.workshop.scrap(m, u.id);
         return;
     }
     this.sendMe(m, fill);
@@ -553,14 +577,23 @@ export class Survival {
     }
   }
 
-  /** Damages a zombie; pays 10 for a hit (once per shot) and kill points when it dies. Returns whether this shot has paid its hit points. */
-  private hurt(m: Member, z: Zombie, headshot: boolean, damage: number, dir: V3, scored: boolean): boolean {
+  /** A contraption wants to be built (Survival only, by a player who's up, during the run). */
+  build(m: Member, msg: Extract<ClientMsg, { t: 'build' }>) {
+    this.workshop.build(m, msg, m.info.alive && !this.isDown(m.info.id) && this.phase !== 'over');
+  }
+
+  /**
+   * Damages a zombie; pays 10 for a hit (once per shot) and kill points when it dies. Returns whether this shot has paid
+   * its hit points. `by`: one of the player's contraptions did it (hits pay nothing; kills pay as usual).
+   */
+  private hurt(m: Member, z: Zombie, headshot: boolean, damage: number, dir: V3, scored: boolean, by?: ContraptionKind): boolean {
     if (!this.zombies.includes(z)) return scored; // already dead (a Stoker's burst took it a moment ago)
     z.hp -= damage;
     const w = this.purse(m);
     const k = this.mod === 'double' ? 2 : 1;
     if (z.hp > 0) {
-      if (!scored) w.points += SURVIVAL.hitPoints * k;
+      if (scored) return true; // nothing new to tell them
+      w.points += SURVIVAL.hitPoints * k;
       this.sendMe(m);
       return true;
     }
@@ -570,7 +603,7 @@ export class Survival {
     w.points += k * ((z.boss ? BOSS.points : killPoints(headshot)) + (z.job === 'courier' ? JOBS.courier.points : 0));
     this.sendMe(m);
     this.maybeDrop(z);
-    this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot, dir, boss: z.boss ? true : undefined, job: z.job });
+    this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot, dir, boss: z.boss ? true : undefined, job: z.job, by });
     if (z.job === 'stoker') this.burst(m, z);
     this.broadcastWave();
     return scored;
@@ -609,6 +642,7 @@ export class Survival {
     this.lobby.sendTo(m, { t: 'hp', hp: m.hp });
     this.sendMe(m, [0, 1]);
     this.sendWorld(m);
+    this.workshop.sendList(m);
     for (const d of this.drops) this.lobby.sendTo(m, { t: 'drop', id: d.id, p: [round3(d.pos.x), round3(d.pos.y), round3(d.pos.z)], life: d.until - this.clock });
     // Who is down right now, so a newcomer sees them lying there.
     for (const [id, d] of this.downs) if (id !== m.info.id) this.lobby.sendTo(m, { t: 'downed', id, bleed: d.bleed, self: Number.isFinite(d.selfAt) ? d.selfAt - this.clock : undefined });
@@ -665,6 +699,7 @@ export class Survival {
     }
     this.downs.clear();
     this.resetBuilding();
+    this.workshop.reset();
     this.reviveAll();
     this.setPhase('intermission', SURVIVAL.firstRoundDelay);
   }
