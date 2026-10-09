@@ -294,5 +294,29 @@ export const sfx = {
     tone('triangle', 784, 788, 0.6, 0.18, 0.62);
   },
   denied: () => tone('square', 180, 120, 0.15, 0.12),
+  // Contraptions: `v` is a 0..1 volume by distance.
+  /** A contraption built: a ratchet and a ding. */
+  build() {
+    for (let i = 0; i < 4; i++) burst(0.04, 0.25, 2400, 3, 'bandpass');
+    for (let i = 0; i < 4; i++) tone('square', 900, 600, 0.03, 0.06, i * 0.06);
+    tone('triangle', 1320, 1320, 0.4, 0.16, 0.28);
+  },
+  tacks: (v: number) => {
+    for (let i = 0; i < 6; i++) tone('square', 2600 - i * 120, 1800, 0.025, 0.05 * v, i * 0.018);
+  },
+  goo: (v: number) => tone('sine', 220, 90, 0.18, 0.22 * v), // bloop
+  lob: (v: number) => {
+    tone('triangle', 160, 70, 0.12, 0.3 * v); // thunk
+    burst(0.25, 0.12 * v, 900, 0.8, 'bandpass'); // whoosh
+  },
+  zap: (v: number) => {
+    tone('sawtooth', 1400, 200, 0.22, 0.12 * v);
+    burst(0.2, 0.2 * v, 4200, 2, 'highpass');
+  },
+  hoot: (v: number) => {
+    tone('sine', 520, 470, 0.12, 0.14 * v); // hoo
+    tone('sine', 470, 420, 0.2, 0.14 * v, 0.16); // hoo
+    burst(0.1, 0.35 * v, 2600, 0.7, 'highpass'); // and a crack
+  },
   gameOver: () => [392, 330, 262, 196].forEach((f, i) => tone('triangle', f, f * 0.98, 0.35, 0.2, i * 0.22)),
 };

@@ -60,6 +60,8 @@ import { type FoundryWorld, buildFoundry } from './foundryworld.ts';
 import { Loadout } from './loadout.ts';
 import { NadeHud } from './nadehud.ts';
 import { UseHud } from './usehud.ts';
+import { Workshop } from './workshop.ts';
+import { CONTRAPTIONS } from '../shared/contraptions.ts';
 import { Rope } from './rope.ts';
 import { SpeedFx } from './speedfx.ts';
 import type { Net } from './net.ts';
@@ -250,6 +252,8 @@ export class Game {
   private shadowTick = 0;
   private boxTick = 0;
   private useHud!: UseHud;
+  /** Survival: the Tinker's Workbench, its menu, placing and the contraptions out in the building. */
+  private workshop: Workshop | null = null;
 
   constructor(private opts: GameOptions) {
     const { container, net, joined } = opts;
@@ -319,6 +323,7 @@ export class Game {
     if (this.map.koth) this.hillHud = new HillHud(this.hud.root);
     this.nadeHud = new NadeHud(this.hud.root);
     this.input = new Input(this.renderer.domElement);
+    if (this.mode === 'survival') this.workshop = this.makeWorkshop();
     this.xpOverlay = document.createElement('div');
     this.xpOverlay.className = 'xp-overlay';
     this.xpOverlay.hidden = true;
@@ -326,7 +331,8 @@ export class Game {
     if (net && this.mode === 'survival') this.postgame = new PostGame(container, this.selfId, { onAgain: () => { net.send({ t: 'again' }); void this.input.lock(); }, onHome: () => this.exit() });
     this.input.yaw = spawn.yaw;
     this.input.onLockChange = (locked) => {
-      this.hud.setPaused(!locked);
+      this.hud.setPaused(!locked && !this.workshop?.menuOpen); // the build menu frees the mouse without pausing
+      if (!locked) this.workshop?.cancel(); // Esc while placing: put it away
       if (!locked) this.touch?.reset();
     };
     if (IS_TOUCH) {
@@ -380,6 +386,7 @@ export class Game {
     this.updateTracers(dt);
     this.world.update(this.time);
     this.updateGrenades(dt);
+    this.workshop?.update(this.time, dt);
     this.updateCamera(dt);
     this.recordSelf();
     this.updateRopes(dt);
@@ -485,6 +492,15 @@ export class Game {
     if (this.autoReloadAt >= 0 && this.time >= this.autoReloadAt) {
       this.autoReloadAt = -1;
       this.startReload();
+    }
+    if (this.workshop?.placing) {
+      // Placing a contraption: the fire button builds it, the aim button cancels.
+      this.workshop.steer(this.input.takeFire(), this.input.scopeHeld);
+      this.input.takeGrenade();
+      this.scoped = this.aiming = false;
+      this.vm.setAim(false);
+      if (this.horde && this.alive && !this.isDown) this.useKeys();
+      return;
     }
     // Hold RMB to aim. Scoped guns (the AWP) drop you out of the scope during their bolt cycle and while reloading, CS-style;
     // if RMB is still held when it finishes you scope straight back in. Other guns just look down the sights.
@@ -703,7 +719,7 @@ export class Game {
     const downed = [...this.downed.keys()]
       .filter((id) => id !== this.selfId && this.remotes.has(id))
       .map((id) => ({ id, pos: this.remotes.get(id)!.pos, name: this.players.get(id)?.name ?? '???' }));
-    return { lay: this.map.survival!, doorsOpen: this.doors, boards: this.boards, box: this.box, points: this.points, slots: this.loadout.slots.map((s) => (s ? { w: s.w, up: s.up } : null)), cur: this.loadout.cur, jug: this.jug, perks: this.perks, downed, self: this.selfId, power: this.power, parts: this.parts, scythe: this.scythe };
+    return { lay: this.map.survival!, doorsOpen: this.doors, boards: this.boards, box: this.box, points: this.points, slots: this.loadout.slots.map((s) => (s ? { w: s.w, up: s.up } : null)), cur: this.loadout.cur, jug: this.jug, perks: this.perks, downed, self: this.selfId, power: this.power, parts: this.parts, scythe: this.scythe, contraptions: this.workshop?.forUse() };
   }
 
   /** Works out what F would do here (for the prompt) and, while F is held at a window, nails boards back up. */
@@ -772,10 +788,36 @@ export class Game {
     }
   }
 
+  private makeWorkshop(): Workshop {
+    return new Workshop({
+      scene: this.world.scene,
+      renderer: this.renderer,
+      hudRoot: this.hud.root,
+      map: this.map,
+      selfId: this.selfId,
+      cols: () => this.cols,
+      doors: () => this.doors,
+      eye: () => ({ x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z }),
+      look: () => lookDir(this.input.yaw, this.input.pitch),
+      feet: () => this.me.pos,
+      able: () => this.alive && !this.isDown,
+      send: (msg) => this.opts.net?.send(msg),
+      toast: (text, color) => this.hud.center(text, color, 2.2),
+      coins: (total, gained) => this.hud.coins(total, gained),
+      unlock: () => this.input.unlock(),
+      lock: () => {
+        void this.input.lock();
+        setTimeout(() => this.hud.setPaused(!this.input.locked && !this.workshop?.menuOpen), 400); // the browser can refuse the lock
+      },
+      closed: () => this.hud.setPaused(!this.input.locked),
+    });
+  }
+
   private pressUse() {
     const u = this.use;
     if (!u || u.kind === 'board' || u.kind === 'revive') return; // both are holds (useKeys)
     if (u.status !== 'ready') return sfx.denied();
+    if (u.kind === 'tinker') return this.workshop?.openMenu(); // the menu is ours; building comes later, as 'build'
     this.opts.net?.send({ t: 'use', kind: u.kind, id: u.id });
   }
 
@@ -1362,8 +1404,8 @@ export class Game {
       case 'zombieDied': {
         const killer = this.players.get(msg.killer);
         if (killer) killer.kills++;
-        const feats = msg.killer === this.selfId ? this.celebrate(msg.id, true, msg.headshot) : null;
-        this.hud.killfeed(killer, ZOMBIE_INFO, feats ?? (msg.headshot ? verbFor.headshot : verbFor.snipe));
+        const feats = msg.killer === this.selfId && !msg.by ? this.celebrate(msg.id, true, msg.headshot) : null;
+        this.hud.killfeed(killer, ZOMBIE_INFO, msg.by ? `🔧 ${CONTRAPTIONS[msg.by].name}` : (feats ?? (msg.headshot ? verbFor.headshot : verbFor.snipe)));
         const at = this.horde?.zombies.get(msg.id)?.pos;
         if (msg.job === 'stoker' && at) {
           this.scytheFx.embers(at);
@@ -1450,6 +1492,11 @@ export class Game {
         break;
       case 'world':
         this.onWorld(msg);
+        break;
+      case 'contraptions':
+      case 'cfx':
+      case 'refund':
+        this.workshop?.onNet(msg);
         break;
       case 'nade': {
         const o = { x: msg.p[0], y: msg.p[1], z: msg.p[2] };
@@ -1737,7 +1784,7 @@ export class Game {
     this.hud.update(dt, hlen(this.me.vel), this.me.wallrunning, this.bolt / this.stats.fireCooldown);
     const gun = this.loadout.gun!;
     this.hud.ammo(gun.mag, this.stats.mag, this.horde || gun.reserve !== Infinity ? gun.reserve : null, this.reloading > 0, this.stats.label, this.horde ? this.loadout.slots.map((s) => (s ? gunStats(s.w, s.up).label : null)) : [], this.loadout.cur);
-    this.useHud.update(this.horde ? this.points : null, this.alive ? this.use : null);
+    this.useHud.update(this.horde ? this.points : null, this.alive && !this.workshop?.menuOpen ? this.use : null);
     this.touch?.update(this.alive && !!this.use);
     this.hud.grapple(this.grappleState());
     sfx.setWind(this.alive && !this.hud.root.classList.contains('paused') ? SpeedFx.strength(hlen(this.me.vel)) : 0);
@@ -1856,6 +1903,7 @@ export class Game {
     for (const id of [...this.remotes.keys()]) this.removeRemote(id);
     this.horde?.dispose();
     this.drops?.dispose();
+    this.workshop?.dispose();
     disposeScene(this.world.scene); // frees the map's GPU memory: the Foundry is a lot of canvas textures
     this.renderer.dispose();
     this.renderer.domElement.remove();

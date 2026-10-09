@@ -24,6 +24,7 @@ interface Internals {
   timer: number;
   toSpawn: number;
   clock: number;
+  rand: () => number;
   doors: boolean[];
   nav: { setDoors(d: boolean[]): void };
   workshop: { list: { id: number; kind: ContraptionKind; pos: Vec3; owner: number }[]; piles: { n: number; from: number; pos: Vec3; charges: number }[]; builtAt: Map<number, number> };
@@ -51,6 +52,8 @@ function setup(players = 1) {
   s.phase = 'intermission';
   s.timer = 1e9;
   s.round = 1;
+  let seed = 7;
+  s.rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646; // fixed dice: where spike piles land
   const member = (id = 1): Member => lobby.members.get(id)!;
   const at = (id: number, p: Vec3) => (member(id).state.p = [p.x, p.y + 0.01, p.z]);
   const open = (doors = allOpen) => {
@@ -300,7 +303,10 @@ test('the spike dispenser keeps a few piles out; zombies on one get poked and th
     const piles = t.s.workshop.piles.filter((p) => p.from === g.id);
     assert.equal(piles.length, WORKSHOP.spikePiles, 'up to its limit');
     for (const p of piles) assert.ok(Math.hypot(p.pos.x, p.pos.z) <= CONTRAPTIONS.spikes.range + 0.01);
+    // One pile on its own (no new ones dropping meanwhile), so we can count its pokes.
     const pile = piles[0];
+    t.s.workshop.piles = [pile];
+    (g as unknown as { cd: number }).cd = 1e9;
     const z = t.zombie({ ...pile.pos });
     t.run(WORKSHOP.spikePoke * 2);
     assert.ok(z.hp < 5000, 'poked');
