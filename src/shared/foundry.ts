@@ -10,7 +10,7 @@
 //
 // Perks: Swift Mend in the Boiler Room, Second Wind in the Locker Room, Zephyr Fizz on the Loading Dock. They (and the
 // Pack-a-Punch) need the power on: the switch is in the Boiler Room. Scythe parts lie in the Locker Room, on the Loading Dock
-// and in the Furnace; the workbench is on the mezzanine.
+// and in the Furnace; the workbench is on the mezzanine. The Tinker's Workbench in the Office builds contraptions for coins.
 //
 // The Skyline: buy the hatch in the Hall roof and a pad throws you up onto a tower on the roof. Three surf lines run from
 // it and dive through chutes into the Boiler Room, Storage and the Furnace (a chute stays shut until its room is open).
@@ -178,6 +178,7 @@ const CHUTES: { room: number; hole: Rect }[] = [
   { room: STORAGE, hole: { x0: 19, z0: -9.5, x1: 33, z1: -1.5 } },
   { room: FURNACE, hole: { x0: -4, z0: -31, x1: 4, z1: -19 } },
 ];
+const TINKER = { x: 5.2, z: 21.6 }; // the Tinker's Workbench, against the Office's east wall
 const lid = (h: Rect) => span(h.x0, H, h.z0, h.x1, H + 0.8, h.z1, 'steel');
 
 /** Where a wall gun hangs: on the wall face at `wall`, facing `yaw` (the way the display faces), with `at` the spot to stand. */
@@ -262,6 +263,8 @@ function buildFoundry(): MapData {
   boxes.push(span(-23, 0, 6.8, -20, 2.4, 7.7, 'machine'));
   boxes.push(span(-7.2, 4, -17.7, -4.8, 4.95, -16.9, 'cover'));
   // --- Office ---
+  // The Tinker's Workbench in the south-east corner (drawn by the client, so 'cover'): contraptions for coins.
+  boxes.push(span(TINKER.x - 0.5, 0, TINKER.z - 1, TINKER.x + 0.5, 0.95, TINKER.z + 1, 'cover'));
   boxes.push(span(-5, 0, 13.2, -2.2, 0.9, 14.6, 'crate'), span(3, 0, 13, 5.5, 1.5, 14, 'steel'), span(-5.5, 0, 21.2, -3, 0.6, 23.6, 'crate'));
   // --- Boiler Room ---
   boxes.push(span(-32, 0, -12, -28, 4.5, -8, 'machine'), span(-26, 0, -3, -22, 4.5, 1, 'machine'), span(-26, 0, -6, -24.4, 1, -4.4, 'crate'));
@@ -344,6 +347,8 @@ function buildFoundry(): MapData {
     hatch: doors.length,
     hatchPad: padTo((HATCH.x0 + HATCH.x1) / 2, 0, HATCH.z1 + 0.6, v(TOWER.x, TOWER.top + 0.01, TOWER.z), 1.6),
     chutes: CHUTES.map((c) => ({ room: c.room, lid: lid(c.hole) })),
+    vent: v(0, 7.5, 0.5), // under the hatch, clear of the pad (z 2.35..4.85): you drop back into the Hall
+    tinker: { pos: v(TINKER.x, 0, TINKER.z), yaw: -Math.PI / 2 },
   };
   // The hatch is a door like the rest (bought the same way) but joins no rooms: it opens the way up.
   doors.push({ id: doors.length, name: 'Skyline', price: 2000, box: lid(HATCH), rooms: [HALL, HALL] });

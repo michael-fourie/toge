@@ -19,6 +19,7 @@ interface Internals {
   phase: string;
   round: number;
   toSpawn: number;
+  rand: () => number;
   tick(dt: number): void;
   reset(): void;
 }
@@ -159,7 +160,10 @@ test('Pack-a-Punch upgrades the gun in your hands, once, and a new run takes it 
 test('windows: zombies tear boards off, players nail them back for points, but not under a zombie', () => {
   const t = setup();
   try {
-    const b = lay.barricades[0];
+    // Fixed dice and a fixed spot: the zombie must tear the boards off, not maul us first (it used to, now and then:
+    // a random window and a random spawn spot sometimes put it through the wall and onto us within the time allowed).
+    t.s.rand = () => 0;
+    t.at(1, [0, 0.01, 22]);
     t.s.toSpawn = 1;
     t.s.phase = 'active';
     t.s.tick(0.05);
@@ -167,12 +171,17 @@ test('windows: zombies tear boards off, players nail them back for points, but n
     const z = t.s.zombies[0];
     assert.ok(lay.barricades[z.gate].room === 3, 'only Office windows are live before any door is bought');
     const gate = lay.barricades[z.gate];
-    for (let i = 0; i < 20 * (SURVIVAL.tearTime * 5 + 12); i++) t.s.tick(0.05);
+    for (let i = 0; i < 20 * (SURVIVAL.tearTime * 5 + 12) && t.s.boards[gate.id] > 0; i++) t.s.tick(0.05);
     assert.equal(t.s.boards[gate.id], 0, 'all five boards torn off');
-    assert.ok(z.gate === -1 || z.pos.x !== undefined);
+    assert.equal(t.member().hp, SURVIVAL.playerHp, 'it tore the boards; it did not get to us');
+    // No nailing a board back under a zombie standing at the window.
+    z.pos = { ...gate.outside };
+    z.gate = gate.id;
+    t.at(1, stand(gate.inside));
+    t.lobby.handle(t.clients[0], { t: 'use', kind: 'board', id: gate.id });
+    assert.equal(t.s.boards[gate.id], 0, 'not under a zombie');
     t.s.zombies.length = 0;
     // Repair.
-    t.at(1, stand(gate.inside));
     const w = t.s.wallet.get(1)!;
     const pts = w.points;
     t.lobby.handle(t.clients[0], { t: 'use', kind: 'board', id: gate.id });
@@ -186,7 +195,6 @@ test('windows: zombies tear boards off, players nail them back for points, but n
     }
     assert.equal(t.s.boards[gate.id], SURVIVAL.boards, 'capped');
     assert.equal(findUse({ x: gate.inside.x, y: 0, z: gate.inside.z }, { lay, doorsOpen: t.s.doors, boards: t.s.boards, box: t.s.box, points: 0, slots: [], cur: 0, jug: false, perks: [], downed: [], self: 1, power: true, parts: [], scythe: 0 })?.kind === 'board', false, 'no repair prompt for a full window');
-    void b;
   } finally {
     t.done();
   }

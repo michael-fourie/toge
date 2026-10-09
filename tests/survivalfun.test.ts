@@ -1,5 +1,5 @@
 // Survival's fun layer: the power switch, the Gale Scythe (parts, workbench, swing), zombies with jobs, round modifiers,
-// and the Skyline roof that burns campers.
+// and the Skyline roof (never lethal; zombies can't get up there).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Lobby, type Member } from '../src/server/lobby.ts';
@@ -247,23 +247,44 @@ test('server: a modifier round says so in the wave, changes the horde, and ends 
   }
 });
 
-// --- The Skyline's hot roof ----------------------------------------------------------------------------------
+// --- The Skyline's roof: never a death trap ---------------------------------------------------------------------
 
-test('server: standing about on the roof burns after a few seconds; passing over it does not', () => {
+test('server: the roof never hurts, however long you stay up there', () => {
   const t = setup(1);
   try {
     const m = t.member(1);
     m.state.p = [10, SKYLINE.roofY + 0.4, -20];
-    for (let i = 0; i < (SKYLINE.grace - 1) / 0.05; i++) t.s.tick(0.05);
-    assert.equal(m.hp, SURVIVAL.playerHp, 'a surf over the roof is fine');
-    for (let i = 0; i < 2 / 0.05; i++) t.s.tick(0.05);
-    assert.ok(m.hp < SURVIVAL.playerHp, 'camping burns');
-    m.state.p = [0, 0.01, 18];
-    t.s.tick(0.05);
-    const hp = m.hp;
-    m.state.p = [10, SKYLINE.roofY + 0.4, -20];
-    t.s.tick(0.05);
-    assert.equal(m.hp, hp, 'coming down resets the clock');
+    for (let i = 0; i < 60 / 0.05; i++) t.s.tick(0.05);
+    assert.equal(m.hp, SURVIVAL.playerHp);
+    assert.ok(!(t.s as unknown as { isDown(id: number): boolean }).isDown(1));
+  } finally {
+    t.done();
+  }
+});
+
+test('server: zombies never follow you onto the roof (they used to pounce up through the open hatch and maul you)', () => {
+  const t = setup(1);
+  try {
+    const s = t.s as unknown as Internals & { doors: boolean[]; nav: { setDoors(d: boolean[]): void }; rebuildColliders(): void };
+    s.doors = lay.doors.map(() => true);
+    s.nav.setDoors(s.doors);
+    s.rebuildColliders();
+    s.toSpawn = 0;
+    s.phase = 'active';
+    const m = t.member(1);
+    const hatch = lay.doors[lay.hatch].box;
+    for (const spot of [[hatch.max.x + 1, 9.81, hatch.min.z + 1], [0, 16.01, -5.5], [-20, 9.81, -11]] as V3[]) {
+      m.state.p = spot;
+      s.zombies.length = 0;
+      for (const [x, z] of [[0, 1], [-25, -5], [0, -25], [25, -5]]) zombieAt(t, { x, y: 0.01, z }).gate = -1;
+      let top = 0;
+      for (let i = 0; i < 30 / 0.05; i++) {
+        s.tick(0.05);
+        for (const z of s.zombies) top = Math.max(top, z.pos.y);
+      }
+      assert.equal(m.hp, SURVIVAL.playerHp, `at ${spot}`);
+      assert.ok(top < 8.8, `at ${spot}: a zombie got up to ${top.toFixed(2)}`);
+    }
   } finally {
     t.done();
   }

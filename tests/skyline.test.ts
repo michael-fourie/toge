@@ -4,9 +4,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildColliders, openRooms } from '../src/shared/colliders.ts';
-import { TICK_DT } from '../src/shared/constants.ts';
+import { SKYLINE, TICK_DT } from '../src/shared/constants.ts';
 import { FOUNDRY } from '../src/shared/foundry.ts';
 import { type MoveInput, type PlayerState, createPlayerState, emptyInput, stepPlayer } from '../src/shared/movement.ts';
+import { roofClock, stranded } from '../src/shared/skyline.ts';
 
 const lay = FOUNDRY.survival!;
 const hatch = lay.doors[lay.hatch];
@@ -58,13 +59,17 @@ test('the pad throws you up through the hatch onto the tower', () => {
   assert.ok(s.onGround && s.pos.y > 15, `ended at ${JSON.stringify(s.pos)}`);
 });
 
-/** Ride a line from the tower top: walk off along `dir`, then hold toward the ridge until you land somewhere. */
-function ride(dir: 'w' | 'e' | 'n', doors: boolean[]) {
+/**
+ * Ride a line from the tower top: walk off along `dir`, then hold toward the ridge until you land somewhere. `clock`
+ * keeps the roof clock (shared/skyline.ts) running along the way, from `t0` seconds already spent up there.
+ */
+function ride(dir: 'w' | 'e' | 'n', doors: boolean[], clock = { t: 0 }) {
   const s = createPlayerState({ x: 0, y: 16.01, z: -5.5 });
   const cols = buildColliders(FOUNDRY, doors);
   const input: MoveInput = { ...emptyInput(), forward: 1, yaw: dir === 'w' ? Math.PI / 2 : dir === 'e' ? -Math.PI / 2 : 0 };
   let airborne = false;
   play(s, input, 8, cols.move, () => {
+    clock.t = roofClock(clock.t, s.pos, s.onGround, TICK_DT, lay);
     const along = dir === 'w' ? -s.pos.x : dir === 'e' ? s.pos.x : -s.pos.z - 5.5; // from the tower's middle
     if (!s.onGround && along > 2) airborne = true; // off the tower
     if (airborne && s.onGround) return false;
@@ -94,4 +99,48 @@ test('with its room still shut, a line drops you on the lid (on the roof), not i
     const s = ride(dir, doors);
     assert.ok(s.pos.y > 9.5, `${dir}: ended at ${JSON.stringify(s.pos)}`);
   }
+});
+
+test('the roof clock: surfing and flying never count, standing does, and indoors resets it', () => {
+  // Pad up to the tower: all of it in the air.
+  const up = createPlayerState({ x: (hatch.box.min.x + hatch.box.max.x) / 2, y: 0.3, z: lay.hatchPad.min.z + 1.25 });
+  const cols = buildColliders(FOUNDRY, allOpen);
+  const clock = { t: 0 };
+  play(up, emptyInput(), 4, cols.move, () => {
+    clock.t = roofClock(clock.t, up.pos, up.onGround, TICK_DT, lay);
+    return !(up.onGround && up.pos.y > 10);
+  });
+  assert.ok(clock.t < 0.1, `the flight up counted ${clock.t}`);
+  // A long look around on the tower, then every line: the ride itself adds nothing, so you land well inside the grace.
+  const pause = SKYLINE.grace - 2;
+  for (const doors of [allOpen, lay.doors.map((d) => d.id === lay.hatch || d.name === 'Office door')]) {
+    for (const dir of ['w', 'e', 'n'] as const) {
+      const c = { t: clock.t + pause };
+      const s = ride(dir, doors, c);
+      assert.ok(c.t < SKYLINE.grace, `${dir}: landed with ${c.t.toFixed(2)} s on the clock`);
+      if (s.pos.y < 9) assert.equal(c.t, 0, 'indoors: reset');
+      else {
+        // Stuck on a shut chute's lid: standing there runs the clock out, and the vents bring you down.
+        play(s, emptyInput(), SKYLINE.grace, buildColliders(FOUNDRY, doors).move, () => ((c.t = roofClock(c.t, s.pos, s.onGround, TICK_DT, lay)), true));
+        assert.ok(c.t >= SKYLINE.grace, `${dir}: ${c.t}`);
+      }
+    }
+  }
+});
+
+test('the vents drop you into the Hall, clear of the pad, and you land on its floor', () => {
+  assert.ok(!stranded(lay.vent, lay), 'indoors');
+  const s = createPlayerState({ ...lay.vent });
+  const cols = buildColliders(FOUNDRY, allOpen);
+  play(s, emptyInput(), 3, cols.move, () => true);
+  const hall = lay.rooms.find((r) => r.name === 'Assembly Hall')!;
+  assert.ok(s.onGround && s.pos.y < 0.1 && s.pos.x > hall.x0 && s.pos.x < hall.x1 && s.pos.z > hall.z0 && s.pos.z < hall.z1, JSON.stringify(s.pos));
+  assert.ok(Math.hypot(s.vel.x, s.vel.y, s.vel.z) < 0.1, 'not relaunched by the pad');
+});
+
+test('stranded: the roof and the yard, never anywhere inside', () => {
+  assert.ok(stranded({ x: 10, y: 9.8, z: -20 }, lay));
+  assert.ok(stranded({ x: -44, y: 0, z: 0 }, lay), 'flung into the yard');
+  for (const r of lay.rooms) assert.ok(!stranded({ x: (r.x0 + r.x1) / 2, y: r.y0 + 0.6, z: (r.z0 + r.z1) / 2 }, lay), r.name);
+  for (const l of lay.links) assert.ok(!stranded({ ...l.c, y: l.c.y + 0.01 }, lay), 'in a doorway');
 });

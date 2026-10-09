@@ -103,4 +103,8 @@ export interface SurvivalLayout {
   hatch: number;
   hatchPad: Box;
   chutes: { room: number; lid: Box }[];
+  /** Where the roof's steam vents blow anyone who hangs about up there (or got flung into the yard): high in the Hall, off the pad. */
+  vent: Vec3;
+  /** The Tinker's Workbench: F opens the contraption menu (contraptions.ts). Its floor centre, and the way its front faces. */
+  tinker: { pos: Vec3; yaw: number };
 }

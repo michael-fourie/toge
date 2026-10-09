@@ -6,7 +6,8 @@ import type { MapData } from './map.ts';
  * when that happens (rarely), not every tick.
  * - move: what players and grenades hit: the map, shut doors, and the invisible bars in every window; the Skyline's pad
  *   once its hatch is open, and the lid of every chute into a room that isn't open yet.
- * - zombie: the map, shut doors, and window boards while any are up. Open windows let them through.
+ * - zombie: the map, shut doors, and window boards while any are up. Open windows let them through. The roof hatch and
+ *   every chute lid stay shut for zombies, open or not: they could pounce up through the holes and maul the roof surfers.
  * - shot: what bullets and the grapple hit: the map and shut doors (you can shoot through a window).
  */
 export interface Colliders {
@@ -22,7 +23,8 @@ export function buildColliders(map: MapData, doorsOpen: readonly boolean[] = [],
   const shut = [...lay.doors.filter((d) => !doorsOpen[d.id]).map((d) => d.box), ...lay.chutes.filter((c) => !open.has(c.room)).map((c) => c.lid)];
   const shot = [...map.boxes, ...shut];
   const move = [...shot, ...lay.barricades.map((b) => b.blocker), ...(doorsOpen[lay.hatch] ? [lay.hatchPad] : [])];
-  const zombie = [...shot, ...lay.barricades.filter((b) => (boards[b.id] ?? 0) > 0).map((b) => b.seal)];
+  const ceiling = [lay.doors[lay.hatch].box, ...lay.chutes.map((c) => c.lid)].filter((b) => !shut.includes(b));
+  const zombie = [...shot, ...ceiling, ...lay.barricades.filter((b) => (boards[b.id] ?? 0) > 0).map((b) => b.seal)];
   return { move, zombie, shot };
 }
 

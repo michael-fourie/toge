@@ -218,11 +218,13 @@ export const SCYTHE = {
   cooldown: 0.75,
 };
 
-/** The Skyline: the buyable roof surf over the Foundry. The roof is scorching: stand up there too long and it burns. */
+/**
+ * The Skyline: the buyable roof surf over the Foundry. The roof is no place to hang about: stand on it (or get flung off
+ * into the yard) for `grace` seconds and its steam vents blow you back down into the Hall. Surfing and flying never count.
+ */
 export const SKYLINE = {
-  roofY: 9.5, // above this you are on the roof (or surfing over it)
-  grace: 6, // seconds up there before it starts to burn
-  burn: 20, // hp per second after that
+  roofY: 9.5, // above this you are on the roof (or surfing over it); zombies never chase you up here
+  grace: 5, // seconds on your feet up there before the vents blow you down (the warning comes 2 s earlier)
 };
 
 /** Frag grenade (Q). You get another a fixed time after throwing one. */

@@ -15,6 +15,7 @@ import { type Vec3, copy, hlen, lerp, lookDir, v3, yawRight } from '../shared/ma
 import { Ev, type GrappleTarget, type PlayerState, createPlayerState, emptyInput, findGrapple, stepPlayer } from '../shared/movement.ts';
 import { WEAPONS, gunStats } from '../shared/weapons.ts';
 import { PERKS, type PerkId, ZEPHYR_SPEED } from '../shared/perks.ts';
+import { roofClock } from '../shared/skyline.ts';
 import { type Grenade, applyKnock, blastKnock, blastTargets, stepGrenade, throwVelocity } from '../shared/grenade.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import { TEAMS, sameTeam } from '../shared/teams.ts';
@@ -236,7 +237,7 @@ export class Game {
   private parts: boolean[] = [];
   /** The Gale Scythe: 0 not built, -1 on the workbench, else who carries it. */
   private scythe = 0;
-  /** Seconds we've been up on the Skyline's roof (it burns after SKYLINE.grace), and whether we've been warned. */
+  /** Seconds we've stood about on the Skyline's roof (the vents blow us down at SKYLINE.grace), and whether we've been warned. */
   private roofT = 0;
   private roofWarned = false;
   private fogDefault: [number, number] | null = null;
@@ -1169,18 +1170,25 @@ export class Game {
     sfx.maxAmmo();
   }
 
-  /** The Skyline's roof burns if you hang about up there: warn a couple of seconds before it starts (the server does the burning). */
+  /**
+   * The Skyline's roof (or the yard, if a surf flung you off the building): stand about there and the steam vents blow
+   * you back down into the Hall. A warning first; surfing and flying never count (shared/skyline.ts). Never lethal.
+   */
   private roofTick(dt: number) {
-    if (!this.alive || this.me.pos.y < SKYLINE.roofY) {
-      this.roofT = 0;
-      this.roofWarned = false;
-      return;
-    }
-    this.roofT += dt;
-    if (this.roofT > SKYLINE.grace - 2 && !this.roofWarned) {
+    this.roofT = this.alive && !this.isDown ? roofClock(this.roofT, this.me.pos, this.me.onGround, dt, this.map.survival!) : 0;
+    if (this.roofT === 0) this.roofWarned = false;
+    else if (this.roofT > SKYLINE.grace - 2 && !this.roofWarned) {
       this.roofWarned = true;
-      this.hud.center('THE ROOF IS SCORCHING! GET DOWN', '#ff7a4a', 2);
+      this.hud.center('THE ROOF VENTS ARE BUILDING STEAM! GET DOWN', '#ff7a4a', 2);
     }
+    if (this.roofT < SKYLINE.grace) return;
+    copy(this.me.pos, this.map.survival!.vent);
+    copy(this.prevPos, this.me.pos);
+    this.me.vel.x = this.me.vel.y = this.me.vel.z = 0;
+    this.me.grapple = null;
+    this.roofT = 0;
+    this.hud.center('WHOOSH! THE VENTS BLEW YOU BACK DOWN', '#cfe6ff', 2);
+    sfx.boost();
   }
 
   private updateHorde() {

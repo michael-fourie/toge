@@ -63,13 +63,12 @@ export class Survival {
   private drops: { id: number; pos: { x: number; y: number; z: number }; until: number }[] = [];
   private hordeDropRound = -Infinity;
   private nextDrop = 1;
-  /** Dice for drops, jobs and round modifiers (tests swap it). */
+  /** Dice for drops, jobs, round modifiers and where zombies break in (tests swap it). */
   rand: () => number = Math.random;
   /** This round's modifier, and the last one there was (never twice in a row). */
   private mod: ModId | null = null;
   private lastMod: ModId | null = null;
-  /** Seconds each player has spent up on the Skyline's roof without coming down, and each scythe swing's time. */
-  private roofTime = new Map<number, number>();
+  /** Each scythe swing's time. */
   private swungAt = new Map<number, number>();
 
   // The building: which doors are open, the planks in each window, the Mystery Box.
@@ -125,7 +124,6 @@ export class Survival {
     this.simulate(dt);
     this.tickDowns(dt);
     this.tickDrops();
-    this.tickRoof(dt);
     this.tickBox(dt);
     this.regen(dt);
     if (this.dirty) this.sendWorld();
@@ -210,7 +208,6 @@ export class Survival {
 
   forget(id: number) {
     this.dropScythe(id);
-    this.roofTime.delete(id);
     this.swungAt.delete(id);
     this.wallet.delete(id);
     this.downs.delete(id);
@@ -354,21 +351,7 @@ export class Survival {
     }
   }
 
-  /** The roof is scorching: up there longer than the grace and it burns (surfing past is fine, camping isn't). */
-  private tickRoof(dt: number) {
-    for (const m of this.lobby.members.values()) {
-      const id = m.info.id;
-      if (!m.info.alive || this.isDown(id) || m.state.p[1] < SKYLINE.roofY) {
-        this.roofTime.delete(id);
-        continue;
-      }
-      const t = (this.roofTime.get(id) ?? 0) + dt;
-      this.roofTime.set(id, t);
-      if (t > SKYLINE.grace) this.damage(m, SKYLINE.burn * dt);
-    }
-  }
-
-  /** Damage that isn't a claw (the roof, a Stoker's burst): costs health, holds off regen, can put you down. */
+  /** Damage that isn't a claw (a Stoker's burst): costs health, holds off regen, can put you down. */
   private damage(m: Member, hp: number, from?: V3) {
     if (!m.info.alive || this.isDown(m.info.id)) return;
     m.hp = Math.max(0, m.hp - hp);
@@ -716,7 +699,7 @@ export class Survival {
     if (this.spawnTimer > 0 || (this.toSpawn === 0 && !this.bossDue) || this.zombies.length >= SURVIVAL.maxAlive) return;
     this.spawnTimer = SURVIVAL.spawnInterval;
     const b = this.pickWindow();
-    const at = b.spawns[Math.floor(Math.random() * b.spawns.length)];
+    const at = b.spawns[Math.floor(this.rand() * b.spawns.length)];
     if (this.bossDue) {
       this.bossDue = false;
       this.zombies.push(createBoss(this.nextId++, at, this.round, this.lobby.members.size, b.id));
@@ -736,13 +719,14 @@ export class Survival {
       .map((b) => ({ b, d: players.length ? Math.min(...players.map((p) => this.nav.cost(b.inside, p.pos))) : 0 }))
       .sort((p, q) => p.d - q.d)
       .slice(0, PICK_FROM);
-    return ranked[Math.floor(Math.random() * ranked.length)].b;
+    return ranked[Math.floor(this.rand() * ranked.length)].b;
   }
 
   private targets(): ZombieTarget[] {
     const out: ZombieTarget[] = [];
     for (const m of this.lobby.members.values()) {
-      if (m.info.alive && !this.isDown(m.info.id)) out.push({ id: m.info.id, pos: { x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] } }); // the horde ignores the downed
+      // The horde ignores the downed, and anyone up on the roof (they can't get up there; the vents bring you down).
+      if (m.info.alive && !this.isDown(m.info.id) && m.state.p[1] < SKYLINE.roofY) out.push({ id: m.info.id, pos: { x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] } });
     }
     return out;
   }
