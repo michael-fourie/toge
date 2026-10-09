@@ -18,8 +18,8 @@ export class NadeHud {
     parent.appendChild(this.el);
   }
 
-  /** `progress` 0..1 of the way to the next grenade (1 = in hand); `secondsLeft` shown while charging. */
-  update(progress: number, secondsLeft: number) {
+  /** `progress` 0..1 of the way to the next grenade (1 = in hand); `secondsLeft` shown while charging. `count`: Royale's grenades carried. */
+  update(progress: number, secondsLeft: number, count?: number) {
     const ready = progress >= 1;
     this.el.style.setProperty('--p', String(Math.round(progress * 1000) / 10));
     this.el.classList.toggle('ready', ready);
@@ -29,7 +29,7 @@ export class NadeHud {
       this.el.classList.add('pop');
     }
     this.was = ready;
-    this.el.querySelector('.nade-secs')!.textContent = ready ? '' : Math.ceil(secondsLeft).toString();
+    this.el.querySelector('.nade-secs')!.textContent = count !== undefined ? `×${count}` : ready ? '' : Math.ceil(secondsLeft).toString();
   }
 
   dispose() {

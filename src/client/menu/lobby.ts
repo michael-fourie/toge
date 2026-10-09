@@ -19,7 +19,7 @@ export const lobby: Render = (root, ctx) => {
     'Lobby',
     `
     <section class="lobby-code-card" aria-label="Lobby code">
-      <span class="mode-tag mode-${j.mode}">${MODES[j.mode].name}${j.koth ? ' · King of the Hill · Crown' : j.teams ? ' · Teams' : ''}${j.map ? ` · ${BATTLE_MAPS[j.map].name}` : ''}</span>
+      <span class="mode-tag mode-${j.mode}">${MODES[j.mode].name}${j.koth ? ' · King of the Hill · Crown' : j.br ? ' · Royale · Wildmere' : j.teams ? ' · Teams' : ''}${j.map ? ` · ${BATTLE_MAPS[j.map].name}` : ''}</span>
       <span class="small-caps">Share this code</span>
       <div class="big-code" aria-label="${[...j.code].join(' ')}">${[...j.code].map((c) => `<span>${esc(c)}</span>`).join('')}</div>
       <div class="row">
@@ -50,7 +50,11 @@ export const lobby: Render = (root, ctx) => {
     <p class="hint">${
       j.mode === 'survival'
         ? 'The horde is already rising. You spawn by the Great Tree the moment you enter.'
-        : j.koth
+        : j.br
+          ? j.br.phase === 'warmup'
+            ? `Battle Royale on Wildmere. Warm up on the island while friends join: the drop starts in about ${j.br.left} s. Everyone starts with a pistol; find guns, kit and grenades lying around (F), stay inside the zone, and be the last one standing.`
+            : 'A Battle Royale is under way: you watch the survivors until it ends, then everyone drops into the next one.'
+          : j.koth
           ? `The match is already running. Take the hill in the middle and hold it: the first team to ${KOTH.holdToWin / 60} minutes on it wins. You'll spawn in your team's base.`
           : `The match is already running: first to ${KILL_LIMIT} kills wins${j.teams ? ' (a team\'s kills add up)' : ''}. You'll spawn the moment you enter.`
     }</p>

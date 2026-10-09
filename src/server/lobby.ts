@@ -7,7 +7,8 @@ import { type Gear, encodeGear } from '../shared/items.ts';
 import { JACKETS, type Skin, encodeSkin } from '../shared/skin.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import { type KothState, inZone, newKoth, stepKoth } from '../shared/koth.ts';
-import { KILL_LIMIT, MATCH_OVER_SECONDS, TEAMS, type Team, sameTeam, shuffleTeams, smallerTeam, winner } from '../shared/teams.ts';
+import { KILL_LIMIT, MATCH_OVER_SECONDS, TEAMS, type Team, type Winner, sameTeam, shuffleTeams, smallerTeam, winner } from '../shared/teams.ts';
+import { Royale } from './royale.ts';
 import { Survival } from './survival.ts';
 
 /** The slice of a WebSocket the lobby needs (satisfied by the Workers WebSocket). */
@@ -36,7 +37,7 @@ export interface Member {
   nadeAt: number;
   nadeOut: { p: V3; t: number } | null;
   respawnAt: number;
-  /** Survival only: zombies claw this down; Battle is one-shot-one-kill. */
+  /** Survival and Royale: zombies claw it down, or guns, the zone...; Battle is one-shot-one-kill. */
   hp: number;
 }
 
@@ -69,6 +70,8 @@ export class Lobby {
   private readonly data: MapData;
   /** King of the Hill: the hill's state, stepped every tick and sent with each snapshot. */
   private hill: KothState | null;
+  /** Battle Royale: the warmup, the zone, loot and health (royale.ts). */
+  private royale: Royale | null;
 
   /** `onChange` fires on join/leave and as a heartbeat; `onEmpty` once the last player leaves. */
   constructor(
@@ -82,9 +85,12 @@ export class Lobby {
     private onEmpty: (l: Lobby) => void,
     /** Battle teams: King of the Hill on Crown instead of a kill race (the room forces `teams` on for it). */
     readonly koth = false,
+    /** Battle: Battle Royale on Wildmere, last one standing (no teams, no respawns once it's live). */
+    readonly br = false,
   ) {
-    this.data = mapFor(mode, map, koth);
+    this.data = mapFor(mode, map, koth, br);
     this.hill = koth ? newKoth() : null;
+    this.royale = br && mode === 'battle' ? new Royale(this, this.data) : null;
     this.survival = mode === 'survival' ? new Survival(this) : null;
     this.timer = setInterval(() => this.tick(), 1000 / NET.snapshotRate);
   }
@@ -113,6 +119,7 @@ export class Lobby {
       respawnAt: 0,
       hp: SURVIVAL.playerHp,
     };
+    this.royale?.admit(m); // mid-match: you watch until the next one
     if (this.members.size === 0) this.hostId = client.id;
     this.broadcast({ t: 'playerJoined', player: m.info });
     this.members.set(client.id, m);
@@ -123,13 +130,15 @@ export class Lobby {
       mode: this.mode,
       hostId: this.hostId,
       teams: this.teams || undefined,
-      map: this.mode === 'battle' && !this.koth ? this.map : undefined,
+      map: this.mode === 'battle' && !this.koth && !this.royale ? this.map : undefined,
       koth: this.koth || undefined,
+      br: this.royale?.info(),
       players: [...this.members.values()].map((x) => x.info),
       spawn,
       wave: this.survival?.info(),
     });
     this.survival?.heal(m);
+    this.royale?.welcome(m);
     this.onChange(this);
   }
 
@@ -137,6 +146,7 @@ export class Lobby {
     if (!this.members.delete(client.id)) return;
     this.survival?.left(client.id);
     this.survival?.forget(client.id);
+    this.royale?.left(client.id);
     client.lobby = null;
     if (this.members.size === 0) {
       clearInterval(this.timer);
@@ -175,15 +185,20 @@ export class Lobby {
         return;
       case 'use':
         this.survival?.use(m, msg);
+        this.royale?.use(m, msg);
         return;
       case 'equip':
         this.survival?.equip(m, msg.slot);
+        this.royale?.equip(m, msg.slot);
         return;
       case 'nade':
         this.onNade(m, msg);
         return;
       case 'boom':
         this.onBoom(m, msg.p);
+        return;
+      case 'sync':
+        this.royale?.welcome(m);
         return;
       case 'fell':
         if (m.info.alive) this.kill(m, m, 'void', [0, 1, 0]);
@@ -209,6 +224,7 @@ export class Lobby {
     const now = Date.now();
     if (!m.info.alive || now - m.nadeAt < GRENADE.cooldown * 1000 * 0.9) return;
     if (!finite3(msg.p) || !finite3(msg.v) || Math.hypot(...msg.v) > MOVE.maxSpeed + GRENADE.throwSpeed + 10) return;
+    if (this.royale && !this.royale.nade(m)) return; // Royale: grenades are found, not refilled
     m.nadeAt = now;
     m.nadeOut = { p: msg.p, t: now };
     this.broadcast({ t: 'nade', id: m.info.id, p: msg.p, v: msg.v }, m.info.id);
@@ -225,6 +241,7 @@ export class Lobby {
     this.broadcast({ t: 'blast', id: m.info.id, p });
     const center = { x: p[0], y: p[1], z: p[2] };
     if (this.survival) return this.survival.blast(m, center);
+    if (this.royale) return this.royale.blast(m, center);
     const targets = [...this.members.values()].filter((v) => v !== m && v.info.alive && !sameTeam(v.info, m.info)).map((v) => ({ id: v.info.id, pos: { x: v.state.p[0], y: v.state.p[1], z: v.state.p[2] } }));
     for (const id of blastTargets(center, targets, this.data.boxes)) {
       const v = this.members.get(id)!;
@@ -234,17 +251,19 @@ export class Lobby {
 
   private onShoot(m: Member, msg: Extract<ClientMsg, { t: 'shoot' }>) {
     const now = Date.now();
-    const cooldown = msg.knife ? KNIFE.cooldown : this.survival ? this.survival.fireCooldown(m) : WEAPON.fireCooldown; // each gun has its own rate of fire
+    const cooldown = msg.knife ? KNIFE.cooldown : this.survival ? this.survival.fireCooldown(m) : this.royale ? this.royale.fireCooldown(m) : WEAPON.fireCooldown; // each gun has its own rate of fire
     if (!m.info.alive || now - m.lastShot < cooldown * 1000 * 0.9) return;
     m.lastShot = now;
     // A stab is silent to everyone else and must be within arm's reach (plus a little for lag).
     if (msg.knife && Math.hypot(...sub(msg.to, msg.from)) > KNIFE.range + 1) return;
-    if (!msg.knife) this.broadcast({ t: 'shot', id: m.info.id, from: msg.from, to: msg.to, ...this.survival?.shotLook(m) }, m.info.id);
+    if (!msg.knife && this.royale && !this.royale.fire(m)) return; // Royale: ammo is limited, and counted here too
+    if (!msg.knife) this.broadcast({ t: 'shot', id: m.info.id, from: msg.from, to: msg.to, ...(this.survival?.shotLook(m) ?? this.royale?.shotLook(m)) }, m.info.id);
 
     if (this.survival) {
       this.survival.shoot(m, msg); // co-op: no friendly fire
       return;
     }
+    if (this.royale) return this.royale.shoot(m, msg); // everyone has health here
     if (msg.victim === undefined) return;
     const v = this.members.get(msg.victim);
     if (!v || v === m || !v.info.alive || sameTeam(v.info, m.info)) return;
@@ -260,24 +279,29 @@ export class Lobby {
     victim.info.alive = false;
     victim.info.deaths++;
     if (killer !== victim) killer.info.kills++;
-    // In Survival you stay down until the round ends.
-    victim.respawnAt = this.survival ? Infinity : Date.now() + RESPAWN_SECONDS * 1000;
+    // In Survival you stay down until the round ends; in a live Royale you're out until the next match.
+    victim.respawnAt = this.survival || this.royale?.live ? Infinity : Date.now() + RESPAWN_SECONDS * 1000;
     const l = Math.hypot(...dir) || 1;
     this.broadcast({ t: 'kill', killer: killer.info.id, victim: victim.info.id, cause, dir: [dir[0] / l, dir[1] / l, dir[2] / l] });
-    if (!this.survival && !this.hill) this.checkWinner(); // King of the Hill is won on the hill, not by kills
+    this.royale?.died(victim);
+    if (!this.survival && !this.hill && !this.royale) this.checkWinner(); // King of the Hill is won on the hill, Royale by surviving, not by kills
   }
 
   private checkWinner() {
-    const infos = [...this.members.values()].map((m) => m.info);
-    const won = winner(infos, this.teams, KILL_LIMIT);
-    if (!won) return;
+    const won = winner([...this.members.values()].map((m) => m.info), this.teams, KILL_LIMIT);
+    if (won) this.finish(won);
+  }
+
+  /** The match is decided: freeze the scores, show the winner, start the next one in a moment. */
+  finish(won: Winner) {
     this.overAt = Date.now() + MATCH_OVER_SECONDS * 1000;
-    this.broadcast({ t: 'matchOver', winner: won, players: infos, restartIn: MATCH_OVER_SECONDS });
+    this.broadcast({ t: 'matchOver', winner: won, players: [...this.members.values()].map((m) => m.info), restartIn: MATCH_OVER_SECONDS });
   }
 
   /** Zero the scores and put everyone back on the map. */
-  private startMatch() {
+  startMatch() {
     this.overAt = 0;
+    this.royale?.start();
     if (this.hill) this.hill = newKoth();
     for (const m of this.members.values()) {
       m.info.kills = 0;
@@ -295,12 +319,14 @@ export class Lobby {
     m.state.yaw = spawn.yaw;
     m.state.g = undefined;
     this.broadcast({ t: 'respawn', id: m.info.id, p: spawn.p, yaw: spawn.yaw });
+    this.royale?.spawned(m);
   }
 
   private tick() {
     const now = Date.now();
     if (++this.ticks % (NET.snapshotRate * HEARTBEAT_SECONDS) === 0) this.onChange(this);
     this.survival?.tick(1 / NET.snapshotRate);
+    this.royale?.tick(1 / NET.snapshotRate);
     if (this.overAt && now >= this.overAt) this.startMatch();
     const players: NetPlayerState[] = [];
     for (const m of this.members.values()) {
@@ -308,7 +334,7 @@ export class Lobby {
       if (m.info.alive) players.push(m.state);
     }
     if (this.hill && !this.overAt) this.stepHill(1 / NET.snapshotRate);
-    this.broadcast({ t: 'snapshot', players, zombies: this.survival?.snapshot(), koth: this.hill ?? undefined });
+    this.broadcast({ t: 'snapshot', players, zombies: this.survival?.snapshot(), koth: this.hill ?? undefined, zone: this.royale?.zone ?? undefined });
   }
 
   /** King of the Hill: count who's standing on it (living players, by team) and run the rules; a full clock ends the match. */
@@ -320,9 +346,7 @@ export class Lobby {
       if (inZone(zone, { x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] })) on[m.info.team]++;
     }
     const ev = stepKoth(this.hill!, on, dt);
-    if (ev.won === undefined) return;
-    this.overAt = Date.now() + MATCH_OVER_SECONDS * 1000;
-    this.broadcast({ t: 'matchOver', winner: { team: ev.won }, players: [...this.members.values()].map((m) => m.info), restartIn: MATCH_OVER_SECONDS });
+    if (ev.won !== undefined) this.finish({ team: ev.won });
   }
 
   /**
@@ -331,6 +355,7 @@ export class Lobby {
    */
   private pickSpawn(team?: Team): { p: V3; yaw: number } {
     const living = [...this.members.values()].filter((m) => m.info.alive);
+    if (this.royale) return this.royale.spawnPoint(living.map((m) => m.state.p)); // spread the drop out
     const bases = this.data.koth?.teamSpawns;
     if (bases && team !== undefined) {
       const enemies = living.filter((m) => m.info.team !== team).map((m) => ({ x: m.state.p[0], y: m.state.p[1], z: m.state.p[2] }));

@@ -101,6 +101,7 @@ export default {
       const teams = url.searchParams.get('teams') === '1' ? '1' : '';
       const map = url.searchParams.get('map') ?? '';
       const koth = url.searchParams.get('koth') === '1' ? '1' : '';
+      const br = url.searchParams.get('br') === '1' ? '1' : '';
       const skin = (url.searchParams.get('skin') ?? '').slice(0, 24);
       const gear = (url.searchParams.get('gear') ?? '').slice(0, 120);
       const join = url.searchParams.get('code')?.toUpperCase();
@@ -115,7 +116,7 @@ export default {
         room = env.LOBBY.getByName(code, { locationHint: regionHint(req.cf) });
       }
       const target = new URL(req.url);
-      target.search = new URLSearchParams({ code, name, mode, teams, map, koth, skin, gear }).toString();
+      target.search = new URLSearchParams({ code, name, mode, teams, map, koth, br, skin, gear }).toString();
       return room.fetch(new Request(target, req));
     }
     return new Response('Not found', { status: 404 });

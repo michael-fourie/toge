@@ -65,6 +65,25 @@ Kill floor: y −40 (the cloud sea).
 
 Fix: surf (and slide) ramps sometimes rendered inside-out. The ramp mesh wound each triangle "away from the centre" of its bounding box, but for a wedge that point lies exactly on the slope, so the slope's winding was a coin toss and its faces got culled (you saw the brown inner faces). It now uses the wedge's centroid.
 
+## Wildmere (Battle Royale)
+
+`src/shared/wildmere.ts`, rendered by `client/royaleworld.ts`. One big meadow, ~500 m across, floating over the cloud sea; the ground is rows of thick slab (a rough 250 m circle) with holes cut for the gorge. Not mirrored: every direction has its own place to drop into.
+
+| Where | What |
+| --- | --- |
+| Old Town (middle) | six houses (2-3 storeys) round a plaza shrine. The most loot. Wind gates on the roads out of town |
+| Windmill Hill (NE) | two tiers, a tower on top |
+| Lookout Hill (SE) | 12 m mesa, ramps on all sides, shrine on top |
+| Sky Rail (E) | pad onto a 12 m pillar, a gate off its north edge onto a 70 m surf rail toward the farm |
+| Farmstead (E) | barn, farmhouse, hay bales, hoppable fences |
+| Sky Garden (N) | a 4-storey tower; floating platforms chained by pads; hooks overhead |
+| Old Forest (S) | ~70 trees, a cabin, a fallen log |
+| Gorge Run (W) | a 200 m chasm (falling in is death): a gate off the north edge onto three descending surf A-frames, gates between them, a landing at the bottom and a ramp out through a cutting. Two log bridges cross it |
+| Westcliff | beyond the gorge: a house, a shrine, a hill |
+| Everywhere | ten more hills, ~130 trees (bark trunks + instanced canopies), boulders, puffballs, hooks over the fields |
+
+Loot spots (~120: every house storey and roof, hilltops, platforms, the gorge floor, scattered field spots) and spawns (48, farthest-point sampled over open ground) are built with the map, deterministic. The zone's first circle covers the whole island; the server plans the rest (`planZone`) so the last one closes on a loot spot. `tests/wildmere.test.ts` checks the size, every ramp walkable from its foot, surf steepness, spawns and loot standable, pads, the Gorge Run and the Sky Rail.
+
 ## Survival
 
 Survival no longer uses Windward: it has its own night-time factory map, **the Foundry** (`docs/FOUNDRY.md`).
