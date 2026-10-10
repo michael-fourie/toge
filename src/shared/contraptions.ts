@@ -6,6 +6,7 @@ import type { Box } from './collision.ts';
 import { SKYLINE } from './constants.ts';
 import type { MapData } from './map.ts';
 import type { Vec3 } from './math.ts';
+import { roomAt } from './nav.ts';
 
 export type ContraptionKind = 'spikes' | 'tacks' | 'goo' | 'lobber' | 'zapper' | 'owl';
 
@@ -90,7 +91,7 @@ export function placeProblem(p: Vec3, c: PlaceCtx): string | null {
   const lay = c.map.survival;
   if (!lay) return 'No workshop here';
   if (p.y >= SKYLINE.roofY - 1) return 'Not on the roof';
-  const room = lay.rooms.find((r) => p.x >= r.x0 && p.x <= r.x1 && p.z >= r.z0 && p.z <= r.z1 && p.y >= r.y0 && p.y <= r.y1);
+  const room = roomAt(lay.rooms, p);
   if (!room) return 'Only inside the building';
   if (!openRooms(c.map, c.doorsOpen).has(room.id)) return 'Open that room first';
   const r = WORKSHOP.radius;

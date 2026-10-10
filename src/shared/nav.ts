@@ -2,10 +2,23 @@
 // than its target heads for the doorway on the shortest route, then through it. Inside a room it just walks straight
 // (the zombie AI already hops crates and sidesteps pillars). Rebuilt when a door opens; stateless otherwise.
 import type { Vec3 } from './math.ts';
-import type { Link, SurvivalLayout } from './layout.ts';
+import type { Link, Room, SurvivalLayout } from './layout.ts';
 
 const HOP_COST = 25; // metres of "distance" each doorway adds when ranking who to chase
 const UNREACHABLE = 1e4;
+
+/**
+ * The room a point stands in, or null (outside, in the yard). Rooms overlap where levels stack: the one with the highest
+ * floor-ish `y0` wins (a gantry over the furnace floor, the loft over the stairs' top step), then the smaller (stairs in a hall).
+ */
+export function roomAt(rooms: readonly Room[], p: Vec3): Room | null {
+  let best: Room | null = null;
+  for (const r of rooms) {
+    if (p.x < r.x0 || p.x > r.x1 || p.z < r.z0 || p.z > r.z1 || p.y < r.y0 || p.y > r.y1) continue;
+    if (!best || r.y0 > best.y0 || (r.y0 === best.y0 && (r.x1 - r.x0) * (r.z1 - r.z0) < (best.x1 - best.x0) * (best.z1 - best.z0))) best = r;
+  }
+  return best;
+}
 
 export class Nav {
   /** next[a][b]: the link to take from room a toward room b (-1: none, or already there). */
@@ -53,12 +66,9 @@ export class Nav {
     return !!this.open[room];
   }
 
-  /** The room a point stands in (-1: outside, in the yard). Later rooms in the list lose to earlier ones: put the stairs and the mezzanine first. */
+  /** The room a point stands in (-1: outside, in the yard). */
   roomAt(p: Vec3): number {
-    for (const r of this.lay.rooms) {
-      if (p.x >= r.x0 && p.x <= r.x1 && p.z >= r.z0 && p.z <= r.z1 && p.y >= r.y0 && p.y <= r.y1) return r.id;
-    }
-    return -1;
+    return roomAt(this.lay.rooms, p)?.id ?? -1;
   }
 
   /** How far a zombie at `a` is from a player at `b`, counting doorways as detours; huge when walls and shut doors are in the way. */
@@ -84,8 +94,9 @@ export class Nav {
     const nz = l.n.z * s;
     const along = (from.x - l.c.x) * nx + (from.z - l.c.z) * nz;
     const lat = (from.x - l.c.x) * -nz + (from.z - l.c.z) * nx;
-    // Lined up with the doorway (or already in it): straight through. Otherwise, to a spot in front of it first.
-    if (along > 0 || Math.abs(lat) < l.half * 0.5) return { x: l.c.x + nx * 2.5, y: l.c.y, z: l.c.z + nz * 2.5 };
+    // Lined up with the doorway (or already in it): straight through. Otherwise, to a spot in front of it first. A room
+    // can wrap round a doorway (a stair shaft standing in the hall), so being past its plane but off to the side isn't "in it".
+    if (Math.abs(lat) < l.half * 0.5 || (along > 0 && Math.abs(lat) < l.half + 0.6)) return { x: l.c.x + nx * 2.5, y: l.c.y, z: l.c.z + nz * 2.5 };
     return { x: l.c.x - nx * 2.2, y: l.c.y, z: l.c.z - nz * 2.2 };
   }
 }

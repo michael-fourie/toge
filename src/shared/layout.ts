@@ -6,7 +6,10 @@ import type { SpawnPoint } from './map.ts';
 import type { PerkId } from './perks.ts';
 import type { WeaponId } from './weapons.ts';
 
-/** A walkable region, as a floor-plan rectangle plus the heights it covers (a mezzanine shares its footprint with the hall below). */
+/**
+ * A walkable region, as a floor-plan rectangle plus the heights it covers (a mezzanine shares its footprint with the hall
+ * below, a cellar lies under it). Where rooms overlap, the one with the highest `y0` wins, then the smaller (nav.ts `roomAt`).
+ */
 export interface Room {
   id: number;
   name: string;
@@ -16,6 +19,14 @@ export interface Room {
   z1: number;
   y0: number;
   y1: number;
+  /** The height of its floor and of its ceiling (the renderer hangs lamps and lays floors by these). */
+  floor: number;
+  ceil: number;
+  /**
+   * 'ramp': stairs or a slope between levels (nobody stands about on it; no floor, lamps or sign of its own).
+   * 'walkway': a mezzanine, gantry or bridge (you stand on it, but it has no floor plane or sign of its own).
+   */
+  shape?: 'ramp' | 'walkway';
   /** A ramp or staircase over part of another room's floor: heading for that room, a zombie on it just walks off the side. */
   base?: number;
 }
