@@ -5,7 +5,7 @@ import { coinText } from './lootui.ts';
 import { $, toast } from './ui.ts';
 
 const RESULT: Record<NonNullable<Round['outcome']>, string> = {
-  blackjack: 'Blackjack! Pays 3 to 2',
+  blackjack: 'Blackjack! Pays 2 to 1',
   win: 'You win',
   push: 'Push: your bet comes back',
   lose: 'Dealer wins',
@@ -17,7 +17,7 @@ const cardHtml = (c: Card | null, i: number) =>
     ? `<div class="bj-card ${c.suit === '♥' || c.suit === '♦' ? 'red' : ''}" style="--i:${i}"><b>${c.rank}</b><span>${c.suit}</span></div>`
     : `<div class="bj-card back" style="--i:${i}"></div>`;
 
-/** The Blackjack tab: bet coins against the house. Dealer stands on 17, blackjack pays 3:2, double on any first two cards. */
+/** The Blackjack tab: bet coins against the house. Dealer stands on 17, blackjack pays 2:1, double on any first two cards. */
 export function mountBlackjack(root: HTMLElement): () => void {
   root.innerHTML = `
     <div class="bj">
@@ -38,7 +38,7 @@ export function mountBlackjack(root: HTMLElement): () => void {
           <button id="bj-double">Double</button>
         </div>
         <p class="notice" id="bj-note" role="status"></p>
-        <p class="bj-rules">Six decks. Dealer stands on all 17s. Blackjack pays 3:2. Double on your first two cards. Chips are coins.</p>
+        <p class="bj-rules">Six decks. Dealer stands on all 17s. Blackjack pays 2:1. Double on your first two cards. Chips are coins.</p>
       </div>
     </div>`;
   const bet = $<HTMLInputElement>(root, '#bj-bet');

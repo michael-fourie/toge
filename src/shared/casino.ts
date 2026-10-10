@@ -6,7 +6,7 @@
 
 export const PLINKO_ROWS = 12;
 /** Payout multiplier per landing slot, left to right (symmetric). The centre is where most balls land. */
-export const PLINKO_MULT: readonly number[] = [30, 10, 5, 2, 1, 0.5, 0.4, 0.5, 1, 2, 5, 10, 30];
+export const PLINKO_MULT: readonly number[] = [30, 10, 5, 2, 1, 0.5, 0.5, 0.5, 1, 2, 5, 10, 30];
 
 export interface PlinkoDrop {
   /** One entry per peg row: 0 = bounced left, 1 = bounced right. */
@@ -21,8 +21,8 @@ export function plinkoDrop(rng: () => number = Math.random): PlinkoDrop {
   return { path, slot: path.reduce<number>((n, d) => n + d, 0) };
 }
 
-/** What a bet returns (stake included) from a slot. Rounded to whole coins. */
-export const plinkoPayout = (bet: number, slot: number) => Math.round(bet * PLINKO_MULT[slot]);
+/** What a bet returns (stake included) from a slot, rounded down to whole coins (rounding up would make 1-coin bets risk-free). */
+export const plinkoPayout = (bet: number, slot: number) => Math.floor(bet * PLINKO_MULT[slot]);
 
 /** Expected return per coin staked: the house edge is 1 minus this. */
 export function plinkoRtp(): number {
@@ -37,7 +37,7 @@ export function plinkoRtp(): number {
 }
 
 // ---------------------------------------------------------------------------
-// Blackjack: six decks, dealer stands on every 17, blackjack pays 3:2, double on any first two cards. No split or insurance.
+// Blackjack: six decks, dealer stands on every 17, blackjack pays 2:1 (a friendly table: about even with good play), double on any first two cards. No split or insurance.
 
 const SUITS = ['♠', '♥', '♦', '♣'] as const;
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'] as const;
@@ -89,7 +89,7 @@ const take = (shoe: Card[]) => shoe.pop()!;
 function finish(r: Round, outcome: Outcome) {
   r.done = true;
   r.outcome = outcome;
-  r.payout = outcome === 'blackjack' ? r.bet + Math.round(r.bet * 1.5) : outcome === 'win' ? r.bet * 2 : outcome === 'push' ? r.bet : 0;
+  r.payout = outcome === 'blackjack' ? r.bet * 3 : outcome === 'win' ? r.bet * 2 : outcome === 'push' ? r.bet : 0;
 }
 
 /** Deals a hand. A natural (either side) ends it at once. The shoe is refilled by the caller when it runs low. */
@@ -140,7 +140,7 @@ export const SHOE_MIN = 52;
 // Crash: a kite climbs on the wind while the multiplier rises; at a random point its string snaps. Cash out before then.
 
 export const CRASH = {
-  edge: 0.03, // house edge: whatever you cash out at, you get back 97% on average (and 3% of rounds snap at once)
+  edge: 0.01, // house edge: whatever you cash out at, you get back 99% on average (and ~2% of rounds snap at once)
   growth: 0.12, // the multiplier is e^(growth·seconds): 2× at ~5.8 s, 10× at ~19 s
   max: 1000,
 };

@@ -59,11 +59,11 @@ test('plinko: many drops match the binomial odds and the stated return', () => {
   assert.ok(Math.abs(back / N - plinkoRtp()) < 0.1, `simulated return ${back / N}`);
 });
 
-test('plinko: payouts include the stake, round to whole coins, and never go negative', () => {
-  assert.equal(plinkoPayout(100, 6), 40);
+test('plinko: payouts include the stake, round down to whole coins, and never go negative', () => {
+  assert.equal(plinkoPayout(100, 6), 50);
   assert.equal(plinkoPayout(100, 0), 3000);
-  assert.equal(plinkoPayout(7, 5), 4); // 3.5 rounds
-  assert.equal(plinkoPayout(1, 6), 0);
+  assert.equal(plinkoPayout(7, 5), 3); // 3.5 rounds down
+  assert.equal(plinkoPayout(1, 6), 0); // 0.5 rounds down
 });
 
 test('wager: takes any whole amount you can afford, and nothing else', () => {
@@ -94,10 +94,10 @@ test('blackjack: a six-deck shoe with every card, shuffled by the rng', () => {
   assert.notDeepEqual(shoe.map((x) => x.rank + x.suit), again.map((x) => x.rank + x.suit));
 });
 
-test('blackjack: naturals pay 3:2, a dealer natural takes the bet, both is a push', () => {
+test('blackjack: naturals pay 2:1, a dealer natural takes the bet, both is a push', () => {
   const bj = deal(rigged('A', '9', 'K', '8'), 100); // player A,K; dealer 9,8
   assert.ok(bj.done && bj.outcome === 'blackjack');
-  assert.equal(bj.payout, 250);
+  assert.equal(bj.payout, 300);
   const lose = deal(rigged('9', 'A', '8', 'K'), 100);
   assert.ok(lose.done && lose.outcome === 'lose' && lose.payout === 0);
   const push = deal(rigged('A', 'A', 'K', 'K'), 100);
@@ -157,7 +157,7 @@ test('blackjack: hitting to exactly 21 stands automatically and the dealer then 
   assert.ok(r.done && r.outcome === 'win');
 });
 
-test('crash: snaps at 1x or more, about 4% at 1.00x, and every cash-out target returns about 97% on average', () => {
+test('crash: snaps at 1x or more, about 2% at 1.00x, and every cash-out target returns about 99% on average', () => {
   let s = 7;
   const rng = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
   const N = 200000;

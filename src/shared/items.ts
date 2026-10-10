@@ -8,13 +8,13 @@ export type Rarity = 'consumer' | 'industrial' | 'milspec' | 'restricted' | 'cla
 export const RARITIES: readonly Rarity[] = ['consumer', 'industrial', 'milspec', 'restricted', 'classified', 'covert', 'gold'];
 
 export const RARITY: Record<Rarity, { name: string; color: number; weight: number; sell: number }> = {
-  consumer: { name: 'Consumer Grade', color: 0xb0c3d9, weight: 32, sell: 5 },
-  industrial: { name: 'Industrial Grade', color: 0x5e98d9, weight: 28, sell: 12 },
-  milspec: { name: 'Mil-Spec', color: 0x4b69ff, weight: 22, sell: 30 },
-  restricted: { name: 'Restricted', color: 0x8847ff, weight: 11, sell: 80 },
-  classified: { name: 'Classified', color: 0xd32ce6, weight: 5, sell: 200 },
-  covert: { name: 'Covert', color: 0xeb4b4b, weight: 1.8, sell: 600 },
-  gold: { name: 'Exceedingly Rare', color: 0xe4ae39, weight: 0.2, sell: 2000 },
+  consumer: { name: 'Consumer Grade', color: 0xb0c3d9, weight: 26, sell: 5 },
+  industrial: { name: 'Industrial Grade', color: 0x5e98d9, weight: 25, sell: 12 },
+  milspec: { name: 'Mil-Spec', color: 0x4b69ff, weight: 24, sell: 30 },
+  restricted: { name: 'Restricted', color: 0x8847ff, weight: 15, sell: 80 },
+  classified: { name: 'Classified', color: 0xd32ce6, weight: 7.5, sell: 200 },
+  covert: { name: 'Covert', color: 0xeb4b4b, weight: 3.3, sell: 600 },
+  gold: { name: 'Exceedingly Rare', color: 0xe4ae39, weight: 0.9, sell: 2000 },
 };
 
 /** The currency: earned by kills, spent on cases, topped up by selling skins. */
@@ -72,7 +72,7 @@ export interface CaseDef {
 
 export const CASES: readonly CaseDef[] = [
   { id: 'sky', name: 'Skyline Case', blurb: 'Paint jobs for your AWP', price: 100, color: 0x5fa3dc },
-  { id: 'blade', name: 'Windblade Case', blurb: 'Knives, four shapes, many colours', price: 150, color: 0xd9584a },
+  { id: 'blade', name: 'Windblade Case', blurb: 'Knives, four shapes, many colours', price: 120, color: 0xd9584a },
   { id: 'wardrobe', name: 'Wardrobe Case', blurb: 'Hats, faces and backs', price: 80, color: 0x76ac5a },
 ];
 
