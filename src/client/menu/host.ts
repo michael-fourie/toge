@@ -28,6 +28,7 @@ export const host: Render = (root, ctx, screen) => {
       { value: 'ffa', text: 'Free for all', tip: 'Every sniper for themselves', on: true },
       { value: 'teams', text: 'Teams', tip: `${TEAMS[0].name} vs ${TEAMS[1].name}` },
       { value: 'koth', text: '👑 Hill', tip: `King of the Hill on Crown: hold the hill ${KOTH.holdToWin / 60} min to win` },
+      { value: 'br', text: '🪂 Royale', tip: 'Battle Royale on Wildmere, a huge island: start with a pistol, find guns, outrun the zone, be the last one standing' },
     ])}
     ${chips('maps', 'Map', 'map', [
       ...BATTLE_MAP_IDS.map((id) => ({ value: id, text: BATTLE_MAPS[id].name, tip: BATTLE_MAPS[id].blurb })),
@@ -43,10 +44,12 @@ export const host: Render = (root, ctx, screen) => {
   const maps = $(root, '#maps');
   const syncFormats = () => {
     const battle = $<HTMLInputElement>(root, 'input[name=mode]:checked').value === 'battle';
-    const koth = battle && $<HTMLInputElement>(root, 'input[name=format]:checked').value === 'koth';
+    const format = $<HTMLInputElement>(root, 'input[name=format]:checked').value;
+    const koth = battle && format === 'koth';
+    const br = battle && format === 'br';
     formats.hidden = !battle;
-    maps.hidden = !battle || koth; // the hill has its own map
-    $(root, '#host-goal').textContent = `${!battle ? 'The Foundry · co-op' : koth ? 'Crown · hold the hill to win' : `First to ${KILL_LIMIT} kills`} · up to ${NET.maxPlayersPerLobby} players`;
+    maps.hidden = !battle || koth || br; // the hill and the Royale have their own maps
+    $(root, '#host-goal').textContent = `${!battle ? 'The Foundry · co-op' : koth ? 'Crown · hold the hill to win' : br ? 'Wildmere · start with a pistol, last one standing wins' : `First to ${KILL_LIMIT} kills`} · up to ${NET.maxPlayersPerLobby} players`;
   };
   root.querySelectorAll('input[name=mode], input[name=format]').forEach((i) => i.addEventListener('change', syncFormats));
   syncFormats();
@@ -66,10 +69,11 @@ export const host: Render = (root, ctx, screen) => {
     const mode = $<HTMLInputElement>(root, 'input[name=mode]:checked').value as GameMode;
     const format = $<HTMLInputElement>(root, 'input[name=format]:checked').value;
     const koth = mode === 'battle' && format === 'koth';
+    const br = mode === 'battle' && format === 'br';
     const teams = koth || (mode === 'battle' && format === 'teams');
     const pick = $<HTMLInputElement>(root, 'input[name=map]:checked').value;
     const map = pick === 'random' ? randomBattleMap() : (pick as BattleMap); // chosen here so every player gets the same arena
-    if (await goOnline(root, ctx.net)) ctx.net.host(playerName(), mode, teams, map, koth);
+    if (await goOnline(root, ctx.net)) ctx.net.host(playerName(), mode, teams, map, koth, br);
     create.disabled = false;
   });
   create.focus();

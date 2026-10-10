@@ -26,8 +26,8 @@ export class Net {
   }
 
   /** Replies arrive as `joined` or `error` messages through `on()`. */
-  host(name: string, mode: GameMode, teams = false, map?: BattleMap, koth = false) {
-    this.open({ name, mode, ...(teams && { teams: '1' }), ...(koth && { koth: '1' }), ...(map && mode === 'battle' && !koth && { map }) });
+  host(name: string, mode: GameMode, teams = false, map?: BattleMap, koth = false, br = false) {
+    this.open({ name, mode, ...(teams && { teams: '1' }), ...(koth && { koth: '1' }), ...(br && { br: '1' }), ...(map && mode === 'battle' && !koth && !br && { map }) });
   }
 
   join(name: string, code: string) {
