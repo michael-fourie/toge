@@ -255,6 +255,66 @@ export function plankTexture(renderer: R): THREE.CanvasTexture {
   return toTexture(c, renderer);
 }
 
+/** Worn floorboards for the North Wing's upper storey: long boards in staggered rows, one tile = 2 m. */
+export function floorboardTexture(renderer: R): THREE.CanvasTexture {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(71);
+  const rows = 8;
+  const h = S / rows;
+  const tones = ['#8a6640', '#7d5a36', '#93704a', '#73532f'];
+  for (let j = 0; j < rows; j++) {
+    const end = 40 + ((j * 97) % (S - 80)); // where this row's boards butt together
+    g.fillStyle = tones[Math.floor(r() * tones.length)];
+    g.fillRect(0, j * h, end, h);
+    g.fillStyle = tones[Math.floor(r() * tones.length)];
+    g.fillRect(end, j * h, S - end, h);
+    g.fillStyle = '#4a321b';
+    g.fillRect(0, j * h, S, 2);
+    g.fillRect(end, j * h, 2, h);
+  }
+  g.strokeStyle = '#5a3e22';
+  g.globalAlpha = 0.35;
+  for (let i = 0; i < 40; i++) {
+    const y = r() * S;
+    g.beginPath();
+    g.moveTo(0, y);
+    for (let x = 0; x <= S; x += 32) g.lineTo(x, y + Math.sin(x * 0.05 + i) * 1.5);
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+  speckle(g, S, r, 300, ['#3d2a17', '#b08c5e'], 0.4);
+  return toTexture(c, renderer);
+}
+
+/** Chipped checkerboard tiles (the Showroom, the Break Room, Cold Storage), tinted per room. One tile = 2 m (4x4 tiles). */
+export function tileTexture(renderer: R): THREE.CanvasTexture {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(83);
+  const n = 4;
+  const t = S / n;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      g.fillStyle = (i + j) % 2 ? '#d9d2c2' : '#6d7f86';
+      g.fillRect(i * t, j * t, t, t);
+    }
+  }
+  g.strokeStyle = '#3a3c3e';
+  g.lineWidth = 3;
+  for (let i = 0; i <= n; i++) {
+    g.beginPath();
+    g.moveTo(i * t, 0);
+    g.lineTo(i * t, S);
+    g.moveTo(0, i * t);
+    g.lineTo(S, i * t);
+    g.stroke();
+  }
+  blobs(g, S, S, r, 20, ['#4a4f52', '#9a958a'], [6, 22], [0.1, 0.25]); // grime and chips
+  speckle(g, S, r, 400, ['#2f3133', '#efe9db'], 0.35);
+  return toTexture(c, renderer);
+}
+
 /** Stencilled sign: a dark painted plate with chunky text, one or two lines. Not tiling. */
 export function signTexture(renderer: R, lines: string[], opts: { bg?: string; fg?: string; w?: number; h?: number; border?: string } = {}): THREE.CanvasTexture {
   const W = opts.w ?? 512;

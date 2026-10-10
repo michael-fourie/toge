@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Box } from '../shared/collision.ts';
 import { SURVIVAL } from '../shared/constants.ts';
-import type { Barricade, Room, SurvivalLayout } from '../shared/layout.ts';
+import type { Barricade, SurvivalLayout } from '../shared/layout.ts';
 import type { MapData } from '../shared/map.ts';
 import type { Vec3 } from '../shared/math.ts';
 import type { BoxState, WorldState } from '../shared/protocol.ts';
 import { openRooms } from '../shared/colliders.ts';
 import { buildScythe } from './scythe.ts';
-import { boilerTexture, brickTexture, concreteTexture, conveyorTexture, crateTexture, gravelTexture, hazardTexture, machineTexture, paneTexture, plankTexture, signTexture, steelTexture } from './foundrytextures.ts';
+import { boilerTexture, brickTexture, concreteTexture, conveyorTexture, crateTexture, floorboardTexture, gravelTexture, hazardTexture, machineTexture, paneTexture, plankTexture, signTexture, steelTexture, tileTexture } from './foundrytextures.ts';
+import { buildDecor } from './foundrydecor.ts';
 import { buildMysteryBox, buildWallBuy } from './foundrybox.ts';
 import { buildJugMachine, buildPerkMachine } from './jugmachine.ts';
 import { PERKS } from '../shared/perks.ts';
@@ -33,24 +34,32 @@ export interface FoundryWorld extends World {
 }
 
 const MAX_BOARDS = SURVIVAL.boards;
+const COMPOUND_MID = new THREE.Vector3(0, 0, -25); // the yard reaches from z 38 to the North Wing at -88
 const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 const smooth = (a: number, b: number, x: number) => ease((x - a) / (b - a));
 
-/** Bake a box into world-space geometry: UVs in metres over `tile`, with darkening near the floor and ceiling baked into vertex colours. */
-function bake(geo: THREE.BufferGeometry, shade: boolean): THREE.BufferGeometry {
+/** The storey a piece of geometry stands in: its floor and ceiling heights (for the baked shading). */
+interface Level {
+  floor: number;
+  ceil: number;
+}
+const GROUND: Level = { floor: 0, ceil: 9 };
+
+/** Bake a box into world-space geometry: UVs in metres over `tile`, with darkening near its storey's floor and ceiling baked into vertex colours. */
+function bake(geo: THREE.BufferGeometry, shade: boolean, lv: Level = GROUND): THREE.BufferGeometry {
   const g = geo.index ? geo.toNonIndexed() : geo;
   const pos = g.attributes.position;
   const col = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i);
-    const k = shade ? 0.46 + 0.54 * smooth(0, 3, y) - 0.35 * smooth(7, 9.4, y) : 1;
+    const k = shade ? 0.46 + 0.54 * smooth(lv.floor, lv.floor + 3, y) - 0.35 * smooth(lv.ceil - 2, lv.ceil + 0.4, y) : 1;
     col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = k;
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return g;
 }
 
-function boxGeo(b: Box, tile: number, shade = true): THREE.BufferGeometry {
+function boxGeo(b: Box, tile: number, shade = true, lv: Level = GROUND): THREE.BufferGeometry {
   const sx = b.max.x - b.min.x;
   const sy = b.max.y - b.min.y;
   const sz = b.max.z - b.min.z;
@@ -64,7 +73,7 @@ function boxGeo(b: Box, tile: number, shade = true): THREE.BufferGeometry {
     }
   }
   geo.translate((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2);
-  return bake(geo, shade);
+  return bake(geo, shade, lv);
 }
 
 /** A cylinder (boilers, pipes, barrels) with UVs in metres. */
@@ -108,12 +117,13 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   scene.add(stars.obj, makeMoon());
   scene.add(new THREE.HemisphereLight(0x6b82d6, 0x2a2548, 1.3));
   const moon = new THREE.DirectionalLight(NIGHT.light, 0.85);
-  moon.position.copy(MOON_DIR).multiplyScalar(120);
+  moon.position.copy(MOON_DIR).multiplyScalar(120).add(COMPOUND_MID);
+  moon.target.position.copy(COMPOUND_MID);
   moon.castShadow = true;
   moon.shadow.mapSize.set(1536, 1536);
   const sc = moon.shadow.camera;
-  sc.left = sc.bottom = -72;
-  sc.right = sc.top = 72;
+  sc.left = sc.bottom = -84;
+  sc.right = sc.top = 84;
   sc.near = 1;
   sc.far = 320;
   moon.shadow.bias = -0.0006;
@@ -134,6 +144,8 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
     crate: toon({ map: crateTexture(renderer), vertexColors: true }),
     conveyor: toon({ map: conveyorTexture(renderer), vertexColors: true }),
     concrete: toon({ map: concreteTexture(renderer), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    boards: toon({ map: floorboardTexture(renderer), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    tiles: toon({ map: tileTexture(renderer), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
   };
   const buckets = new Map<keyof typeof M, THREE.BufferGeometry[]>();
   const put = (k: keyof typeof M, g: THREE.BufferGeometry) => {
@@ -143,23 +155,35 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   };
 
   // --- Geometry -----------------------------------------------------------
+  // Which storey a box stands in: the room whose footprint holds it with the highest floor at or under its bottom.
+  const levelOf = (b: Box): Level => {
+    const cx = (b.min.x + b.max.x) / 2;
+    const cz = (b.min.z + b.max.z) / 2;
+    let best: Level | null = null;
+    for (const rm of lay.rooms) {
+      if (rm.shape === 'ramp' || cx < rm.x0 - 0.6 || cx > rm.x1 + 0.6 || cz < rm.z0 - 0.6 || cz > rm.z1 + 0.6 || rm.floor > b.min.y + 0.05) continue;
+      if (!best || rm.floor > best.floor) best = rm;
+    }
+    return best ?? (b.min.y < -0.5 ? { floor: b.min.y, ceil: 0 } : GROUND);
+  };
   for (const b of map.boxes) {
     const sx = b.max.x - b.min.x;
     const sy = b.max.y - b.min.y;
     const sz = b.max.z - b.min.z;
+    const lv = levelOf(b);
     if (b.ramp) {
-      put('plate', bake(rampGeometry(b, 2), true));
+      put('plate', bake(rampGeometry(b, 2), true, lv));
       continue;
     }
     switch (b.kind) {
       case 'brick':
-        put('brick', boxGeo(b, 3));
+        put('brick', boxGeo(b, 3, true, lv));
         break;
       case 'gravel':
         put('gravel', boxGeo(b, 6, false));
         break;
       case 'crate':
-        put('crate', boxGeo(b, 1.5));
+        put('crate', boxGeo(b, 1.5, true, lv));
         break;
       case 'machine':
         if (sy > 4) {
@@ -173,13 +197,13 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
           put('boiler', bake(dome, true));
           put('plate', cylGeo(0.22, 9 - sy, 2, cx, (9 + sy) / 2, cz, 10));
           put('hazard', cylGeo(rad + 0.04, 0.5, 1, cx, 0.25, cz, 22, false)); // hazard skirt
-        } else put('machine', boxGeo(b, 2));
+        } else put('machine', boxGeo(b, 2, true, lv));
         break;
       case 'steel':
-        if (b.min.y >= 8.9) put('plate', boxGeo(b, 3));
-        else if (sy < 1.2 && Math.max(sx, sz) > 6) put('conveyor', boxGeo(b, 1.6));
-        else if (sy >= 1 && sy < 1.5 && b.min.y >= 4) put('hazard', boxGeo(b, 1)); // the mezzanine rail
-        else put('plate', boxGeo(b, 2.4));
+        if (b.min.y >= 8.9) put('plate', boxGeo(b, 3, true, lv));
+        else if (sy >= 0.8 && sy < 1.2 && Math.min(sx, sz) >= 1 && Math.max(sx, sz) > 6) put('conveyor', boxGeo(b, 1.6, true, lv));
+        else if (sy >= 0.9 && sy <= 1.6 && Math.min(sx, sz) <= 0.25) put('hazard', boxGeo(b, 1, true, lv)); // rails and fences
+        else put('plate', boxGeo(b, 2.4, true, lv));
         break;
       default:
         break;
@@ -194,12 +218,12 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
     const f = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => put('hazard', boxGeo({ min: { x: x0, y: y0, z: z0 }, max: { x: x1, y: y1, z: z1 }, kind: 'steel' }, 0.8, false));
     const t = 0.35;
     if (alongX) {
-      f(min.x - 0.2, 0, min.z - t, min.x, max.y + 0.2, max.z + t);
-      f(max.x, 0, min.z - t, max.x + 0.2, max.y + 0.2, max.z + t);
+      f(min.x - 0.2, min.y, min.z - t, min.x, max.y + 0.2, max.z + t);
+      f(max.x, min.y, min.z - t, max.x + 0.2, max.y + 0.2, max.z + t);
       f(min.x - 0.2, max.y, min.z - t, max.x + 0.2, max.y + 0.2, max.z + t);
     } else {
-      f(min.x - t, 0, min.z - 0.2, max.x + t, max.y + 0.2, min.z);
-      f(min.x - t, 0, max.z, max.x + t, max.y + 0.2, max.z + 0.2);
+      f(min.x - t, min.y, min.z - 0.2, max.x + t, max.y + 0.2, min.z);
+      f(min.x - t, min.y, max.z, max.x + t, max.y + 0.2, max.z + 0.2);
       f(min.x - t, max.y, min.z - 0.2, max.x + t, max.y + 0.2, max.z + 0.2);
     }
   }
@@ -213,34 +237,54 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
         ? { min: { x: b.pos.x + a0, y: y0, z: b.pos.z - t }, max: { x: b.pos.x + a1, y: y1, z: b.pos.z + t }, kind: 'steel' }
         : { min: { x: b.pos.x - t, y: y0, z: b.pos.z + a0 }, max: { x: b.pos.x + t, y: y1, z: b.pos.z + a1 }, kind: 'steel' }, 1.2, false));
     };
-    f(-half - 0.18, 0, -half, top + 0.18);
-    f(half, 0, half + 0.18, top + 0.18);
+    f(-half - 0.18, b.pos.y, -half, top + 0.18);
+    f(half, b.pos.y, half + 0.18, top + 0.18);
     f(-half - 0.18, top, half + 0.18, top + 0.18);
   }
 
-  // Overhead: beams, pipes and a catwalk-grey roof underside, per room. Nothing here is solid.
-  for (const room of lay.rooms) {
-    if (room.name === 'Stairs' || room.name === 'Mezzanine') continue;
+  // Overhead: beams and pipes under each room's ceiling; the cellars get a plated ceiling under the yard. Nothing here is solid.
+  const roomy = lay.rooms.filter((rm) => !rm.shape && (rm.x1 - rm.x0) * (rm.z1 - rm.z0) > 30);
+  for (const room of roomy) {
     const w = room.x1 - room.x0;
     const d = room.z1 - room.z0;
-    for (let x = room.x0 + 4; x < room.x1 - 1; x += 6) put('plate', boxGeo({ min: { x: x - 0.25, y: 8.3, z: room.z0 }, max: { x: x + 0.25, y: 8.85, z: room.z1 }, kind: 'steel' }, 1.2));
+    const c = room.ceil;
+    for (let x = room.x0 + 4; x < room.x1 - 1; x += 6) put('plate', boxGeo({ min: { x: x - 0.25, y: c - 0.7, z: room.z0 }, max: { x: x + 0.25, y: c - 0.15, z: room.z1 }, kind: 'steel' }, 1.2, true, room));
     const pipes = Math.max(1, Math.floor(d / 9));
-    for (let i = 0; i < pipes; i++) put('plate', pipe('x', 0.16 + (i % 2) * 0.06, room.x0, room.x1, 7.75 - (i % 2) * 0.35, room.z0 + (d * (i + 0.5)) / pipes));
-    if (w > 20) put('plate', pipe('z', 0.2, room.z0, room.z1, 7.4, room.x0 + w * 0.3));
+    for (let i = 0; i < pipes; i++) put('plate', pipe('x', 0.16 + (i % 2) * 0.06, room.x0, room.x1, c - 1.25 - (i % 2) * 0.35, room.z0 + (d * (i + 0.5)) / pipes));
+    if (w > 20) put('plate', pipe('z', 0.2, room.z0, room.z1, c - 1.6, room.x0 + w * 0.3));
+  }
+  for (const rm of lay.rooms) {
+    if (rm.floor < -1 && rm.shape !== 'ramp') put('plate', boxGeo({ min: { x: rm.x0, y: rm.ceil - 0.06, z: rm.z0 }, max: { x: rm.x1, y: rm.ceil - 0.01, z: rm.z1 }, kind: 'steel' }, 2.4, true, rm));
   }
 
-  // The interior floor: poured concrete over the gravel, one plane per room (the stairs and mezzanine have their own).
-  const floors: THREE.BufferGeometry[] = [];
-  const floorOf = (rm: Room) => {
-    const g = floorQuad((rm.x0 + rm.x1) / 2, 0.012, (rm.z0 + rm.z1) / 2, rm.x1 - rm.x0, rm.z1 - rm.z0);
-    const uv = g.attributes.uv as THREE.BufferAttribute;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * (rm.x1 - rm.x0)) / 4, (uv.getY(i) * (rm.z1 - rm.z0)) / 4);
-    return g;
+  // The interior floors: a plane per room over the slab it stands on (clipped round the holes for stairs and pits). Poured
+  // concrete, but floorboards upstairs in the North Wing and chipped tiles where shop, staff and cold rooms were.
+  const FLOOR_LOOK: Record<string, 'boards' | 'tiles'> = {
+    'Drafting Loft': 'boards', 'Clock Room': 'boards', Showroom: 'tiles', 'Front of Shop': 'tiles', 'Fitting Rooms': 'tiles', 'Break Room': 'tiles', 'Cold Storage': 'tiles', 'Duck Shrine': 'boards',
   };
-  for (const rm of lay.rooms) if (rm.name !== 'Stairs' && rm.name !== 'Mezzanine') floors.push(floorOf(rm));
-  const floorMesh = new THREE.Mesh(mergeGeometries(floors.map((g) => g.toNonIndexed()), false), M.concrete);
-  floorMesh.receiveShadow = true;
-  scene.add(floorMesh);
+  const floors = { concrete: [] as THREE.BufferGeometry[], boards: [] as THREE.BufferGeometry[], tiles: [] as THREE.BufferGeometry[] };
+  const slabs = map.boxes.filter((b) => !b.ramp && (b.kind === 'gravel' || b.kind === 'steel') && (b.max.x - b.min.x) * (b.max.z - b.min.z) > 4 && b.max.y - b.min.y <= 1.1);
+  for (const rm of lay.rooms) {
+    if (rm.shape) continue;
+    for (const b of slabs) {
+      if (Math.abs(b.max.y - rm.floor) > 0.01) continue;
+      const x0 = Math.max(rm.x0, b.min.x);
+      const x1 = Math.min(rm.x1, b.max.x);
+      const z0 = Math.max(rm.z0, b.min.z);
+      const z1 = Math.min(rm.z1, b.max.z);
+      if (x1 - x0 < 0.05 || z1 - z0 < 0.05) continue;
+      const g = floorQuad((x0 + x1) / 2, rm.floor + 0.012, (z0 + z1) / 2, x1 - x0, z1 - z0);
+      const uv = g.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, (x0 + uv.getX(i) * (x1 - x0)) / 4, (z0 + uv.getY(i) * (z1 - z0)) / 4);
+      floors[FLOOR_LOOK[rm.name] ?? 'concrete'].push(g.toNonIndexed());
+    }
+  }
+  for (const [k, list] of Object.entries(floors)) {
+    if (!list.length) continue;
+    const mesh = new THREE.Mesh(mergeGeometries(list, false), M[k as keyof typeof floors]);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  }
 
   for (const [k, list] of buckets) {
     const mesh = new THREE.Mesh(mergeGeometries(list, false), M[k]);
@@ -250,8 +294,9 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   }
 
   // --- Lamps, pools of light and moonbeams -----------------------------------
-  interface Lamp { x: number; z: number; color: THREE.Color; flicker: number }
+  interface Lamp { x: number; y: number; z: number; floor: number; ceil: number; color: THREE.Color; flicker: number }
   const lamps: Lamp[] = [];
+  // Each room's lamp colour, and the share of its lamps that flicker. The cellars run cold and nervy; the Duck Shrine is lit by candles (foundrydecor.ts).
   const tint: Record<string, [number, number]> = {
     'Assembly Hall': [0xffe2a8, 0],
     Office: [0xffd9a0, 0],
@@ -261,10 +306,26 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
     'Loading Dock': [0xffd090, 0.5],
     Furnace: [0xff8a4a, 0.3],
     Mezzanine: [0xffe2a8, 0],
+    'Pump Room': [0x8fe8d0, 0.6],
+    'Stair Foot': [0x8fe8d0, 1],
+    'Cold Storage': [0xa8d8ff, 0.3],
+    'Rail Tunnel': [0xffc070, 0.5],
+    'Old Drain': [0x9fe08a, 0.7],
+    Showroom: [0xffd0e0, 0.2],
+    'Fitting Rooms': [0xffd0e0, 0.6],
+    'Front of Shop': [0xffd0e0, 0],
+    'Sorting Floor': [0xffe2a8, 0.2],
+    'Parcel Bay': [0xffe2a8, 0.5],
+    Dispatch: [0xffe2a8, 0],
+    'Break Room': [0xfff0c0, 0.5],
+    'Drafting Loft': [0xffd9a0, 0.1],
+    'Clock Room': [0xb8f0ff, 0.4],
+    Skybridge: [0xcfdcff, 0.3],
   };
   for (const rm of lay.rooms) {
     const t = tint[rm.name];
     if (!t) continue;
+    const y = rm.ceil - (rm.ceil - rm.floor > 6 ? 1.4 : 0.8);
     const w = rm.x1 - rm.x0;
     const d = rm.z1 - rm.z0;
     const nx = Math.max(1, Math.round(w / 14));
@@ -274,16 +335,17 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
         const x = rm.x0 + (w * (i + 0.5)) / nx;
         const z = rm.z0 + (d * (j + 0.5)) / nz;
         if (rm.name === 'Assembly Hall' && z < -11) continue; // the mezzanine's own lamps cover that strip
-        lamps.push({ x, z, color: new THREE.Color(t[0]), flicker: t[1] > 0 && r() < t[1] ? 1 : 0 });
+        lamps.push({ x, y, z, floor: rm.floor, ceil: rm.ceil, color: new THREE.Color(t[0]), flicker: t[1] > 0 && r() < t[1] ? 1 : 0 });
       }
     }
   }
   const shadeGeo: THREE.BufferGeometry[] = [];
   for (const l of lamps) {
     const cone = new THREE.ConeGeometry(0.7, 0.5, 12, 1, true);
-    cone.translate(l.x, 7.6, l.z);
+    cone.translate(l.x, l.y, l.z);
     shadeGeo.push(bake(cone, false));
-    shadeGeo.push(bake(cylGeo(0.03, 1.1, 1, l.x, 8.4, l.z, 4, false), false));
+    const cord = l.ceil - l.y - 0.2;
+    shadeGeo.push(bake(cylGeo(0.03, cord, 1, l.x, l.y + 0.2 + cord / 2, l.z, 4, false), false));
   }
   const shades = new THREE.Mesh(mergeGeometries(shadeGeo, false), toon({ color: 0x2b2f36, side: THREE.DoubleSide }));
   scene.add(shades);
@@ -292,24 +354,24 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   const dot = softDot();
   const glowPos = new Float32Array(lamps.length * 3);
   const glowCol = new Float32Array(lamps.length * 3);
-  lamps.forEach((l, i) => glowPos.set([l.x, 7.35, l.z], i * 3));
+  lamps.forEach((l, i) => glowPos.set([l.x, l.y - 0.25, l.z], i * 3));
   const glowGeo = new THREE.BufferGeometry();
   glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPos, 3));
   glowGeo.setAttribute('color', new THREE.BufferAttribute(glowCol, 3));
   scene.add(new THREE.Points(glowGeo, new THREE.PointsMaterial({ map: dot, size: 2.6, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
 
-  const yardLights: [number, number][] = [[-44, -40], [44, -40], [-44, 32], [44, 32], [0, -41], [0, 33]];
+  const yardLights: [number, number][] = [[-44, -40], [44, -40], [-44, 32], [44, 32], [0, 33], [-44, -66], [44, -66], [-28, -84], [28, -84], [-20, -42], [24, -42]];
   const poolGeos: THREE.BufferGeometry[] = [];
   const poolRanges: { start: number; lamp: number }[] = [];
   let vertCount = 0;
-  const addPool = (x: number, z: number, size: number, lampIdx: number) => {
-    const g = floorQuad(x, 0.05, z, size, size).toNonIndexed();
+  const addPool = (x: number, y: number, z: number, size: number, lampIdx: number) => {
+    const g = floorQuad(x, y + 0.05, z, size, size).toNonIndexed();
     poolGeos.push(g);
     poolRanges.push({ start: vertCount, lamp: lampIdx });
     vertCount += g.attributes.position.count;
   };
-  lamps.forEach((l, i) => addPool(l.x, l.z, 15, i));
-  yardLights.forEach(([x, z]) => addPool(x, z, 26, -1));
+  lamps.forEach((l, i) => addPool(l.x, l.floor, l.z, l.ceil - l.floor > 6 ? 15 : 10, i));
+  yardLights.forEach(([x, z]) => addPool(x, 0, z, 26, -1));
   const poolGeo = mergeGeometries(poolGeos, false);
   const poolCol = new Float32Array(vertCount * 3);
   poolGeo.setAttribute('color', new THREE.BufferAttribute(poolCol, 3));
@@ -324,13 +386,18 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   const shear = new THREE.Matrix4().set(1, 0.32, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
   const holes = [...lay.chutes.map((c) => c.lid), lay.doors[lay.hatch].box];
   const overHole = (x: number, z: number) => holes.some((h) => x > h.min.x - 2 && x < h.max.x + 2 && z > h.min.z - 2 && z < h.max.z + 2);
-  for (const [x, z] of [[-10, -4], [10, -4], [-10, 6], [10, 6], [-8, -26], [8, -26], [26, -22], [28, 0], [-28, -4], [-28, -24]]) {
+  const skylights: [number, number, number, number][] = [
+    ...[[-10, -4], [10, -4], [-10, 6], [10, 6], [-8, -26], [8, -26], [26, -22], [28, 0], [-28, -4], [-28, -24]].map(([x, z]): [number, number, number, number] => [x, z, 0, 9]),
+    ...[[-22, -56], [-12, -50], [20, -62], [24, -50]].map(([x, z]): [number, number, number, number] => [x, z, 5, 10]), // the North Wing's roof
+  ];
+  for (const [x, z, floor, top] of skylights) {
     if (overHole(x, z)) continue;
-    panes.push(new THREE.PlaneGeometry(3, 3).rotateX(Math.PI / 2).translate(x, 8.97, z));
-    const s = new THREE.CylinderGeometry(1.45, 2.7, 9, 4, 1, true).rotateY(Math.PI / 4);
-    s.translate(0, 4.5, 0);
+    const h = top - floor;
+    panes.push(new THREE.PlaneGeometry(3, 3).rotateX(Math.PI / 2).translate(x, top - 0.03, z));
+    const s = new THREE.CylinderGeometry(1.45, 1.45 + h * 0.14, h, 4, 1, true).rotateY(Math.PI / 4);
+    s.translate(0, h / 2, 0);
     s.applyMatrix4(shear.clone());
-    s.translate(x - 0.32 * 9 * 0.5, 0, z);
+    s.translate(x - 0.32 * h * 0.5, floor, z);
     shafts.push(s);
   }
   scene.add(new THREE.Mesh(mergeGeometries(panes.map((g) => g.toNonIndexed()), false), new THREE.MeshBasicMaterial({ color: 0x7f95d8 })));
@@ -343,7 +410,26 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
 
   // High windows in the outside walls glow with moonlight, on both faces.
   const glass: THREE.BufferGeometry[] = [];
+  const pane = (x: number, y: number, z: number, out: { x: number; z: number }, side: number) => {
+    const g = new THREE.PlaneGeometry(1.4, 2.4);
+    g.rotateY((out.x !== 0 ? (Math.PI / 2) * out.x : out.z > 0 ? 0 : Math.PI) + (side < 0 ? Math.PI : 0));
+    g.translate(x + out.x * 0.32 * side, y, z + out.z * 0.32 * side);
+    glass.push(g.toNonIndexed());
+  };
+  for (let a = -27; a <= 27; a += 6) {
+    for (const side of [-1, 1]) {
+      if (a < 3 || a > 8.5) pane(a, 7.6, -44, { x: 0, z: 1 }, side);
+      pane(a, 7.6, -70, { x: 0, z: -1 }, side);
+      if (Math.abs(a) < 12) {
+        pane(-30, 7.6, -57 + a, { x: -1, z: 0 }, side);
+        pane(30, 7.6, -57 + a, { x: 1, z: 0 }, side);
+      }
+    }
+  }
   for (const b of lay.barricades) {
+    if (b.pos.y < -1) continue; // the cellar grates have no high windows
+    const room = lay.rooms[b.room];
+    const y = b.pos.y + Math.min(5.4, (room.ceil - room.floor) * 0.6);
     for (const lat of [-3.4, 3.4]) {
       for (const side of [-1, 1]) {
         const g = new THREE.PlaneGeometry(1.4, 2.4);
@@ -351,7 +437,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
         const sz = b.out.x * lat;
         const out = b.out.x !== 0 ? Math.PI / 2 * b.out.x : b.out.z > 0 ? 0 : Math.PI;
         g.rotateY(out + (side < 0 ? Math.PI : 0));
-        g.translate(b.pos.x + sx + b.out.x * 0.32 * side, 5.4, b.pos.z + sz + b.out.z * 0.32 * side);
+        g.translate(b.pos.x + sx + b.out.x * 0.32 * side, y, b.pos.z + sz + b.out.z * 0.32 * side);
         glass.push(g.toNonIndexed());
       }
     }
@@ -374,6 +460,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   const barrelAt: [number, number][] = [
     [-47, -43], [-45.8, -43.6], [-46.4, -41.8], [47, -43], [45.6, -43.4], [-47, 35], [-45.6, 34.2], [47, 35], [46, 33.8], [47.2, 25],
     [-33, 5.9], [-34.2, 6.4], [33, -12], [34.4, -12.6], [-19.5, 6.4], [19.5, -0.6], [-34.8, -17], [-34.8, -18.2], [34.8, -17], [30, -31.2], [-6, 14.2],
+    [-47, -85], [-45.8, -84.4], [47, -85], [46, -84], [-47.4, -60], [47.4, -52], [29, -69], [-29, -45],
   ];
   const cols = [0xb23a2f, 0x2f5f9a, 0xc9a02f, 0x4d6a3c];
   barrels.count = barrelAt.length;
@@ -408,7 +495,8 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   const dustPos = new Float32Array(N * 3);
   const seeds = new Float32Array(N);
   for (let i = 0; i < N; i++) {
-    dustPos.set([-34 + r() * 68, 0.5 + r() * 7, -30 + r() * 52], i * 3);
+    const y = r() < 0.7 ? 0.5 + r() * 7 : r() < 0.5 ? -5.5 + r() * 4 : 5.5 + r() * 4; // most in the main building, some downstairs and upstairs
+    dustPos.set([-34 + r() * 68, y, y > 5 ? -68 + r() * 22 : -30 + r() * 52], i * 3);
     seeds[i] = r() * 100;
   }
   const dustGeo = new THREE.BufferGeometry();
@@ -449,7 +537,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
       g.add(p);
     }
     scene.add(g);
-    return { g, baseY: sy / 2, rise: 0, open: false, h: sy };
+    return { g, baseY: d.box.min.y + sy / 2, rise: 0, open: false, h: sy };
   });
 
   // --- The Skyline: chute lids (shut until their room is open) and the hatch's launch pad ---
@@ -476,7 +564,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   const powerOff = new THREE.MeshBasicMaterial({ color: 0xff3a2a });
   const powerOn = new THREE.MeshBasicMaterial({ color: 0x6aff7a });
   const lever = new THREE.Group();
-  lever.position.set(lay.power.pos.x, 1.3, lay.power.pos.z + 0.6);
+  lever.position.set(lay.power.pos.x, lay.power.pos.y + 1.3, lay.power.pos.z + 0.6);
   lever.rotation.y = lay.power.yaw;
   const panel = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.12), toon({ color: 0x3a4048 }));
   lever.add(panel);
@@ -512,14 +600,14 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   ];
   const parts = lay.parts.map((p, i) => {
     const g = new THREE.Group();
-    g.position.set(p.pos.x, 1.1, p.pos.z);
+    g.position.set(p.pos.x, p.pos.y + 1.1, p.pos.z);
     const m = partModels[i % partModels.length]();
     m.position.set(0, 0, 0);
     if (i === 0) m.position.set(0.3, 0, 0.9); // the blade sits at the staff's tip: bring it back to the middle
     if (i === 1) m.position.set(0, 0, 0.33);
     g.add(m, partGlow(0x8ff5e0));
     const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.6, 12), toon({ color: 0x3a3f47 }));
-    plinth.position.set(p.pos.x, 0.3, p.pos.z);
+    plinth.position.set(p.pos.x, p.pos.y + 0.3, p.pos.z);
     scene.add(g, plinth);
     return g;
   });
@@ -560,7 +648,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   const plankSpots = lay.barricades.map((b) =>
     Array.from({ length: MAX_BOARDS }, (_, i) => {
       const alongX = Math.abs(b.out.z) > 0.5;
-      const pos = new THREE.Vector3(b.pos.x, 0.5 + i * 0.56, b.pos.z).addScaledVector(new THREE.Vector3(b.out.x, 0, b.out.z), i % 2 ? 0.14 : -0.14);
+      const pos = new THREE.Vector3(b.pos.x, b.pos.y + 0.5 + i * 0.56, b.pos.z).addScaledVector(new THREE.Vector3(b.out.x, 0, b.out.z), i % 2 ? 0.14 : -0.14);
       const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, alongX ? 0 : Math.PI / 2, (r() - 0.5) * 0.2));
       return { pos, q, shown: 1 };
     }),
@@ -587,12 +675,25 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
 
   // --- Wall guns, the stations, the box -------------------------------------
   // Stencilled room names on the walls, above the doorways.
+  // On the north wall, unless that side is open or busy (then where `SIGN` says). Stairs, walkways and nooks go unsigned
+  // (the Duck Shrine has a hand-painted one of its own).
+  const SIGN: Record<string, { x?: number; y?: number; south?: boolean }> = {
+    'Assembly Hall': { south: true },
+    'Cold Storage': { x: -20 },
+    'Rail Tunnel': { y: -1.8, south: true },
+    'Old Drain': { y: -1.8, south: true },
+    Showroom: { south: true },
+    'Sorting Floor': { south: true },
+    'Fitting Rooms': { x: -26 },
+    'Break Room': { x: 26 },
+    'Drafting Loft': { x: -20 },
+  };
   for (const rm of lay.rooms) {
-    if (rm.name === 'Stairs' || rm.name === 'Mezzanine') continue;
-    const south = rm.name === 'Assembly Hall';
+    if (rm.shape || (rm.x1 - rm.x0) * (rm.z1 - rm.z0) < 50) continue;
+    const o = SIGN[rm.name] ?? {};
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.9), new THREE.MeshBasicMaterial({ map: signTexture(renderer, [rm.name.toUpperCase()], { w: 512, h: 136, bg: '#2a2e35', fg: '#d9d2b8', border: '#8a8f99' }), color: 0xbfc6d8 }));
-    sign.position.set((rm.x0 + rm.x1) / 2, 5.4, south ? rm.z1 - 0.32 : rm.z0 + 0.32);
-    sign.rotation.y = south ? Math.PI : 0;
+    sign.position.set(o.x ?? (rm.x0 + rm.x1) / 2, o.y ?? rm.floor + Math.min(5.4, (rm.ceil - rm.floor) * 0.62), o.south ? rm.z1 - 0.32 : rm.z0 + 0.32);
+    sign.rotation.y = o.south ? Math.PI : 0;
     scene.add(sign);
   }
 
@@ -607,6 +708,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   const jug = buildJugMachine(lay.jug);
   jug.obj.rotation.y = -Math.PI / 2; // the tap faces into the room
   scene.add(punch.obj, jug.obj);
+  const decor = buildDecor(scene, renderer, toon);
   // The other perks: a cask each, in its colour, with its emblem.
   const EMBLEM = { mend: 'cross', zephyr: 'bolt', wind: 'wings' } as const;
   const perkMachines = lay.perks.map((p) => {
@@ -751,9 +853,10 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
       (padGlow.material as THREE.SpriteMaterial).opacity = hatchOpen ? 0.5 + 0.2 * Math.sin(time * 4) : 0;
       parts.forEach((g, i) => {
         g.rotation.y = time * 1.6 + i;
-        g.position.y = 1.1 + Math.sin(time * 2.2 + i) * 0.12;
+        g.position.y = lay.parts[i].pos.y + 1.1 + Math.sin(time * 2.2 + i) * 0.12;
       });
       onBench.position.y = scytheState === -1 ? 1.0 + Math.sin(time * 2) * 0.04 : 1.0;
+      decor.update(time, viewer);
       punch.update(time);
       jug.update(time);
       for (const m of perkMachines) m.update(time);
