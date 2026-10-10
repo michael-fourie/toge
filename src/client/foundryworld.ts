@@ -34,6 +34,7 @@ export interface FoundryWorld extends World {
 }
 
 const MAX_BOARDS = SURVIVAL.boards;
+const LABEL_RANGE = 34; // metres within which door and room signs are drawn
 const COMPOUND_MID = new THREE.Vector3(0, 0, -25); // the yard reaches from z 38 to the North Wing at -88
 const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 const smooth = (a: number, b: number, x: number) => ease((x - a) / (b - a));
@@ -306,6 +307,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
     'Loading Dock': [0xffd090, 0.5],
     Furnace: [0xff8a4a, 0.3],
     Mezzanine: [0xffe2a8, 0],
+    'Undercroft Stairs': [0x8fe8d0, 0.5],
     'Pump Room': [0x8fe8d0, 0.6],
     'Stair Foot': [0x8fe8d0, 1],
     'Cold Storage': [0xa8d8ff, 0.3],
@@ -328,8 +330,9 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
     const y = rm.ceil - (rm.ceil - rm.floor > 6 ? 1.4 : 0.8);
     const w = rm.x1 - rm.x0;
     const d = rm.z1 - rm.z0;
-    const nx = Math.max(1, Math.round(w / 14));
-    const nz = Math.max(1, Math.round(d / 14));
+    const gap = rm.ceil - rm.floor > 6 ? 14 : 8; // low rooms need more, smaller lamps
+    const nx = Math.max(1, Math.round(w / gap));
+    const nz = Math.max(1, Math.round(d / gap));
     for (let i = 0; i < nx; i++) {
       for (let j = 0; j < nz; j++) {
         const x = rm.x0 + (w * (i + 0.5)) / nx;
@@ -510,6 +513,8 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
   const vents = lay.rooms.find((rm) => rm.name === 'Boiler Room')!;
 
   // --- Doors --------------------------------------------------------------
+  // Door and room signs: each is a draw call, and past reading distance (or a storey away) nobody can read them anyway.
+  const labels: { o: THREE.Object3D; x: number; y: number; z: number }[] = [];
   const doorMeshes = lay.doors.map((d) => {
     const g = new THREE.Group();
     const sx = d.box.max.x - d.box.min.x;
@@ -535,6 +540,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
       p.position.set(alongX ? 0 : side * (sx / 2 + 0.02), 0.2, alongX ? side * (sz / 2 + 0.02) : 0);
       p.rotation.y = alongX ? (side > 0 ? 0 : Math.PI) : side > 0 ? Math.PI / 2 : -Math.PI / 2;
       g.add(p);
+      labels.push({ o: p, x: g.position.x, y: g.position.y, z: g.position.z });
     }
     scene.add(g);
     return { g, baseY: d.box.min.y + sy / 2, rise: 0, open: false, h: sy };
@@ -695,6 +701,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
     sign.position.set(o.x ?? (rm.x0 + rm.x1) / 2, o.y ?? rm.floor + Math.min(5.4, (rm.ceil - rm.floor) * 0.62), o.south ? rm.z1 - 0.32 : rm.z0 + 0.32);
     sign.rotation.y = o.south ? Math.PI : 0;
     scene.add(sign);
+    labels.push({ o: sign, x: sign.position.x, y: sign.position.y, z: sign.position.z });
   }
 
   // Wall guns are small groups of meshes: only the ones within sight distance are drawn.
@@ -846,6 +853,7 @@ export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent
         }
       }
       for (const g of wallGuns) g.visible = Math.hypot(g.position.x - viewer.x, g.position.z - viewer.z) < 26;
+      for (const l of labels) l.o.visible = Math.hypot(l.x - viewer.x, (l.y - viewer.y) * 2, l.z - viewer.z) < LABEL_RANGE;
       furnaceGlow.scale.setScalar(1 + Math.sin(time * 7) * 0.02);
       (furnaceHalo.material as THREE.SpriteMaterial).opacity = (0.45 + 0.15 * Math.sin(time * 5.3) + 0.1 * Math.sin(time * 13)) * (power ? 1 : 0.25);
       // The Skyline pad hums once the hatch is open; scythe parts bob and spin.

@@ -109,7 +109,7 @@ const ROOMS: Omit<Room, 'id'>[] = [
   room('Loading Dock', 18, 36, -32, -14, 0, H),
   room('Furnace', -18, 18, -32, -18, 0, H),
   // The Undercroft, under the north half of the building and the yard.
-  room('Undercroft Stairs', 4, 17.7, -18, -13.9, CELLAR, 0, { y1: 0.3, shape: 'ramp' }),
+  room('Undercroft Stairs', 4, 17.7, -18, -13.9, CELLAR, 3.6, { y1: 0.3, shape: 'ramp' }), // open up to the mezzanine's underside
   room('Pump Room', 2, 22, -30, -18, CELLAR, CELLAR_TOP),
   room('Duck Shrine', 22, 28, -29, -23, CELLAR, CELLAR_TOP),
   room('Cold Storage', -26, 2, -30, -19, CELLAR, CELLAR_TOP),
