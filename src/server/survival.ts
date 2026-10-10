@@ -387,13 +387,19 @@ export class Survival {
   // ---------------------------------------------------------------------------
   // Max Ammo
 
+  /** The floor under a dead zombie (cellar, ground or upper storey), so its Max Ammo sits where players can reach it. */
+  private dropFloor(p: { x: number; y: number; z: number }): number {
+    const room = LAY.rooms[this.nav.roomAt(p)];
+    return !room ? Math.max(0, p.y) : room.shape === 'ramp' ? Math.max(room.floor, p.y) : room.floor;
+  }
+
   /** A dead zombie sometimes leaves a Max Ammo behind (rarely; the boss always does). */
   private maybeDrop(z: Zombie) {
     if (!z.boss) {
       if (this.round - this.hordeDropRound < SURVIVAL.maxAmmoEveryRounds || this.rand() >= SURVIVAL.maxAmmoChance) return;
       this.hordeDropRound = this.round;
     }
-    const d = { id: this.nextDrop++, pos: { x: z.pos.x, y: Math.max(0, z.pos.y), z: z.pos.z }, until: this.clock + SURVIVAL.dropLife };
+    const d = { id: this.nextDrop++, pos: { x: z.pos.x, y: this.dropFloor(z.pos), z: z.pos.z }, until: this.clock + SURVIVAL.dropLife };
     this.drops.push(d);
     this.lobby.broadcast({ t: 'drop', id: d.id, p: [round3(d.pos.x), round3(d.pos.y), round3(d.pos.z)], life: SURVIVAL.dropLife });
   }

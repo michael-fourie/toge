@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildColliders } from '../src/shared/colliders.ts';
+import type { Box } from '../src/shared/collision.ts';
 import { TICK_DT } from '../src/shared/constants.ts';
 import { FOUNDRY } from '../src/shared/foundry.ts';
 import type { Vec3 } from '../src/shared/math.ts';
@@ -13,11 +14,24 @@ const lay = FOUNDRY.survival!;
 const allOpen = lay.doors.map(() => true);
 const none = lay.barricades.map(() => 0);
 const open = buildColliders(FOUNDRY, allOpen, none);
+/** Seconds a round-1 zombie (the slowest) gets to walk from a window to you: the far end of the North Wing is ~200 m away. */
+const WALK = 150;
+
+/** Rooms you stand about in (not the ramps between levels). */
+const standable = lay.rooms.filter((r) => r.shape !== 'ramp');
 const centre = (r: { x0: number; x1: number; z0: number; z1: number }) => ({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 });
 
-/** Is a player-sized column at p overlapping any solid? */
+/** The top of a box at (x, z): a ramp's slope, or its lid. */
+const topAt = (b: Box, x: number, z: number) => {
+  if (!b.ramp) return b.max.y;
+  const [c, lo, hi] = b.ramp.axis === 'x' ? [x, b.min.x, b.max.x] : [z, b.min.z, b.max.z];
+  const t = Math.min(1, Math.max(0, (c - lo) / (hi - lo)));
+  return b.min.y + (b.max.y - b.min.y) * (b.ramp.rise > 0 ? t : 1 - t);
+};
+
+/** Is a player-sized column at p overlapping any solid (under a ramp counts)? */
 const clear = (p: Vec3, boxes = open.move) =>
-  !boxes.some((b) => !b.ramp && p.x + 0.4 > b.min.x && p.x - 0.4 < b.max.x && p.z + 0.4 > b.min.z && p.z - 0.4 < b.max.z && p.y + 1.8 > b.min.y && p.y + 0.1 < b.max.y);
+  !boxes.some((b) => p.x + 0.4 > b.min.x && p.x - 0.4 < b.max.x && p.z + 0.4 > b.min.z && p.z - 0.4 < b.max.z && p.y + 1.8 > b.min.y && p.y + 0.1 < topAt(b, p.x, p.z));
 
 test('everything you stand on or spawn at is clear and on the floor', () => {
   const spots: [string, Vec3][] = [
@@ -26,6 +40,7 @@ test('everything you stand on or spawn at is clear and on the floor', () => {
     ...lay.boxSpots.map((b, i): [string, Vec3] => [`box spot ${i}`, { ...b.pos }]),
     ['punch', lay.punch],
     ['jug', lay.jug],
+    ...lay.parts.map((p, i): [string, Vec3] => [`part ${i}`, p.pos]),
     ['in front of the tinker bench', { x: lay.tinker.pos.x - 1.3, y: 0, z: lay.tinker.pos.z }],
     ...lay.barricades.flatMap((b): [string, Vec3][] => [[`outside ${b.id}`, b.outside], [`inside ${b.id}`, b.inside], ...b.spawns.map((s, i): [string, Vec3] => [`spawn ${b.id}.${i}`, s])]),
   ];
@@ -51,7 +66,7 @@ test('a player walks up the stairs onto the mezzanine', () => {
 
 test('players cannot climb out of a window, boarded or not', () => {
   for (const b of lay.barricades) {
-    const s = createPlayerState({ x: b.inside.x, y: 0.01, z: b.inside.z });
+    const s = createPlayerState({ ...b.inside });
     const input = { ...emptyInput(), forward: 1, jump: true, yaw: Math.atan2(-b.out.x, -b.out.z) };
     for (let i = 0; i < 128 * 3; i++) stepPlayer(s, input, TICK_DT, open.move, FOUNDRY.triggers);
     assert.ok((s.pos.x - b.pos.x) * b.out.x + (s.pos.z - b.pos.z) * b.out.z < 0.5, `window ${b.id}: got out to ${JSON.stringify(s.pos)}`);
@@ -72,7 +87,10 @@ function siege(boards: number[], gate: number, target: Vec3, seconds: number, do
       z.gate = -1;
       through = i / 60;
     }
-    if (hits.length && clawed < 0) clawed = i / 60;
+    if (hits.length) {
+      clawed = i / 60;
+      break;
+    }
   }
   return { z, clawed, through };
 }
@@ -86,11 +104,11 @@ test('a zombie stays out of a boarded window', () => {
 
 test('from every window, the horde climbs in and reaches a player in every room', () => {
   for (const b of lay.barricades) {
-    for (const room of lay.rooms) {
-      if (room.name === 'Stairs') continue; // a ramp, not somewhere to stand
+    for (const room of standable) {
       const c = centre(room);
-      const target = { x: c.x, y: room.name === 'Mezzanine' ? 4.01 : 0.01, z: c.z };
-      const { clawed, z } = siege(none, b.id, target, 60);
+      const target = { x: c.x, y: room.floor + 0.01, z: c.z };
+      if (!clear(target, open.zombie)) continue; // under the stairs, say: the sweep below covers the rest of the room
+      const { clawed, z } = siege(none, b.id, target, WALK);
       assert.ok(clawed >= 0, `window ${b.id} -> ${room.name}: never reached them, ended at ${JSON.stringify(z.pos)}`);
     }
   }
@@ -98,14 +116,13 @@ test('from every window, the horde climbs in and reaches a player in every room'
 
 test('and wherever in a room you stand, not just in its middle', () => {
   for (const gate of [0, 8, 12]) {
-    for (const room of lay.rooms) {
-      if (room.name === 'Stairs') continue;
-      const y = room.name === 'Mezzanine' ? 4.01 : 0.01;
+    for (const room of standable) {
+      const y = room.floor + 0.01;
       for (let i = 1; i <= 4; i++) {
         for (let j = 1; j <= 4; j++) {
           const p = { x: room.x0 + ((room.x1 - room.x0) * i) / 5, y, z: room.z0 + ((room.z1 - room.z0) * j) / 5 };
           if (!clear(p, open.zombie)) continue;
-          const { clawed, z } = siege(none, gate, p, 60);
+          const { clawed, z } = siege(none, gate, p, WALK);
           assert.ok(clawed >= 0, `window ${gate} -> ${room.name} ${JSON.stringify(p)}: ended at ${JSON.stringify(z.pos)}`);
         }
       }

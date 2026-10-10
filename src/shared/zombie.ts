@@ -38,6 +38,8 @@ export interface Zombie {
   maxHp?: number;
   /** A zombie with a job (JOBS): its outfit and its quirk. */
   job?: JobId;
+  /** Survival: the far side of the doorway it is stepping through (siege.ts), kept until it gets there. */
+  exit?: Vec3;
   /** Seconds of Goo Sprayer goo left on it (contraptions.ts): it walks at WORKSHOP.gooSlow of its speed meanwhile. */
   goo?: number;
 }

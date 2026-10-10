@@ -56,7 +56,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   warden: gun({ id: 'warden', name: 'Warden AR', punchedName: 'Warden Nightfall', style: 'rifle', auto: true, damage: 32, headMult: 2.5, pellets: 1, spread: 0.02, fireCooldown: 0.095, mag: 30, reserve: 150, reloadTime: 2.2, price: 1200, zoomFov: 58 }),
   bramble: gun({ id: 'bramble', name: 'Bramble 12g', punchedName: 'Bramble Thornpatch', style: 'pump', auto: false, damage: 15, headMult: 1.8, pellets: 8, spread: 0.07, adsSpread: 0.045, fireCooldown: 0.78, mag: 6, reserve: 54, reloadTime: 2.8, price: 1500 }),
   kestrel: gun({ id: 'kestrel', name: 'Kestrel Lever', punchedName: 'Kestrel Stormcaller', style: 'lever', auto: false, damage: 72, headMult: 3, pellets: 1, spread: 0.014, fireCooldown: 0.4, mag: 8, reserve: 56, reloadTime: 2.6, price: 1500, zoomFov: 50 }),
-  hammer: gun({ id: 'hammer', name: 'Hammer LMG', punchedName: 'Hammer of Dawn', style: 'lmg', auto: true, damage: 27, headMult: 2.2, pellets: 1, spread: 0.032, fireCooldown: 0.082, mag: 100, reserve: 300, reloadTime: 5, zoomFov: 62 }),
+  hammer: gun({ id: 'hammer', name: 'Hammer LMG', punchedName: 'Hammer of Dawn', style: 'lmg', auto: true, damage: 27, headMult: 2.2, pellets: 1, spread: 0.032, fireCooldown: 0.082, mag: 100, reserve: 300, reloadTime: 5, zoomFov: 62, price: 3000 }), // on the wall in the Foundry's hidden Duck Shrine
   awp: gun({
     id: 'awp',
     name: 'AWP',

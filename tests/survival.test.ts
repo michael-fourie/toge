@@ -100,7 +100,7 @@ test('Mystery Box: pay, wait, only the payer takes the gun; the plush gives the 
     const w = t.s.wallet.get(1)!;
     w.points = 3000;
     const spot = lay.boxSpots[t.s.box.spot];
-    t.at(1, stand({ x: spot.pos.x + Math.sin(spot.yaw) * 1.5, y: 0, z: spot.pos.z + Math.cos(spot.yaw) * 1.5 }));
+    t.at(1, stand({ x: spot.pos.x + Math.sin(spot.yaw) * 1.5, y: spot.pos.y, z: spot.pos.z + Math.cos(spot.yaw) * 1.5 }));
     t.at(2, t.member(1).state.p);
     t.lobby.handle(t.clients[0], { t: 'use', kind: 'box', id: 0 });
     assert.equal(t.s.box.phase, 'rolling');

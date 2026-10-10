@@ -1,76 +1,144 @@
 // "The Foundry": the Survival map. A walled-in, derelict factory yard at night. You start in the little Office with a pistol,
 // buy doors to open the rest of the building, buy guns off the walls, and gamble on the Mystery Box. The horde breaks in
-// through boarded-up bays in the outside walls (nail the boards back up!). Floor plan, x east, z south, y up, metres:
+// through boarded-up bays in the outside walls (nail the boards back up!). Three levels: the Undercroft (cellars, y -6),
+// the ground floor, and the North Wing's upper storey (y 5) plus the mezzanine. Floor plan, x east, z south, y up, metres:
 //
-//      Locker ─D6─ Furnace (Pack-a-Punch) ──── Dock
-//        │D4          │D3                        │D5
-//      Boiler ─D1─── HALL (stairs up to the mezzanine) ─D2─ Storage (Juggernog)
+//   NORTH WING (across the yard)   Showroom ─D10─ Sorting Floor ─D11─ Break Room        ground floor
+//                                     ║ drain       │ tunnel  │ stairs (D12 at the top)
+//                                     ║ ramp        │ ramp    Drafting Loft ─D13─ Clock Room   upper floor (y 5)
+//                                     ║             │           ║ Skybridge (D14, y 4-5) over the yard
+//      Locker ─D6─ Furnace (Pack-a-Punch, gantry y 4) ═════════╝ ──── Dock
+//        │D4          │D3   ║ gantry joins the mezzanine          │D5
+//      Boiler ─D1─── HALL (stairs up to the mezzanine; D7 the Undercroft stair shaft down) ─D2─ Storage (Juggernog)
 //                     │D0
 //                   Office (start)
 //
+//   UNDERCROFT (y -6): Undercroft stairs ─ Pump Room ─D8─ Cold Storage ═(collapsed wall)═ Old Drain ─ ramp up into the Showroom
+//                                                   └D9─ Rail Tunnel ─ ramp up into the Sorting Floor;  Duck Shrine (hidden, off the Pump Room)
+//
 // Perks: Swift Mend in the Boiler Room, Second Wind in the Locker Room, Zephyr Fizz on the Loading Dock. They (and the
-// Pack-a-Punch) need the power on: the switch is in the Boiler Room. Scythe parts lie in the Locker Room, on the Loading Dock
-// and in the Furnace; the workbench is on the mezzanine. The Tinker's Workbench in the Office builds contraptions for coins.
+// Pack-a-Punch) need the power on: the switch is in the Boiler Room. Scythe parts lie at the far ends: Cold Storage, the
+// Showroom and the Clock Room; the workbench is on the mezzanine. The Tinker's Workbench in the Office builds contraptions.
 //
 // The Skyline: buy the hatch in the Hall roof and a pad throws you up onto a tower on the roof. Three surf lines run from
 // it and dive through chutes into the Boiler Room, Storage and the Furnace (a chute stays shut until its room is open).
 //
-// Windows are walled off from players by invisible bars (colliders.ts), so nobody wanders out into the yard.
+// Secrets: the Duck Shrine behind the crates in the Pump Room (a Hammer LMG on the wall, a Mystery Box spot), and the
+// collapsed wall in Cold Storage: a free way through the Old Drain up into the Showroom.
+//
+// Windows are walled off from players by invisible bars (colliders.ts), so nobody wanders out into the yard. The cellar
+// windows look onto two sunken drainage cuts in the yard, where their zombies climb down.
 import type { Box } from './collision.ts';
 import type { Barricade, Door, Link, Room, SurvivalLayout, WallBuy } from './layout.ts';
 import { type MapData, type SpawnPoint, box, padTo, span, surfFrame, wedge } from './map.ts';
 
 const T = 0.6; // wall thickness
-const H = 9; // wall height: the ceiling
+const H = 9; // wall height of the main building: its ceiling
 const DOOR_HALF = 1.6;
-const DOOR_TOP = 3.4;
+const DOOR_TOP = 3.4; // above the floor
 const WIN_HALF = 1.5;
 const WIN_TOP = 3;
+const CELLAR = -6; // the Undercroft's floor; its ceiling is the underside of the ground slab (y -1)
+const CELLAR_TOP = -1;
+const WING_MID = 4.5; // the North Wing's ground storey ends here, under its upper floor (a 0.5 m slab)
+const LOFT = 5; // the North Wing's upper floor
+const WING_TOP = 10;
+const NORTH = -88; // the compound's north wall (the yard reaches round the North Wing)
 
 type Axis = 'x' | 'z';
+/** A hole in a wall: centred on `c` along the wall, from y0 to y1. */
 interface Gap {
   c: number;
   half: number;
-  top: number;
+  y0: number;
+  y1: number;
+}
+interface Opening extends Gap {
+  axis: Axis;
+  plane: number;
 }
 
-/** A wall along `axis` at `plane` (the other coordinate), from a0 to a1, with doorway-shaped holes. */
-function run(axis: Axis, plane: number, a0: number, a1: number, gaps: Gap[]): Box[] {
+/** A wall along `axis` at `plane` (the other coordinate), from a0 to a1 and y0 to y1, with holes. */
+function run(axis: Axis, plane: number, a0: number, a1: number, gaps: Gap[], y0 = 0, y1 = H): Box[] {
   const out: Box[] = [];
-  const piece = (a: number, b: number, y0: number, y1: number) => {
-    if (b - a < 0.01 || y1 - y0 < 0.01) return;
-    out.push(axis === 'x' ? span(a, y0, plane - T / 2, b, y1, plane + T / 2, 'brick') : span(plane - T / 2, y0, a, plane + T / 2, y1, b, 'brick'));
+  const piece = (a: number, b: number, lo: number, hi: number) => {
+    if (b - a < 0.01 || hi - lo < 0.01) return;
+    out.push(axis === 'x' ? span(a, lo, plane - T / 2, b, hi, plane + T / 2, 'brick') : span(plane - T / 2, lo, a, plane + T / 2, hi, b, 'brick'));
   };
   let cursor = a0 - T / 2;
   for (const g of [...gaps].sort((p, q) => p.c - q.c)) {
-    piece(cursor, g.c - g.half, 0, H);
-    piece(g.c - g.half, g.c + g.half, g.top, H);
+    piece(cursor, g.c - g.half, y0, y1);
+    piece(g.c - g.half, g.c + g.half, y0, g.y0);
+    piece(g.c - g.half, g.c + g.half, g.y1, y1);
     cursor = g.c + g.half;
   }
-  piece(cursor, a1 + T / 2, 0, H);
+  piece(cursor, a1 + T / 2, y0, y1);
   return out;
 }
 
 /** A solid slab filling a gap, `thick` metres through the wall. */
 function plug(axis: Axis, plane: number, g: Gap, thick: number): Box {
   return axis === 'x'
-    ? span(g.c - g.half, 0, plane - thick / 2, g.c + g.half, g.top, plane + thick / 2, 'steel')
-    : span(plane - thick / 2, 0, g.c - g.half, plane + thick / 2, g.top, g.c + g.half, 'steel');
+    ? span(g.c - g.half, g.y0, plane - thick / 2, g.c + g.half, g.y1, plane + thick / 2, 'steel')
+    : span(plane - thick / 2, g.y0, g.c - g.half, plane + thick / 2, g.y1, g.c + g.half, 'steel');
 }
 
-// Rooms. Order matters (see Nav.roomAt): the stairs and the mezzanine sit inside the hall's footprint, so they come first.
+/** A room: its nav bounds come from its floor and ceiling unless `extra` says otherwise. */
+const room = (name: string, x0: number, x1: number, z0: number, z1: number, floor: number, ceil: number, extra: Partial<Room> = {}): Omit<Room, 'id'> => ({
+  name,
+  x0,
+  x1,
+  z0,
+  z1,
+  y0: floor - 0.5,
+  y1: ceil - 0.2,
+  floor,
+  ceil,
+  ...extra,
+});
+
+// Rooms. The first nine are the original Foundry (their ids are kept: the Office is 3).
 const ROOMS: Omit<Room, 'id'>[] = [
-  { name: 'Stairs', x0: -17.6, x1: -14.2, z0: -12, z1: 0, y0: -0.5, y1: 4.8, base: 2 },
-  { name: 'Mezzanine', x0: -18, x1: 18, z0: -18, z1: -12, y0: 3.4, y1: 8.8 },
-  { name: 'Assembly Hall', x0: -18, x1: 18, z0: -18, z1: 12, y0: -0.5, y1: 8.8 },
-  { name: 'Office', x0: -6, x1: 6, z0: 12, z1: 24, y0: -0.5, y1: 8.8 },
-  { name: 'Boiler Room', x0: -36, x1: -18, z0: -14, z1: 8, y0: -0.5, y1: 8.8 },
-  { name: 'Storage', x0: 18, x1: 36, z0: -14, z1: 8, y0: -0.5, y1: 8.8 },
-  { name: 'Locker Room', x0: -36, x1: -18, z0: -32, z1: -14, y0: -0.5, y1: 8.8 },
-  { name: 'Loading Dock', x0: 18, x1: 36, z0: -32, z1: -14, y0: -0.5, y1: 8.8 },
-  { name: 'Furnace', x0: -18, x1: 18, z0: -32, z1: -18, y0: -0.5, y1: 8.8 },
+  room('Stairs', -17.6, -14.2, -12, 0, 0, H, { y1: 4.8, base: 2, shape: 'ramp' }),
+  room('Mezzanine', -18, 18, -18, -12, 4, H, { y0: 3.4, shape: 'walkway' }),
+  room('Assembly Hall', -18, 18, -18, 12, 0, H),
+  room('Office', -6, 6, 12, 24, 0, H),
+  room('Boiler Room', -36, -18, -14, 8, 0, H),
+  room('Storage', 18, 36, -14, 8, 0, H),
+  room('Locker Room', -36, -18, -32, -14, 0, H),
+  room('Loading Dock', 18, 36, -32, -14, 0, H),
+  room('Furnace', -18, 18, -32, -18, 0, H),
+  // The Undercroft, under the north half of the building and the yard.
+  room('Undercroft Stairs', 4, 17.7, -18, -13.9, CELLAR, 0, { y1: 0.3, shape: 'ramp' }),
+  room('Pump Room', 2, 22, -30, -18, CELLAR, CELLAR_TOP),
+  room('Duck Shrine', 22, 28, -29, -23, CELLAR, CELLAR_TOP),
+  room('Cold Storage', -26, 2, -30, -19, CELLAR, CELLAR_TOP),
+  room('Rail Tunnel', 4, 10, -50, -30, CELLAR, CELLAR_TOP),
+  room('Tunnel Ramp', 4, 10, -63, -50, CELLAR, 0, { y1: 0.3, shape: 'ramp' }),
+  room('Old Drain', -16, -10, -50, -30, CELLAR, CELLAR_TOP),
+  room('Drain Ramp', -16, -10, -63, -50, CELLAR, 0, { y1: 0.3, shape: 'ramp' }),
+  // The North Wing: three rooms on the ground, two upstairs, the stairs between.
+  room('Showroom', -30, -16, -63, -44, 0, WING_MID),
+  room('Sorting Floor', -10, 4, -63, -44, 0, WING_MID),
+  room('Break Room', 10, 30, -70, -44, 0, WING_MID),
+  room('Wing Stairs', -6.4, 4.3, -69.7, -66.3, 0, LOFT, { y1: WING_MID - 0.1, base: 26, shape: 'ramp' }),
+  room('Drafting Loft', -30, 10, -70, -44, LOFT, WING_TOP, { y0: LOFT - 0.2 }),
+  room('Clock Room', 10, 30, -70, -44, LOFT, WING_TOP, { y0: LOFT - 0.2 }),
+  // The way across at height: a gantry through the Furnace from the mezzanine, then the covered Skybridge over the yard.
+  room('Gantry', 3.75, 7.75, -32, -18, 4, H, { shape: 'walkway' }),
+  room('Skybridge', 3.75, 7.75, -44, -32, 4, 8.4, { shape: 'walkway' }),
+  // The North Wing's ramp pits lie against its partition walls. Round each pit the floor is split into rectangles (the back
+  // aisle the ramp comes up into, the strip by the door), so a zombie walking straight inside a room never crosses a pit.
+  room('Fitting Rooms', -30, -10, -70, -63, 0, WING_MID),
+  room('Parcel Bay', -10, 10, -70, -63, 0, WING_MID),
+  room('Front of Shop', -16, -10, -50, -44, 0, WING_MID),
+  room('Dispatch', 4, 10, -50, -44, 0, WING_MID),
+  // The flat ends of two stairs: the Undercroft stairs' foot in the cellar, the Wing Stairs' landing inside its enclosure.
+  room('Stair Foot', 17.7, 22, -18, -13.9, CELLAR, CELLAR_TOP),
+  room('Stair Landing', -10, -0.9, -70, -66, LOFT, WING_TOP, { y0: WING_MID - 0.2, y1: LOFT + 0.8, shape: 'ramp' }),
 ];
-const [STAIRS, MEZZ, HALL, OFFICE, BOILER, STORAGE, LOCKER, DOCK, FURNACE] = ROOMS.map((_, i) => i);
+const [STAIRS, MEZZ, HALL, OFFICE, BOILER, STORAGE, LOCKER, DOCK, FURNACE, USTAIRS, PUMP, SHRINE, COLD, TUNNEL, TRAMP, DRAIN, DRAMP, SHOWROOM, SORTING, BREAK, WSTAIRS, LOFT_ROOM, CLOCK, GANTRY, BRIDGE, FITTING, PARCEL, FRONT, DISPATCH, FOOT, LANDING] =
+  ROOMS.map((_, i) => i);
 
 interface DoorSpec {
   name: string;
@@ -78,11 +146,14 @@ interface DoorSpec {
   axis: Axis;
   plane: number;
   c: number;
-  /** The room on the low side and the room on the high side of the wall's perpendicular axis, in link direction a -> b. */
+  /** The rooms on either side, in link direction a -> b (`n` points from a to b). */
   a: number;
   b: number;
   n: { x: number; z: number };
+  /** The floor it stands on (default 0). */
+  y?: number;
 }
+// Prices climb the deeper you go. The Skybridge is the dear shortcut from the mezzanine straight into the North Wing.
 const DOORS: DoorSpec[] = [
   { name: 'Office door', price: 750, axis: 'x', plane: 12, c: 0, a: OFFICE, b: HALL, n: { x: 0, z: -1 } },
   { name: 'Boiler Room', price: 1000, axis: 'z', plane: -18, c: 5, a: HALL, b: BOILER, n: { x: -1, z: 0 } },
@@ -91,6 +162,49 @@ const DOORS: DoorSpec[] = [
   { name: 'Locker Room', price: 1250, axis: 'x', plane: -14, c: -27, a: BOILER, b: LOCKER, n: { x: 0, z: -1 } },
   { name: 'Loading Dock', price: 1250, axis: 'x', plane: -14, c: 27, a: STORAGE, b: DOCK, n: { x: 0, z: -1 } },
   { name: 'Locker to Furnace', price: 1000, axis: 'z', plane: -18, c: -25, a: LOCKER, b: FURNACE, n: { x: 1, z: 0 } },
+  { name: 'Undercroft', price: 1500, axis: 'x', plane: -13.9, c: 5.95, a: HALL, b: USTAIRS, n: { x: 0, z: -1 } },
+  { name: 'Cold Storage', price: 1750, axis: 'z', plane: 2, c: -24.5, a: PUMP, b: COLD, n: { x: -1, z: 0 }, y: CELLAR },
+  { name: 'Rail Tunnel', price: 2000, axis: 'x', plane: -30, c: 7, a: PUMP, b: TUNNEL, n: { x: 0, z: -1 }, y: CELLAR },
+  { name: 'Showroom', price: 2250, axis: 'z', plane: -10, c: -47, a: SORTING, b: FRONT, n: { x: -1, z: 0 } },
+  { name: 'Break Room', price: 2250, axis: 'z', plane: 10, c: -47, a: DISPATCH, b: BREAK, n: { x: 1, z: 0 } },
+  { name: 'Drafting Loft', price: 2500, axis: 'x', plane: -66, c: -8.2, a: LANDING, b: LOFT_ROOM, n: { x: 0, z: 1 }, y: LOFT },
+  { name: 'Clock Room', price: 2750, axis: 'z', plane: 10, c: -57, a: LOFT_ROOM, b: CLOCK, n: { x: 1, z: 0 }, y: LOFT },
+  { name: 'Skybridge', price: 3000, axis: 'x', plane: -32, c: 5.75, a: GANTRY, b: BRIDGE, n: { x: 0, z: -1 }, y: 4 },
+];
+
+/** Open ways between rooms (nothing to buy): a hole in a wall (`wall`), or open floor such as a ramp's foot or top. */
+interface ArchSpec {
+  a: number;
+  b: number;
+  c: { x: number; y: number; z: number };
+  n: { x: number; z: number };
+  half: number;
+  wall?: Opening;
+}
+const arch = (a: number, b: number, c: [number, number, number], n: [number, number], half: number, wall?: Omit<Opening, 'c' | 'half'>): ArchSpec => {
+  const at = { x: c[0], y: c[1], z: c[2] };
+  return { a, b, c: at, n: { x: n[0], z: n[1] }, half, wall: wall && { ...wall, c: wall.axis === 'x' ? at.x : at.z, half } };
+};
+const ARCHES: ArchSpec[] = [
+  arch(HALL, STAIRS, [-15.9, 0, 0], [0, -1], 1.7),
+  arch(STAIRS, MEZZ, [-15.9, 4, -12], [0, -1], 1.7),
+  arch(MEZZ, GANTRY, [5.75, 4, -18], [0, -1], 1.6, { axis: 'x', plane: -18, y0: 4, y1: 4 + DOOR_TOP }),
+  arch(BRIDGE, LOFT_ROOM, [5.75, LOFT, -44], [0, -1], 1.6, { axis: 'x', plane: -44, y0: LOFT, y1: LOFT + DOOR_TOP }),
+  arch(USTAIRS, FOOT, [17.7, CELLAR, -15.95], [1, 0], 1.75),
+  arch(FOOT, PUMP, [19.85, CELLAR, -18], [0, -1], 1.6, { axis: 'x', plane: -18, y0: CELLAR, y1: CELLAR + DOOR_TOP }),
+  // The squeeze into the Duck Shrine, through the flooded corner; the collapsed wall from Cold Storage into the Old Drain.
+  arch(PUMP, SHRINE, [22, CELLAR, -26], [1, 0], 0.9, { axis: 'z', plane: 22, y0: CELLAR, y1: CELLAR + 2.2 }),
+  arch(COLD, DRAIN, [-13, CELLAR, -30], [0, -1], 1.6, { axis: 'x', plane: -30, y0: CELLAR, y1: CELLAR + 3.4 }),
+  arch(TUNNEL, TRAMP, [7, CELLAR, -50], [0, -1], 2.7),
+  arch(TRAMP, PARCEL, [7, 0, -63], [0, -1], 2.7),
+  arch(PARCEL, SORTING, [-3, 0, -63], [0, 1], 6.5),
+  arch(SORTING, DISPATCH, [4, 0, -47], [1, 0], 2.8),
+  arch(DRAIN, DRAMP, [-13, CELLAR, -50], [0, -1], 2.7),
+  arch(DRAMP, FITTING, [-13, 0, -63], [0, -1], 2.7),
+  arch(FITTING, SHOWROOM, [-23, 0, -63], [0, 1], 6.5),
+  arch(FRONT, SHOWROOM, [-16, 0, -47], [-1, 0], 2.8),
+  arch(PARCEL, WSTAIRS, [4.3, 0, -68], [-1, 0], 1.7),
+  arch(WSTAIRS, LANDING, [-6.4, LOFT, -68], [-1, 0], 1.7),
 ];
 
 interface WindowSpec {
@@ -99,10 +213,11 @@ interface WindowSpec {
   plane: number;
   c: number;
   out: { x: number; z: number };
+  y: number;
 }
 const W = -1;
 const E = 1;
-const win = (room: number, axis: Axis, plane: number, c: number, out: { x: number; z: number }): WindowSpec => ({ room, axis, plane, c, out });
+const win = (room: number, axis: Axis, plane: number, c: number, out: { x: number; z: number }, y = 0): WindowSpec => ({ room, axis, plane, c, out, y });
 const WINDOWS: WindowSpec[] = [
   win(OFFICE, 'z', -6, 18, { x: W, z: 0 }),
   win(OFFICE, 'z', 6, 18, { x: E, z: 0 }),
@@ -118,10 +233,23 @@ const WINDOWS: WindowSpec[] = [
   win(DOCK, 'x', -32, 27, { x: 0, z: -1 }),
   win(FURNACE, 'x', -32, -9, { x: 0, z: -1 }),
   win(FURNACE, 'x', -32, 9, { x: 0, z: -1 }),
+  // The North Wing's ground floor.
+  win(SHOWROOM, 'z', -30, -52, { x: W, z: 0 }),
+  win(SHOWROOM, 'z', -30, -63, { x: W, z: 0 }),
+  win(FITTING, 'x', -70, -20, { x: 0, z: -1 }),
+  win(PARCEL, 'x', -70, 7, { x: 0, z: -1 }),
+  win(BREAK, 'z', 30, -52, { x: E, z: 0 }),
+  win(BREAK, 'z', 30, -63, { x: E, z: 0 }),
+  win(BREAK, 'x', -70, 20, { x: 0, z: -1 }),
+  // Storm grates in the cellar tunnels, onto the sunken drainage cuts in the yard.
+  win(TUNNEL, 'z', 4, -39, { x: W, z: 0 }, CELLAR),
+  win(DRAIN, 'z', -16, -39, { x: W, z: 0 }, CELLAR),
 ];
 
-/** Every outside and partition wall: [axis, plane, from, to]. */
-const WALLS: [Axis, number, number, number][] = [
+/** Every wall: [axis, plane, from, to, bottom, top] (bottom and top default to the main building's 0..H). */
+type WallSpec = [Axis, number, number, number, number?, number?];
+const WALLS: WallSpec[] = [
+  // The main building.
   ['x', -32, -36, 36],
   ['x', -18, -18, 18],
   ['x', -14, -36, -18],
@@ -136,6 +264,49 @@ const WALLS: [Axis, number, number, number][] = [
   ['z', 18, -32, 12],
   ['z', -6, 12, 24],
   ['z', 6, 12, 24],
+  // The Undercroft stairs: walled in under the mezzanine's east end; the door is at the west end of their south side.
+  ['x', -13.9, 4, 17.7, 0, 3.6],
+  ['z', 4, -18, -13.9, 0, 3.6],
+  // The Undercroft.
+  ['x', -13.9, 4, 22, CELLAR, 0], // the stairs' corridor, along the Pump Room's south side
+  ['x', -18, 2, 22, CELLAR, 0],
+  ['z', 22, -30, -13.9, CELLAR, 0],
+  ['z', 2, -30, -18, CELLAR, 0],
+  ['x', -30, -26, 22, CELLAR, 0],
+  ['z', 28, -29, -23, CELLAR, 0], // the Duck Shrine
+  ['x', -29, 22, 28, CELLAR, 0],
+  ['x', -23, 22, 28, CELLAR, 0],
+  ['z', -26, -30, -19, CELLAR, 0],
+  ['x', -19, -26, 2, CELLAR, 0],
+  ['z', 4, -63, -30, CELLAR, 0],
+  ['z', 10, -63, -30, CELLAR, 0],
+  ['z', -16, -63, -30, CELLAR, 0],
+  ['z', -10, -63, -30, CELLAR, 0],
+  // The two drainage cuts in the yard (open to the sky; zombies for the cellar windows climb down into them).
+  ['z', -4, -42.5, -35.5, CELLAR, 0],
+  ['x', -42.5, -4, 4, CELLAR, 0],
+  ['x', -35.5, -4, 4, CELLAR, 0],
+  ['z', -24, -42.5, -35.5, CELLAR, 0],
+  ['x', -42.5, -24, -16, CELLAR, 0],
+  ['x', -35.5, -24, -16, CELLAR, 0],
+  // The North Wing: ground storey, then the upper one (with the stair enclosure round the hole in the floor).
+  ['x', -44, -30, 30, 0, WING_MID],
+  ['x', -70, -30, 30, 0, WING_MID],
+  ['z', -30, -70, -44, 0, WING_MID],
+  ['z', 30, -70, -44, 0, WING_MID],
+  ['z', -10, -70, -44, 0, WING_MID],
+  ['z', 10, -70, -44, 0, WING_MID],
+  ['x', -44, -30, 30, LOFT, WING_TOP],
+  ['x', -70, -30, 30, LOFT, WING_TOP],
+  ['z', -30, -70, -44, LOFT, WING_TOP],
+  ['z', 30, -70, -44, LOFT, WING_TOP],
+  ['z', 10, -70, -44, LOFT, WING_TOP],
+  ['x', -66, -10, -0.9, LOFT, WING_TOP],
+  ['z', -0.9, -70, -66, LOFT, WING_TOP],
+  ['z', -10, -70, -66, LOFT, WING_TOP],
+  // The Skybridge's sides.
+  ['z', 3.75, -43.7, -32.3, 3.6, 8.4],
+  ['z', 7.75, -43.7, -32.3, 3.6, 8.4],
 ];
 
 const v = (x: number, y: number, z: number) => ({ x, y, z });
@@ -148,7 +319,7 @@ interface Rect {
 }
 
 /** A flat slab from y0 to y1 over a rectangle, with rectangular holes cut out (split on a grid, merged along x). */
-function slab(r: Rect, y0: number, y1: number, holes: Rect[]): Box[] {
+function slab(r: Rect, y0: number, y1: number, holes: Rect[], kind: Box['kind'] = 'steel'): Box[] {
   const xs = [...new Set([r.x0, r.x1, ...holes.flatMap((h) => [h.x0, h.x1])])].sort((a, b) => a - b);
   const zs = [...new Set([r.z0, r.z1, ...holes.flatMap((h) => [h.z0, h.z1])])].sort((a, b) => a - b);
   const out: Box[] = [];
@@ -160,7 +331,7 @@ function slab(r: Rect, y0: number, y1: number, holes: Rect[]): Box[] {
       const solid = i < xs.length - 1 && !holes.some((h) => cx > h.x0 && cx < h.x1 && cz > h.z0 && cz < h.z1);
       if (solid && start < 0) start = i;
       if (!solid && start >= 0) {
-        out.push(span(xs[start], y0, zs[j], xs[i], y1, zs[j + 1], 'steel'));
+        out.push(span(xs[start], y0, zs[j], xs[i], y1, zs[j + 1], kind));
         start = -1;
       }
     }
@@ -181,48 +352,85 @@ const CHUTES: { room: number; hole: Rect }[] = [
 const TINKER = { x: 5.2, z: 21.6 }; // the Tinker's Workbench, against the Office's east wall
 const lid = (h: Rect) => span(h.x0, H, h.z0, h.x1, H + 0.8, h.z1, 'steel');
 
-/** Where a wall gun hangs: on the wall face at `wall`, facing `yaw` (the way the display faces), with `at` the spot to stand. */
-function wallBuy(id: number, weapon: WallBuy['weapon'], price: number, room: number, x: number, y: number, z: number, yaw: number): WallBuy {
+// Holes in the ground: the Undercroft stairs (under the mezzanine), the two ramps up into the North Wing, the drainage cuts.
+const SHAFT: Rect = { x0: 7.6, z0: -17.7, x1: 17.7, z1: -14.2 };
+const TUNNEL_PIT: Rect = { x0: 4.3, z0: -63, x1: 9.7, z1: -50 };
+const DRAIN_PIT: Rect = { x0: -15.7, z0: -63, x1: -10.3, z1: -50 };
+const CUTS: Rect[] = [
+  { x0: -4, z0: -42.5, x1: 4, z1: -35.5 },
+  { x0: -24, z0: -42.5, x1: -16, z1: -35.5 },
+];
+const PIT_FENCE = 1.5;
+const STAIR_HOLE: Rect = { x0: -6.4, z0: -69.7, x1: -1.2, z1: -66.3 }; // over the Wing Stairs' top half (a landing, then the door)
+
+/**
+ * Where the client dresses the new rooms' furniture. Each has a collider here ('cover' is drawn by the client only):
+ * mannequins in the Showroom, tables in the Break Room, desks in the Drafting Loft, the walk-through gear in the Clock Room.
+ */
+export const PROPS = {
+  mannequins: [[-26, -48], [-22, -48], [-26, -53.5], [-22, -53.5], [-26, -58.5], [-22, -58.5], [-24, -60.5], [-19, -46]] as [number, number][],
+  tables: [[16, -58], [23, -58], [19, -50]] as [number, number][],
+  desks: [[-26, -50], [-20, -50], [-14, -50], [-26, -57], [-20, -57], [-14, -57], [-6, -52]] as [number, number][],
+  ice: [span(-22, CELLAR, -28, -20, CELLAR + 1, -26, 'cover'), span(-9, CELLAR, -24, -7.5, CELLAR + 1.1, -22.5, 'cover'), span(-3, CELLAR, -29.5, -1, CELLAR + 0.8, -27.5, 'cover')],
+  /** The broken gear standing on edge across the Clock Room: you walk through its hub (the bottom of the rim is sunk in the floor). */
+  gear: { x: 20, y: LOFT + 1.2, z: -57, inner: 2.6, outer: 3.6 },
+  vending: span(11.2, 0, -69.7, 12.6, 2.2, -68.8, 'cover'),
+  fridge: span(13.4, 0, -69.7, 14.6, 2.2, -68.8, 'cover'),
+  couch: span(22, 0, -45.6, 27, 0.8, -44.3, 'cover'),
+  cart: span(5.5, CELLAR, -47, 7, CELLAR + 1.1, -44.5, 'cover'),
+  altar: span(26.9, CELLAR, -27.2, 27.7, CELLAR + 1, -24.8, 'cover'),
+  /** The flooded corner of the Pump Room and the Old Drain's channel: just water to look at. */
+  water: [{ x0: 17.5, z0: -29.7, x1: 21.7, z1: -24.5 }, { x0: -14.2, z0: -49, x1: -11.8, z1: -30.4 }] as Rect[],
+};
+
+/** Where a wall gun hangs: on the wall face at (x, z) over the floor `floor`, facing `yaw` (the way the display faces), with `at` the spot to stand. */
+function wallBuy(id: number, weapon: WallBuy['weapon'], price: number, room: number, x: number, floor: number, z: number, yaw: number): WallBuy {
   const fx = Math.sin(yaw);
   const fz = Math.cos(yaw);
-  return { id, weapon, price, room, pos: v(x + fx * 0.02, y, z + fz * 0.02), yaw, at: v(x + fx * 1.05, y > 3 ? 4 : 0, z + fz * 1.05) };
+  return { id, weapon, price, room, pos: v(x + fx * 0.02, floor + 1.7, z + fz * 0.02), yaw, at: v(x + fx * 1.05, floor, z + fz * 1.05) };
 }
 
 function buildFoundry(): MapData {
   const boxes: Box[] = [
-    span(-51, -1, -47, 51, 0, 39, 'gravel'), // the yard and, under it, every floor
+    // The yard and, under it, every ground floor: it is also the Undercroft's ceiling, with holes for the ways down.
+    ...slab({ x0: -51, z0: NORTH - 1, x1: 51, z1: 39 }, -1, 0, [SHAFT, TUNNEL_PIT, DRAIN_PIT, ...CUTS], 'gravel'),
+    span(-51, CELLAR - 1, NORTH - 1, 51, CELLAR, 39, 'gravel'), // the Undercroft's floor (and the drainage cuts')
     // Perimeter wall.
-    span(-51, 0, -47, 51, 14, -46, 'brick'),
+    span(-51, 0, NORTH - 1, 51, 14, NORTH, 'brick'),
     span(-51, 0, 38, 51, 14, 39, 'brick'),
-    span(-51, 0, -46, -50, 14, 38, 'brick'),
-    span(50, 0, -46, 51, 14, 38, 'brick'),
+    span(-51, 0, NORTH, -50, 14, 38, 'brick'),
+    span(50, 0, NORTH, 51, 14, 38, 'brick'),
     // Roofs: they keep the grapple honest, too. The main one has the Skyline's hatch and chutes in it.
     ...slab({ x0: -36.4, z0: -32.4, x1: 36.4, z1: 8.4 }, H, H + 0.8, [HATCH, ...CHUTES.map((c) => c.hole)]),
     span(-18.4, H, 8.4, 18.4, H + 0.8, 12.4, 'steel'),
     span(-6.4, H, 12.4, 6.4, H + 0.8, 24.4, 'steel'),
+    // The North Wing's upper floor (with a hole over the stairs) and its roof.
+    ...slab({ x0: -30.3, z0: -70.3, x1: 30.3, z1: -43.7 }, WING_MID, LOFT, [STAIR_HOLE]),
+    span(-30.4, WING_TOP, -70.4, 30.4, WING_TOP + 0.8, -43.6, 'steel'),
   ];
 
-  const doors: Door[] = DOORS.map((d, id) => {
-    const g = { c: d.c, half: DOOR_HALF, top: DOOR_TOP };
-    return { id, name: d.name, price: d.price, box: plug(d.axis, d.plane, g, 0.5), rooms: [d.a, d.b] };
-  });
-  for (const [axis, plane, a0, a1] of WALLS) {
-    const gaps: Gap[] = [
-      ...DOORS.filter((d) => d.axis === axis && d.plane === plane && d.c > a0 && d.c < a1).map((d) => ({ c: d.c, half: DOOR_HALF, top: DOOR_TOP })),
-      ...WINDOWS.filter((w) => w.axis === axis && w.plane === plane && w.c > a0 && w.c < a1).map((w) => ({ c: w.c, half: WIN_HALF, top: WIN_TOP })),
-    ];
-    boxes.push(...run(axis, plane, a0, a1, gaps));
+  const doorGap = (d: DoorSpec): Gap => ({ c: d.c, half: DOOR_HALF, y0: d.y ?? 0, y1: (d.y ?? 0) + DOOR_TOP });
+  const winGap = (w: WindowSpec): Gap => ({ c: w.c, half: WIN_HALF, y0: w.y, y1: w.y + WIN_TOP });
+  const openings: Opening[] = [
+    ...DOORS.map((d) => ({ axis: d.axis, plane: d.plane, ...doorGap(d) })),
+    ...WINDOWS.map((w) => ({ axis: w.axis, plane: w.plane, ...winGap(w) })),
+    ...ARCHES.flatMap((a) => (a.wall ? [a.wall] : [])),
+  ];
+  const doors: Door[] = DOORS.map((d, id) => ({ id, name: d.name, price: d.price, box: plug(d.axis, d.plane, doorGap(d), 0.5), rooms: [d.a, d.b] }));
+  for (const [axis, plane, a0, a1, y0 = 0, y1 = H] of WALLS) {
+    const gaps = openings.filter((o) => o.axis === axis && o.plane === plane && o.c > a0 && o.c < a1 && o.y0 >= y0 - 0.01 && o.y0 < y1);
+    boxes.push(...run(axis, plane, a0, a1, gaps, y0, y1));
   }
 
   const barricades: Barricade[] = WINDOWS.map((w, id) => {
-    const g = { c: w.c, half: WIN_HALF, top: WIN_TOP };
+    const g = winGap(w);
     const [px, pz] = w.axis === 'x' ? [w.c, w.plane] : [w.plane, w.c];
     const side = { x: -w.out.z, z: w.out.x }; // along the wall
-    const at = (out: number, lat = 0) => v(px + w.out.x * out + side.x * lat, 0.01, pz + w.out.z * out + side.z * lat);
+    const at = (out: number, lat = 0) => v(px + w.out.x * out + side.x * lat, w.y + 0.01, pz + w.out.z * out + side.z * lat);
     return {
       id,
       room: w.room,
-      pos: v(px, 0, pz),
+      pos: v(px, w.y, pz),
       out: w.out,
       width: WIN_HALF * 2,
       seal: plug(w.axis, w.plane, g, 0.5),
@@ -248,6 +456,8 @@ function buildFoundry(): MapData {
     box(-8, 1.8, -12.2, 0.5, 3.6, 0.5, 'steel'),
     box(8, 1.8, -12.2, 0.5, 3.6, 0.5, 'steel'),
     wedge('ramp', -17.6, 0, -12, -14.2, 4, 0, { axis: 'z', rise: -1 }),
+    // The Undercroft stairs: from a landing inside their door, down eastward through the floor into the Pump Room.
+    wedge('ramp', SHAFT.x0, CELLAR, SHAFT.z0, SHAFT.x1, 0, SHAFT.z1, { axis: 'x', rise: -1 }),
   );
   // --- The Skyline: a tower over the hatch, surf lines out to three rooms, each diving through its chute ---
   boxes.push(
@@ -279,11 +489,80 @@ function buildFoundry(): MapData {
   boxes.push(span(-35.8, 0, -31, -34.8, 2.2, -25.5, 'steel'), span(-30, 0, -22, -24, 0.5, -21, 'crate'));
   // --- Loading Dock ---
   boxes.push(span(28, 0, -24, 31, 2, -22, 'machine'), box(21.5, 0.6, -20, 1.2, 1.2, 1.2, 'crate'), box(23.5, 0.6, -18.5, 1.2, 1.2, 1.2, 'crate'));
-  // --- Furnace ---
-  boxes.push(span(12, 0, -31, 16, 2.8, -29, 'machine'), span(-16, 0, -31, -12, 2.8, -29, 'machine'), span(-1.8, 0, -31.6, 1.8, 2.6, -30, 'machine')); // ovens and the Pack-a-Punch
+  // --- Furnace: ovens and the Pack-a-Punch; the gantry from the mezzanine runs along its east side at y 4 ---
+  boxes.push(span(12, 0, -31, 16, 2.8, -29, 'machine'), span(-16, 0, -31, -12, 2.8, -29, 'machine'), span(-1.8, 0, -31.6, 1.8, 2.6, -30, 'machine'));
+  boxes.push(
+    span(3.75, 3.6, -31.7, 7.75, 4, -18.3, 'steel'),
+    span(3.75, 4, -31.7, 3.95, 5.1, -18.3, 'steel'), // rails
+    span(7.55, 4, -31.7, 7.75, 5.1, -18.3, 'steel'),
+    box(3.85, 1.8, -25, 0.25, 3.6, 0.25, 'steel'), // posts
+    box(7.65, 1.8, -25, 0.25, 3.6, 0.25, 'steel'),
+  );
+  // --- The Skybridge: a covered walk over the yard, rising gently from the gantry (y 4) to the Drafting Loft (y 5) ---
+  boxes.push(
+    span(3.45, 3.6, -43.7, 8.05, 4, -32.3, 'steel'),
+    wedge('ramp', 4.05, 4, -43.7, 7.45, LOFT, -32, { axis: 'z', rise: -1 }),
+    span(3.45, 8.4, -44, 8.05, 8.8, -32, 'steel'),
+    box(5.75, 1.8, -38, 0.6, 3.6, 0.6, 'steel'), // its leg in the yard
+  );
+
+  // --- The Undercroft ---
+  // Pump Room (the stairs come down a corridor along its south side): pumps and a tank, the flooded corner (the water is
+  // only drawn), and crates round the squeeze into the Duck Shrine behind it. Cold Storage has blocks of ice; the Rail
+  // Tunnel an old mine cart.
+  boxes.push(
+    span(7, CELLAR, -24, 9, CELLAR + 1.2, -22, 'machine'),
+    span(11, CELLAR, -24, 13, CELLAR + 1.2, -22, 'machine'),
+    span(10, CELLAR, -29.7, 13.5, CELLAR + 3.4, -26.7, 'machine'),
+    span(20.2, CELLAR, -24.4, 21.7, CELLAR + 1.8, -23, 'crate'),
+    span(20.5, CELLAR, -29.7, 21.7, CELLAR + 1.4, -28.2, 'crate'),
+    PROPS.altar,
+    ...PROPS.ice,
+    PROPS.cart,
+  );
+  // The ramps up out of the tunnels, each in a pit in the North Wing's floor against a partition wall, fenced round its deep
+  // end (too tall for a zombie's hop: they walk round to the top rather than drop in).
+  boxes.push(
+    wedge('ramp', TUNNEL_PIT.x0, CELLAR, TUNNEL_PIT.z0, TUNNEL_PIT.x1, 0, TUNNEL_PIT.z1, { axis: 'z', rise: -1 }),
+    wedge('ramp', DRAIN_PIT.x0, CELLAR, DRAIN_PIT.z0, DRAIN_PIT.x1, 0, DRAIN_PIT.z1, { axis: 'z', rise: -1 }),
+    ...[TUNNEL_PIT, DRAIN_PIT].flatMap((p) => [
+      span(p.x0 - 0.4, 0, p.z0, p.x0 - 0.2, PIT_FENCE, p.z1, 'steel'),
+      span(p.x0 - 0.3, 0, p.z1 - 0.1, p.x1, PIT_FENCE, p.z1 + 0.1, 'steel'),
+    ]),
+  );
+
+  // --- The North Wing ---
+  // Showroom: rows of mannequins (narrow: zombies weave between them), and the old cash counter.
+  boxes.push(...PROPS.mannequins.map(([x, z]) => box(x, 0.9, z, 0.6, 1.8, 0.6, 'cover')), span(-29.7, 0, -47.6, -27.4, 1.1, -44.3, 'crate'));
+  // Sorting Floor: a maze of low conveyors and parcels; the stairs up along the north wall.
+  boxes.push(
+    span(-6.5, 0, -54.6, 2, 0.95, -53.4, 'steel'),
+    span(-8.5, 0, -62, -7.3, 0.95, -56, 'steel'),
+    span(-4.2, 0, -61, -3, 0.95, -56.5, 'steel'),
+    box(0, 0.5, -60, 1, 1, 1, 'crate'),
+    box(-1.2, 0.4, -58.8, 0.8, 0.8, 0.8, 'crate'),
+    wedge('ramp', -6.4, 0, -69.7, 4.3, LOFT, -66.3, { axis: 'x', rise: -1 }),
+    span(-9.7, 0, -69.7, -6.4, 1.3, -66.3, 'crate'), // parcels stacked under the stairs' landing
+  );
+  // Break Room: the vending machine and the fridge against the north wall, tables, a sagging couch.
+  boxes.push(PROPS.vending, PROPS.fridge, PROPS.couch, ...PROPS.tables.map(([x, z]) => span(x - 1, 0, z - 0.6, x + 1, 0.8, z + 0.6, 'cover')));
+  // Drafting Loft: desks and filing cabinets.
+  boxes.push(
+    ...PROPS.desks.map(([x, z]) => span(x - 1.1, LOFT, z - 0.55, x + 1.1, LOFT + 0.8, z + 0.55, 'cover')),
+    span(-29.7, LOFT, -66, -28.9, LOFT + 1.3, -62, 'machine'),
+    span(-29.7, LOFT, -50, -28.9, LOFT + 1.3, -46, 'machine'),
+  );
+  // Clock Room: the giant gear's two sides.
+  const gr = PROPS.gear;
+  boxes.push(
+    span(gr.x - 0.25, LOFT, gr.z - gr.outer, gr.x + 0.25, WING_TOP - 0.2, gr.z - gr.inner, 'cover'),
+    span(gr.x - 0.25, LOFT, gr.z + gr.inner, gr.x + 0.25, WING_TOP - 0.2, gr.z + gr.outer, 'cover'),
+  );
+
   // --- The yard: clear of every window's approach ---
   boxes.push(
-    span(-6, 0, 28, 6, 2.6, 31, 'machine'), // shipping container
+    span(-6, 0, 28, 6, 2.6, 31, 'machine'), // shipping containers
+    span(-6, 0, -84, 6, 2.6, -81, 'machine'),
     box(-41, 0.6, 16, 1.2, 1.2, 1.2, 'crate'),
     box(-39.5, 0.5, 17.5, 1, 1, 1, 'crate'),
     box(41, 0.6, 16, 1.2, 1.2, 1.2, 'crate'),
@@ -292,20 +571,14 @@ function buildFoundry(): MapData {
     box(42, 0.6, -40, 1.2, 1.2, 1.2, 'crate'),
     box(-30, 0.5, 30, 1, 1, 1, 'crate'),
     box(30, 0.5, 30, 1, 1, 1, 'crate'),
+    box(-44, 0.6, -82, 1.2, 1.2, 1.2, 'crate'),
+    box(44, 0.6, -82, 1.2, 1.2, 1.2, 'crate'),
   );
 
   const rooms: Room[] = ROOMS.map((r, id) => ({ id, ...r }));
   const links: Link[] = [
-    ...DOORS.map((d, i): Link => ({
-      a: d.a,
-      b: d.b,
-      door: i,
-      c: v(d.axis === 'x' ? d.c : d.plane, 0, d.axis === 'x' ? d.plane : d.c),
-      n: d.n,
-      half: DOOR_HALF,
-    })),
-    { a: HALL, b: STAIRS, door: -1, c: v(-15.9, 0, 0), n: { x: 0, z: -1 }, half: 1.7 },
-    { a: STAIRS, b: MEZZ, door: -1, c: v(-15.9, 4, -12), n: { x: 0, z: -1 }, half: 1.7 },
+    ...DOORS.map((d, i): Link => ({ a: d.a, b: d.b, door: i, c: v(d.axis === 'x' ? d.c : d.plane, d.y ?? 0, d.axis === 'x' ? d.plane : d.c), n: d.n, half: DOOR_HALF })),
+    ...ARCHES.map((a): Link => ({ a: a.a, b: a.b, door: -1, c: a.c, n: a.n, half: a.half })),
   ];
 
   const start: SpawnPoint[] = [v(-3, 0.01, 19), v(3, 0.01, 19), v(-3, 0.01, 16.5), v(3, 0.01, 16.5)].map((pos) => ({ pos, yaw: 0 }));
@@ -315,17 +588,22 @@ function buildFoundry(): MapData {
     doors,
     barricades,
     wallBuys: [
-      wallBuy(0, 'marshal', 600, OFFICE, 0, 1.7, 23.7, Math.PI),
-      wallBuy(1, 'rattler', 1000, HALL, -10, 1.7, -17.7, 0),
-      wallBuy(2, 'warden', 1200, BOILER, -21, 1.7, -13.7, 0),
-      wallBuy(3, 'bramble', 1500, STORAGE, 21, 1.7, -13.7, 0),
-      wallBuy(4, 'kestrel', 1500, MEZZ, 10, 5.7, -17.7, 0),
+      wallBuy(0, 'marshal', 600, OFFICE, 0, 0, 23.7, Math.PI),
+      wallBuy(1, 'rattler', 1000, HALL, -10, 0, -17.7, 0),
+      wallBuy(2, 'warden', 1200, BOILER, -21, 0, -13.7, 0),
+      wallBuy(3, 'bramble', 1500, STORAGE, 21, 0, -13.7, 0),
+      wallBuy(4, 'kestrel', 1500, MEZZ, 10, 4, -17.7, 0),
+      wallBuy(5, 'hammer', 3000, SHRINE, 24.6, CELLAR, -28.7, 0), // the Duck Shrine's reward
     ],
     boxSpots: [
       { pos: v(-34.9, 0, -9), yaw: Math.PI / 2, room: BOILER },
       { pos: v(34.9, 0, -28), yaw: -Math.PI / 2, room: DOCK },
       { pos: v(-31, 0, -30.9), yaw: 0, room: LOCKER },
       { pos: v(33, 0, 6.9), yaw: Math.PI, room: STORAGE },
+      { pos: v(12, CELLAR, -19.1), yaw: Math.PI, room: PUMP },
+      { pos: v(24.6, CELLAR, -24.1), yaw: Math.PI, room: SHRINE },
+      { pos: v(25, 0, -68.9), yaw: 0, room: BREAK },
+      { pos: v(16, LOFT, -68.9), yaw: 0, room: CLOCK },
     ],
     punch: v(0, 0, -28.4),
     jug: v(33.7, 0, -9),
@@ -338,10 +616,11 @@ function buildFoundry(): MapData {
     start,
     startRoom: OFFICE,
     power: { pos: v(-21.5, 0, 6.1), yaw: Math.PI },
+    // The scythe's parts lie at the far ends: frozen in Cold Storage, held by a mannequin, wedged in the clockwork.
     parts: [
-      { pos: v(-25, 0, -26), room: LOCKER },
-      { pos: v(27, 0, -28), room: DOCK },
-      { pos: v(-10, 0, -22), room: FURNACE },
+      { pos: v(-20, CELLAR, -22.5), room: COLD },
+      { pos: v(-28.5, 0, -57.5), room: SHOWROOM },
+      { pos: v(26, LOFT, -50), room: CLOCK },
     ],
     bench: { pos: v(-6, 4, -16.2), yaw: 0 },
     hatch: doors.length,

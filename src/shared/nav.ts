@@ -6,16 +6,23 @@ import type { Link, Room, SurvivalLayout } from './layout.ts';
 
 const HOP_COST = 25; // metres of "distance" each doorway adds when ranking who to chase
 const UNREACHABLE = 1e4;
+const STEP_OFF = 1.8; // metres up a staircase from which a zombie still just walks off its side
 
 /**
- * The room a point stands in, or null (outside, in the yard). Rooms overlap where levels stack: the one with the highest
- * floor-ish `y0` wins (a gantry over the furnace floor, the loft over the stairs' top step), then the smaller (stairs in a hall).
+ * The room a point stands in, or null (outside, in the yard). Rooms overlap where levels stack: a ramp wins where it runs
+ * (up to its top step), then the one with the highest floor-ish `y0` (a gantry over the furnace floor), then the smaller.
  */
 export function roomAt(rooms: readonly Room[], p: Vec3): Room | null {
   let best: Room | null = null;
+  const rank = (r: Room) => [r.shape === 'ramp' ? 1 : 0, r.y0, -(r.x1 - r.x0) * (r.z1 - r.z0)];
   for (const r of rooms) {
     if (p.x < r.x0 || p.x > r.x1 || p.z < r.z0 || p.z > r.z1 || p.y < r.y0 || p.y > r.y1) continue;
-    if (!best || r.y0 > best.y0 || (r.y0 === best.y0 && (r.x1 - r.x0) * (r.z1 - r.z0) < (best.x1 - best.x0) * (best.z1 - best.z0))) best = r;
+    if (!best) {
+      best = r;
+      continue;
+    }
+    const [a, b] = [rank(r), rank(best)];
+    if (a[0] > b[0] || (a[0] === b[0] && (a[1] > b[1] || (a[1] === b[1] && a[2] > b[2])))) best = r;
   }
   return best;
 }
@@ -81,10 +88,16 @@ export class Nav {
     return h === Infinity ? d + UNREACHABLE : d + h * HOP_COST;
   }
 
-  /** The point a zombie at `from` should walk toward to get to `to`. */
-  goal(from: Vec3, to: Vec3): Vec3 {
-    const ra = this.roomAt(from);
+  /** The point a zombie at `from` should walk toward to get to `to`; `through` when it is the far side of a doorway. */
+  goal(from: Vec3, to: Vec3): Vec3 & { through?: true } {
+    let ra = this.roomAt(from);
     const rb = this.roomAt(to);
+    // Low on a staircase that stands in a room, heading anywhere but up it, you are as good as in that room: step off its side.
+    const stairs = ra >= 0 ? this.lay.rooms[ra] : null;
+    if (stairs?.base !== undefined && rb >= 0 && from.y - stairs.floor < STEP_OFF) {
+      const up = this.lay.links[this.next[stairs.base][rb]];
+      if (!up || (up.a !== ra && up.b !== ra)) ra = stairs.base;
+    }
     if (ra < 0 || rb < 0 || ra === rb || this.lay.rooms[ra].base === rb) return to;
     const i = this.next[ra][rb];
     if (i < 0) return to;
@@ -94,9 +107,13 @@ export class Nav {
     const nz = l.n.z * s;
     const along = (from.x - l.c.x) * nx + (from.z - l.c.z) * nz;
     const lat = (from.x - l.c.x) * -nz + (from.z - l.c.z) * nx;
+    // Stepping off a ramp's top (or foot) onto open floor: head straight for them, or turning back over the pit on the
+    // last step flips us between the two rooms forever.
+    if (this.lay.rooms[ra].shape === 'ramp' && (l.a === rb || l.b === rb) && along > -0.4 && Math.abs(lat) < l.half && Math.abs(from.y - l.c.y) < 0.35) return to;
     // Lined up with the doorway (or already in it): straight through. Otherwise, to a spot in front of it first. A room
     // can wrap round a doorway (a stair shaft standing in the hall), so being past its plane but off to the side isn't "in it".
-    if (Math.abs(lat) < l.half * 0.5 || (along > 0 && Math.abs(lat) < l.half + 0.6)) return { x: l.c.x + nx * 2.5, y: l.c.y, z: l.c.z + nz * 2.5 };
+    const fit = Math.max(l.half * 0.5, l.half - 0.7); // how far off centre still goes straight through (wide ramps: most of it)
+    if (Math.abs(lat) < fit || (along > 0 && Math.abs(lat) < l.half + 0.6)) return { x: l.c.x + nx * 2.5, y: l.c.y, z: l.c.z + nz * 2.5, through: true };
     return { x: l.c.x - nx * 2.2, y: l.c.y, z: l.c.z - nz * 2.2 };
   }
 }

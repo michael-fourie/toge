@@ -89,8 +89,8 @@ test('server: throwing the switch turns the power on for everyone, and a new run
 
 // --- The Gale Scythe -----------------------------------------------------------------------------------------
 
-test('the scythe parts lie in the three far rooms, and the workbench is on the mezzanine', () => {
-  assert.deepEqual(lay.parts.map((p) => lay.rooms[p.room].name).sort(), ['Furnace', 'Loading Dock', 'Locker Room']);
+test('the scythe parts lie at the far ends (cellar, North Wing, upstairs), and the workbench is on the mezzanine', () => {
+  assert.deepEqual(lay.parts.map((p) => lay.rooms[p.room].name).sort(), ['Clock Room', 'Cold Storage', 'Showroom']);
   for (const p of lay.parts) {
     const r = lay.rooms[p.room];
     assert.ok(p.pos.x > r.x0 && p.pos.x < r.x1 && p.pos.z > r.z0 && p.pos.z < r.z1);

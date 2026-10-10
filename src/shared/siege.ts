@@ -17,7 +17,14 @@ export function makeBrain(nav: Nav, lay: SurvivalLayout, boards: readonly number
         return { pos: { ...b.inside, y: z.pos.y }, claw: false, hold: false };
       }
       if (!t) return null;
-      const g = nav.goal(z.pos, t.pos);
+      let g = nav.goal(z.pos, t.pos);
+      // Through a doorway, finish stepping through before thinking again: where a room wraps round another's door (the
+      // Undercroft stairs in the Hall), the next straight line could lead right back in, and round and round.
+      if (g.through) z.exit = { x: g.x, y: g.y, z: g.z };
+      else if (z.exit) {
+        if (Math.hypot(z.pos.x - z.exit.x, z.pos.z - z.exit.z) < 1 || z.stuck > 0.5) z.exit = undefined;
+        else g = z.exit;
+      }
       // A doorway or ramp foot is on the way, not up a ledge: keep it level so zombies don't pounce at it.
       return { pos: g === t.pos ? t.pos : { x: g.x, y: z.pos.y, z: g.z }, claw: true, hold: false };
     },

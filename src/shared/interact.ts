@@ -82,7 +82,8 @@ export function findUse(pos: Vec3, c: UseCtx): Use | null {
     const dx = Math.max(min.x - pos.x, 0, pos.x - max.x);
     const dz = Math.max(min.z - pos.z, 0, pos.z - max.z);
     const dist = Math.hypot(dx, dz);
-    if (dist <= R && pos.y < max.y) offer(dist, { kind: 'door', id: d.id, status: afford(d.price), price: d.price, text: `Open ${d.name}` });
+    // From below (the hatch) or the floor it stands on, not from the storey under a raised door.
+    if (dist <= R && pos.y < max.y && (d.id === lay.hatch || pos.y > min.y - 1.5)) offer(dist, { kind: 'door', id: d.id, status: afford(d.price), price: d.price, text: `Open ${d.name}` });
   }
 
   for (const w of lay.wallBuys) {
