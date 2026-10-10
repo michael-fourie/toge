@@ -3,18 +3,18 @@
 // through boarded-up bays in the outside walls (nail the boards back up!). Three levels: the Undercroft (cellars, y -6),
 // the ground floor, and the North Wing's upper storey (y 5) plus the mezzanine. Floor plan, x east, z south, y up, metres:
 //
-//   NORTH WING (across the yard)   Showroom ─D10─ Sorting Floor ─D11─ Break Room        ground floor
-//                                     ║ drain       │ tunnel  │ stairs (D12 at the top)
-//                                     ║ ramp        │ ramp    Drafting Loft ─D13─ Clock Room   upper floor (y 5)
-//                                     ║             │           ║ Skybridge (D14, y 4-5) over the yard
-//      Locker ─D6─ Furnace (Pack-a-Punch, gantry y 4) ═════════╝ ──── Dock
-//        │D4          │D3   ║ gantry joins the mezzanine          │D5
-//      Boiler ─D1─── HALL (stairs up to the mezzanine; D7 the Undercroft stair shaft down) ─D2─ Storage (Juggernog)
-//                     │D0
-//                   Office (start)
-//
-//   UNDERCROFT (y -6): Undercroft stairs ─ Pump Room ─D8─ Cold Storage ═(collapsed wall)═ Old Drain ─ ramp up into the Showroom
-//                                                   └D9─ Rail Tunnel ─ ramp up into the Sorting Floor;  Duck Shrine (hidden, off the Pump Room)
+//   UPPER (y 5)        Drafting Loft ─D13─ Clock Room
+//                        │D12 (top of the Wing Stairs)  ║ Skybridge (D14; y 4 to 5, covered, over the yard)
+//   NORTH WING (y 0)   Fitting Rooms ─ Showroom ─ Front of Shop ─D10─ Sorting Floor ─ Dispatch ─D11─ Break Room
+//                      (Drain Ramp up)                   Parcel Bay (Tunnel Ramp up; Wing Stairs up)
+//   MAIN (y 0)         Locker ─D6─ Furnace (Pack-a-Punch; the Gantry at y 4 runs over it) ─── Dock
+//                        │D4          │D3   Gantry ═ Mezzanine (y 4, stairs up from the Hall)   │D5
+//                      Boiler ─D1─── ASSEMBLY HALL ───D2─ Storage (Juggernog)
+//                                     │D0   └D7 the Undercroft stairs, under the mezzanine's east end
+//                                   Office (start)
+//   UNDERCROFT (y -6)  Undercroft Stairs ─ Stair Foot ─ Pump Room ─D8─ Cold Storage ═(collapsed wall)═ Old Drain ─ Drain Ramp
+//                                                       ├(squeeze by the flooded corner)─ Duck Shrine
+//                                                       └D9─ Rail Tunnel ─ Tunnel Ramp
 //
 // Perks: Swift Mend in the Boiler Room, Second Wind in the Locker Room, Zephyr Fizz on the Loading Dock. They (and the
 // Pack-a-Punch) need the power on: the switch is in the Boiler Room. Scythe parts lie at the far ends: Cold Storage, the
@@ -23,8 +23,10 @@
 // The Skyline: buy the hatch in the Hall roof and a pad throws you up onto a tower on the roof. Three surf lines run from
 // it and dive through chutes into the Boiler Room, Storage and the Furnace (a chute stays shut until its room is open).
 //
-// Secrets: the Duck Shrine behind the crates in the Pump Room (a Hammer LMG on the wall, a Mystery Box spot), and the
-// collapsed wall in Cold Storage: a free way through the Old Drain up into the Showroom.
+// Secrets: the Duck Shrine, through a squeeze in the Pump Room's flooded corner (a Hammer LMG on the wall, a Mystery Box
+// spot), and the collapsed wall in Cold Storage: a free way through the Old Drain up into the Showroom.
+// Nav rules for this layout (docs/FOUNDRY.md): rooms are rectangles a zombie crosses in a straight line, so the North Wing
+// is split round its ramp pits; footprints meet at wall planes; a ramp room covers only its ramp.
 //
 // Windows are walled off from players by invisible bars (colliders.ts), so nobody wanders out into the yard. The cellar
 // windows look onto two sunken drainage cuts in the yard, where their zombies climb down.
