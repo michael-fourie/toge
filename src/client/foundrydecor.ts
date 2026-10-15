@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PROPS } from '../shared/foundry.ts';
 import { canvas, rng, softDot, toTexture } from './textures.ts';
+import { pbr } from './render/surface.ts';
+import { pointSprites } from './render/points.ts';
 
 // The Foundry's odd corners, all for looks (the colliders are in shared/foundry.ts): chibi mannequins in the Showroom
 // (one of them watches you), a ghost haunting the Break Room's vending machine, desks and a giant paper plane in the
@@ -10,7 +12,6 @@ import { canvas, rng, softDot, toTexture } from './textures.ts';
 // hopping about in the dark, and graffiti. Built for speed: every static prop is one vertex-coloured mesh, every glowing
 // bit another; only a handful of small things move.
 
-type Toon = (p: THREE.MeshToonMaterialParameters) => THREE.MeshToonMaterial;
 export interface Decor {
   update(time: number, viewer: THREE.Vector3): void;
 }
@@ -46,7 +47,7 @@ const NOTES = [
   { lines: ['MIND THE GAP'], color: '#e6f0ff' },
   { lines: ["IT'S ALWAYS", '3 AM HERE'], color: '#b8f0ff' },
 ];
-function notesTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+function notesTexture(): THREE.CanvasTexture {
   const [c, g] = canvas(1024, 1024);
   g.clearRect(0, 0, 1024, 1024);
   g.textAlign = 'center';
@@ -69,11 +70,11 @@ function notesTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
       g.fillText(line, cx, y);
     });
   });
-  return toTexture(c, renderer, false);
+  return toTexture(c, false);
 }
 
 /** A soot sprite: a black fuzzball with two white eyes. */
-function sootTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+function sootTexture(): THREE.CanvasTexture {
   const [c, g] = canvas(64);
   const r = rng(5);
   g.fillStyle = '#0b0b10';
@@ -97,11 +98,11 @@ function sootTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
     g.arc(x + 1, 32, 2.6, 0, Math.PI * 2);
     g.fill();
   }
-  return toTexture(c, renderer, false);
+  return toTexture(c, false);
 }
 
 /** The Break Room's ghost: a friendly white blob with a little wail. */
-function ghostTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+function ghostTexture(): THREE.CanvasTexture {
   const [c, g] = canvas(128);
   const grad = g.createRadialGradient(64, 56, 10, 64, 64, 60);
   grad.addColorStop(0, 'rgba(240,250,255,0.95)');
@@ -122,10 +123,10 @@ function ghostTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
   g.beginPath();
   g.ellipse(64, 74, 7, 9, 0, 0, Math.PI * 2);
   g.fill();
-  return toTexture(c, renderer, false);
+  return toTexture(c, false);
 }
 
-export function buildDecor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, toon: Toon): Decor {
+export function buildDecor(scene: THREE.Scene): Decor {
   const r = rng(13);
   const solid: THREE.BufferGeometry[] = [];
   const glow: THREE.BufferGeometry[] = [];
@@ -196,7 +197,7 @@ export function buildDecor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, to
   S(box(1.4, 1.1, 0.1), 0x3a3f47, 10.36, 1.4, -60, Math.PI / 2); // the dumbwaiter's hatch in the west wall
   S(box(1.1, 0.8, 0.05), 0x0b0d12, 10.42, 1.4, -60, Math.PI / 2);
   S(cyl(0.02, 0.02, 1.3), 0xb8a070, 10.5, 1.2, -60.3);
-  const ghost = new THREE.Sprite(new THREE.SpriteMaterial({ map: ghostTexture(renderer), transparent: true, depthWrite: false, opacity: 0.8 }));
+  const ghost = new THREE.Sprite(new THREE.SpriteMaterial({ map: ghostTexture(), transparent: true, depthWrite: false, opacity: 0.8 }));
   ghost.scale.set(1.1, 1.1, 1);
   scene.add(ghost);
 
@@ -239,7 +240,7 @@ export function buildDecor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, to
   }
   const hands = new THREE.Group();
   hands.position.set(29.58, clockY, clockZ);
-  const handMat = toon({ color: 0x2b2f36 });
+  const handMat = pbr({ color: 0x2b2f36 });
   const hourHand = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.0, 0.1).translate(0, 0.45, 0), handMat);
   const minHand = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.55, 0.07).translate(0, 0.7, 0), handMat);
   minHand.position.x = -0.03;
@@ -247,15 +248,15 @@ export function buildDecor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, to
   scene.add(hands);
   const pendulum = new THREE.Group();
   pendulum.position.set(25, 10, -57);
-  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.6, 6).translate(0, -1.3, 0), toon({ color: 0xb88a3a }));
-  const bob = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.08, 20).rotateZ(Math.PI / 2).translate(0, -2.8, 0), toon({ color: 0xd4a84a }));
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.6, 6).translate(0, -1.3, 0), pbr({ color: 0xb88a3a }));
+  const bob = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.08, 20).rotateZ(Math.PI / 2).translate(0, -2.8, 0), pbr({ color: 0xd4a84a }));
   pendulum.add(rod, bob);
   scene.add(pendulum);
 
   // --- Cold Storage: ice blocks, frozen fish and daikon hanging in rows ---
   const ice = new THREE.Mesh(
     mergeGeometries(PROPS.ice.map((b) => new THREE.BoxGeometry(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z).translate((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2).toNonIndexed()), false),
-    toon({ color: 0xbfe8ff, transparent: true, opacity: 0.72 }),
+    pbr({ color: 0xbfe8ff, transparent: true, opacity: 0.72 }),
   );
   scene.add(ice);
   for (let x = -24; x <= -1; x += 2.6) {
@@ -321,7 +322,7 @@ export function buildDecor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, to
   for (let k = 0; k < 6; k++) S(box(0.45, 0.35, 0.45), 0xc09a6a, -7.9, 1.12, -61.5 + k * 1.0);
 
   // --- Graffiti and notes (one texture) ---
-  const notes = notesTexture(renderer);
+  const notes = notesTexture();
   const quads: THREE.BufferGeometry[] = [];
   const note = (i: number, x: number, y: number, z: number, ry: number, w: number) => {
     const g = new THREE.PlaneGeometry(w, w / 2);
@@ -345,7 +346,7 @@ export function buildDecor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, to
   scene.add(noteMesh);
 
   // --- Merge ---
-  const solids = new THREE.Mesh(mergeGeometries(solid, false), toon({ color: 0xffffff, vertexColors: true }));
+  const solids = new THREE.Mesh(mergeGeometries(solid, false), pbr({ color: 0xffffff, vertexColors: true }));
   solids.castShadow = true;
   solids.receiveShadow = true;
   scene.add(solids);
@@ -361,7 +362,7 @@ export function buildDecor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, to
   const [wx, wz] = PROPS.mannequins[PROPS.mannequins.length - 1];
   const watcher = new THREE.Group();
   watcher.position.set(wx, 1.86, wz);
-  const face = new THREE.Mesh(new THREE.SphereGeometry(0.27, 14, 10), toon({ color: 0xefe2cc }));
+  const face = new THREE.Mesh(new THREE.SphereGeometry(0.27, 14, 10), pbr({ color: 0xefe2cc }));
   watcher.add(face);
   for (const s of [-0.09, 0.09]) {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), new THREE.MeshBasicMaterial({ color: 0x111111 }));
@@ -379,7 +380,7 @@ export function buildDecor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, to
   const sootPos = new Float32Array(SOOT.length * 3);
   const sootGeo = new THREE.BufferGeometry();
   sootGeo.setAttribute('position', new THREE.BufferAttribute(sootPos, 3));
-  scene.add(new THREE.Points(sootGeo, new THREE.PointsMaterial({ map: sootTexture(renderer), size: 0.55, transparent: true, alphaTest: 0.3, depthWrite: true })));
+  scene.add(pointSprites(sootGeo, { map: sootTexture(), size: 0.55, transparent: true, alphaTest: 0.3, depthWrite: true }));
   const dot = softDot();
   const vendGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0x7ff0ff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5 }));
   vendGlow.scale.set(4, 4, 1);

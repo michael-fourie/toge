@@ -3,11 +3,13 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Box } from '../shared/collision.ts';
 import type { MapData } from '../shared/map.ts';
 import { barkTexture, earthSideTexture, grassTexture, padTexture, rng, rockTexture, surfTexture, wallTexture, woodTexture } from './textures.ts';
-import { type Animated, CLOUD_DRIFT, type World, boxGeometry, cloudSea, cumulus, distantIslands, hookRing, makeSky, meadow, puffball, rampGeometry, toon, windGate, windSpirit } from './world.ts';
+import { type Animated, CLOUD_DRIFT, type World, boxGeometry, cloudSea, cumulus, distantIslands, foliage, hookRing, meadow, puffball, rampGeometry, windGate, windSpirit } from './world.ts';
+import { daySky } from './render/sky.ts';
+import { pbr } from './render/surface.ts';
 
 // Wildmere, the Battle Royale island: Windward's painted sky-island look, in a golden late afternoon, at five times the
 // size. Built for that size: every static box is baked into one merged mesh per material (a dozen draw calls for ~850
-// boxes), tree canopies are instanced, and the sun's shadow follows the player instead of covering the whole island.
+// boxes) and tree canopies are instanced. The sun's shadow covers a patch around the player (Gfx moves it along).
 
 const PALETTE = {
   zenith: 0x4a8fd0,
@@ -23,11 +25,6 @@ const PALETTE = {
 const SUN_DIR = new THREE.Vector3(-45, 62, 38).normalize();
 /** Half the width of the patch around the player that gets sun shadows. */
 const SHADOW_SPAN = 75;
-
-export interface WildWorld extends World {
-  /** Where the camera is: the sun's shadow follows it. */
-  setViewer(p: THREE.Vector3): void;
-}
 
 /** One piece of `geo` per material group (by materialIndex), moved to `at`, ready to merge with others of that material. */
 function pieces(geo: THREE.BufferGeometry, at: THREE.Vector3): (THREE.BufferGeometry | undefined)[] {
@@ -45,15 +42,15 @@ function pieces(geo: THREE.BufferGeometry, at: THREE.Vector3): (THREE.BufferGeom
   return out;
 }
 
-export function buildWildmere(map: MapData, renderer: THREE.WebGLRenderer): WildWorld {
+export function buildWildmere(map: MapData): World {
   const scene = new THREE.Scene();
   const P = PALETTE;
   scene.fog = new THREE.Fog(P.fog, 170, 680);
-  scene.add(makeSky(P, SUN_DIR));
-  scene.add(new THREE.HemisphereLight(P.skyLight, P.groundBounce, 1.5));
-  const sun = new THREE.DirectionalLight(P.sun, 2.6);
+  scene.add(daySky(SUN_DIR, { turbidity: 4, rayleigh: 1.6, clouds: 0.42 })); // golden late afternoon
+  scene.add(new THREE.HemisphereLight(P.skyLight, P.groundBounce, 0.15));
+  const sun = new THREE.DirectionalLight(P.sun, 3.6);
+  sun.position.copy(SUN_DIR).multiplyScalar(200); // Gfx keeps it this far from the camera, shadows following you
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
   const sc = sun.shadow.camera;
   sc.left = sc.bottom = -SHADOW_SPAN;
   sc.right = sc.top = SHADOW_SPAN;
@@ -64,17 +61,17 @@ export function buildWildmere(map: MapData, renderer: THREE.WebGLRenderer): Wild
   scene.add(sun, sun.target);
 
   // --- Materials (Windward's) ----------------------------------------------
-  const grass = toon({ map: grassTexture(renderer) });
-  const earth = toon({ map: earthSideTexture(renderer) });
-  const rockTex = rockTexture(renderer);
-  const rock = toon({ map: rockTex, color: 0xd9c6ae, emissive: new THREE.Color(0x4a3a2c), emissiveIntensity: 0.6 });
-  const underside = toon({ map: rockTex, color: 0xb8a48c, emissive: new THREE.Color(0x3a2d22), emissiveIntensity: 0.5 });
-  const wall = toon({ map: wallTexture(renderer) });
-  const wallTop = toon({ map: grass.map, color: 0xd6e8b0 });
-  const wood = toon({ map: woodTexture(renderer) });
-  const bark = toon({ map: barkTexture(renderer) });
-  const surf = toon({ map: surfTexture(renderer), emissive: new THREE.Color(0x2c5a78), emissiveIntensity: 0.25 });
-  const padMat = toon({ map: padTexture(renderer), emissive: new THREE.Color(0x58e0b8), emissiveIntensity: 0.5 });
+  const grass = pbr({ map: grassTexture() });
+  const earth = pbr({ map: earthSideTexture() });
+  const rockTex = rockTexture();
+  const rock = pbr({ map: rockTex });
+  const underside = pbr({ map: rockTex, color: 0xc9bdb0 });
+  const wall = pbr({ map: wallTexture() });
+  const wallTop = pbr({ map: grass.map, color: 0xd6e8b0 });
+  const wood = pbr({ map: woodTexture() });
+  const bark = pbr({ map: barkTexture() });
+  const surf = pbr({ map: surfTexture() });
+  const padMat = pbr({ map: padTexture(), emissive: new THREE.Color(0x58e0b8), emissiveIntensity: 0.5 });
   const FACES: Partial<Record<Box['kind'], THREE.Material[]>> = {
     floor: [earth, earth, grass, underside, earth, earth],
     wall: [wall, wall, wallTop, underside, wall, wall],
@@ -135,20 +132,13 @@ export function buildWildmere(map: MapData, renderer: THREE.WebGLRenderer): Wild
   for (const a of animated) scene.add(a.obj);
   scene.add(canopies(map, r));
   scene.add(meadow(floorTops, padBoxes, map.boxes, r, 9000));
-  scene.add(cloudSea(renderer));
+  scene.add(cloudSea());
   const clouds = cumulus(1.8);
   scene.add(clouds);
   scene.add(distantIslands(rock, grass, r, 420, 380));
 
-  const snap = SHADOW_SPAN * 2 / 2048; // move the shadow in whole texels, so it doesn't shimmer
   return {
     scene,
-    setViewer(p) {
-      const x = Math.round(p.x / snap) * snap;
-      const z = Math.round(p.z / snap) * snap;
-      sun.target.position.set(x, p.y, z);
-      sun.position.set(x + SUN_DIR.x * 200, p.y + SUN_DIR.y * 200, z + SUN_DIR.z * 200);
-    },
     update(time) {
       padMat.emissiveIntensity = 0.35 + 0.25 * Math.sin(time * 3);
       for (const p of pads) {
@@ -198,7 +188,7 @@ function hangingRock(b: Box, mat: THREE.Material, r: () => number): THREE.Mesh {
 function canopies(map: MapData, r: () => number): THREE.InstancedMesh {
   const crowns = map.decor.filter((d) => d.kind === 'canopy');
   const PER = 6;
-  const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), toon({ color: 0xffffff }), crowns.length * PER);
+  const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), pbr({ map: foliage() }), crowns.length * PER);
   const greens = [0x4f8a3c, 0x6aa548, 0x3f7434, 0x7cb356].map((c) => new THREE.Color(c));
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();

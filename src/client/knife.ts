@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { KnifePaint, KnifeStyle } from '../shared/items.ts';
-import { toonRamp } from './textures.ts';
+import { pbr } from './render/surface.ts';
 
 /** What you hold when no knife skin is equipped. */
 export const DEFAULT_KNIFE: KnifePaint = { style: 'combat', blade: 0xc9d1d6, handle: 0x3b3b40 };
@@ -40,9 +40,8 @@ function bladeGeo(style: KnifeStyle) {
  * Rendered by the viewmodel (first person) and the avatar (third person).
  */
 export function buildKnife(paint: KnifePaint): THREE.Group {
-  const gradientMap = toonRamp();
-  const blade = new THREE.MeshToonMaterial({ color: paint.blade, gradientMap, emissive: paint.glow ? paint.blade : 0, emissiveIntensity: paint.glow ? 0.45 : 0 });
-  const handle = new THREE.MeshToonMaterial({ color: paint.handle, gradientMap });
+  const blade = pbr({ color: paint.blade, emissive: paint.glow ? paint.blade : 0, emissiveIntensity: paint.glow ? 0.45 : 0 });
+  const handle = pbr({ color: paint.handle });
   const root = new THREE.Group();
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0) => {
     const m = new THREE.Mesh(geo, mat);

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { KOTH, type KothState, type Zone } from '../shared/koth.ts';
 import { TEAMS, type Team } from '../shared/teams.ts';
 import './hill.css';
+import { pbr } from './render/surface.ts';
 
 // King of the Hill on the client: the zone drawn in the world, and the Overwatch-style bar along the top.
 // Both only draw the state the server sends (snapshot.koth); the rules live in shared/koth.ts.
@@ -32,7 +33,7 @@ export class HillFx {
   private readonly ringMat = new THREE.MeshBasicMaterial({ color: NEUTRAL, transparent: true, opacity: 0.9 });
   private readonly wallMat: THREE.MeshBasicMaterial;
   private readonly arcMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false });
-  private readonly gemMat = new THREE.MeshToonMaterial({ color: NEUTRAL, emissive: new THREE.Color(NEUTRAL), emissiveIntensity: 0.6 });
+  private readonly gemMat = pbr({ color: NEUTRAL, emissive: new THREE.Color(NEUTRAL), emissiveIntensity: 0.6 });
   private arc: THREE.Mesh | null = null;
   private arcProg = -1;
   private readonly gem: THREE.Mesh;

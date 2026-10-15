@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { RiflePaint } from '../../shared/items.ts';
-import { toonRamp } from '../textures.ts';
 import type { GunRig } from './rig.ts';
+import { pbr } from '../render/surface.ts';
 
 /**
  * The AWP as a GunRig: bolt and magazine are pivots so the animation (guns.ts) drives them the same way
@@ -28,17 +28,16 @@ const ANCHORS = {
 const lighten = (c: number, f: number) => new THREE.Color(c).lerp(new THREE.Color(0xffffff), f - 1).getHex();
 
 function mats(accent: number, paint?: RiflePaint) {
-  const gradientMap = toonRamp();
-  const toon = (color: number, glow = false) => new THREE.MeshToonMaterial({ color, gradientMap, emissive: glow ? color : 0, emissiveIntensity: glow ? 0.35 : 0 });
+  const solid = (color: number, glow = false) => pbr({ color, emissive: glow ? color : 0, emissiveIntensity: glow ? 0.35 : 0 });
   return {
     // The classic AWP green, nudged toward the softer Ghibli palette (or an equipped skin).
-    polymer: toon(paint?.body ?? 0x5f7444, paint?.glow),
-    polymerDark: toon(paint?.dark ?? 0x4a5c35),
-    metal: toon(paint?.trim ?? 0x2e3136),
-    metalLight: toon(paint ? lighten(paint.trim, 1.25) : 0x4b5058),
-    rubber: toon(0x26272b),
+    polymer: solid(paint?.body ?? 0x5f7444, paint?.glow),
+    polymerDark: solid(paint?.dark ?? 0x4a5c35),
+    metal: solid(paint?.trim ?? 0x2e3136),
+    metalLight: solid(paint ? lighten(paint.trim, 1.25) : 0x4b5058),
+    rubber: solid(0x26272b),
     lens: new THREE.MeshBasicMaterial({ color: 0x9fd6e8 }),
-    accent: toon(accent),
+    accent: solid(accent),
   };
 }
 
@@ -145,13 +144,12 @@ export async function loadAwpGlb(): Promise<WeaponModel | null> {
   root.add(fit);
   orientAndFit(fit, model);
 
-  // Restyle to the toon look so it sits in the Ghibli world, keeping each part's base colour/texture.
-  const gradientMap = toonRamp();
+  // Restyle to the solid look so it sits in the Ghibli world, keeping each part's base colour/texture.
   model.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     const src = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
-    mesh.material = new THREE.MeshToonMaterial({ color: src.color ?? 0xffffff, map: src.map ?? null, gradientMap });
+    mesh.material = pbr({ color: src.color ?? 0xffffff, map: src.map ?? null });
     mesh.castShadow = false;
   });
 

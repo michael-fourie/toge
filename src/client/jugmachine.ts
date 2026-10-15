@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Vec3 } from '../shared/math.ts';
-import { softDot, toonRamp } from './textures.ts';
+import { softDot } from './textures.ts';
+import { pbr } from './render/surface.ts';
 
 export const CRIMSON = 0xff6a4a;
 
@@ -19,12 +20,11 @@ export const buildJugMachine = (pos: Vec3) => buildPerkMachine(pos, CRIMSON, 0xb
 export function buildPerkMachine(pos: Vec3, glowColor: number, caskColor: number, lidColor: number, emblem: Emblem): { obj: THREE.Group; update(time: number): void } {
   const g = new THREE.Group();
   g.position.set(pos.x, pos.y, pos.z);
-  const gradientMap = toonRamp();
-  const toon = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap });
-  const stone = toon(0xbfb59f);
-  const wood = toon(caskColor);
-  const woodLight = toon(lidColor);
-  const brass = toon(0xd9a441);
+  const solid = (color: number) => pbr({ color });
+  const stone = solid(0xbfb59f);
+  const wood = solid(caskColor);
+  const woodLight = solid(lidColor);
+  const brass = solid(0xd9a441);
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);

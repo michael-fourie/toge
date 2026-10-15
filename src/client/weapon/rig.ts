@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { toonRamp } from '../textures.ts';
+import { pbr } from '../render/surface.ts';
 
 // What every gun model and animation shares. A gun lives in "gun space": metres, barrel along -Z, +X to the shooter's right,
 // origin at the trigger. Models are built from named parts; each gun's animation moves those parts, and writes a Plan that
@@ -120,10 +120,26 @@ export interface GunAnim {
 // ---------------------------------------------------------------------------
 // Building blocks
 
+/** How each named part of a gun is made: [metalness, roughness]. Unlisted names are painted polymer. */
+const FINISH: Record<string, [number, number]> = {
+  steel: [1, 0.32],
+  blue: [1, 0.42], // blued steel
+  black: [0.85, 0.5], // parkerised
+  dark: [0.85, 0.48],
+  grey: [0.8, 0.45],
+  brass: [1, 0.28],
+  wood: [0, 0.48], // oiled stock
+  woodDark: [0, 0.52],
+  accent: [0.3, 0.38], // the player's colour, as enamel
+};
+
 export function palette(accent: number, colors: Record<string, number>) {
-  const gradientMap = toonRamp();
-  const out: Record<string, THREE.Material> = { accent: new THREE.MeshToonMaterial({ color: accent, gradientMap }) };
-  for (const [k, c] of Object.entries(colors)) out[k] = new THREE.MeshToonMaterial({ color: c, gradientMap });
+  const make = (name: string, color: number) => {
+    const [metalness, roughness] = FINISH[name] ?? [0, 0.62];
+    return pbr({ color, metalness, roughness });
+  };
+  const out: Record<string, THREE.Material> = { accent: make('accent', accent) };
+  for (const [k, c] of Object.entries(colors)) out[k] = make(k, c);
   return out;
 }
 

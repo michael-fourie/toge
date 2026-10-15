@@ -3,28 +3,29 @@ import { CONTRAPTIONS, type ContraptionKind, WORKSHOP } from '../shared/contrapt
 import type { ContraptionFx, NetContraption, V3 } from '../shared/protocol.ts';
 import { GrenadeFx } from './grenadefx.ts';
 import { signTexture } from './foundrytextures.ts';
-import { softDot, toonRamp } from './textures.ts';
+import { softDot } from './textures.ts';
+import { pbr, type SurfaceParams } from './render/surface.ts';
 
 // Contraptions on the client: a silly hand-made model for each (all procedural), the Tinker's Workbench, the placement
 // ghost, and what they do (spike piles, tacks, goo, bombs, lightning, owl shots). The server decides; we animate.
 
-const toon = (color: number, extra: THREE.MeshToonMaterialParameters = {}) => new THREE.MeshToonMaterial({ color, gradientMap: toonRamp(), ...extra });
+const solid = (color: number, extra: SurfaceParams = {}) => pbr({ color, ...extra });
 const glow = (color: number) => new THREE.MeshBasicMaterial({ color });
 const C = {
-  wood: toon(0x9a6b42),
-  darkWood: toon(0x6e4a2e),
-  brass: toon(0xd8a84a),
-  copper: toon(0xc8743e),
-  iron: toon(0x5d636e),
-  steel: toon(0xb8c0c8),
-  red: toon(0xd9584a),
-  cream: toon(0xf3e6c8),
-  ink: toon(0x2a2430),
-  bomb: toon(0x30303a),
-  green: toon(0x6fbf5a),
-  owl: toon(0xb08a64),
-  belly: toon(0xf0dcb6),
-  ceramic: toon(0xe8e2d6),
+  wood: solid(0x9a6b42),
+  darkWood: solid(0x6e4a2e),
+  brass: solid(0xd8a84a),
+  copper: solid(0xc8743e),
+  iron: solid(0x5d636e),
+  steel: solid(0xb8c0c8),
+  red: solid(0xd9584a),
+  cream: solid(0xf3e6c8),
+  ink: solid(0x2a2430),
+  bomb: solid(0x30303a),
+  green: solid(0x6fbf5a),
+  owl: solid(0xb08a64),
+  belly: solid(0xf0dcb6),
+  ceramic: solid(0xe8e2d6),
 };
 
 const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0) => {
@@ -45,7 +46,7 @@ function legs(h: number, y: number, mat: THREE.Material): THREE.Mesh[] {
  */
 export function buildContraption(kind: ContraptionKind): THREE.Group {
   const g = new THREE.Group();
-  const accent = toon(CONTRAPTIONS[kind].color);
+  const accent = solid(CONTRAPTIONS[kind].color);
   switch (kind) {
     case 'spikes': {
       // A barrel on legs with a hopper on top and a spout at the front: spike piles come out of it.
@@ -98,7 +99,7 @@ export function buildContraption(kind: ContraptionKind): THREE.Group {
       // A glass tank of glowing green goo on a crate, with a copper nozzle at the front.
       g.add(mesh(new THREE.BoxGeometry(0.8, 0.45, 0.8), C.wood, 0, 0.225, 0));
       g.add(mesh(new THREE.BoxGeometry(0.84, 0.06, 0.84), C.darkWood, 0, 0.45, 0));
-      const tank = mesh(new THREE.SphereGeometry(0.34, 16, 12), new THREE.MeshToonMaterial({ color: 0x9ff07a, gradientMap: toonRamp(), transparent: true, opacity: 0.75, emissive: 0x2f7a1c }), 0, 0.85, 0);
+      const tank = mesh(new THREE.SphereGeometry(0.34, 16, 12), pbr({ color: 0x9ff07a, transparent: true, opacity: 0.75, emissive: 0x2f7a1c }), 0, 0.85, 0);
       tank.name = 'tank';
       g.add(tank);
       g.add(mesh(new THREE.SphereGeometry(0.2, 10, 8), glow(0x7dff4a), 0, 0.8, 0));
@@ -176,14 +177,14 @@ export function buildContraption(kind: ContraptionKind): THREE.Group {
 }
 
 /** The Tinker's Workbench: a warm wooden bench with a pegboard of tools, a vice, cogs and a toy windmill. Front toward +z. */
-export function buildTinkerBench(renderer: THREE.WebGLRenderer): THREE.Group {
+export function buildTinkerBench(): THREE.Group {
   const g = new THREE.Group();
   g.add(mesh(new THREE.BoxGeometry(2, 0.12, 1), C.wood, 0, 0.89, 0));
   for (const [x, z] of [[-0.9, -0.4], [0.9, -0.4], [-0.9, 0.4], [0.9, 0.4]]) g.add(mesh(new THREE.BoxGeometry(0.1, 0.84, 0.1), C.darkWood, x, 0.42, z));
   g.add(mesh(new THREE.BoxGeometry(1.8, 0.06, 0.8), C.darkWood, 0, 0.25, 0)); // the shelf
-  g.add(mesh(new THREE.BoxGeometry(0.5, 0.3, 0.4), toon(0xc9a46a), -0.5, 0.43, 0)); // a crate of bits
+  g.add(mesh(new THREE.BoxGeometry(0.5, 0.3, 0.4), solid(0xc9a46a), -0.5, 0.43, 0)); // a crate of bits
   // Pegboard with tools.
-  g.add(mesh(new THREE.BoxGeometry(2, 1.3, 0.06), toon(0x8a6646), 0, 1.65, -0.45));
+  g.add(mesh(new THREE.BoxGeometry(2, 1.3, 0.06), solid(0x8a6646), 0, 1.65, -0.45));
   const tools: [number, number, number, number, THREE.Material][] = [[-0.7, 1.75, 0.08, 0.5, C.iron], [-0.45, 1.7, 0.06, 0.4, C.red], [0.4, 1.8, 0.07, 0.45, C.brass], [0.65, 1.65, 0.05, 0.35, C.steel]];
   for (const [x, y, w, h, m] of tools) g.add(mesh(new THREE.BoxGeometry(w, h, 0.04), m, x, y, -0.4));
   const cog = (r: number, x: number, y: number, m: THREE.Material) => {
@@ -214,7 +215,7 @@ export function buildTinkerBench(renderer: THREE.WebGLRenderer): THREE.Group {
   }
   mill.add(blades);
   g.add(mill);
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.5), new THREE.MeshBasicMaterial({ map: signTexture(renderer, ["TINKER'S WORKBENCH"], { w: 640, h: 160, bg: '#3a2416', fg: '#ffcf7a', border: '#d98a3a' }), color: 0xe8e2d0 }));
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.5), new THREE.MeshBasicMaterial({ map: signTexture(["TINKER'S WORKBENCH"], { w: 640, h: 160, bg: '#3a2416', fg: '#ffcf7a', border: '#d98a3a' }), color: 0xe8e2d0 }));
   sign.position.set(0, 2.55, -0.43);
   g.add(sign);
   // A little work lamp clamped to the board, glowing warm.
@@ -430,7 +431,7 @@ export class ContraptionView {
     if (this.piles.has(n)) return;
     const g = new THREE.Group();
     g.position.set(...p);
-    g.add(mesh(new THREE.CircleGeometry(0.42, 12).rotateX(-Math.PI / 2), toon(0x8a6a4a), 0, 0.02, 0));
+    g.add(mesh(new THREE.CircleGeometry(0.42, 12).rotateX(-Math.PI / 2), solid(0x8a6a4a), 0, 0.02, 0));
     for (let i = 0; i < 9; i++) {
       const a = i * 2.4;
       const r = 0.08 + (i % 3) * 0.12;

@@ -3,6 +3,7 @@ import type { Item } from '../../shared/items.ts';
 import { buildKnife } from '../knife.ts';
 import { buildWear } from '../wear.ts';
 import { buildProceduralAwp } from '../weapon/awp.ts';
+import { studio } from '../render/studio.ts';
 
 // Item pictures for the store and inventory: each item is rendered once with the real 3D model onto
 // one shared offscreen canvas and cached as a data URL, so the screens stay light.
@@ -16,12 +17,8 @@ function setup() {
   const renderer = new THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: true, alpha: true });
   renderer.setSize(SIZE.w, SIZE.h, false);
   renderer.setPixelRatio(1);
-  renderer.toneMapping = THREE.NeutralToneMapping;
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xfff4dc, 0x9fb7d8, 1.9));
-  const sun = new THREE.DirectionalLight(0xfff0d0, 2.4);
-  sun.position.set(-2, 4, -3);
-  scene.add(sun);
+  studio(renderer, scene);
   return (gl = { renderer, scene, camera: new THREE.PerspectiveCamera(28, SIZE.w / SIZE.h, 0.05, 50) });
 }
 

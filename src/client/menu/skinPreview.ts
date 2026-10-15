@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Gear } from '../../shared/items.ts';
 import { JACKETS, type Skin } from '../../shared/skin.ts';
 import { Avatar } from '../avatar.ts';
+import { studio } from '../render/studio.ts';
 
 export const DEFAULT_JACKET = JACKETS[0];
 
@@ -12,12 +13,8 @@ export const DEFAULT_JACKET = JACKETS[0];
 export function mountSkinPreview(canvas: HTMLCanvasElement, turntable = false, swing = 1.1) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
-  renderer.toneMapping = THREE.NeutralToneMapping;
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xfff4dc, 0x9fb7d8, 1.7));
-  const sun = new THREE.DirectionalLight(0xfff0d0, 2.2);
-  sun.position.set(-2, 4, -3); // front-left of the avatar, whose face looks down -Z at yaw 0
-  scene.add(sun);
+  studio(renderer, scene); // keyed from the front-left of the avatar, whose face looks down -Z at yaw 0
   // The avatar faces -Z, so the camera sits on that side to see its face first.
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
   camera.position.set(0, 1.05, -4.4);

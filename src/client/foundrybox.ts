@@ -3,13 +3,14 @@ import type { WallBuy } from '../shared/layout.ts';
 import type { BoxState } from '../shared/protocol.ts';
 import { WEAPONS, WEAPON_IDS, type WeaponId } from '../shared/weapons.ts';
 import { signTexture } from './foundrytextures.ts';
-import { softDot, toonRamp } from './textures.ts';
+import { softDot } from './textures.ts';
 import { buildGunDisplay } from './weapon/guns.ts';
+import { pbr } from './render/surface.ts';
 
-const toon = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap: toonRamp() });
+const solid = (color: number) => pbr({ color });
 
 /** A gun on a wall: a painted plate with its name and price, and the gun itself mounted over it. */
-export function buildWallBuy(w: WallBuy, renderer: THREE.WebGLRenderer, accent: number): THREE.Group {
+export function buildWallBuy(w: WallBuy, accent: number): THREE.Group {
   const g = new THREE.Group();
   g.position.set(w.pos.x, w.pos.y, w.pos.z);
   g.rotation.y = w.yaw;
@@ -18,7 +19,7 @@ export function buildWallBuy(w: WallBuy, renderer: THREE.WebGLRenderer, accent: 
   back.position.set(0, 0, 0.015);
   const label = new THREE.Mesh(
     new THREE.PlaneGeometry(2.3, 0.78),
-    new THREE.MeshBasicMaterial({ map: signTexture(renderer, [def.name.toUpperCase(), `${w.price}`], { w: 460, h: 156, bg: '#262a30', fg: '#f5efd6', border: '#8fe0c8' }), color: 0xcfd6e6 }),
+    new THREE.MeshBasicMaterial({ map: signTexture([def.name.toUpperCase(), `${w.price}`], { w: 460, h: 156, bg: '#262a30', fg: '#f5efd6', border: '#8fe0c8' }), color: 0xcfd6e6 }),
   );
   label.position.set(0, -0.62, 0.02);
   const gun = buildGunDisplay(def.style, accent);
@@ -36,8 +37,8 @@ export function buildWallBuy(w: WallBuy, renderer: THREE.WebGLRenderer, accent: 
 /** A sad little plush bunny: what the Mystery Box gives you instead of a gun, and your points back. */
 function plush(): THREE.Group {
   const g = new THREE.Group();
-  const fur = toon(0xf1e3d3);
-  const pink = toon(0xf0a8b8);
+  const fur = solid(0xf1e3d3);
+  const pink = solid(0xf0a8b8);
   const ink = new THREE.MeshBasicMaterial({ color: 0x2a2024 });
   const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 14, 10), fur);
   body.scale.set(1, 1.1, 0.9);
@@ -76,11 +77,11 @@ export interface MysteryBox {
 }
 
 /** The Mystery Box: a battered crate with a glowing "?" that opens to a beam of light and a floating gun. */
-export function buildMysteryBox(renderer: THREE.WebGLRenderer, accent: number): MysteryBox {
+export function buildMysteryBox(accent: number): MysteryBox {
   const obj = new THREE.Group();
-  const wood = toon(0x7d5a38);
-  const brass = toon(0xd9a441);
-  const dark = toon(0x3a2c20);
+  const wood = solid(0x7d5a38);
+  const brass = solid(0xd9a441);
+  const dark = solid(0x3a2c20);
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = obj) => {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
@@ -96,7 +97,7 @@ export function buildMysteryBox(renderer: THREE.WebGLRenderer, accent: number): 
   obj.add(lid);
   add(new THREE.BoxGeometry(1.5, 0.14, 0.9), wood, 0, 0.07, 0.45, lid);
   for (const x of [-0.7, 0.7]) add(new THREE.BoxGeometry(0.1, 0.16, 0.94), brass, x, 0.07, 0.45, lid);
-  const qTex = signTexture(renderer, ['?'], { w: 128, h: 128, bg: '#0d2430', fg: '#8ff5ee', border: '#8ff5ee' });
+  const qTex = signTexture(['?'], { w: 128, h: 128, bg: '#0d2430', fg: '#8ff5ee', border: '#8ff5ee' });
   const q = new THREE.MeshBasicMaterial({ map: qTex });
   for (const [x, z, ry] of [[0, 0.455, 0], [0.755, 0, Math.PI / 2], [-0.755, 0, -Math.PI / 2]]) {
     const face = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), q);

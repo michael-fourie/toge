@@ -1,6 +1,6 @@
 # Gambol
 
-A silly browser multiplayer movement shooter set on Ghibli-style sky islands: **bhop, surf, slide, wallrun, grapple, snipe**. It's in the spirit of CS:GO Combat Surf.
+A silly browser multiplayer movement shooter set on floating sky islands, rendered with WebGPU: **bhop, surf, slide, wallrun, grapple, snipe**. It's in the spirit of CS:GO Combat Surf.
 
 ```bash
 npm install
@@ -141,6 +141,6 @@ A procedural CS-style AWP is built in. To use a real model instead:
 1. Download **[AWP Sniper Rifle by BlenderGuy](https://sketchfab.com/3d-models/awp-sniper-rifle-428942868d1742fabaf80d556e957c88)** (CC BY 4.0) from Sketchfab as **glTF Binary (.glb)**. This needs a free account.
 2. Save it as `public/models/awp.glb`.
 
-The game auto-fits and toon-shades the model and attaches its bolt and magazine parts to the animations. The console logs which parts it found. The CC BY credit appears on the pause screen; keep it if you ship.
+The game auto-fits and PBR-shades the model and attaches its bolt and magazine parts to the animations. The console logs which parts it found. The CC BY credit appears on the pause screen; keep it if you ship.
 
 Developer docs (architecture, conventions, gotchas) are in [CLAUDE.md](CLAUDE.md). Design and ops plans are in [docs/](docs): the map, the menu, and free deployment.

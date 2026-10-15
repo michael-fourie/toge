@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { softDot } from './textures.ts';
+import { PointsNodeMaterial } from 'three/webgpu';
+import { pointSprites } from './render/points.ts';
 
 // The Survival look: the same sky islands under a moon. Deep indigo sky, a pale moon, stars, cool moonlight
 // and dark blue clouds. Gameplay surfaces keep their own glow (pads, gates, hooks, stations) so they read like lanterns.
@@ -22,7 +24,7 @@ export const NIGHT = {
 export const MOON_DIR = new THREE.Vector3(-40, 62, -45).normalize();
 
 /** A dome of twinkling stars (upper hemisphere only). Drawn behind everything, ignores fog. */
-export function makeStars(): { obj: THREE.Points; update(time: number): void } {
+export function makeStars(): { obj: THREE.Sprite; update(time: number): void } {
   const N = 1300;
   const pos = new Float32Array(N * 3);
   let seed = 4242;
@@ -35,8 +37,8 @@ export function makeStars(): { obj: THREE.Points; update(time: number): void } {
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.PointsMaterial({ color: 0xfff7e6, size: 2.4, sizeAttenuation: false, transparent: true, opacity: 0.9, depthWrite: false, fog: false });
-  const obj = new THREE.Points(geo, mat);
+  const mat = new PointsNodeMaterial({ color: 0xfff7e6, size: 2.4, sizeAttenuation: false, transparent: true, opacity: 0.9, depthWrite: false, fog: false });
+  const obj = pointSprites(geo, mat);
   obj.frustumCulled = false;
   obj.renderOrder = -1;
   return { obj, update: (t) => (mat.opacity = 0.78 + 0.14 * Math.sin(t * 1.3)) };

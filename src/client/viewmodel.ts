@@ -10,6 +10,7 @@ import { GUN_ANIMS, GUN_BUILDERS } from './weapon/guns.ts';
 import { Arm } from './weapon/hands.ts';
 import { type GunAnim, type GunRig, type Kit, POSES, Plan, seg } from './weapon/rig.ts';
 import { WEAPONS, type WeaponId } from '../shared/weapons.ts';
+import { pbr } from './render/surface.ts';
 
 // Everything below lives in `view` space, which is scaled down as a whole (gun + arms together).
 const VIEW_SCALE = 0.85;
@@ -83,8 +84,9 @@ export class ViewModel {
     private color: number,
     gear: Gear = {},
   ) {
-    this.scene.add(new THREE.HemisphereLight(0xcde8ff, 0x7c9a58, 1.6));
-    const key = new THREE.DirectionalLight(0xffe3b3, 2.4);
+    // The map's sky lights and reflects in the gun (Game shares its environment map); these just add a sun-side key.
+    this.scene.add(new THREE.HemisphereLight(0xcde8ff, 0x7c9a58, 0.2));
+    const key = new THREE.DirectionalLight(0xffe3b3, 3.2);
     key.position.set(1, 2, 1);
     this.scene.add(key);
     this.view.scale.setScalar(VIEW_SCALE);
@@ -432,7 +434,7 @@ export class ViewModel {
     const big = WEAPONS[this.id].pellets > 1;
     const casing = new THREE.Mesh(
       new THREE.CylinderGeometry(big ? 0.01 : 0.006, big ? 0.01 : 0.006, big ? 0.045 : 0.05, 8).rotateX(Math.PI / 2),
-      new THREE.MeshToonMaterial({ color: big ? 0xc23b32 : 0xd9a84e }),
+      pbr({ color: big ? 0xc23b32 : 0xd9a84e }),
     );
     this.gunToView(casing.position.copy(g.anchors.eject));
     this.spawnDebris(casing, new THREE.Vector3(0.9 + Math.random() * 0.3, 0.9, 0.15));

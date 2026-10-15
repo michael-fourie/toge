@@ -1,232 +1,233 @@
-import * as THREE from 'three';
-import { blobs, canvas, rng, toTexture } from './textures.ts';
+import type * as THREE from 'three';
+import { type Cell, clamp01, fbm, lerp, noise, ridged, smooth, worley } from './render/noise.ts';
+import { type Texel, bake } from './render/surface.ts';
+import { type RGB, hex, paint, shade, tint } from './textures.ts';
 
-// Procedural textures for Dune Village: sun-warmed sand, sandstone blocks, ochre mud-brick plaster, packed-clay roofs,
-// rippled dune sand for slide ramps, turquoise glazed tile for the aqueduct surf and striped awning cloth. No image assets.
-// Everything tiles: shapes that cross an edge are drawn again on the other side.
+// Dune Village's surfaces: sun-warmed sand, sandstone blocks, lime plaster over mud-brick, packed-clay roofs, rippled
+// dune sand for slide ramps, turquoise glazed tile for the aqueduct surf, awning cloth and palm bark. Baked per texel
+// with height, roughness and occlusion like the sky islands' (textures.ts); everything tiles.
 
-type R = THREE.WebGLRenderer;
-type Ctx = CanvasRenderingContext2D;
-
-/** Runs `fn(dx, dy)` at the 9 wrapped offsets so whatever it draws tiles. */
-const wrap = (S: number, fn: (dx: number, dy: number) => void) => {
-  for (const dx of [-S, 0, S]) for (const dy of [-S, 0, S]) fn(dx, dy);
-};
-
-const speckle = (g: Ctx, S: number, r: () => number, n: number, colors: string[], alpha: number, size = 2) => {
-  for (let i = 0; i < n; i++) {
-    g.globalAlpha = alpha * (0.4 + r() * 0.6);
-    g.fillStyle = colors[Math.floor(r() * colors.length)];
-    g.fillRect(r() * S, r() * S, size * (0.5 + r()), size * (0.5 + r()));
-  }
-  g.globalAlpha = 1;
-};
-
-/** Soft wavy lines across the tile (wind ripples), `n` of them, each a full period wide so it wraps. */
-function ripples(g: Ctx, S: number, r: () => number, n: number, color: string, width: number, alpha: number, amp: number) {
-  g.strokeStyle = color;
-  g.lineWidth = width;
-  g.lineCap = 'round';
-  for (let i = 0; i < n; i++) {
-    const y0 = ((i + r() * 0.4) / n) * S;
-    const ph = r() * Math.PI * 2;
-    const k = 1 + Math.floor(r() * 2);
-    g.globalAlpha = alpha * (0.6 + r() * 0.4);
-    for (const dy of [-S, 0, S]) {
-      g.beginPath();
-      for (let x = 0; x <= S; x += 4) {
-        const y = y0 + dy + Math.sin((x / S) * Math.PI * 2 * k + ph) * amp + Math.sin((x / S) * Math.PI * 6 + ph * 2) * amp * 0.25;
-        if (x === 0) g.moveTo(x, y);
-        else g.lineTo(x, y);
-      }
-      g.stroke();
-    }
-  }
-  g.globalAlpha = 1;
+/** Wind ripples: crests across the tile (`n` of them), wandering a little. 1 on a crest, 0 in a trough. */
+function ripple(u: number, v: number, n: number, seed: number): number {
+  const warp = fbm(u, v, 2, 3, seed) * 0.6 + noise(u, v, 6, seed + 3) * 0.12;
+  const x = (v * n + warp) % 1;
+  const p = x < 0 ? x + 1 : x;
+  // Asymmetric, like real ripples: a long gentle windward slope and a short steep lee face.
+  return p < 0.75 ? p / 0.75 : (1 - p) / 0.25;
 }
 
-/** The town's ground: warm sand with faint ripples, pebbles and footprint-soft shading. */
-export function sandTexture(renderer: R): THREE.CanvasTexture {
-  const S = 512;
-  const [c, g] = canvas(S);
-  const r = rng(301);
-  g.fillStyle = '#e9c792';
-  g.fillRect(0, 0, S, S);
-  blobs(g, S, S, r, 90, ['#efd2a0', '#dfb87f', '#f3dcb0', '#d9ae74'], [20, 80], [0.18, 0.4]);
-  ripples(g, S, r, 9, '#d4a96e', 3, 0.35, 10);
-  ripples(g, S, r, 9, '#f8e4bd', 2, 0.35, 10);
-  speckle(g, S, r, 900, ['#b88d5c', '#a27a4e', '#fff2d6'], 0.5, 2);
-  return toTexture(c, renderer);
+/** Sand grains and the odd pebble, shared by the ground and the dunes. */
+function sandTexel(u: number, v: number, t: Texel, base: RGB, crest: RGB, ripples: number, depth: number, seed: number) {
+  const r = ripple(u, v, ripples, seed);
+  const n = fbm(u, v, 4, 4, seed + 5) * 0.5 + 0.5;
+  const grain = noise(u, v, 256, seed + 7) * 0.5 + 0.5;
+  paint(t, base, crest, r * 0.45 + n * 0.35 + grain * 0.2);
+  t.h = r * depth + n * 0.3 + grain * 0.08;
+  t.rough = 0.92;
+  t.ao = 0.8 + r * 0.2;
+}
+
+/** The town's ground: warm sand with soft wind ripples, a scatter of pebbles and darker trodden patches. */
+export function sandTexture(): THREE.Texture {
+  const c: Cell = { f1: 0, f2: 0, id: 0 };
+  const sand = hex(0xd9b582);
+  const light = hex(0xf0d6a8);
+  const pebble = hex(0xa88d6c);
+  return bake(
+    'sand',
+    (u, v, t) => {
+      sandTexel(u, v, t, sand, light, 14, 0.25, 301);
+      const trod = smooth(0.55, 0.8, fbm(u, v, 3, 3, 303) * 0.5 + 0.5);
+      shade(t, 1 - trod * 0.12);
+      worley(u, v, 40, 305, c, 1);
+      const stone = smooth(0.25, 0.15, c.f1) * (c.id > 0.94 ? 1 : 0);
+      if (stone > 0) {
+        tint(t, pebble, stone * 0.7);
+        t.h += stone * 0.35;
+        t.rough = lerp(t.rough, 0.7, stone);
+      }
+    },
+    { size: 512, normal: 4 },
+  );
 }
 
 /** Dune sand on slide ramps: deeper apricot with bold ripple bands across the slope, so a slope reads as "slide". */
-export function duneTexture(renderer: R): THREE.CanvasTexture {
-  const S = 256;
-  const [c, g] = canvas(S);
-  const r = rng(307);
-  g.fillStyle = '#eba868';
-  g.fillRect(0, 0, S, S);
-  blobs(g, S, S, r, 30, ['#f2b97c', '#e09a5b', '#f6c58e'], [14, 40], [0.25, 0.45]);
-  ripples(g, S, r, 6, '#c97c43', 6, 0.55, 6);
-  ripples(g, S, r, 6, '#fbd9a6', 4, 0.6, 6);
-  speckle(g, S, r, 300, ['#b06d3a', '#ffe8c4'], 0.5, 2);
-  return toTexture(c, renderer);
+export function duneTexture(): THREE.Texture {
+  const sand = hex(0xd88f52);
+  const crest = hex(0xf3c189);
+  return bake('dune', (u, v, t) => sandTexel(u, v, t, sand, crest, 8, 0.8, 307), { size: 512, normal: 6 });
+}
+
+/**
+ * Coursed masonry: `rows` courses of blocks about `aspect` rows long, staggered. Returns the distance to the nearest
+ * joint (in rows) and a per-block random value.
+ */
+function courses(u: number, v: number, rows: number, aspect: number, out: { joint: number; id: number }) {
+  const ry = v * rows;
+  const row = Math.floor(ry);
+  const fy = ry - row;
+  const cols = Math.max(1, Math.round(rows / aspect));
+  const rx = (u * cols + ((row * 0.53) % 1)) % cols;
+  const col = Math.floor(rx);
+  const fx = rx - col;
+  out.joint = Math.min(Math.min(fx, 1 - fx) * (rows / cols), Math.min(fy, 1 - fy));
+  out.id = (((row * 7 + col * 13) % 23) + 0.5) / 23;
 }
 
 /** Big honey-coloured sandstone blocks in courses: the town wall, towers and aqueduct arches. */
-export function sandstoneTexture(renderer: R): THREE.CanvasTexture {
-  const S = 512;
-  const [c, g] = canvas(S);
-  const r = rng(311);
-  g.fillStyle = '#b98c5a';
-  g.fillRect(0, 0, S, S);
-  const rows = 5;
-  const rh = S / rows;
-  for (let row = 0; row < rows; row++) {
-    let x = row % 2 ? -rh * 0.6 : 0;
-    const end = x + S;
-    while (x < end - 1) {
-      const w = Math.min(rh * (1.1 + r() * 0.9), end - x);
-      g.fillStyle = ['#e2b97f', '#d8ad72', '#e8c48d', '#d2a46b', '#ddb47a'][Math.floor(r() * 5)];
-      for (const dx of [-S, 0, S]) g.fillRect(x + dx + 3, row * rh + 3, w - 6, rh - 6);
-      // A highlight along each block's top edge, a shadow along the bottom: chunky, hand-cut stone.
-      g.globalAlpha = 0.35;
-      g.fillStyle = '#f7dcae';
-      for (const dx of [-S, 0, S]) g.fillRect(x + dx + 3, row * rh + 3, w - 6, 5);
-      g.fillStyle = '#a77a49';
-      for (const dx of [-S, 0, S]) g.fillRect(x + dx + 3, row * rh + rh - 9, w - 6, 6);
-      g.globalAlpha = 1;
-      x += w;
-    }
-  }
-  blobs(g, S, S, r, 70, ['#c99a62', '#f0d2a0', '#b7854f'], [10, 46], [0.1, 0.25]);
-  speckle(g, S, r, 700, ['#9c6f40', '#fff0d0'], 0.35, 2);
-  return toTexture(c, renderer);
+export function sandstoneTexture(): THREE.Texture {
+  const b = { joint: 0, id: 0 };
+  const light = hex(0xe0b57b);
+  const dark = hex(0xae8152);
+  const mortar = hex(0x9d7d5a);
+  return bake(
+    'sandstone',
+    (u, v, t) => {
+      courses(u, v, 5, 1.7, b);
+      const inMortar = smooth(0.05, 0.025, b.joint);
+      const bevel = smooth(0.025, 0.15, b.joint);
+      const bed = Math.sin((v * 5 * 6 + fbm(u, v, 4, 2, 311) * 2) * Math.PI * 2) * 0.5 + 0.5; // bedding lines in the stone
+      const n = fbm(u, v, 8, 5, 313) * 0.5 + 0.5;
+      paint(t, dark, light, n * 0.45 + b.id * 0.4 + bed * 0.15);
+      const erosion = smooth(0.6, 0.8, fbm(u, v, 12, 3, 317) * 0.5 + 0.5);
+      shade(t, 1 - erosion * 0.15);
+      tint(t, mortar, inMortar);
+      t.h = bevel * 0.7 + n * 0.2 - erosion * 0.2 + bed * 0.05;
+      t.rough = 0.88;
+      t.ao = 0.45 + bevel * 0.55;
+    },
+    { size: 1024, normal: 9 },
+  );
 }
 
-/** Ochre lime plaster washed thin over mud-brick: the brick courses show faintly through. House walls and low walls. */
-export function mudbrickTexture(renderer: R): THREE.CanvasTexture {
-  const S = 512;
-  const [c, g] = canvas(S);
-  const r = rng(317);
-  g.fillStyle = '#e8c89a';
-  g.fillRect(0, 0, S, S);
-  // Bricks first, then the plaster wash over them, so they only ghost through.
-  const bh = 32;
-  const bw = 64;
-  for (let row = 0; row < S / bh; row++)
-    for (let col = -1; col < S / bw + 1; col++) {
-      g.fillStyle = ['#d9ae7c', '#cf9f6c', '#e0b685'][Math.floor(r() * 3)];
-      g.fillRect(col * bw + (row % 2 ? bw / 2 : 0) + 3, row * bh + 3, bw - 6, bh - 6);
-    }
-  blobs(g, S, S, r, 80, ['#efd3a8', '#ebcb9c', '#f4dfba', '#e6c191'], [30, 90], [0.45, 0.75]);
-  speckle(g, S, r, 600, ['#c69a68', '#fff4dc'], 0.35, 2);
-  return toTexture(c, renderer);
+/** Ochre lime plaster over mud-brick: the courses ghost through, and where the plaster has flaked the bricks show. */
+export function mudbrickTexture(): THREE.Texture {
+  const b = { joint: 0, id: 0 };
+  const plaster = hex(0xddb27c);
+  const plasterLight = hex(0xecd0a2);
+  const brick = hex(0xc29368);
+  const brickDark = hex(0xa87b51);
+  return bake(
+    'mudbrick',
+    (u, v, t) => {
+      courses(u, v, 16, 2, b);
+      const n = fbm(u, v, 6, 5, 321) * 0.5 + 0.5;
+      const flake = smooth(0.7, 0.74, fbm(u, v, 3, 5, 323) * 0.5 + 0.5); // bare patches, here and there
+      const brushed = noise(u, v, 8, 325, 64) * 0.5 + 0.5; // brush strokes in the wash
+      paint(t, plaster, plasterLight, n * 0.6 + brushed * 0.4);
+      const ghost = smooth(0.06, 0.02, b.joint) * 0.12;
+      shade(t, 1 - ghost);
+      if (flake > 0) {
+        const joint = smooth(0.08, 0.03, b.joint);
+        const bc: RGB = [lerp(brickDark[0], brick[0], b.id), lerp(brickDark[1], brick[1], b.id), lerp(brickDark[2], brick[2], b.id)];
+        tint(t, bc, flake);
+        shade(t, 1 - joint * flake * 0.35);
+      }
+      t.h = (1 - flake) * 0.5 + n * 0.2 - flake * smooth(0.08, 0.03, b.joint) * 0.3;
+      t.rough = 0.9;
+      t.ao = 0.75 + (1 - flake) * 0.25;
+    },
+    { size: 1024, normal: 6 },
+  );
 }
 
-/** Packed-clay flat roofs, smoothed by hand: soft trowel swirls and a few hairline cracks. */
-export function roofTexture(renderer: R): THREE.CanvasTexture {
-  const S = 256;
-  const [c, g] = canvas(S);
-  const r = rng(331);
-  g.fillStyle = '#dca878';
-  g.fillRect(0, 0, S, S);
-  blobs(g, S, S, r, 50, ['#e6b688', '#d09a69', '#ecc297'], [12, 40], [0.25, 0.45]);
-  g.strokeStyle = '#b07a4c';
-  g.lineWidth = 1.5;
-  for (let i = 0; i < 10; i++) {
-    let x = r() * S;
-    let y = r() * S;
-    g.globalAlpha = 0.35;
-    g.beginPath();
-    g.moveTo(x, y);
-    for (let k = 0; k < 6; k++) {
-      x += (r() - 0.5) * 26;
-      y += (r() - 0.5) * 26;
-      g.lineTo(x, y);
-    }
-    g.stroke();
-  }
-  g.globalAlpha = 1;
-  speckle(g, S, r, 250, ['#a87348', '#fff0d8'], 0.4, 2);
-  return toTexture(c, renderer);
+/** Packed-clay flat roofs, smoothed by hand: trowel sweeps and hairline cracks. */
+export function roofTexture(): THREE.Texture {
+  const clay = hex(0xcf9b6b);
+  const light = hex(0xe3b98b);
+  const crackCol = hex(0x8d5f3b);
+  return bake(
+    'roof',
+    (u, v, t) => {
+      const n = fbm(u, v, 4, 5, 331) * 0.5 + 0.5;
+      const trowel = Math.sin((u * 3 + fbm(u, v, 3, 3, 333) * 1.5) * Math.PI * 2 * 4) * 0.5 + 0.5;
+      paint(t, clay, light, n * 0.7 + trowel * 0.3);
+      const crack = smooth(0.92, 0.985, ridged(u, v, 3, 3, 337));
+      tint(t, crackCol, crack * 0.8);
+      t.h = n * 0.4 + trowel * 0.15 - crack * 0.6;
+      t.rough = 0.85 - trowel * 0.1;
+      t.ao = 1 - crack * 0.5;
+    },
+    { size: 512, normal: 5 },
+  );
 }
 
-/** Turquoise glazed tile for the aqueduct surf: a tile grid with long pale glints along the ride (texture u). */
-export function tileTexture(renderer: R): THREE.CanvasTexture {
-  const S = 256;
-  const [c, g] = canvas(S);
-  const r = rng(337);
-  g.fillStyle = '#16707a';
-  g.fillRect(0, 0, S, S);
-  const n = 4;
-  const t = S / n;
-  for (let i = 0; i < n; i++)
-    for (let j = 0; j < n; j++) {
-      g.fillStyle = ['#2fb3b0', '#27a2a6', '#38c0b8', '#2a9eaa'][Math.floor(r() * 4)];
-      g.fillRect(i * t + 3, j * t + 3, t - 6, t - 6);
-      g.globalAlpha = 0.35;
-      g.fillStyle = '#9ff0e2';
-      g.fillRect(i * t + 6, j * t + 6, t - 12, 6);
-      g.globalAlpha = 1;
-    }
-  for (let i = 0; i < 18; i++) {
-    const y = r() * S;
-    const x = r() * S;
-    const len = 80 + r() * 140;
-    g.globalAlpha = 0.25 + r() * 0.35;
-    g.strokeStyle = r() < 0.8 ? '#e9fffb' : '#0f5e66';
-    g.lineWidth = 1 + r() * 2.5;
-    g.lineCap = 'round';
-    wrap(S, (dx, dy) => {
-      g.beginPath();
-      g.moveTo(x + dx, y + dy);
-      g.bezierCurveTo(x + dx + len * 0.3, y + dy - 2, x + dx + len * 0.7, y + dy + 2, x + dx + len, y + dy);
-      g.stroke();
-    });
-  }
-  g.globalAlpha = 1;
-  return toTexture(c, renderer);
+/** Turquoise glazed tile for the aqueduct surf: 4×4 tiles in grout, each glazed a little differently, glossy. */
+export function tileTexture(): THREE.Texture {
+  const glaze = hex(0x2aa8ab);
+  const glazeDeep = hex(0x13757f);
+  const grout = hex(0xd9cdb6);
+  return bake(
+    'duneTile',
+    (u, v, t) => {
+      const n = 4;
+      const fx = (u * n) % 1;
+      const fy = (v * n) % 1;
+      const id = ((Math.floor(u * n) * 5 + Math.floor(v * n) * 11) % 13) / 13;
+      const edge = Math.min(fx, 1 - fx, fy, 1 - fy);
+      const inGrout = smooth(0.04, 0.025, edge);
+      const pool = fbm(u, v, 4, 3, 341) * 0.5 + 0.5; // glaze pools darker toward each tile's middle
+      const crackle = smooth(0.93, 0.99, ridged(u, v, 12, 2, 343));
+      paint(t, glazeDeep, glaze, 0.45 + id * 0.35 + pool * 0.2 - smooth(0.1, 0.4, edge) * 0.2);
+      shade(t, 1 - crackle * 0.15);
+      tint(t, grout, inGrout);
+      const bevel = smooth(0.025, 0.08, edge);
+      t.h = bevel * 0.8 + pool * 0.05;
+      t.rough = lerp(0.06 + crackle * 0.1, 0.85, inGrout);
+      t.ao = 0.6 + bevel * 0.4;
+    },
+    { size: 512, normal: 5 },
+  );
 }
 
-/** Woven awning cloth: broad turquoise, cream and terracotta stripes with a fine weave. */
-export function awningTexture(renderer: R): THREE.CanvasTexture {
-  const S = 256;
-  const [c, g] = canvas(S);
-  const r = rng(347);
-  const bands = ['#2fa7a3', '#f6ead2', '#d9714a', '#f6ead2'];
-  const w = S / 8;
-  for (let i = 0; i < 8; i++) {
-    g.fillStyle = bands[i % bands.length];
-    g.fillRect(i * w, 0, w, S);
-  }
-  g.globalAlpha = 0.12;
-  g.fillStyle = '#5a3a24';
-  for (let y = 0; y < S; y += 4) g.fillRect(0, y, S, 1);
-  for (let x = 0; x < S; x += 4) g.fillRect(x, 0, 1, S);
-  g.globalAlpha = 1;
-  speckle(g, S, r, 200, ['#ffffff', '#7a4a2c'], 0.25, 2);
-  return toTexture(c, renderer);
+/** Woven awning cloth: broad turquoise, cream and terracotta stripes with a visible weave. */
+export function awningTexture(): THREE.Texture {
+  const bands = [hex(0x2fa7a3), hex(0xf2e6cc), hex(0xc8643f), hex(0xf2e6cc)];
+  return bake(
+    'awning',
+    (u, v, t) => {
+      const band = bands[Math.floor(u * 8) % bands.length];
+      const warp = Math.sin(u * 256 * Math.PI) * 0.5 + 0.5;
+      const weft = Math.sin(v * 256 * Math.PI) * 0.5 + 0.5;
+      const weave = (Math.floor(u * 128) + Math.floor(v * 128)) % 2 ? warp : weft;
+      const fade = fbm(u, v, 3, 3, 351) * 0.5 + 0.5; // sun-bleached unevenly
+      t.r = band[0];
+      t.g = band[1];
+      t.b = band[2];
+      tint(t, [0.95, 0.92, 0.85], fade * 0.18);
+      shade(t, 0.82 + weave * 0.18);
+      t.h = weave * 0.5;
+      t.rough = 0.92;
+      t.ao = 0.8 + weave * 0.2;
+    },
+    { size: 512, normal: 2 },
+  );
 }
 
-/** Palm bark: stacked crescent scales. Wraps horizontally round the trunk. */
-export function palmBarkTexture(renderer: R): THREE.CanvasTexture {
-  const S = 128;
-  const [c, g] = canvas(S);
-  const r = rng(353);
-  g.fillStyle = '#8a6343';
-  g.fillRect(0, 0, S, S);
-  const rows = 6;
-  const rh = S / rows;
-  for (let row = 0; row < rows; row++)
-    for (let col = 0; col < 4; col++) {
-      const x = col * (S / 4) + (row % 2 ? S / 8 : 0);
-      wrap(S, (dx, dy) => {
-        g.fillStyle = ['#a07650', '#946b47', '#b1865c'][Math.floor(r() * 3)];
-        g.beginPath();
-        g.ellipse(x + dx, row * rh + rh * 0.7 + dy, S / 8, rh * 0.55, 0, 0, Math.PI);
-        g.fill();
-      });
-    }
-  return toTexture(c, renderer);
+/** Palm bark: stacked crescent scales left by old fronds. Wraps horizontally round the trunk. */
+export function palmBarkTexture(): THREE.Texture {
+  const light = hex(0xa47a52);
+  const dark = hex(0x5a3f28);
+  const fibre = hex(0x7d6040);
+  return bake(
+    'palmBark',
+    (u, v, t) => {
+      const rows = 6;
+      const ry = v * rows;
+      const row = Math.floor(ry);
+      const fy = ry - row;
+      const fx = (u * 4 + (row % 2) * 0.5) % 1;
+      // Each scale is a crescent hanging from its row: thick in the middle, curling up at the sides.
+      const curve = (fx - 0.5) * (fx - 0.5) * 1.6;
+      const s = clamp01((fy - curve) / 0.85);
+      const lip = smooth(0.0, 0.15, s) * smooth(1.0, 0.7, s);
+      const hair = noise(u, v, 64, 353, 8) * 0.5 + 0.5;
+      paint(t, dark, light, s * 0.7 + hair * 0.3);
+      tint(t, fibre, smooth(0.15, 0.0, s) * 0.6);
+      t.h = s * 0.8 + hair * 0.1;
+      t.rough = 0.9;
+      t.ao = 0.4 + lip * 0.6;
+    },
+    { size: 256, normal: 8 },
+  );
 }

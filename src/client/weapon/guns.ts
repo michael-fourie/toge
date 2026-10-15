@@ -3,8 +3,9 @@ import { sfx } from '../sfx.ts';
 import { buildProceduralAwp } from './awp.ts';
 import { type GunAnim, type GunRig, type Kit, type Plan, builder, cyl, e, glow, hold, palette, pivot, pulse, rbox, seg, v } from './rig.ts';
 import type { GunStyle } from '../../shared/weapons.ts';
+import { pbr } from '../render/surface.ts';
 
-// Nine guns, each with its own hands-on animation. Models are built from a few boxes and cylinders in the toon palette,
+// Nine guns, each with its own hands-on animation. Models are built from a few boxes and cylinders in the solid palette,
 // and every moving part is a named pivot so the animation can just turn and slide them.
 
 const A = new THREE.Vector3();
@@ -23,8 +24,8 @@ const anchors = (grip: [number, number, number], fore: [number, number, number],
 function shellMesh() {
   const g = new THREE.Group();
   const add = builder(g);
-  add(cyl(0.01, 0.01, 0.045, 8), new THREE.MeshToonMaterial({ color: 0xc23b32 }), 0, 0, 0);
-  add(cyl(0.0105, 0.0105, 0.012, 8), new THREE.MeshToonMaterial({ color: 0xd9a84e }), 0, 0, 0.026);
+  add(cyl(0.01, 0.01, 0.045, 8), pbr({ color: 0xc23b32 }), 0, 0, 0);
+  add(cyl(0.0105, 0.0105, 0.012, 8), pbr({ color: 0xd9a84e }), 0, 0, 0.026);
   return g;
 }
 
@@ -354,7 +355,7 @@ function buildBramble(accent: number): GunRig {
   add(rbox(0.04, 0.085, 0.3, 0.014), m.wood, 0, -0.004, 0.27).rotation.x = 0.1; // stock
   add(rbox(0.044, 0.11, 0.016, 0.006), m.blue, 0, -0.02, 0.43);
   add(new THREE.TorusGeometry(0.022, 0.003, 6, 14, Math.PI).rotateY(Math.PI / 2).rotateX(Math.PI), m.blue, 0, -0.026, 0.02);
-  add(rbox(0.03, 0.006, 0.05, 0.002), new THREE.MeshToonMaterial({ color: 0x15171a }), 0, -0.02, -0.07); // the loading port
+  add(rbox(0.03, 0.006, 0.05, 0.002), pbr({ color: 0x15171a }), 0, -0.02, -0.07); // the loading port
   const mag = pivot(root, 0, 0, 0); // unused rounds are inside the tube; kept for symmetry with the others
   const shell = shellMesh();
   shell.visible = false;
@@ -440,7 +441,7 @@ function buildKestrel(accent: number): GunRig {
   const hammer = pivot(root, 0, 0.044, 0.07);
   add(rbox(0.008, 0.02, 0.012, 0.003), m.blue, 0, 0.007, 0.004, hammer);
   const gate = add(rbox(0.004, 0.018, 0.03, 0.001), m.brass, 0.0185, 0.012, -0.0);
-  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.04, 8).rotateX(Math.PI / 2), new THREE.MeshToonMaterial({ color: 0xd9a84e }));
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.04, 8).rotateX(Math.PI / 2), pbr({ color: 0xd9a84e }));
   shell.visible = false;
   root.add(shell);
   return rig(root, { lever, hammer, gate, shell, mag: gate }, anchors([0.018, -0.05, 0.08], [0, -0.03, -0.27], [0.03, 0.012, -0.0], [0, 0.03, -0.68], [0.022, 0.034, -0.04]));

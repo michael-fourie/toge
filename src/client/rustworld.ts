@@ -2,22 +2,23 @@ import * as THREE from 'three';
 import type { Box } from '../shared/collision.ts';
 import type { MapData } from '../shared/map.ts';
 import { concreteTexture, conveyorTexture, crateTexture, hazardTexture, plankTexture, steelTexture, brickTexture } from './foundrytextures.ts';
-import { padTexture, rng, softDot, surfTexture, toonRamp } from './textures.ts';
-import { type World, boxGeometry, hookRing, makeSky, puffball, rampGeometry, windGate, windSpirit } from './world.ts';
+import { padTexture, rng, softDot, surfTexture } from './textures.ts';
+import { type World, boxGeometry, hookRing, puffball, rampGeometry, windGate, windSpirit } from './world.ts';
+import { pbr, type SurfaceParams } from './render/surface.ts';
+import { daySky } from './render/sky.ts';
 
-// Rustworks by afternoon: a hazy, rust-orange sky over a roofless brick hall. Same toon look as Windward,
+// Rustworks by afternoon: a hazy, rust-orange sky over a roofless brick hall. Same PBR lighting as Windward,
 // with the Foundry's grimy textures. Gameplay surfaces stay distinct: pale concrete floors, striped ramps,
 // blue glazed surf ducts, mint-glowing pads and gates.
 
-const SKY = { zenith: 0x5d84ad, sky: 0xb9a58f, horizon: 0xf2cf9c, below: 0xb59c82, deep: 0x84705c };
 const SUN_DIR = new THREE.Vector3(-45, 38, 55).normalize();
 
-export function buildRustworks(map: MapData, renderer: THREE.WebGLRenderer): World {
+export function buildRustworks(map: MapData): World {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xd9b996, 90, 420);
-  scene.add(makeSky(SKY, SUN_DIR));
-  scene.add(new THREE.HemisphereLight(0xe9d7bd, 0x6f5a48, 1.55));
-  const sun = new THREE.DirectionalLight(0xffcf98, 2.5);
+  scene.add(daySky(SUN_DIR, { turbidity: 7, rayleigh: 2.2, clouds: 0.3 })); // smoky industrial haze
+  scene.add(new THREE.HemisphereLight(0xe9d7bd, 0x6f5a48, 0.15));
+  const sun = new THREE.DirectionalLight(0xffcf98, 3.4);
   sun.position.copy(SUN_DIR).multiplyScalar(120);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -30,20 +31,18 @@ export function buildRustworks(map: MapData, renderer: THREE.WebGLRenderer): Wor
   sun.shadow.normalBias = 0.05;
   scene.add(sun, sun.target);
 
-  const ramp = toonRamp();
-  const toon = (p: THREE.MeshToonMaterialParameters) => new THREE.MeshToonMaterial({ gradientMap: ramp, ...p });
-  // The Foundry's textures are drawn for night; a warm emissive lift brings them up to afternoon.
-  const lit = (map: THREE.Texture, glow: number): THREE.MeshToonMaterialParameters => ({ map, emissive: new THREE.Color(glow) });
-  const concrete = toon(lit(concreteTexture(renderer), 0x6e675c));
-  const brick = toon(lit(brickTexture(renderer), 0x3a2a22));
-  const steel = toon(lit(steelTexture(renderer), 0x40372e));
-  const belt = toon(lit(conveyorTexture(renderer), 0x40372e));
-  const crate = toon(lit(crateTexture(renderer), 0x3e3020));
-  const plank = toon(lit(plankTexture(renderer), 0x3e3020));
-  const stripes = toon(lit(hazardTexture(renderer), 0x4a4228));
-  const surf = toon({ map: surfTexture(renderer), emissive: new THREE.Color(0x2c5a78), emissiveIntensity: 0.3 });
-  const padMat = toon({ map: padTexture(renderer), emissive: new THREE.Color(0x58e0b8), emissiveIntensity: 0.5 });
-  const rustDark = toon({ color: 0x6b4a38 });
+  // The Foundry's textures are painted for night, so they're lifted a little for an afternoon sun.
+  const day = (map: THREE.Texture, extra: SurfaceParams = {}) => pbr({ map, color: new THREE.Color(1.3, 1.25, 1.2), ...extra });
+  const concrete = day(concreteTexture());
+  const brick = day(brickTexture());
+  const steel = day(steelTexture(), { metalness: 0.75, roughness: 0.55 });
+  const belt = day(conveyorTexture(), { roughness: 0.7 });
+  const crate = day(crateTexture());
+  const plank = day(plankTexture());
+  const stripes = day(hazardTexture(), { roughness: 0.6 });
+  const surf = pbr({ map: surfTexture() });
+  const padMat = pbr({ map: padTexture(), emissive: new THREE.Color(0x58e0b8), emissiveIntensity: 0.5 });
+  const rustDark = pbr({ color: 0x6b4a38 });
 
   const pads: THREE.Object3D[] = [];
   const hooks: ReturnType<typeof hookRing>[] = [];
@@ -126,7 +125,7 @@ function smokestacks(map: MapData, brick: THREE.Material, r: () => number) {
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(d.radius * 0.7, d.radius, h, 18), brick);
     shaft.position.set(d.pos.x, d.pos.y + h / 2, d.pos.z);
     shaft.castShadow = true;
-    const rim = new THREE.Mesh(new THREE.CylinderGeometry(d.radius * 0.85, d.radius * 0.7, 1.6, 18), new THREE.MeshToonMaterial({ color: 0x3a2e28 }));
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(d.radius * 0.85, d.radius * 0.7, 1.6, 18), pbr({ color: 0x3a2e28 }));
     rim.position.set(d.pos.x, d.pos.y + h, d.pos.z);
     group.add(shaft, rim);
     for (let i = 0; i < 7; i++) {
@@ -152,7 +151,7 @@ function smokestacks(map: MapData, brick: THREE.Material, r: () => number) {
 /** A hazy skyline of far-off sheds and cooling towers so the horizon isn't empty. */
 function skyline(brick: THREE.Material, r: () => number) {
   const g = new THREE.Group();
-  const dark = new THREE.MeshToonMaterial({ color: 0x9c8b78, fog: true });
+  const dark = pbr({ color: 0x9c8b78, fog: true });
   for (let i = 0; i < 40; i++) {
     const a = (i / 40) * Math.PI * 2 + r() * 0.1;
     const dist = 230 + r() * 140;
@@ -169,7 +168,7 @@ function skyline(brick: THREE.Material, r: () => number) {
 /** Scattered rubble and rusty barrels on the open floor; purely visual, kept away from where the boxes are. */
 function rubble(boxes: readonly Box[], r: () => number) {
   const g = new THREE.Group();
-  const bits = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.28, 0), new THREE.MeshToonMaterial({ color: 0x8a7a6a }), 160);
+  const bits = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.28, 0), pbr({ color: 0x8a7a6a }), 160);
   const m = new THREE.Matrix4();
   let n = 0;
   while (n < 160) {
