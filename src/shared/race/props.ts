@@ -63,7 +63,8 @@ export function placeProps(t: Track): { props: Prop[]; ramps: Ramp[] } {
     s0 < t.startS + 160 ||
     s1 > t.finishS - 160 ||
     t.crests.some((c) => s1 > c.s - c.len - 40 && s0 < c.s + c.len + 60) ||
-    t.spans.some((sp) => sp.kind !== 'gravel' && s1 > sp.s0 - 30 && s0 < sp.s1 + 30);
+    t.spans.some((sp) => sp.kind !== 'gravel' && s1 > sp.s0 - 30 && s0 < sp.s1 + 30) ||
+    t.cuts.some((c) => [c.s0, c.s1].some((e) => s1 > e - 40 && s0 < e + 40));
   const lane = t.half - 1.3;
   let s = t.startS + 200;
   let k = 0;

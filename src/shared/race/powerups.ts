@@ -1,7 +1,7 @@
 // Mystery box items. Drive through a box with your hands free and you get one, picked with kart-racer
 // odds: the further back you are, the better your chances of something that helps you catch up.
 
-export type Item = 'turbo' | 'triple' | 'oil' | 'shield' | 'shock';
+export type Item = 'turbo' | 'triple' | 'oil' | 'shield' | 'shock' | 'comet';
 
 export const ITEMS: Record<Item, { name: string; icon: string; uses: number }> = {
   turbo: { name: 'Turbo', icon: '🔥', uses: 1 },
@@ -9,6 +9,7 @@ export const ITEMS: Record<Item, { name: string; icon: string; uses: number }> =
   oil: { name: 'Oil Slick', icon: '🛢', uses: 1 },
   shield: { name: 'Shield', icon: '🛡', uses: 1 },
   shock: { name: 'Shockwave', icon: '⚡', uses: 1 },
+  comet: { name: 'Comet', icon: '☄️', uses: 1 },
 };
 
 export const POWER = {
@@ -17,7 +18,11 @@ export const POWER = {
   shieldSeconds: 6,
   oilSpin: 1.1,
   shockSpin: 0.9,
-  oilRadius: 1.9,
+  /** The comet flies down the road to the leader at this speed (m/s) and blows them into the air. */
+  cometSpeed: 90,
+  cometSpin: 2.2,
+  cometLift: 9,
+  oilRadius: 2.2,
   oilSeconds: 40,
   /** A box comes back this long after it's taken (s). */
   boxRespawn: 4,
@@ -37,6 +42,7 @@ export function rollItem(place: number, field: number, rnd: () => number): Item 
     ['oil', 3 - 2 * p],
     ['shield', 2 - p],
     ['shock', 0.1 + 1.4 * p * p],
+    ['comet', 0.05 + 1.2 * p * p],
   ];
   let r = rnd() * weights.reduce((a, [, w]) => a + w, 0);
   for (const [item, w] of weights) {

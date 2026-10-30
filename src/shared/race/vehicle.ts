@@ -12,7 +12,7 @@
 // Frame: body x = right, y = up, -z = forward (three.js). Wheels are 0 FL, 1 FR, 2 RL, 3 RR.
 
 import { type CarSpec, torqueAt } from './cars.ts';
-import { type Ground, type Loc, type Surface, type Track, groundAt, heightAt, locate, newGround, newLoc, pointAt } from './track.ts';
+import { type Ground, type Loc, type Surface, type Track, groundAt, heightAt, locate, newGround, newLoc, onCut, pointAt } from './track.ts';
 import { firstPropFrom, isSolid } from './props.ts';
 
 export const TICK_HZ = 120;
@@ -330,6 +330,7 @@ export function stepCar(car: Car, input: DriveInput, t: Track, assists: Assists 
   if (t.props.length) props(car, t);
   if (car.spin > 0) {
     car.spin = Math.max(0, car.spin - TICK_DT);
+    if (car.spin === 0) car.gear = 1; // come out of it ready to drive on
     car.w.y = car.spinDir * 7;
     car.v.x *= 1 - TICK_DT * 1.2;
     car.v.z *= 1 - TICK_DT * 1.2;
@@ -430,15 +431,14 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
     let want: number;
     if (drifting) want = -car.drift * max * (1.05 + 0.45 * steer * car.drift);
     else want = -steer * max * (speed < 0.5 ? 0 : Math.min(1, speed / 3));
-    if (vf < -0.5) want = -want;
     car.w.y += (want - car.w.y) * Math.min(1, dt * ARCADE.yawResponse * (grounded ? 1 : 0.4));
   }
   if (grounded) {
 
-    // Swing the travel direction round to the nose, keeping the speed.
-    if (speed > 0.5) {
-      const dir = vf >= 0 ? 1 : -1;
-      const beta = Math.atan2(v.x * -fz * dir + v.z * fx * dir, v.x * fx * dir + v.z * fz * dir); // velocity relative to the nose
+    // Swing the travel direction round to the nose, keeping the speed. Only going forwards: sliding
+    // backwards (after a spin) the car is left free to come round, not locked into reversing.
+    if (speed > 0.5 && vf > 0) {
+      const beta = Math.atan2(-v.x * fz + v.z * fx, v.x * fx + v.z * fz); // velocity relative to the nose
       const rate = (drifting ? ARCADE.driftAlign : ARCADE.align) * (0.5 + 0.5 * surf);
       const turn = -beta * (1 - Math.exp(-dt * rate));
       const c = Math.cos(turn);
@@ -874,6 +874,8 @@ function barrier(car: Car, t: Track) {
     let pen = Math.abs(d) - t.rail;
     let cnx = -Math.sign(d) * rx;
     let cnz = -Math.sign(d) * rz;
+    // A shortcut's turn-off: the rail has a gap here.
+    if (pen > 0 && t.cuts.length && onCut(t, car.p.x + tmp.x, car.p.z + tmp.z, 2.5)) pen = 0;
     const back = 3 - along;
     const ahead = along - (t.length - 3);
     if (back > pen) {

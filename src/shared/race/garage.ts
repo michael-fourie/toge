@@ -46,19 +46,14 @@ export const current = (g: Garage): OwnedCar => g.cars[g.sel] ?? g.cars[0];
 export type CrateKind = 'mystery' | 'tuner';
 
 export const CRATES: Record<CrateKind, { name: string; blurb: string }> = {
-  mystery: { name: 'Mystery Crate', blurb: 'Any part. 46% +1 level, 12% +2, 4% jackpot (+1 to everything), 25% scrap refund, 13% nothing.' },
-  tuner: { name: 'Tuner Crate', blurb: 'The part you pick. 62% +1 level, 8% +2, 30% nothing. Pricier the higher it goes.' },
+  mystery: { name: 'Mystery Crate', blurb: 'Always an upgrade, on a random part: 80% +1 level, 15% +2, 5% jackpot (+1 to everything).' },
+  tuner: { name: 'Tuner Crate', blurb: 'Always an upgrade, on the part you pick: 85% +1 level, 15% +2. Pricier the higher it goes.' },
 };
 
 export const MYSTERY_COST = 1500;
-export const SCRAP_REFUND = 600;
 export const tunerCost = (level: number) => 700 * (level + 1);
 
-export type CrateResult =
-  | { kind: 'up'; part: Part; levels: number }
-  | { kind: 'jackpot'; parts: Part[] }
-  | { kind: 'scrap'; refund: number }
-  | { kind: 'bust' };
+export type CrateResult = { kind: 'up'; part: Part; levels: number } | { kind: 'jackpot'; parts: Part[] };
 
 const open = (c: OwnedCar) => PARTS.filter((p) => c.up[p] < MAX_LEVEL);
 
@@ -85,21 +80,14 @@ function openCrate(g: Garage, kind: CrateKind, part: Part | undefined, rnd: () =
     return c.up[p] - before;
   };
   let result: CrateResult;
-  if (kind === 'tuner') {
-    if (r < 0.08) result = { kind: 'up', part: part!, levels: bump(part!, 2) };
-    else if (r < 0.7) result = { kind: 'up', part: part!, levels: bump(part!, 1) };
-    else result = { kind: 'bust' };
-  } else {
+  // Every crate upgrades something; the gamble is how much, and (mystery) on what.
+  if (kind === 'tuner') result = { kind: 'up', part: part!, levels: bump(part!, r < 0.15 ? 2 : 1) };
+  else {
     const pick = room[Math.floor(rnd() * room.length) % room.length];
-    if (r < 0.04) {
+    if (r < 0.05) {
       for (const p of room) bump(p, 1);
       result = { kind: 'jackpot', parts: room };
-    } else if (r < 0.16) result = { kind: 'up', part: pick, levels: bump(pick, 2) };
-    else if (r < 0.62) result = { kind: 'up', part: pick, levels: bump(pick, 1) };
-    else if (r < 0.87) {
-      next.money += SCRAP_REFUND;
-      result = { kind: 'scrap', refund: SCRAP_REFUND };
-    } else result = { kind: 'bust' };
+    } else result = { kind: 'up', part: pick, levels: bump(pick, r < 0.2 ? 2 : 1) };
   }
   return { g: next, result };
 }

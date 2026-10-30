@@ -28,7 +28,7 @@ test('cleanGarage turns junk into a valid garage and clamps forged values', () =
   assert.equal(forged.sel, 0);
 });
 
-test('tuner crate: pay by level; a win raises the chosen part, a bust only costs money', () => {
+test('tuner crate: pay by level; it always raises the chosen part', () => {
   const g = { ...newGarage(), money: 10_000 };
   const win = applyAction(g, { a: 'crate', kind: 'tuner', part: 'engine' }, dice(0.5), 0);
   assert.ok(win.ok);
@@ -36,12 +36,14 @@ test('tuner crate: pay by level; a win raises the chosen part, a bust only costs
   assert.equal(win.g.money, 10_000 - tunerCost(0));
   assert.equal(current(win.g).up.engine, 1);
   assert.deepEqual(win.crate, { kind: 'up', part: 'engine', levels: 1 });
-  const bust = applyAction(win.g, { a: 'crate', kind: 'tuner', part: 'engine' }, dice(0.9), 0);
-  assert.ok(bust.ok && bust.crate?.kind === 'bust' && current(bust.g).up.engine === 1 && bust.g.money === win.g.money - tunerCost(1));
+  const again = applyAction(win.g, { a: 'crate', kind: 'tuner', part: 'engine' }, dice(0.99), 0);
+  assert.ok(again.ok && again.crate?.kind === 'up' && current(again.g).up.engine === 2 && again.g.money === win.g.money - tunerCost(1));
+  const lucky = applyAction(win.g, { a: 'crate', kind: 'tuner', part: 'engine' }, dice(0.1), 0);
+  assert.ok(lucky.ok && current(lucky.g).up.engine === 3, 'sometimes +2');
   assert.equal(g.money, 10_000, 'the input garage is never mutated');
 });
 
-test('mystery crate outcomes: jackpot, double, single, scrap, bust', () => {
+test('mystery crate outcomes: jackpot, double, single; never nothing', () => {
   const g = { ...newGarage(), money: 100_000 };
   const r = (roll: number) => applyAction(g, { a: 'crate', kind: 'mystery' }, dice(roll, 0), 0);
   const jackpot = r(0.01);
@@ -49,12 +51,10 @@ test('mystery crate outcomes: jackpot, double, single, scrap, bust', () => {
   if (jackpot.ok) for (const p of PARTS) assert.equal(current(jackpot.g).up[p], 1);
   const two = r(0.1);
   assert.ok(two.ok && two.crate?.kind === 'up' && two.crate.levels === 2);
-  const one = r(0.5);
-  assert.ok(one.ok && one.crate?.kind === 'up' && one.crate.levels === 1);
-  const scrap = r(0.8);
-  assert.ok(scrap.ok && scrap.crate?.kind === 'scrap' && scrap.g.money === g.money - MYSTERY_COST + scrap.crate.refund);
-  const bust = r(0.95);
-  assert.ok(bust.ok && bust.crate?.kind === 'bust');
+  for (const roll of [0.5, 0.8, 0.999]) {
+    const one = r(roll);
+    assert.ok(one.ok && one.crate?.kind === 'up' && one.crate.levels === 1 && one.g.money === g.money - MYSTERY_COST);
+  }
 });
 
 test('crates refuse when broke or maxed', () => {

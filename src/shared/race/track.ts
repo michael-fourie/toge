@@ -17,7 +17,26 @@ export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass';
  * ground drops), a tunnel (a gallery through a raised hillside). A crest is a jump at point `at`: the road
  * rises `size` metres over `len` and falls away again, so a fast car flies.
  */
-export type Feature = { kind: 'gravel' | 'canyon' | 'bridge' | 'tunnel'; from: number; to: number; size?: number } | { kind: 'crest'; at: number; size: number; len: number };
+export type Feature =
+  | { kind: 'gravel' | 'canyon' | 'bridge' | 'tunnel'; from: number; to: number; size?: number }
+  | { kind: 'crest'; at: number; size: number; len: number }
+  /** A shortcut: a gravel track from distance `s0` along the road to `s1`, through gaps in the barrier. */
+  | { kind: 'cut'; s0: number; s1: number };
+
+/** A shortcut's path, sampled every SAMPLE metres. */
+export interface Cut {
+  s0: number;
+  s1: number;
+  x: Float64Array;
+  y: Float64Array;
+  z: Float64Array;
+  /** Bounding box [x0, x1, z0, z1], padded by the blend. */
+  box: [number, number, number, number];
+}
+
+/** Half-width of a shortcut track, and how far its ground blends into the hills. */
+export const CUT_HALF = 3.5;
+const CUT_BLEND = 14;
 
 /** A feature resolved to distances along the road. */
 export interface Span {
@@ -90,6 +109,7 @@ export interface Track {
   crests: { s: number; len: number }[];
   /** 1 where the road is gravel. */
   gravel: Uint8Array;
+  cuts: Cut[];
   /** Mystery boxes and obstacles (sorted by s), and launch ramps (part of the ground). */
   props: Prop[];
   ramps: Ramp[];
@@ -109,13 +129,17 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
     seed: 7,
     width: 10,
     relief: 330,
+    features: [
+      { kind: 'cut', s0: 1840, s1: 2230 },
+      { kind: 'cut', s0: 3240, s1: 3990 },
+    ],
     points: [
       [0, 430, 0], [0, 424, -180], [60, 414, -330], [200, 400, -420], [380, 386, -440],
       [520, 374, -470], [565, 368, -530], [500, 362, -582], [330, 348, -572], [180, 334, -590],
       [108, 328, -642], [170, 322, -692], [350, 306, -702], [520, 292, -722], [582, 286, -782],
       [520, 280, -842], [300, 262, -852], [100, 246, -882], [-60, 232, -962], [-120, 218, -1100],
       [-60, 204, -1250], [-160, 188, -1380], [-300, 176, -1420], [-420, 164, -1520], [-400, 150, -1680],
-      [-300, 134, -1820], [-140, 120, -1900], [40, 106, -1960], [240, 94, -2000], [420, 84, -2100],
+      [-300, 134, -1820], [-140, 120, -1900], [40, 106, -1960], [120, 102, -1972], [150, 99, -2012], [240, 94, -2004], [420, 84, -2100],
       [480, 76, -2260], [420, 68, -2400], [300, 62, -2480], [300, 58, -2620], [300, 56, -2720],
     ],
   },
@@ -130,8 +154,9 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
     relief: 140,
     tilt: [-0.55, 0],
     water: 0,
+    features: [{ kind: 'cut', s0: 2580, s1: 2870 }],
     points: [
-      [0, 240, 0], [20, 236, -200], [-30, 228, -400], [40, 218, -600], [120, 206, -760],
+      [0, 240, 0], [20, 236, -200], [5, 233, -280], [-40, 231, -298], [-30, 228, -400], [40, 218, -600], [120, 206, -760],
       [100, 194, -950], [20, 182, -1100], [60, 170, -1280], [170, 156, -1400], [210, 146, -1540],
       [300, 136, -1640], [380, 128, -1700], [405, 124, -1758], [330, 118, -1792], [180, 104, -1802],
       [118, 98, -1852], [180, 92, -1902], [340, 78, -1912], [402, 72, -1962], [340, 66, -2012],
@@ -151,7 +176,7 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [0, 320, 0], [10, 316, -200], [-60, 308, -380], [-40, 298, -560], [60, 288, -720], [200, 276, -820],
       [380, 262, -860], [540, 250, -940], [600, 240, -1100], [560, 228, -1280], [440, 214, -1400], [300, 200, -1460],
       [160, 188, -1560], [120, 176, -1740], [180, 162, -1920], [320, 150, -2020], [480, 136, -2080], [620, 120, -2200],
-      [660, 106, -2380], [600, 92, -2560], [480, 80, -2660], [340, 70, -2700], [200, 64, -2780], [120, 60, -2940],
+      [660, 106, -2380], [600, 92, -2560], [480, 80, -2660], [340, 70, -2700], [280, 68, -2705], [250, 67, -2748], [200, 64, -2780], [120, 60, -2940],
     ],
     features: [
       { kind: 'crest', at: 2, size: 2.2, len: 46 },
@@ -159,8 +184,10 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       { kind: 'crest', at: 8, size: 2.6, len: 50 },
       { kind: 'canyon', from: 12, to: 15, size: 30 },
       { kind: 'crest', at: 16, size: 2.4, len: 46 },
-      { kind: 'gravel', from: 17, to: 22 },
+      { kind: 'gravel', from: 17, to: 24 },
       { kind: 'crest', at: 20, size: 2.8, len: 52 },
+      { kind: 'crest', at: 4, size: 1.8, len: 40 },
+      { kind: 'crest', at: 11, size: 2.2, len: 44 },
     ],
   },
   tsukiyo: {
@@ -180,12 +207,14 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [-780, 356, -250], [-775, 344, -420], [-825, 338, -480], [-870, 332, -420],
       [-875, 318, -250], [-900, 306, -100], [-980, 294, -20], [-1100, 282, -40], [-1200, 268, -120],
       [-1260, 256, -260], [-1240, 242, -420], [-1180, 228, -560], [-1220, 214, -720], [-1320, 200, -800],
-      [-1440, 186, -820], [-1560, 172, -860], [-1640, 158, -980], [-1640, 146, -1140], [-1580, 134, -1280],
+      [-1440, 186, -820], [-1560, 172, -860], [-1640, 158, -980], [-1640, 146, -1140], [-1630, 142, -1200], [-1592, 139, -1214], [-1580, 134, -1280],
       [-1500, 126, -1380], [-1480, 122, -1500],
     ],
     features: [
       { kind: 'bridge', from: 25, to: 27, size: 45 },
       { kind: 'tunnel', from: 31, to: 33, size: 18 },
+      { kind: 'cut', s0: 240, s1: 1030 },
+      { kind: 'cut', s0: 1500, s1: 1790 },
     ],
   },
   momiji: {
@@ -202,7 +231,7 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [0, 300, 0], [30, 294, -170], [130, 286, -300], [280, 278, -340], [420, 268, -300], [540, 258, -360],
       [600, 248, -500], [560, 238, -660], [440, 228, -740], [300, 218, -760], [180, 208, -840], [140, 196, -1000],
       [200, 184, -1150], [330, 172, -1220], [470, 160, -1220], [600, 148, -1300], [640, 136, -1460], [580, 124, -1600],
-      [460, 114, -1660], [320, 104, -1700], [220, 96, -1800], [200, 90, -1960],
+      [530, 120, -1612], [515, 118, -1650], [460, 114, -1666], [320, 104, -1700], [220, 96, -1800], [200, 90, -1960],
     ],
     features: [
       { kind: 'crest', at: 3, size: 1.6, len: 44 },
@@ -211,6 +240,7 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       { kind: 'tunnel', from: 11, to: 12, size: 16 },
       { kind: 'crest', at: 14, size: 1.6, len: 40 },
       { kind: 'bridge', from: 16, to: 17, size: 50 },
+      { kind: 'cut', s0: 620, s1: 1410 },
     ],
   },
 };
@@ -403,7 +433,8 @@ export function buildTrack(def: TrackDef): Track {
         const u = (i * SAMPLE - at) / (f.len / 2);
         if (Math.abs(u) < 1) y[i] += (f.size * (1 + Math.cos(Math.PI * u))) / 2;
       }
-    } else {
+    } else if (f.kind === 'cut') continue;
+    else {
       const a = nearestS(pts[f.from]);
       const b = nearestS(pts[f.to]);
       const s0 = Math.min(a, b);
@@ -534,7 +565,9 @@ export function buildTrack(def: TrackDef): Track {
     gravel,
     props: [],
     ramps: [],
+    cuts: [],
   };
+  for (const f of def.features ?? []) if (f.kind === 'cut') t.cuts.push(makeCut(t, f.s0, f.s1));
   const placed = placeProps(t);
   t.props = placed.props;
   t.ramps = placed.ramps;
@@ -725,7 +758,24 @@ const SOFTMIN = 3;
  * road location when the point is on the road plane.
  */
 export function heightAt(t: Track, x: number, z: number, onRoad?: Loc): number {
+  roadHit = false;
+  const h = roadHeight(t, x, z, onRoad);
+  if (roadHit || !t.cuts.length) return h;
+  // A shortcut's track takes over near it, easing back into the hills.
+  const c = nearCut(t, x, z);
+  if (!c) return h;
+  // Fade in past the road's edge, so the turn-off is seamless.
+  const w = (1 - smoothstep(CUT_HALF + 1, CUT_HALF + 1 + CUT_BLEND, c.d)) * smoothstep(t.edge, t.edge + 8, roadDist);
+  return h + (c.h - h) * w;
+}
+
+let roadHit = false;
+/** Distance to the nearest road sample in the last roadHeight call (Infinity when none is near). */
+let roadDist = Infinity;
+
+function roadHeight(t: Track, x: number, z: number, onRoad?: Loc): number {
   const list = t.grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+  roadDist = Infinity;
   if (!list) return terrainAt(t, x, z);
   const L = list.length;
   if (d2s.length < L) d2s = new Float64Array(L * 2);
@@ -741,10 +791,12 @@ export function heightAt(t: Track, x: number, z: number, onRoad?: Loc): number {
     }
   }
   const dmin = Math.sqrt(dmin2);
+  roadDist = dmin;
   if (dmin <= t.edge + SAMPLE) {
     // Legs are always far apart, so a point this close to a road belongs to that one stretch.
     const dist = Math.sqrt(project(t, imin, x, z, pieceLoc));
     if (dist <= t.edge) {
+      roadHit = true;
       if (onRoad) Object.assign(onRoad, pieceLoc);
       return roadY(t, pieceLoc) + (t.ramps.length ? rampLift(t.ramps, pieceLoc.s, pieceLoc.d) : 0);
     }
@@ -830,8 +882,59 @@ export function groundAt(t: Track, x: number, z: number, out: Ground): Ground {
   out.nx = nx / l;
   out.ny = 1 / l;
   out.nz = nz / l;
-  out.surf = onRamp ? 'asphalt' : 'grass';
+  out.surf = onRamp ? 'asphalt' : onCut(t, x, z) ? 'gravel' : 'grass';
   return out;
+}
+
+/** A shortcut from `s0` to `s1`: a gently curving chord, its height running straight between the ends. */
+function makeCut(t: Track, s0: number, s1: number): Cut {
+  const a = pointAt(t, s0, 0);
+  const b = pointAt(t, s1, 0);
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  const n = Math.max(2, Math.ceil(len / SAMPLE) + 1);
+  const x = new Float64Array(n);
+  const y = new Float64Array(n);
+  const z = new Float64Array(n);
+  // Leave along the road's direction, so the way in reads as a turn-off rather than a wall.
+  const k = len * 0.25;
+  for (let i = 0; i < n; i++) {
+    const u = i / (n - 1);
+    const p0x = a.x + a.tx * k;
+    const p0z = a.z + a.tz * k;
+    const p1x = b.x - b.tx * k;
+    const p1z = b.z - b.tz * k;
+    const m = 1 - u;
+    x[i] = m * m * m * a.x + 3 * m * m * u * p0x + 3 * m * u * u * p1x + u * u * u * b.x;
+    z[i] = m * m * m * a.z + 3 * m * m * u * p0z + 3 * m * u * u * p1z + u * u * u * b.z;
+    y[i] = a.y + (b.y - a.y) * (u * u * (3 - 2 * u));
+  }
+  const pad = CUT_HALF + CUT_BLEND + 2;
+  const box: [number, number, number, number] = [Math.min(...x) - pad, Math.max(...x) + pad, Math.min(...z) - pad, Math.max(...z) + pad];
+  return { s0, s1, x, y, z, box };
+}
+
+/** Nearest point of any shortcut's track (its height and distance), or null if none is near. */
+function nearCut(t: Track, x: number, z: number): { h: number; d: number } | null {
+  let best: { h: number; d: number } | null = null;
+  for (const c of t.cuts) {
+    if (x < c.box[0] || x > c.box[1] || z < c.box[2] || z > c.box[3]) continue;
+    for (let i = 0; i < c.x.length - 1; i++) {
+      const sx = c.x[i + 1] - c.x[i];
+      const sz = c.z[i + 1] - c.z[i];
+      const l2 = sx * sx + sz * sz || 1;
+      const f = Math.max(0, Math.min(1, ((x - c.x[i]) * sx + (z - c.z[i]) * sz) / l2));
+      const d = Math.hypot(x - c.x[i] - sx * f, z - c.z[i] - sz * f);
+      if (!best || d < best.d) best = { d, h: c.y[i] + (c.y[i + 1] - c.y[i]) * f };
+    }
+  }
+  return best;
+}
+
+/** On (or right beside) a shortcut's track: the barrier lets you through here. */
+export function onCut(t: Track, x: number, z: number, margin = 1): boolean {
+  if (!t.cuts.length) return false;
+  const c = nearCut(t, x, z);
+  return !!c && c.d <= CUT_HALF + margin;
 }
 
 /** Where grid slot `k` sits: two columns, staggered back from the start line. */

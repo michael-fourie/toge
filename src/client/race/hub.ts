@@ -377,14 +377,14 @@ export const driveHub: Render = (root, ctx, screen) => {
   };
 
   const label = (res: CrateResult) =>
-    res.kind === 'up' ? { icon: PART_INFO[res.part].icon, text: `${PART_INFO[res.part].name} +${res.levels}`, tone: res.levels > 1 ? 'gold' : 'blue' } : res.kind === 'jackpot' ? { icon: '★', text: 'JACKPOT: +1 everything', tone: 'gold' } : res.kind === 'scrap' ? { icon: '♻', text: `Scrap: ${money(res.refund)} back`, tone: 'grey' } : { icon: '✕', text: 'Nothing', tone: 'red' };
+    res.kind === 'up' ? { icon: PART_INFO[res.part].icon, text: `${PART_INFO[res.part].name} +${res.levels}`, tone: res.levels > 1 ? 'gold' : 'blue' } : { icon: '★', text: 'JACKPOT: +1 everything', tone: 'gold' };
 
   const showReel = (res: CrateResult) => {
     const modal = $(root, '[data-modal]');
     const filler: CrateResult[] = [];
     for (let i = 0; i < 46; i++) {
       const r = Math.random();
-      filler.push(r < 0.5 ? { kind: 'up', part: PARTS[Math.floor(Math.random() * PARTS.length)], levels: Math.random() < 0.2 ? 2 : 1 } : r < 0.75 ? { kind: 'scrap', refund: 600 } : r < 0.95 ? { kind: 'bust' } : { kind: 'jackpot', parts: [] });
+      filler.push(r < 0.94 ? { kind: 'up', part: PARTS[Math.floor(Math.random() * PARTS.length)], levels: Math.random() < 0.2 ? 2 : 1 } : { kind: 'jackpot', parts: [] });
     }
     const WIN = 40;
     filler[WIN] = res;
@@ -405,7 +405,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     const target = WIN * tileW + tileW / 2 - reel.clientWidth / 2 + (Math.random() - 0.5) * (tileW * 0.6);
     strip.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${-target}px)` }], { duration: 4200, easing: 'cubic-bezier(0.12, 0.7, 0.12, 1)', fill: 'forwards' }).finished.then(() => {
       $(modal, '.tg-reel-result').innerHTML = `<b class="${won.tone}">${won.icon} ${esc(won.text)}</b>`;
-      $(modal, 'h2').textContent = res.kind === 'bust' ? 'Unlucky.' : res.kind === 'scrap' ? 'Scrapped.' : 'Upgrade!';
+      $(modal, 'h2').textContent = res.kind === 'jackpot' ? 'JACKPOT!' : 'Upgrade!';
       const ok = $<HTMLButtonElement>(modal, '[data-ok]');
       ok.hidden = false;
       ok.focus();

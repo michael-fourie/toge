@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import { SAMPLE, SHOULDER, type Theme, type Track, fbm, heightAt, pointAt, roadDistance, terrainAt } from '../../shared/race/track.ts';
+import { CUT_HALF, SAMPLE, SHOULDER, type Theme, type Track, fbm, heightAt, onCut, pointAt, roadDistance, terrainAt } from '../../shared/race/track.ts';
 
 interface Look {
   sun: [number, number]; // elevation, azimuth (degrees)
@@ -232,11 +232,50 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
   // --- Bridges and tunnels
   structures(scene, t, keep, !!look.moon);
 
+  // --- Shortcuts: gravel tracks
+  for (const c of t.cuts) {
+    const pos: number[] = [];
+    const uvs: number[] = [];
+    const idx: number[] = [];
+    const n = c.x.length;
+    for (let i = 0; i < n; i++) {
+      const j = Math.min(n - 1, i + 1);
+      const k = j === i ? i - 1 : i;
+      const dx = c.x[j] - c.x[k];
+      const dz = c.z[j] - c.z[k];
+      const l = Math.hypot(dx, dz) || 1;
+      for (const side of [-1, 1]) {
+        const x = c.x[i] - (dz / l) * side * (CUT_HALF + 0.5);
+        const z = c.z[i] + (dx / l) * side * (CUT_HALF + 0.5);
+        pos.push(x, heightAt(t, x, z) + 0.05, z);
+        uvs.push(side < 0 ? 0.15 : 0.85, (i * SAMPLE) / 12);
+      }
+      if (i < n - 1) idx.push(i * 2, i * 2 + 2, i * 2 + 1, i * 2 + 1, i * 2 + 2, i * 2 + 3);
+    }
+    const geo = keep(new THREE.BufferGeometry());
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, gravelMat);
+    m.receiveShadow = true;
+    scene.add(m);
+  }
+
   // --- Armco both sides: a galvanised beam on posts.
   const railMat = keep(new THREE.MeshStandardMaterial({ color: 0xb9bec4, metalness: 0.85, roughness: 0.38, side: THREE.DoubleSide }));
+  // Where a shortcut leaves the road the rail has a gap.
+  const gap = (i: number, side: number) => t.cuts.length > 0 && onCut(t, t.x[i] - t.tz[i] * side * t.rail, t.z[i] + t.tx[i] * side * t.rail, 2.5);
   for (const side of [-1, 1]) {
-    for (let i0 = 0; i0 < t.n - 1; i0 += ROAD_CHUNK) {
-      const i1 = Math.min(t.n - 1, i0 + ROAD_CHUNK);
+    const runs: [number, number][] = [];
+    for (let i = 0; i < t.n - 1; ) {
+      while (i < t.n - 1 && gap(i, side)) i++;
+      let j = i;
+      while (j < t.n - 1 && j - i < ROAD_CHUNK && !gap(j + 1, side)) j++;
+      if (j > i) runs.push([i, j]);
+      i = j + 1;
+    }
+    for (const [i0, i1] of runs) {
       const pos: number[] = [];
       const idx: number[] = [];
       for (let i = i0; i <= i1; i++) {
@@ -272,6 +311,7 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
   let pi = 0;
   for (let i = 0; i < t.n; i += postEvery)
     for (const side of [-1, 1]) {
+      if (gap(i, side)) continue;
       const d = side * (t.rail + 0.3);
       v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 0.42, t.z[i] + t.tx[i] * d);
       q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]), 0));

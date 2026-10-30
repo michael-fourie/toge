@@ -7,7 +7,7 @@ import { CARS, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCa
 import { type Ai, aiDrive, newAi } from '../../shared/race/driver.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../../shared/race/powerups.ts';
 import { CarFlag, type NetCar, type RaceServerMsg, type Racer } from '../../shared/race/protocol.ts';
-import { type Track, type TrackId, getTrack, gridSlot } from '../../shared/race/track.ts';
+import { type Track, type TrackId, getTrack, gridSlot, pointAt } from '../../shared/race/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../../shared/race/vehicle.ts';
 import { PropView, shieldBubble } from './propview.ts';
 import { rumble, setMenuNav } from '../pad.ts';
@@ -383,10 +383,77 @@ export class RaceGame {
         this.shockwave(r, r.name);
         if (r === this.me) this.setup.online?.net.send({ t: 'item', kind: 'shock' });
         break;
+      case 'comet': {
+        const target = this.leaderFor(r);
+        if (!target) break;
+        this.launchComet(c.s, target, r.name);
+        if (r === this.me && typeof target === 'number') this.setup.online?.net.send({ t: 'item', kind: 'comet', target, s: c.s });
+        break;
+      }
     }
     if (r === this.me) this.audio.burst(0.3, 0.06, 1800, 'highpass');
     it.uses--;
     if (it.uses <= 0) r.item = null;
+  }
+
+  /**
+   * Who a comet fired by `r` goes for: whoever's in front (the next one if `r` leads). A car we simulate,
+   * or a remote racer's id.
+   */
+  private leaderFor(r: Racing): Racing | number | null {
+    const all: { who: Racing | number; s: number; done: boolean }[] = [
+      ...[this.me, ...this.rivals].map((x) => ({ who: x as Racing | number, s: x.car.s, done: x.finished !== null })),
+      ...[...this.remotes.values()].map((x) => ({ who: x.id as Racing | number, s: x.s, done: x.finished !== null })),
+    ].filter((e) => !e.done && e.who !== r);
+    all.sort((a, b) => b.s - a.s);
+    return all[0]?.who ?? null;
+  }
+
+  private comets: { mesh: THREE.Mesh; from: number; target: Racing | number; at: number; dur: number }[] = [];
+
+  /** A comet leaves distance `from` along the road and homes in on `target`. */
+  private launchComet(from: number, target: Racing | number, by: string) {
+    const ts = typeof target === 'number' ? (this.remotes.get(target)?.s ?? from) : target.car.s;
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 12), new THREE.MeshBasicMaterial({ color: 0x8fd8ff }));
+    mesh.add(new THREE.PointLight(0x6fc8ff, 40, 30, 2));
+    this.view.scene.add(mesh);
+    this.comets.push({ mesh, from, target, at: this.wallClock, dur: Math.max(1.2, (ts - from) / POWER.cometSpeed) });
+    if (target === this.me) {
+      this.hud.banner(`☄️ Comet from ${by}!`, 'Shield up or brace yourself', 1800);
+      this.audio.tone(520, 0.6, 0.05, 'sawtooth');
+    }
+  }
+
+  /** Flies comets down the road (high above it), dives onto the target, and blows it up. */
+  private updateComets() {
+    const now = this.wallClock;
+    for (let k = this.comets.length - 1; k >= 0; k--) {
+      const cm = this.comets[k];
+      const local = typeof cm.target === 'number' ? null : cm.target;
+      const tp = local ? local.model.root.position : this.remotes.get(cm.target as number)?.model.root.position;
+      if (!tp) {
+        cm.mesh.removeFromParent();
+        this.comets.splice(k, 1);
+        continue;
+      }
+      const ts = local ? local.car.s : (this.remotes.get(cm.target as number)?.s ?? cm.from);
+      const u = Math.min(1, (now - cm.at) / cm.dur);
+      const road = pointAt(this.track, cm.from + (ts - cm.from) * u, 0);
+      const dive = Math.max(0, (u - 0.8) / 0.2);
+      cm.mesh.position.set(road.x + (tp.x - road.x) * dive, road.y + 9 * (1 - dive) + (tp.y - road.y) * dive, road.z + (tp.z - road.z) * dive);
+      if (this.puffTick % 2 === 0) this.fx.spark(cm.mesh.position.x, cm.mesh.position.y, cm.mesh.position.z, 0, 0.5, 0, [0.5, 0.85, 1], 0.6, 1.6);
+      if (u < 1) continue;
+      cm.mesh.removeFromParent();
+      this.comets.splice(k, 1);
+      for (let i = 0; i < 40; i++) this.fx.spark(tp.x, tp.y + 0.5, tp.z, (Math.random() - 0.5) * 16, Math.random() * 10, (Math.random() - 0.5) * 16, Math.random() < 0.5 ? [0.5, 0.85, 1] : [1, 1, 1], 0.9, 2.2);
+      this.audio.burst(0.9, 0.15, 400, 'lowpass');
+      if (!local || now < local.shieldUntil) continue;
+      spinOut(local.car, POWER.cometSpin);
+      local.car.v.x *= 0.35;
+      local.car.v.z *= 0.35;
+      local.car.v.y += POWER.cometLift;
+      if (local === this.me) rumble(1, 1, 900);
+    }
   }
 
   /** A shockwave from `by` (null: a remote racer) spins out everyone else who isn't shielded. */
@@ -441,6 +508,10 @@ export class RaceGame {
       const from = this.remotes.get(m.by)?.name ?? 'Someone';
       if (m.kind === 'oil' && m.p) this.propView.addSlick(m.p[0], m.p[1], m.p[2], this.wallClock);
       else if (m.kind === 'shock') this.shockwave(null, from);
+      else if (m.kind === 'comet' && m.target !== undefined && m.s !== undefined) {
+        const target = m.target === this.setup.online!.net.id ? this.me : this.remotes.has(m.target) ? m.target : null;
+        if (target !== null) this.launchComet(m.s, target, from);
+      }
     } else if (m.t === 'error') this.exit('garage', m.message);
   }
 
@@ -495,6 +566,7 @@ export class RaceGame {
       if (this.acc > TICK_DT) this.acc = 0;
       this.fx.update(dt);
       this.propView.update(this.wallClock, dt);
+      this.updateComets();
     }
     this.render(dt, Math.min(1, this.acc / TICK_DT));
   };
@@ -964,7 +1036,7 @@ export class RaceGame {
       wrongWay: this.phase === 'racing' && tangentDot < -0.3 && speedOf(c) > 3,
       manual: !this.assists.auto,
       drift: c.drift !== 0 ? c.driftLevel : -1,
-      item: this.wallClock < this.rouletteUntil ? { icon: ITEMS[(['turbo', 'oil', 'shield', 'triple', 'shock'] as Item[])[Math.floor(this.wallClock * 12) % 5]].icon, name: '', spinning: true } : me.item ? { icon: ITEMS[me.item.kind].icon, name: ITEMS[me.item.kind].name + (me.item.uses > 1 ? ` ×${me.item.uses}` : ''), spinning: false } : null,
+      item: this.wallClock < this.rouletteUntil ? { icon: ITEMS[(['turbo', 'oil', 'shield', 'triple', 'shock', 'comet'] as Item[])[Math.floor(this.wallClock * 12) % 6]].icon, name: '', spinning: true } : me.item ? { icon: ITEMS[me.item.kind].icon, name: ITEMS[me.item.kind].name + (me.item.uses > 1 ? ` ×${me.item.uses}` : ''), spinning: false } : null,
       boost: c.boost > 0,
       heading: yaw,
       dots,

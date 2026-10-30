@@ -68,7 +68,7 @@ export type RaceServerMsg =
   | { t: 'results'; track: TrackId; rows: ResultRow[] }
   | { t: 'pong'; n: number }
   /** Someone used an item that reaches other racers: an oil slick dropped at `p`, or a shockwave. */
-  | { t: 'item'; by: number; kind: 'oil' | 'shock'; p?: [number, number, number] }
+  | { t: 'item'; by: number; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number }
   | { t: 'error'; message: string };
 
 export type RaceClientMsg =
@@ -78,7 +78,8 @@ export type RaceClientMsg =
   | ({ t: 'state' } & Omit<NetCar, 'id'>)
   | { t: 'finish'; time: number }
   | { t: 'ping'; n: number }
-  | { t: 'item'; kind: 'oil' | 'shock'; p?: [number, number, number] };
+  /** `target` and `s` (where it was fired from) for a comet. */
+  | { t: 'item'; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number };
 
 export const RACE = {
   maxPlayers: 8,

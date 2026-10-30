@@ -22,9 +22,13 @@ export class PropView {
   private boxBack = new Map<number, number>();
   private cones = new Map<number, { mesh: THREE.Mesh; v: THREE.Vector3; spin: THREE.Vector3; flying: boolean }>();
   private boxMat: THREE.MeshStandardMaterial;
-  private slickGeo = new THREE.CircleGeometry(POWER.oilRadius, 24);
-  private slickMat = new THREE.MeshStandardMaterial({ color: 0x050608, roughness: 0.05, metalness: 0.7, transparent: true, opacity: 0.92, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8 });
-  private disposables: { dispose(): void }[] = [this.slickGeo, this.slickMat];
+  private slickGeo = new THREE.CircleGeometry(POWER.oilRadius + 0.3, 32);
+  private slickTex = sheenTexture();
+  private slickMat = new THREE.MeshStandardMaterial({ map: this.slickTex, emissive: 0xffffff, emissiveMap: this.slickTex, emissiveIntensity: 0.35, roughness: 0.04, metalness: 0.5, transparent: true, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8 });
+  /** A glowing hazard ring round each slick, so you see it coming (at night too). */
+  private ringGeo = new THREE.RingGeometry(POWER.oilRadius + 0.3, POWER.oilRadius + 0.7, 40);
+  private ringMat = new THREE.MeshBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.85, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8 });
+  private disposables: { dispose(): void }[] = [this.slickGeo, this.slickMat, this.slickTex, this.ringGeo, this.ringMat];
 
   constructor(
     scene: THREE.Scene,
@@ -93,8 +97,8 @@ export class PropView {
   addSlick(x: number, y: number, z: number, now: number) {
     const mesh = new THREE.Mesh(this.slickGeo, this.slickMat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, y + 0.04, z);
-    mesh.receiveShadow = true;
+    mesh.position.set(x, y + 0.06, z);
+    mesh.add(new THREE.Mesh(this.ringGeo, this.ringMat));
     this.group.add(mesh);
     this.slicks.push({ x, y, z, born: now, hit: new Set(), mesh });
   }
@@ -132,8 +136,12 @@ export class PropView {
       if (age > POWER.oilSeconds) {
         this.group.remove(s.mesh);
         this.slicks.splice(k, 1);
-      } else s.mesh.scale.setScalar(Math.min(1, 0.3 + age * 3));
+      } else {
+        s.mesh.scale.setScalar(Math.min(1, 0.3 + age * 3));
+        s.mesh.rotation.z = age * 0.3;
+      }
     }
+    this.ringMat.opacity = 0.55 + 0.35 * Math.sin(now * 6);
   }
 
   dispose() {
@@ -192,6 +200,21 @@ function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+/** Oil: near-black with rainbow swirls (it's what catches the eye). */
+function sheenTexture() {
+  return canvasTex(128, 128, (g) => {
+    g.fillStyle = '#07080b';
+    g.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 9; i++) {
+      g.strokeStyle = `hsla(${(i * 40) % 360}, 90%, 55%, 0.55)`;
+      g.lineWidth = 5;
+      g.beginPath();
+      g.arc(64 + Math.sin(i) * 14, 64 + Math.cos(i * 1.7) * 14, 12 + i * 6, i, i + 2.4);
+      g.stroke();
+    }
+  });
 }
 
 function questionTexture() {

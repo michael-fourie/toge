@@ -127,12 +127,13 @@ export class Race {
       }
       case 'item': {
         // Relayed to everyone else; each client works out whether it was hit.
-        if (this.phase !== 'racing' || !m.racing || (msg.kind !== 'oil' && msg.kind !== 'shock')) return;
+        if (this.phase !== 'racing' || !m.racing || (msg.kind !== 'oil' && msg.kind !== 'shock' && msg.kind !== 'comet')) return;
         if (msg.kind === 'oil' && !(Array.isArray(msg.p) && msg.p.length === 3 && msg.p.every((x) => finite(x, 1e5)))) return;
+        if (msg.kind === 'comet' && !(finite(msg.target, 1e6) && finite(msg.s, 1e5))) return;
         const now = this.now();
         if (now - (this.itemAt.get(c.id) ?? 0) < ITEM_GAP_MS) return;
         this.itemAt.set(c.id, now);
-        const text = JSON.stringify({ t: 'item', by: c.id, kind: msg.kind, p: msg.kind === 'oil' ? msg.p : undefined } satisfies RaceServerMsg);
+        const text = JSON.stringify({ t: 'item', by: c.id, kind: msg.kind, p: msg.kind === 'oil' ? msg.p : undefined, target: msg.kind === 'comet' ? msg.target : undefined, s: msg.kind === 'comet' ? msg.s : undefined } satisfies RaceServerMsg);
         for (const o of this.members.values()) if (o !== m && o.client.ws.readyState === OPEN) o.client.ws.send(text);
         break;
       }
