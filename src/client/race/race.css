@@ -1153,3 +1153,36 @@ html.pad .tg :is(button, input):focus {
     font-size: 90px;
   }
 }
+
+/* Spectating after you finish. */
+.rh-spec {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: none;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 18px;
+  border-radius: 12px;
+  background: rgba(10, 12, 18, 0.62);
+  color: #fff;
+  pointer-events: none;
+}
+.rh.spectating .rh-dash,
+.rh.spectating .rh-item,
+.rh.spectating .rh-drift {
+  display: none;
+}
+.rh-spec.on {
+  display: flex;
+}
+.rh-spec b {
+  font: 800 26px 'Barlow Condensed', sans-serif;
+}
+.rh-spec small {
+  font: 600 15px 'Barlow Condensed', sans-serif;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}

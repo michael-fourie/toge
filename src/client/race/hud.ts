@@ -85,6 +85,7 @@ export class RaceHud {
       <div class="rh-item" data-el="item"><span class="rh-item-icon" data-el="itemIcon"></span><small data-el="itemName"></small></div>
       <div class="rh-center" data-el="center"></div>
       <div class="rh-banner" data-el="banner"></div>
+      <div class="rh-spec" data-el="spec"></div>
       <div class="rh-help" data-el="help"></div>
       <div class="rh-panel" data-el="panel" hidden></div>`;
     container.appendChild(this.root);
@@ -117,6 +118,13 @@ export class RaceHud {
     this.el.banner.classList.add('on');
     clearTimeout(this.bannerTimer);
     if (ms > 0) this.bannerTimer = window.setTimeout(() => this.el.banner.classList.remove('on'), ms);
+  }
+
+  /** The "Spectating" tag at the bottom, with the buttons that switch car; null hides it. */
+  spectate(name: string | null, keys: string) {
+    this.el.spec.innerHTML = name ? `<small>Spectating</small><b>${esc(name)}</b><small>${esc(keys)} to switch</small>` : '';
+    this.el.spec.classList.toggle('on', name !== null);
+    this.root.classList.toggle('spectating', name !== null); // your dash and item slot would read 0 km/h
   }
 
   update(h: HudState) {

@@ -51,6 +51,8 @@ const SPARK_COLORS = [
 ];
 const SOLO_COUNTDOWN = 3.5;
 const SOLO_WAIT_AFTER = 15;
+/** After you finish, how long the camera stays on you before it goes to spectate the field (s). */
+const WATCH_AFTER = 3;
 
 const RIVAL_NAMES = ['Haruki', 'Mika', 'Bunta', 'Rin', 'Kenji', 'Sora', 'Aiko', 'Daichi'];
 
@@ -150,6 +152,11 @@ export class RaceGame {
   private offNet: (() => void) | null = null;
   private resetAt = 0;
   private finishedAt = 0;
+  /** Spectating after you finish: who the camera follows (null = your own car), and when it first switches. */
+  private watch: Racing | Remote | null = null;
+  private watchAt = Infinity;
+  /** When the car being watched crossed the line (0 = still racing); we stay on it a moment, then move on. */
+  private watchDoneAt = 0;
   private myPrize: number | null = null;
   private puffTick = 0;
   private rumbleAt = 0;
@@ -560,7 +567,8 @@ export class RaceGame {
 
   private frame = (now: number) => {
     this.raf = requestAnimationFrame(this.frame);
-    const dt = Math.min(0.1, (now - this.last) / 1000);
+    // The first rAF timestamp can predate the constructor's clock; a negative step breaks the item roulette.
+    const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000));
     this.last = now;
     this.wallClock += dt;
     this.controls.poll(dt);
@@ -601,6 +609,13 @@ export class RaceGame {
       resetCar(this.me.car, this.track);
       this.resetAt = this.wallClock + 2;
       this.hud.banner('Back on the road', '', 1200);
+    } else if (a === 'watchPrev' || a === 'watchNext') {
+      if (this.me.finished === null) return;
+      // Everyone still racing in a fixed order (not by position, so "next" doesn't jump as they overtake), then you.
+      const list: (Racing | Remote | null)[] = [...this.stillRacing(false), null];
+      const i = list.indexOf(this.watch);
+      this.setWatch(list[(i + (a === 'watchNext' ? 1 : -1) + list.length) % list.length]);
+      this.watchAt = Infinity;
     } else if (a === 'item') {
       if (this.phase === 'racing') this.useItem(this.me);
     } else if (a === 'shiftUp' || a === 'shiftDown') {
@@ -719,6 +734,7 @@ export class RaceGame {
     me.finished = this.time;
     this.finishedAt = this.wallClock;
     this.phase = 'finished';
+    this.watchAt = this.wallClock + WATCH_AFTER;
     const ahead = [...this.rivals.filter((r) => r.finished !== null), ...[...this.remotes.values()].filter((r) => r.finished !== null)].length;
     this.hud.banner(`${ordinal(ahead + 1)} place`, fmtTime(this.time), 0);
     rumble(0.6, 0.9, 400);
@@ -899,8 +915,9 @@ export class RaceGame {
       this.tyreEffects(r, r === me ? 0 : 1 + this.rivals.indexOf(r));
     }
     for (const r of this.remotes.values()) this.poseRemote(r, now, dt);
+    this.updateWatch();
     this.updateCamera(dt);
-    this.view.follow(this.camera.position.x, me.car.p.y, this.camera.position.z, now);
+    this.view.follow(this.camera.position.x, this.subject().car.p.y, this.camera.position.z, now);
     this.sound();
     this.updateHud();
     this.renderer.render(this.view.scene, this.camera);
@@ -940,9 +957,44 @@ export class RaceGame {
     }
   }
 
+  /** Racers still on the road (not you): nearest the finish first, or in a fixed order. */
+  private stillRacing(byPosition = true): (Racing | Remote)[] {
+    const sOf = (r: Racing | Remote) => ('car' in r ? r.car.s : r.s);
+    const list = [...this.rivals, ...this.remotes.values()].filter((r) => r.finished === null);
+    return byPosition ? list.sort((a, b) => sOf(b) - sOf(a)) : list;
+  }
+
+  /** The car the camera follows: yours, or whoever you're spectating (a remote's pose-only ghost). */
+  private subject(): { car: Car; root: THREE.Object3D } {
+    const w = this.watch;
+    if (!w) return { car: this.me.car, root: this.me.model.root };
+    return 'car' in w ? { car: w.car, root: w.model.root } : { car: w.ghost, root: w.model.root };
+  }
+
+  private setWatch(w: Racing | Remote | null) {
+    if (w === this.watch) return;
+    this.watch = w;
+    this.watchDoneAt = 0;
+    this.hud.spectate(w ? w.name : null, this.controls.padSeen ? 'D-pad ← →' : '← →');
+    this.snapCamera();
+  }
+
+  /** Spectating: start a few seconds after you finish, and move on when the car you watch finishes or leaves. */
+  private updateWatch() {
+    if (this.me.finished === null) return;
+    const w = this.watch;
+    if (w !== null && w.finished !== null && !this.watchDoneAt) this.watchDoneAt = this.wallClock;
+    const gone = w !== null && !('car' in w) && !this.remotes.has(w.id);
+    if (gone || (this.watchDoneAt && this.wallClock - this.watchDoneAt > 2)) {
+      this.setWatch(this.stillRacing()[0] ?? null);
+    } else if (this.wallClock >= this.watchAt) {
+      this.watchAt = Infinity;
+      this.setWatch(this.stillRacing()[0] ?? null);
+    }
+  }
+
   private updateCamera(dt: number) {
-    const c = this.me.car;
-    const root = this.me.model.root;
+    const { car: c, root } = this.subject();
     const speed = speedOf(c);
     const b = CARS[c.spec.id];
     const back = this.controls.lookBack;
@@ -994,19 +1046,20 @@ export class RaceGame {
   }
 
   private snapCamera() {
-    const c = this.me.car;
+    const { car: c, root } = this.subject();
     const yaw = yawOf(c);
     this.camDir.set(-Math.sin(yaw), -Math.cos(yaw));
     this.camLook.set(c.p.x, c.p.y + 0.9, c.p.z);
-    this.me.model.root.updateMatrixWorld();
+    root.updateMatrixWorld();
   }
 
   private sound() {
     this.audio.resume();
     const me = this.me.car;
-    this.me.engine?.update(me.rpm, me.load, me.spec.redline, 1);
     const cam = this.camera.position;
     const near = (x: number, y: number, z: number) => Math.max(0, 1 - Math.hypot(x - cam.x, y - cam.y, z - cam.z) / 90) ** 2;
+    // Your engine is full volume, unless you're off spectating someone else.
+    this.me.engine?.update(me.rpm, me.load, me.spec.redline, this.watch ? near(me.p.x, me.p.y, me.p.z) : 1);
     for (const r of this.rivals) r.engine?.update(r.car.rpm, r.car.load, r.car.spec.redline, near(r.car.p.x, r.car.p.y, r.car.p.z));
     for (const r of this.remotes.values()) {
       const p = r.model.root.position;
