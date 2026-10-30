@@ -364,11 +364,12 @@ export function steerLimit(car: Car, assists: Assists): number {
 
 /** Arcade handling: lateral grip it promises (g), and how fast it yaws you toward that. */
 export const ARCADE = {
-  grip: 1.9,
-  maxYaw: 2.4, // rad/s at low speed
+  // Generous on purpose: at 1.9 g a touge hairpin needed braking to walking pace and players rode the walls.
+  grip: 2.8,
+  maxYaw: 3.2, // rad/s at low speed
   yawResponse: 10, // 1/s
   /** How fast the travel direction swings round to the nose (1/s): grippy, and while drifting. */
-  align: 7,
+  align: 10,
   driftAlign: 1.3,
   driftGrip: 0.35,
   /** Drift hold times (s) for blue, orange and purple sparks, and the boost each pays out (s). */
