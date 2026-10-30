@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Wear } from '../shared/items.ts';
-import { pbr } from './render/surface.ts';
+import { toonRamp } from './textures.ts';
 
 // Wearable models, built from primitives. Hats and faces are in head space (origin at the head's centre,
 // radius 0.25, the face looks down -Z); backs are in upper-body space (origin at the hips, the back is +Z).
@@ -9,9 +9,10 @@ import { pbr } from './render/surface.ts';
 const sphere = (r: number, sx = 1, sy = 1, sz = 1) => new THREE.SphereGeometry(r, 14, 10).scale(sx, sy, sz);
 
 export function buildWear(w: Wear): THREE.Group {
-  const glowing = (color: number) => pbr({ color, emissive: w.glow ? color : 0, emissiveIntensity: w.glow ? 0.5 : 0 });
+  const gradientMap = toonRamp();
+  const glowing = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap, emissive: w.glow ? color : 0, emissiveIntensity: w.glow ? 0.5 : 0 });
   const main = glowing(w.color);
-  const trim = pbr({ color: w.color2, side: THREE.DoubleSide });
+  const trim = new THREE.MeshToonMaterial({ color: w.color2, gradientMap, side: THREE.DoubleSide });
   const root = new THREE.Group();
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0, parent: THREE.Object3D = root) => {
     const m = new THREE.Mesh(geo, mat);
@@ -48,7 +49,7 @@ export function buildWear(w: Wear): THREE.Group {
       break;
     }
     case 'crown': {
-      add(new THREE.CylinderGeometry(0.2, 0.22, 0.1, 16, 1, true), main, 0, 0.27).material = pbr({ color: w.color, side: THREE.DoubleSide });
+      add(new THREE.CylinderGeometry(0.2, 0.22, 0.1, 16, 1, true), main, 0, 0.27).material = new THREE.MeshToonMaterial({ color: w.color, gradientMap, side: THREE.DoubleSide });
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2;
         add(new THREE.ConeGeometry(0.04, 0.12, 6), main, Math.sin(a) * 0.21, 0.37, Math.cos(a) * 0.21);
@@ -69,7 +70,7 @@ export function buildWear(w: Wear): THREE.Group {
     case 'goggles': {
       const strap = add(new THREE.TorusGeometry(0.255, 0.022, 6, 28).rotateX(Math.PI / 2), trim, 0, 0.06);
       strap.scale.set(1, 1, 1);
-      const lens = pbr({ color: w.color2, emissive: w.glow ? w.color2 : 0, emissiveIntensity: 0.5, transparent: true, opacity: 0.85 });
+      const lens = new THREE.MeshToonMaterial({ color: w.color2, gradientMap, emissive: w.glow ? w.color2 : 0, emissiveIntensity: 0.5, transparent: true, opacity: 0.85 });
       for (const s of [-1, 1]) {
         add(new THREE.TorusGeometry(0.075, 0.016, 8, 18), main, s * 0.11, 0.03, -0.245);
         add(new THREE.CircleGeometry(0.07, 16), lens, s * 0.11, 0.03, -0.248).rotation.y = Math.PI;
@@ -82,7 +83,7 @@ export function buildWear(w: Wear): THREE.Group {
       break;
     case 'mask': {
       // A fox mask: a white plate over the face, pointy ears, red cheek stripes.
-      const plate = new THREE.Mesh(new THREE.SphereGeometry(0.268, 24, 16, Math.PI * 1.5 - 0.85, 1.7, 0.95, 1.6), pbr({ color: w.color, side: THREE.DoubleSide }));
+      const plate = new THREE.Mesh(new THREE.SphereGeometry(0.268, 24, 16, Math.PI * 1.5 - 0.85, 1.7, 0.95, 1.6), new THREE.MeshToonMaterial({ color: w.color, gradientMap, side: THREE.DoubleSide }));
       root.add(plate);
       for (const s of [-1, 1]) {
         add(new THREE.ConeGeometry(0.07, 0.18, 4), main, s * 0.14, 0.27, -0.12).rotation.z = -s * 0.3;

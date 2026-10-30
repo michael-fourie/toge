@@ -1,13 +1,13 @@
 # CLAUDE.md
 
-Atrous: a browser multiplayer movement shooter. Think CS:GO Combat Surf with bhop, surf, slide and wallrun, AWP-only, on floating sky islands rendered realistically (WebGPU, PBR). It's a prototype that will evolve a lot. Player-facing docs are in README.md.
+Atrous: a browser multiplayer movement shooter. Think CS:GO Combat Surf with bhop, surf, slide and wallrun, AWP-only, on Ghibli-style sky islands. It's a prototype that will evolve a lot. Player-facing docs are in README.md.
 
 ## Priorities (in order)
 
 1. **Momentum is sacred.** Movement must feel like CS:GO bhop. Never add anything that eats speed on its own: no air friction, no friction on the jump tick, no "redirect" mechanics. Shot-recoil push was removed for exactly this. Air jumps were removed once too and are back as the double jump and wall kick: they only raise vertical speed or add push, never touch horizontal momentum (tests in the "Air jumps" block).
 2. **Keep it simple.** Small files, plain code, few dependencies. Delete dead code rather than leaving it switched off. If a feature is off by default and nobody uses it, remove it.
 3. **Fun and silly.** Chibi anime snipers with streaming scarves and X_X faces when killed, flung corpses, YEET popups. Keep that tone.
-4. **Realistic look.** Physically based rendering on WebGPU: PBR materials, a physical sky that lights the scene, soft shadows, AO, bloom and temporal AA. Textures are still procedural (baked from noise at load, no image assets). Gameplay readability comes first: floors, walls, cover, pads, slide ramps and surf ramps must each look distinct (pads glow, surf stone is glossy blue).
+4. **Ghibli look.** Soft cel shading, warm painterly palette, and procedural textures (no image assets). Gameplay readability comes first: floors, walls, cover, pads, slide ramps and surf ramps must each look distinct.
 
 ## Commands
 
@@ -85,7 +85,7 @@ src/client/
                 client/inventoryStore.ts saves it in localStorage; menu/casino.ts (tabs: cases.ts case reel, plinko.ts, blackjack.ts, crash.ts kite; rules in shared/casino.ts incl. `crashPoint` (P(snap ≥ m) = 0.99/m, so every cash-out target returns 99%), tests/casino.test.ts), menu/inventory.ts, menu/itemIcon.ts (renders each item once to a PNG); knife.ts + wear.ts build the models;
                 avatar.ts / viewmodel.ts show the equipped gear. Currency is Coins: kills pay (COIN in items.ts). Tests: loot.test.ts.
   skin.ts (src/shared) skin spec: option lists, presets, seeded default, encode/decode ('3.0.1.3.0.0.x', validated on the server). client/skinStore.ts saves it; menu/skin.ts (mountSkinEditor, used by the inventory's Character tab) + skinPreview.ts are the picker.
-  avatar.ts     chibi anime players (look = chosen skin, else seeded from name+colour, canvas faces), a zombie variant
+  avatar.ts     chibi anime players (look = chosen skin, else seeded from name+colour, ink outlines, canvas faces), a zombie variant
                 (poseZombie) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
 dev/viewmodel.html  dev-only lab for tuning the rifle/hands (Vite serves it; not part of the build)
 public/models/      optional awp.glb (see README)
@@ -158,17 +158,9 @@ The Survival map is its own file (`foundry.ts`); its rules and checklist are in 
 - The planned upgrade path: send inputs instead, run the shared `stepPlayer` on the server, and add prediction plus reconciliation. Keep `src/shared` deterministic so that path stays open.
 - Hosting and production multiplayer: see `docs/DEPLOYMENT.md`. Phase 0 is your own PC plus a Cloudflare quick tunnel; Phase 1 is an Oracle Always Free VM.
 
-**Rendering** (`src/client/render/`)
-- `gfx.ts`: three's `WebGPURenderer` (WebGPU, falling back to WebGL 2 by itself; `?gpu=webgl` forces the fallback) and the post chain built from TSL nodes: scene pass (MRT colour + normals + velocity) → GTAO → bloom → vignette → TRAA (Ultra) or FXAA (High). The viewmodel is its own pass composited on top at the end, so the gun never clips into walls and isn't smeared by TRAA. Low has no post chain (MSAA, straight to the screen). ACES filmic tone mapping (AgX looked washed out).
-- `quality.ts`: Low / High / Ultra profiles (AO, TAA, bloom, shadow map size, pixel-ratio cap). Auto = Low on touch devices, Ultra otherwise; the Settings screen saves a choice; `?gfx=low|high|ultra` overrides.
-- `sky.ts`: day maps use a physical sky (`daySky`: three's SkyMesh, Preetham scattering with sun disc and procedural clouds; per-map haze/cloud look), its output scaled by `SKY_GAIN` into the sun light's units; the Foundry uses `nightSky`. `bakeEnvironment` turns the sky (without the sun disc: the DirectionalLight is the sun) into the PMREM environment that lights and reflects in every PBR surface, at the sky's `userData.envIntensity` (Game shares it with the viewmodel). Cloud billboards use `sunlit()` (brighter than white) so they don't read grey against the HDR sky.
-- `surface.ts`: `pbr(params)` is the material factory for everything lit (a MeshStandardMaterial). A map from `bake()` carries its own normal + ORM (AO, roughness, metal) maps; an older canvas-painted map gets them derived from its luminance. Gun parts get a finish per palette name (`FINISH` in weapon/rig.ts).
-- `noise.ts`: tileable gradient noise, fBm, ridged and Worley noise for the bakers. The surfaces in `textures.ts` (grass, soil, rock, stone wall, timber, bark, surf stone, foliage), `summittextures.ts`, `dunetextures.ts` and the Foundry's brick and concrete are baked per texel with real height, roughness and occlusion, cached per session.
-- Hemisphere lights are only a little fill now; the environment map carries the ambient. Don't add emissive to fake fill light (it was how the toon look kept shadows bright); emissive is for things that glow (pads, gates, screens).
-- Shader code is TSL (`three/tsl`), never GLSL `ShaderMaterial`/`onBeforeCompile`: those don't run on WebGPU. Menu previews (`menu/skinPreview.ts`, `menu/itemIcon.ts`, the workbench cards) still use small WebGLRenderers with `studio()` lighting (render/studio.ts), since they read pixels back synchronously.
-- Sun shadows cover a patch around the camera: `Gfx` moves the sun with you (in whole shadow texels), so a map's shadow camera only needs to span what you can see near you. The Foundry's moon shadows instead cover the whole compound and redraw every third frame (`sun.shadow.needsUpdate`).
-- A baked map is cached and shared: tile it differently with `tiled(map, x, y)` (render/surface.ts), never by setting `repeat` on it.
-- Testing without a GPU: headless Chromium's WebGPU loses its device here, so check visuals with `?gpu=webgl` (and `?gfx=low|high|ultra`).
+**Rendering**
+- One WebGL renderer with Neutral tone mapping. The world renders first, then the depth buffer is cleared and the viewmodel's own scene renders on top, so the gun never clips into walls.
+- Shared toon ramp: `toonRamp()`. World palette: `PALETTE` in `world.ts`.
 
 **Viewmodel**
 - Everything lives in "view" space (scaled by `VIEW_SCALE`).

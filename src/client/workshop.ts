@@ -11,11 +11,11 @@ import { COIN_SVG } from './menu/lootui.ts';
 import { sfx } from './sfx.ts';
 import { IS_TOUCH } from './touch.ts';
 import './workshop.css';
-import { studio } from './render/studio.ts';
 
 /** What the workshop needs from the game. */
 export interface WorkshopHost {
   scene: THREE.Scene;
+  renderer: THREE.WebGLRenderer;
   hudRoot: HTMLElement;
   map: MapData;
   selfId: number;
@@ -64,7 +64,7 @@ export class Workshop {
   constructor(private host: WorkshopHost) {
     this.view = new ContraptionView(host.scene);
     const t = host.map.survival!.tinker;
-    this.bench = buildTinkerBench();
+    this.bench = buildTinkerBench(host.renderer);
     this.bench.position.set(t.pos.x, t.pos.y, t.pos.z);
     this.bench.rotation.y = t.yaw;
     host.scene.add(this.bench);
@@ -184,9 +184,11 @@ export class Workshop {
     if (hit) return hit;
     const r = (iconRenderer ??= new THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: true, alpha: true }));
     r.setSize(192, 192, false);
+    r.toneMapping = THREE.NeutralToneMapping;
     const scene = new THREE.Scene();
-    studio(r, scene, new THREE.Vector3(2, 4, 3));
-    scene.add(buildContraption(k));
+    const sun = new THREE.DirectionalLight(0xfff0d0, 2.2);
+    sun.position.set(2, 4, 3);
+    scene.add(new THREE.HemisphereLight(0xfff4dc, 0x9fb7d8, 2), sun, buildContraption(k));
     const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 20);
     cam.position.set(1.7, 1.75, 2.4);
     cam.lookAt(0, 0.62, 0);

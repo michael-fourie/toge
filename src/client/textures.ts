@@ -1,10 +1,7 @@
 import * as THREE from 'three';
-import { type Cell, clamp01, fbm, lerp, noise, ridged, smooth, worley } from './render/noise.ts';
-import { type Texel, bake } from './render/surface.ts';
 
-// Procedural textures, no image assets. The sky-island surfaces (grass, soil, rock, stone walls, timber, bark, surf
-// stone) are baked per texel from tileable noise with real height, roughness and occlusion (render/surface.ts);
-// the rest are canvas paintings drawn wrap-around so they tile seamlessly.
+// Procedural "painted" textures: layered soft blobs and brush strokes on a canvas,
+// drawn wrap-around so they tile seamlessly. No image assets.
 
 export function rng(seed: number) {
   return () => {
@@ -61,16 +58,206 @@ export function blobs(g: Ctx, w: number, h: number, r: () => number, n: number, 
   g.globalAlpha = 1;
 }
 
-export function toTexture(c: HTMLCanvasElement, wrap = true): THREE.CanvasTexture {
+export function toTexture(c: HTMLCanvasElement, renderer: THREE.WebGLRenderer, wrap = true): THREE.CanvasTexture {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   if (wrap) t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8; // the GPU backend clamps to what the device supports
+  t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   return t;
 }
 
+/** Soft three-band toon ramp: gentle cel shading rather than hard comic bands. */
+let gradient: THREE.DataTexture | null = null;
+export function toonRamp(): THREE.DataTexture {
+  if (gradient) return gradient;
+  const data = new Uint8Array([150, 150, 150, 255, 205, 205, 205, 255, 255, 255, 255, 255]);
+  gradient = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);
+  gradient.minFilter = gradient.magFilter = THREE.NearestFilter;
+  gradient.needsUpdate = true;
+  return gradient;
+}
+
+/** Meadow grass seen from above, with flower specks. */
+export function grassTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(11);
+  g.fillStyle = '#8cbf5b';
+  g.fillRect(0, 0, S, S);
+  blobs(g, S, S, r, 70, ['#7db150', '#9ccb64', '#6fa345', '#a9d36f'], [40, 110], [0.25, 0.5]);
+  blobs(g, S, S, r, 260, ['#76aa4a', '#b4d97a', '#689c40', '#94c55e'], [8, 26], [0.3, 0.6]);
+  // Short brush-stroke blades.
+  g.lineCap = 'round';
+  for (let i = 0; i < 700; i++) {
+    const x = r() * S;
+    const y = r() * S;
+    const a = -Math.PI / 2 + (r() - 0.5) * 1.2;
+    const l = 5 + r() * 9;
+    g.strokeStyle = r() < 0.5 ? '#5f9139' : '#b8dc80';
+    g.globalAlpha = 0.35 + r() * 0.4;
+    g.lineWidth = 1.5 + r() * 1.5;
+    wrapped(g, S, S, () => {
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+      g.stroke();
+    });
+  }
+  g.globalAlpha = 1;
+  // Wildflowers.
+  blobs(g, S, S, r, 40, ['#fff8e1', '#ffe08a', '#f7b6c2', '#ffffff'], [2, 4], [0.85, 1]);
+  return toTexture(c, renderer);
+}
+
+/**
+ * Side of a floating island: grass lip with drips at the top (v = 1), then layered
+ * ochre earth and pebbles. Tiles horizontally only.
+ */
+export function earthSideTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(23);
+  g.fillStyle = '#c99b62';
+  g.fillRect(0, 0, S, S);
+  // Strata.
+  for (let i = 0; i < 9; i++) {
+    const y = 0.2 * S + (i / 9) * 0.8 * S + r() * 20;
+    g.fillStyle = ['#c39463', '#dab57f', '#b98d5c', '#cfa36d'][i % 4];
+    g.globalAlpha = 0.35;
+    // Wavy, soft-edged band rather than a hard plank line.
+    g.beginPath();
+    g.moveTo(0, y);
+    for (let x = 0; x <= S; x += 32) g.lineTo(x, y + Math.sin(x * 0.0245 + i) * 6);
+    for (let x = S; x >= 0; x -= 32) g.lineTo(x, y + 14 + r() * 14 + Math.sin(x * 0.0245 + i) * 6);
+    g.closePath();
+    g.fill();
+  }
+  g.globalAlpha = 1;
+  blobs(g, S, S, r, 160, ['#b5885a', '#dcb985', '#a07246', '#8f6a45'], [6, 30], [0.25, 0.55], false, [0.18, 1]);
+  blobs(g, S, S, r, 60, ['#9c8a78', '#b3a08a', '#857262'], [4, 10], [0.7, 0.95], false, [0.25, 1]); // pebbles
+  // Grass lip with dripping edge.
+  g.fillStyle = '#7fb24e';
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(S, 0);
+  const steps = 32;
+  for (let i = steps; i >= 0; i--) {
+    const x = (i / steps) * S;
+    const drip = i % 2 === 0 ? 0.13 + r() * 0.07 : 0.1;
+    g.lineTo(x, drip * S);
+  }
+  g.closePath();
+  g.fill();
+  blobs(g, S, S, r, 60, ['#93c45d', '#6c9f42', '#a6d06c'], [6, 16], [0.4, 0.7], false, [0, 0.1]);
+  return toTexture(c, renderer);
+}
+
+/** Craggy rock for island undersides and distant islands. */
+export function rockTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(37);
+  g.fillStyle = '#9a7f63';
+  g.fillRect(0, 0, S, S);
+  blobs(g, S, S, r, 120, ['#86694f', '#b09274', '#7a5f47', '#a68a6d'], [8, 34], [0.3, 0.6]);
+  blobs(g, S, S, r, 30, ['#6f8f4a', '#7ea356'], [4, 12], [0.4, 0.6]); // moss patches
+  return toTexture(c, renderer);
+}
+
+/** Whitewashed stone wall with terracotta bricks peeking through and ivy. Reads as "runnable wall". */
+export function wallTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(41);
+  g.fillStyle = '#efdcbc';
+  g.fillRect(0, 0, S, S);
+  // Stone courses.
+  const rows = 6;
+  const rh = S / rows;
+  for (let row = 0; row < rows; row++) {
+    let x = row % 2 ? -rh * 0.7 : 0;
+    while (x < S) {
+      const w = rh * (1.2 + r() * 1.1);
+      const tint = ['#f4e4c6', '#ead3ad', '#f0dbb6', '#e3c79c'][Math.floor(r() * 4)];
+      g.fillStyle = tint;
+      g.fillRect(x + 3, row * rh + 3, w - 6, rh - 6);
+      if (r() < 0.12) {
+        g.fillStyle = '#d98f62'; // terracotta brick showing through the plaster
+        g.globalAlpha = 0.8;
+        g.fillRect(x + 6, row * rh + 6, w - 12, rh - 12);
+        g.globalAlpha = 1;
+      }
+      x += w;
+    }
+  }
+  // Mortar shading.
+  g.strokeStyle = '#c8a97e';
+  g.globalAlpha = 0.6;
+  g.lineWidth = 3;
+  for (let row = 0; row <= rows; row++) {
+    g.beginPath();
+    g.moveTo(0, row * rh);
+    g.lineTo(S, row * rh);
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+  blobs(g, S, S, r, 90, ['#e9cfa5', '#fff3dc', '#d9bb8f'], [10, 40], [0.12, 0.3]);
+  // Ivy trails.
+  for (let i = 0; i < 5; i++) {
+    let x = r() * S;
+    let y = r() * S * 0.3;
+    const len = 30 + r() * 50;
+    for (let k = 0; k < len; k++) {
+      x += (r() - 0.5) * 8;
+      y += 4 + r() * 4;
+      const cx = x;
+      const cy = y;
+      const leaf = 3 + r() * 5;
+      g.fillStyle = ['#6b9a3e', '#87b552', '#55803a'][Math.floor(r() * 3)];
+      g.globalAlpha = 0.9;
+      wrapped(g, S, S, () => {
+        g.beginPath();
+        g.ellipse(cx, cy, leaf, leaf * 0.6, r() * 3, 0, Math.PI * 2);
+        g.fill();
+      });
+    }
+  }
+  g.globalAlpha = 1;
+  return toTexture(c, renderer);
+}
+
+/** Warm timber planks for crates/cover. */
+export function woodTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(53);
+  const planks = 4;
+  const ph = S / planks;
+  for (let i = 0; i < planks; i++) {
+    g.fillStyle = ['#b07a49', '#a46f40', '#bb8654', '#9c683c'][i % 4];
+    g.fillRect(0, i * ph, S, ph);
+    // grain
+    g.strokeStyle = '#7f5130';
+    g.lineWidth = 1.2;
+    for (let k = 0; k < 6; k++) {
+      const y = i * ph + 5 + r() * (ph - 10);
+      g.globalAlpha = 0.25 + r() * 0.25;
+      g.beginPath();
+      g.moveTo(0, y);
+      for (let x = 0; x <= S; x += 16) g.lineTo(x, y + Math.sin(x * 0.05 + k) * 2);
+      g.stroke();
+    }
+    g.globalAlpha = 0.8;
+    g.fillStyle = '#6e4529';
+    g.fillRect(0, i * ph, S, 3);
+  }
+  g.globalAlpha = 1;
+  blobs(g, S, S, r, 30, ['#c99665', '#8c5a34'], [8, 24], [0.12, 0.25]);
+  return toTexture(c, renderer);
+}
+
 /** Swirling wind-spirit glyph for jump pads. */
-export function padTexture(): THREE.CanvasTexture {
+export function padTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
   const S = 256;
   const [c, g] = canvas(S);
   const grad = g.createRadialGradient(S / 2, S / 2, 10, S / 2, S / 2, S / 2);
@@ -96,72 +283,56 @@ export function padTexture(): THREE.CanvasTexture {
     g.stroke();
   }
   g.globalAlpha = 1;
-  return toTexture(c, false);
+  return toTexture(c, renderer, false);
 }
 
-/** Writes a per-pixel function into a canvas: fn(u, v) returns [r, g, b, a] in 0..1 (v = 0 at the top row). */
-function pixels(w: number, h: number, fn: (u: number, v: number) => [number, number, number, number]): HTMLCanvasElement {
-  const [c, g] = canvas(w, h);
-  const img = g.createImageData(w, h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const [r, gg, b, a] = fn((x + 0.5) / w, (y + 0.5) / h);
-      const i = (y * w + x) * 4;
-      img.data[i] = r * 255;
-      img.data[i + 1] = gg * 255;
-      img.data[i + 2] = b * 255;
-      img.data[i + 3] = a * 255;
-    }
-  }
-  g.putImageData(img, 0, 0);
-  return c;
-}
-
-/**
- * A sunlit cumulus: billowing fractal edges, bright tops, a flat blue-grey base, thin wisps where the density fades.
- * Transparent background.
- */
+/** A sunlit cumulus: white tops, warm highlight, cool blue-grey underside. Transparent background. */
 export function cloudTexture(seed: number): THREE.CanvasTexture {
+  const W = 512;
+  const H = 256;
+  const [c, g] = canvas(W, H);
   const r = rng(seed);
-  // The cloud's silhouette: a row of overlapping towers, tallest in the middle.
   const puffs: [number, number, number][] = [];
-  const n = 9 + Math.floor(r() * 5);
+  const n = 14 + Math.floor(r() * 8);
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1);
+    const x = W * (0.14 + t * 0.72) + (r() - 0.5) * 40;
     const hump = Math.sin(t * Math.PI);
-    puffs.push([0.12 + t * 0.76 + (r() - 0.5) * 0.06, 0.75 - hump * (0.3 + r() * 0.2), 0.09 + hump * 0.13 * (0.6 + r() * 0.6)]);
+    const rad = 34 + hump * 60 * (0.6 + r() * 0.6);
+    const y = H * 0.78 - rad * (0.55 + r() * 0.35);
+    puffs.push([x, y, rad]);
   }
-  const c = pixels(512, 256, (u, v) => {
-    let env = 0;
-    for (const [px, py, pr] of puffs) {
-      const dx = (u - px) / pr;
-      const dy = ((v - py) * 0.5) / pr;
-      env = Math.max(env, 1 - Math.sqrt(dx * dx + dy * dy));
+  // Shadow layer, then body, then highlight, each slightly offset: gives painted volume.
+  const layer = (color: string, dx: number, dy: number, k: number, alpha: number) => {
+    g.globalAlpha = alpha;
+    g.fillStyle = color;
+    for (const [x, y, rad] of puffs) {
+      g.beginPath();
+      g.arc(x + dx, y + dy, rad * k, 0, Math.PI * 2);
+      g.fill();
     }
-    const billow = fbm(u, v, 6, 5, seed, 3) * 0.5 + 0.5;
-    const base = smooth(0.86, 0.78, v); // flat bottom
-    const d = clamp01(env * 1.6 + (billow - 0.5) * 0.9) * base;
-    const a = smooth(0.12, 0.55, d);
-    // Lit from above: bright warm white at the tops, cooler and darker toward the base and the dense core.
-    const lit = clamp01(1 - (v - 0.2) * 0.9) * 0.55 + billow * 0.35 + 0.25;
-    const shade = lerp(0.68, 1.0, clamp01(lit));
-    return [shade * 1.0, shade * 0.985, shade * 0.96 + (1 - shade) * 0.18, a];
-  });
+  };
+  layer('#aebdd6', 0, 10, 1.0, 1);
+  layer('#f7f9fc', -4, -2, 0.92, 1);
+  layer('#fff4dd', -12, -12, 0.62, 0.9);
+  g.globalAlpha = 1;
+  // Flat-ish base.
+  g.globalCompositeOperation = 'destination-out';
+  g.fillRect(0, H * 0.86, W, H);
+  g.globalCompositeOperation = 'source-over';
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
 
-/** Tileable cloud-tops for the sea of clouds below the islands: billows with soft gaps and grey hollows. */
-export function cloudSeaTexture(): THREE.CanvasTexture {
-  const c = pixels(512, 512, (u, v) => {
-    const d = fbm(u, v, 4, 6, 71) * 0.5 + 0.5;
-    const billow = 1 - Math.abs(fbm(u, v, 8, 4, 73));
-    const k = clamp01(d * 0.7 + billow * 0.4);
-    const shade = lerp(0.72, 1.0, k);
-    return [shade * 0.98, shade * 0.99, shade, smooth(0.25, 0.6, k) * 0.95 + 0.05];
-  });
-  return toTexture(c);
+/** Soft tileable cloud-noise for the sea of clouds below the islands. */
+export function cloudSeaTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(71);
+  blobs(g, S, S, r, 160, ['#ffffff', '#f3f6fb', '#e3eaf4'], [20, 70], [0.25, 0.55]);
+  blobs(g, S, S, r, 50, ['#cfd9ea'], [15, 40], [0.15, 0.3]);
+  return toTexture(c, renderer);
 }
 
 /** Round soft dot for particles. */
@@ -178,303 +349,73 @@ export function softDot(): THREE.CanvasTexture {
   return t;
 }
 
-
-// Helpers for the bakers (here and in the other maps' texture files).
-export type RGB = readonly [number, number, number];
-export const hex = (h: number): RGB => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255];
-/** Sets the texel's colour to a mix of `a` and `b`. */
-export function paint(t: Texel, a: RGB, b: RGB, k: number) {
-  t.r = lerp(a[0], b[0], k);
-  t.g = lerp(a[1], b[1], k);
-  t.b = lerp(a[2], b[2], k);
-}
-/** Blends `c` over the texel's colour by `k`. */
-export function tint(t: Texel, c: RGB, k: number) {
-  t.r = lerp(t.r, c[0], k);
-  t.g = lerp(t.g, c[1], k);
-  t.b = lerp(t.b, c[2], k);
-}
-export function shade(t: Texel, k: number) {
-  t.r *= k;
-  t.g *= k;
-  t.b *= k;
-}
-
-const GRASS_LUSH = hex(0x4e7a2b);
-const GRASS_DEEP = hex(0x2c4e17);
-const GRASS_DRY = hex(0x8c8a48);
-const GRASS_TIP = hex(0x9fb560);
-const SOIL = hex(0x5e4630);
-
-/** A meadow seen from above: tufts of blades, darker lush patches, sun-dried streaks and bare soil between. */
-function grassTexel(u: number, v: number, t: Texel, c: Cell) {
-  const patch = fbm(u, v, 3, 4, 101) * 0.5 + 0.5; // lush vs dry, metres across
-  const dry = smooth(0.55, 0.8, fbm(u, v, 2, 3, 107) * 0.5 + 0.5);
-  worley(u, v, 24, 109, c); // clumps, each a slightly different green
-  // Blades: two layers of fine noise stretched along different directions, so they cross like a real sward instead of
-  // forming dots.
-  const a = noise(u, v, 320, 111, 96) * 0.5 + 0.5;
-  const b = noise(u, v, 96, 113, 320) * 0.5 + 0.5;
-  const tuft = smooth(0.35, 0.9, Math.max(a, b) * (0.8 + (1 - c.f1) * 0.25));
-  const blades = noise(u, v, 512, 115) * 0.5 + 0.5;
-  const bare = smooth(0.62, 0.78, fbm(u, v, 4, 4, 127) * 0.5 + 0.5) * (1 - tuft);
-  paint(t, GRASS_DEEP, GRASS_LUSH, patch);
-  const tip = tuft * 0.55 + blades * 0.3;
-  t.r = lerp(t.r, GRASS_TIP[0], tip * 0.6);
-  t.g = lerp(t.g, GRASS_TIP[1], tip * 0.6);
-  t.b = lerp(t.b, GRASS_TIP[2], tip * 0.6);
-  t.r = lerp(t.r, GRASS_DRY[0], dry * 0.55);
-  t.g = lerp(t.g, GRASS_DRY[1], dry * 0.55);
-  t.b = lerp(t.b, GRASS_DRY[2], dry * 0.55);
-  t.r = lerp(t.r, SOIL[0], bare * 0.7);
-  t.g = lerp(t.g, SOIL[1], bare * 0.7);
-  t.b = lerp(t.b, SOIL[2], bare * 0.7);
-  shade(t, (0.88 + c.id * 0.14) * (0.8 + tuft * 0.25));
-  t.h = tuft * 0.7 + blades * 0.3 - bare * 0.3;
-  t.rough = 0.78 + (1 - tuft) * 0.18;
-  t.ao = 0.55 + tuft * 0.45;
+/** Smooth sky-glazed stone for surf ramps: long pale streaks run along the ramp (texture u). */
+export function surfTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(61);
+  const grad = g.createLinearGradient(0, 0, 0, S);
+  grad.addColorStop(0, '#9ccbe0');
+  grad.addColorStop(0.5, '#b7dcea');
+  grad.addColorStop(1, '#9ccbe0');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  blobs(g, S, S, r, 50, ['#8fc0d8', '#c9e7f1', '#a8d3e6'], [12, 40], [0.15, 0.35]);
+  // Wind streaks: long thin strokes along u, wrapped so they tile.
+  for (let i = 0; i < 26; i++) {
+    const y = r() * S;
+    const x = r() * S;
+    const len = 60 + r() * 140;
+    const w = 1 + r() * 2.5;
+    g.globalAlpha = 0.25 + r() * 0.35;
+    g.strokeStyle = r() < 0.75 ? '#f4fbff' : '#7fb3cc';
+    g.lineWidth = w;
+    g.lineCap = 'round';
+    wrapped(g, S, S, () => {
+      g.beginPath();
+      g.moveTo(x, y);
+      g.bezierCurveTo(x + len * 0.3, y - 3, x + len * 0.7, y + 3, x + len, y);
+      g.stroke();
+    });
+  }
+  g.globalAlpha = 1;
+  // Faint tile seams across the ramp every half-texture.
+  g.strokeStyle = '#7aa9c0';
+  g.globalAlpha = 0.3;
+  g.lineWidth = 2;
+  for (const x of [0, S / 2]) {
+    g.beginPath();
+    g.moveTo(x, 0);
+    g.lineTo(x, S);
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+  return toTexture(c, renderer);
 }
 
-/** Meadow grass seen from above. */
-export function grassTexture(): THREE.Texture {
-  const c: Cell = { f1: 0, f2: 0, id: 0 };
-  return bake('grass', (u, v, t) => grassTexel(u, v, t, c), { size: 1024, normal: 5 });
-}
-
-/**
- * Side of a floating island: a turf lip with hanging roots at the top (v = 1), then layered soil with stones.
- * Tiles horizontally; the lip repeats every tile down a tall side, like the strata.
- */
-export function earthSideTexture(): THREE.Texture {
-  const c: Cell = { f1: 0, f2: 0, id: 0 };
-  const soilA = hex(0x6b4f35);
-  const soilB = hex(0x8d6b48);
-  const clay = hex(0xa07a52);
-  const stone = hex(0x847a6e);
-  return bake(
-    'earthSide',
-    (u, v, t) => {
-      const warp = fbm(u, v, 4, 3, 211) * 0.04;
-      const strata = Math.sin((v + warp) * Math.PI * 2 * 7) * 0.5 + 0.5;
-      const grain = fbm(u, v, 16, 4, 223) * 0.5 + 0.5;
-      paint(t, soilA, soilB, strata * 0.6 + grain * 0.4);
-      const band = smooth(0.7, 0.95, Math.sin((v + warp * 2) * Math.PI * 2 * 3 + 1) * 0.5 + 0.5);
-      t.r = lerp(t.r, clay[0], band * 0.5);
-      t.g = lerp(t.g, clay[1], band * 0.5);
-      t.b = lerp(t.b, clay[2], band * 0.5);
-      t.h = grain * 0.3 + strata * 0.15;
-      t.rough = 0.92;
-      // Embedded stones.
-      worley(u, v, 18, 229, c, 1);
-      const pebble = smooth(0.42, 0.3, c.f1) * (c.id > 0.35 ? 1 : 0);
-      if (pebble > 0) {
-        const s = 0.75 + c.id * 0.35;
-        t.r = lerp(t.r, stone[0] * s, pebble);
-        t.g = lerp(t.g, stone[1] * s, pebble);
-        t.b = lerp(t.b, stone[2] * s, pebble);
-        t.h += pebble * 0.6;
-        t.rough = lerp(t.rough, 0.7, pebble);
-      }
-      t.ao = 0.75 + t.h * 0.3;
-      // Turf lip and the roots hanging from it.
-      const edge = 0.84 + noise(u, 0.5, 12, 233) * 0.025 + noise(u, 0.5, 48, 239) * 0.012;
-      if (v > edge) {
-        grassTexel(u, v, t, c);
-        t.h += 0.4;
-      } else {
-        const root = ridged(u, v, 40, 2, 241, 4);
-        const hang = smooth(edge - 0.16, edge, v) * smooth(0.82, 0.95, root);
-        t.r = lerp(t.r, 0.33, hang * 0.6);
-        t.g = lerp(t.g, 0.24, hang * 0.6);
-        t.b = lerp(t.b, 0.15, hang * 0.6);
-        t.h += hang * 0.3;
-        shade(t, 1 - smooth(edge - 0.06, edge, v) * 0.45); // the overhang's shadow just under the turf
-      }
-    },
-    { size: 512, normal: 6 },
-  );
-}
-
-/** Weathered sandstone for island undersides and distant islands: fractured blocks, lichen, dark seams. */
-export function rockTexture(): THREE.Texture {
-  const c: Cell = { f1: 0, f2: 0, id: 0 };
-  const light = hex(0xa39280);
-  const dark = hex(0x6a5d50);
-  const lichen = hex(0x76804e);
-  return bake(
-    'rock',
-    (u, v, t) => {
-      worley(u, v, 6, 307, c);
-      const crack = smooth(0.06, 0.0, c.f2 - c.f1);
-      const n = fbm(u, v, 8, 5, 311) * 0.5 + 0.5;
-      const strata = Math.sin((v + fbm(u, v, 3, 2, 313) * 0.08) * Math.PI * 2 * 9) * 0.5 + 0.5;
-      paint(t, dark, light, n * 0.6 + strata * 0.2 + c.id * 0.3);
-      const moss = smooth(0.6, 0.75, fbm(u, v, 5, 4, 317) * 0.5 + 0.5);
-      t.r = lerp(t.r, lichen[0], moss * 0.7);
-      t.g = lerp(t.g, lichen[1], moss * 0.7);
-      t.b = lerp(t.b, lichen[2], moss * 0.7);
-      shade(t, 1 - crack * 0.6);
-      t.h = n * 0.6 + strata * 0.15 - crack * 0.8 + c.f1 * 0.2;
-      t.rough = 0.86 + crack * 0.1 - moss * 0.05;
-      t.ao = 1 - crack * 0.7;
-    },
-    { size: 512, normal: 8 },
-  );
-}
-
-/** Coursed limestone wall: dressed blocks in staggered rows, recessed mortar, rain streaks and moss low down. */
-export function wallTexture(): THREE.Texture {
-  const rows = 6;
-  const stone = hex(0xcbb894);
-  const stoneDark = hex(0xa99470);
-  const mortar = hex(0x8f8573);
-  const moss = hex(0x5d6b34);
-  return bake(
-    'wall',
-    (u, v, t) => {
-      const ry = v * rows;
-      const row = Math.floor(ry);
-      const fy = ry - row;
-      // Three blocks per row with a random stagger, so joints don't line up.
-      const cols = 3;
-      const shift = ((row * 0.37) % 1) * 1.0;
-      const rx = (u * cols + shift) % cols;
-      const col = Math.floor(rx);
-      const fx = rx - col;
-      const id = ((row * 7 + col * 13) % 17) / 17;
-      const jx = Math.min(fx, 1 - fx) * (1 / cols) * 3; // distance to a vertical joint, in rows
-      const jy = Math.min(fy, 1 - fy);
-      const joint = Math.min(jx, jy);
-      const inMortar = smooth(0.05, 0.025, joint);
-      const bevel = smooth(0.025, 0.12, joint); // blocks round off toward their edges
-      const grain = fbm(u, v, 12, 5, 401) * 0.5 + 0.5;
-      paint(t, stoneDark, stone, grain * 0.5 + id * 0.5);
-      const streak = smooth(0.55, 0.9, fbm(u, v, 24, 3, 409, 2) * 0.5 + 0.5); // rain streaks run down
-      shade(t, 1 - streak * 0.18);
-      const damp = smooth(0.3, 0.0, v) * (fbm(u, v, 6, 3, 419) * 0.5 + 0.5);
-      t.r = lerp(t.r, moss[0], damp * 0.5);
-      t.g = lerp(t.g, moss[1], damp * 0.5);
-      t.b = lerp(t.b, moss[2], damp * 0.5);
-      t.r = lerp(t.r, mortar[0], inMortar);
-      t.g = lerp(t.g, mortar[1], inMortar);
-      t.b = lerp(t.b, mortar[2], inMortar);
-      const pits = smooth(0.7, 0.85, noise(u, v, 96, 421) * 0.5 + 0.5);
-      t.h = bevel * 0.7 + grain * 0.25 - pits * 0.15;
-      t.rough = lerp(0.82, 0.95, inMortar) - damp * 0.1;
-      t.ao = 0.45 + bevel * 0.55;
-    },
-    { size: 1024, normal: 10 },
-  );
-}
-
-/** Weathered timber planks for crates and cover: grain, knots, worn edges, dark gaps between boards. */
-export function woodTexture(): THREE.Texture {
-  const planks = 4;
-  const light = hex(0x9c6c42);
-  const dark = hex(0x5f3d22);
-  return bake(
-    'wood',
-    (u, v, t) => {
-      const py = v * planks;
-      const plank = Math.floor(py);
-      const fy = py - plank;
-      const off = plank * 0.31;
-      const warp = fbm(u + off, v, 2, 3, 503, 8) * 0.6;
-      const rings = Math.sin((fy * 6 + warp * 4) * Math.PI * 2) * 0.5 + 0.5;
-      const fibre = noise(u + off, v, 6, 509, 512) * 0.5 + 0.5;
-      // A knot or two per plank: rings tighten around a dark centre.
-      const kx = ((plank * 0.618 + 0.2) % 1) - u;
-      const ky = (fy - 0.5) * 0.25;
-      const knot = Math.exp(-(kx * kx + ky * ky) * 900);
-      const tone = 0.8 + ((plank * 0.53) % 1) * 0.35;
-      paint(t, dark, light, rings * 0.45 + fibre * 0.35 + 0.2);
-      shade(t, tone * (1 - knot * 0.5));
-      const gap = smooth(0.035, 0.0, Math.min(fy, 1 - fy));
-      shade(t, 1 - gap * 0.75);
-      const wear = smooth(0.12, 0.04, Math.min(fy, 1 - fy)) * (fbm(u, v, 16, 3, 521) * 0.5 + 0.5);
-      t.r += wear * 0.08;
-      t.g += wear * 0.06;
-      t.b += wear * 0.04;
-      t.h = 0.7 - gap * 0.7 + fibre * 0.1 + rings * 0.08;
-      t.rough = 0.7 + fibre * 0.15 + gap * 0.15;
-      t.ao = 1 - gap * 0.8;
-    },
-    { size: 512, normal: 6 },
-  );
-}
-
-/** Deeply furrowed bark with moss in the cracks, for the great tree and the timber trunks. */
-export function barkTexture(): THREE.Texture {
-  const light = hex(0x6e5844);
-  const dark = hex(0x2f241b);
-  const moss = hex(0x4f6a2e);
-  return bake(
-    'bark',
-    (u, v, t) => {
-      const ridge = ridged(u, v, 10, 4, 601, 2); // long vertical plates
-      const n = fbm(u, v, 24, 3, 607) * 0.5 + 0.5;
-      paint(t, dark, light, ridge * 0.8 + n * 0.2);
-      const crevice = 1 - ridge;
-      const m = smooth(0.55, 0.8, fbm(u, v, 4, 3, 613) * 0.5 + 0.5) * crevice;
-      t.r = lerp(t.r, moss[0], m * 0.8);
-      t.g = lerp(t.g, moss[1], m * 0.8);
-      t.b = lerp(t.b, moss[2], m * 0.8);
-      t.h = ridge * 0.9 + n * 0.1;
-      t.rough = 0.9;
-      t.ao = 0.35 + ridge * 0.65;
-    },
-    { size: 512, normal: 14 },
-  );
-}
-
-/**
- * Surf ramps: polished blue-grey stone with long flow veins along the ramp (texture u), glossy enough to catch the
- * sky. Reads at a glance as "ride this", unlike the matte ground around it.
- */
-export function surfTexture(): THREE.Texture {
-  const base = hex(0x7fa7bd);
-  const pale = hex(0xc6dde8);
-  const vein = hex(0x4c7187);
-  return bake(
-    'surf',
-    (u, v, t) => {
-      const flow = fbm(u, v, 1, 4, 701, 6) * 0.5 + 0.5;
-      const veins = smooth(0.92, 0.99, ridged(u, v, 2, 3, 709, 10));
-      paint(t, base, pale, flow);
-      t.r = lerp(t.r, vein[0], veins * 0.6);
-      t.g = lerp(t.g, vein[1], veins * 0.6);
-      t.b = lerp(t.b, vein[2], veins * 0.6);
-      // Slab seams across the ramp every half tile.
-      const seam = smooth(0.012, 0.0, Math.min(u % 0.5, 0.5 - (u % 0.5)));
-      shade(t, 1 - seam * 0.5);
-      t.h = -seam;
-      t.rough = 0.16 + flow * 0.08 + seam * 0.5;
-      t.ao = 1 - seam * 0.5;
-    },
-    { size: 512, normal: 3 },
-  );
-}
-
-/**
- * A mass of overlapping leaves, nearly neutral in colour so each canopy's material colour tints it: lit leaf faces
- * with a midrib, darker gaps between them. Tile it a few times over a crown (set `repeat`).
- */
-export function foliageTexture(): THREE.Texture {
-  const c: Cell = { f1: 0, f2: 0, id: 0 };
-  return bake(
-    'foliage',
-    (u, v, t) => {
-      worley(u, v, 22, 801, c, 1);
-      const leaf = smooth(0.0, 0.18, c.f2 - c.f1); // 0 at leaf edges, 1 inside
-      const vein = smooth(0.06, 0.0, Math.abs(c.f1 - c.f2 * 0.55)) * leaf * 0.3;
-      const b = (0.62 + c.id * 0.38) * (0.35 + leaf * 0.65) + vein * 0.2;
-      t.r = b * (0.93 + c.id * 0.12);
-      t.g = b;
-      t.b = b * 0.8;
-      t.h = leaf * (0.6 + c.id * 0.4);
-      t.rough = 0.6 + (1 - leaf) * 0.3;
-      t.ao = 0.4 + leaf * 0.6;
-    },
-    { size: 512, normal: 5 },
-  );
+/** Ridged bark for the great tree's trunk and roots. */
+export function barkTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(71);
+  g.fillStyle = '#7a5236';
+  g.fillRect(0, 0, S, S);
+  // Vertical ridges with soft light/dark edges, wrapping horizontally.
+  for (let i = 0; i < 26; i++) {
+    const x = r() * S;
+    const w = 4 + r() * 10;
+    g.fillStyle = r() > 0.5 ? '#8f6440' : '#5e3e28';
+    g.globalAlpha = 0.5 + r() * 0.4;
+    for (const dx of [-S, 0, S]) {
+      g.beginPath();
+      g.moveTo(x + dx, 0);
+      for (let y = 0; y <= S; y += 16) g.lineTo(x + dx + Math.sin(y * 0.04 + i) * 4, y);
+      g.lineTo(x + dx + w, S);
+      for (let y = S; y >= 0; y -= 16) g.lineTo(x + dx + w + Math.sin(y * 0.04 + i) * 4, y);
+      g.fill();
+    }
+  }
+  g.globalAlpha = 1;
+  blobs(g, S, S, r, 18, ['#6f9a4a', '#88b05a'], [6, 18], [0.25, 0.4]); // moss
+  return toTexture(c, renderer);
 }

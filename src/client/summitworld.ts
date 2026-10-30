@@ -3,28 +3,26 @@ import type { Box } from '../shared/collision.ts';
 import type { MapData } from '../shared/map.ts';
 import { CABLEWAYS } from '../shared/summit.ts';
 import { cliffTexture, graniteTexture, iceTexture, iceWallTexture, logTexture, pisteTexture, snowTexture } from './summittextures.ts';
-import { barkTexture, cloudSeaTexture, cloudTexture, padTexture, rng, softDot, woodTexture } from './textures.ts';
-import { type World, boxGeometry, hookRing, puffball, rampGeometry, windGate, windSpirit } from './world.ts';
-import { pbr, tiled } from './render/surface.ts';
-import { daySky, sunlit } from './render/sky.ts';
-import { pointSprites } from './render/points.ts';
+import { barkTexture, cloudSeaTexture, cloudTexture, padTexture, rng, softDot, toonRamp, woodTexture } from './textures.ts';
+import { type World, boxGeometry, hookRing, makeSky, puffball, rampGeometry, windGate, windSpirit } from './world.ts';
 
 // Summit on a clear cold morning: pale blue sky, a low bright sun, snow everywhere, a sea of cloud below
 // and other peaks poking through it. Gameplay surfaces stay distinct: snow-topped rock floors, groomed
 // piste slide ramps with orange markers, glassy cyan surf ice, deep-blue ice walls, dark log lodge walls,
 // granite boulders, mint-glowing pads and gates.
 
+const SKY = { zenith: 0x4a86d0, sky: 0x9cc8ee, horizon: 0xf3f6fb, below: 0xe9eff7, deep: 0xb9cbe2 };
 const SUN_DIR = new THREE.Vector3(60, 45, -40).normalize();
 const CLOUD_Y = -42; // the cloud sea, well below killY (-14): fallers vanish long before they reach it
 const CLIFF_BOTTOM = -24; // cliffs run down to here, inside the mountainside
 const SHOULDER_TOP = -15; // the snowy mountainside flares out from here, just below killY
 
-export function buildSummit(map: MapData): World {
+export function buildSummit(map: MapData, renderer: THREE.WebGLRenderer): World {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xdfe9f4, 140, 760);
-  scene.add(daySky(SUN_DIR, { turbidity: 1.8, rayleigh: 1, clouds: 0.18 })); // thin, crisp mountain air
-  scene.add(new THREE.HemisphereLight(0xdcecff, 0x8a98b0, 0.15));
-  const sun = new THREE.DirectionalLight(0xfff0da, 3.4);
+  scene.add(makeSky(SKY, SUN_DIR));
+  scene.add(new THREE.HemisphereLight(0xdcecff, 0x8a98b0, 1.6));
+  const sun = new THREE.DirectionalLight(0xfff0da, 2.3);
   sun.position.copy(SUN_DIR).multiplyScalar(120);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -37,17 +35,20 @@ export function buildSummit(map: MapData): World {
   sun.shadow.normalBias = 0.05;
   scene.add(sun, sun.target);
 
-  const snow = pbr({ map: snowTexture() });
-  const cliff = pbr({ map: cliffTexture() });
-  const granite = pbr({ map: graniteTexture() });
-  const iceWall = pbr({ map: iceWallTexture() });
-  const surf = pbr({ map: iceTexture() });
-  const iceDeep = pbr({ color: 0x5f9cc4, roughness: 0.08 });
-  const piste = pbr({ map: pisteTexture() });
-  const logs = pbr({ map: logTexture() });
-  const wood = pbr({ map: woodTexture() });
-  const bark = pbr({ map: barkTexture() });
-  const padMat = pbr({ map: padTexture(), emissive: new THREE.Color(0x58e0b8), emissiveIntensity: 0.5 });
+  const ramp = toonRamp();
+  const toon = (p: THREE.MeshToonMaterialParameters) => new THREE.MeshToonMaterial({ gradientMap: ramp, ...p });
+  // Shadowed snow would go grey; a cool emissive keeps it bright and blue in the shade.
+  const snow = toon({ map: snowTexture(renderer), emissive: new THREE.Color(0x56627a), emissiveIntensity: 0.5 });
+  const cliff = toon({ map: cliffTexture(renderer), emissive: new THREE.Color(0x3a4458), emissiveIntensity: 0.4 });
+  const granite = toon({ map: graniteTexture(renderer), emissive: new THREE.Color(0x2e3646), emissiveIntensity: 0.4 });
+  const iceWall = toon({ map: iceWallTexture(renderer), emissive: new THREE.Color(0x2a6a96), emissiveIntensity: 0.35 });
+  const surf = toon({ map: iceTexture(renderer), emissive: new THREE.Color(0x3a8ab8), emissiveIntensity: 0.35 });
+  const iceDeep = toon({ color: 0x5f9cc4, emissive: new THREE.Color(0x24506e), emissiveIntensity: 0.4 });
+  const piste = toon({ map: pisteTexture(renderer), emissive: new THREE.Color(0x5a5248), emissiveIntensity: 0.35 });
+  const logs = toon({ map: logTexture(renderer) });
+  const wood = toon({ map: woodTexture(renderer) });
+  const bark = toon({ map: barkTexture(renderer) });
+  const padMat = toon({ map: padTexture(renderer), emissive: new THREE.Color(0x58e0b8), emissiveIntensity: 0.5 });
 
   const pads: THREE.Object3D[] = [];
   const hooks: ReturnType<typeof hookRing>[] = [];
@@ -114,7 +115,7 @@ export function buildSummit(map: MapData): World {
   const r = rng(23);
   const flag = summitFlag(map.boxes);
   const cables = cableways(granite);
-  scene.add(pines(trunks, r), flag.group, cables.group, mountainside(r), cloudSea(), distantPeaks(r), horizonClouds(r));
+  scene.add(pines(trunks, r), flag.group, cables.group, mountainside(renderer, r), cloudSea(renderer), distantPeaks(r), horizonClouds(r));
   const snowfall = fallingSnow();
   scene.add(snowfall.points);
 
@@ -151,10 +152,12 @@ function cliffSkirt(b: Box, mat: THREE.Material): THREE.Mesh {
  * The mountain under the plateau: a craggy snow cone flaring out from just below the cliffs (and below killY)
  * down through the cloud sea. Its top hides inside the cliffs.
  */
-function mountainside(r: () => number): THREE.Group {
+function mountainside(renderer: THREE.WebGLRenderer, r: () => number): THREE.Group {
   const g = new THREE.Group();
   // Snow-capped rock bands, repeating down the slope.
-  const slope = pbr({ map: tiled(cliffTexture(), 14, 4) });
+  const tex = cliffTexture(renderer);
+  tex.repeat.set(14, 4);
+  const slope = new THREE.MeshToonMaterial({ map: tex, gradientMap: toonRamp(), emissive: new THREE.Color(0x3a4458), emissiveIntensity: 0.4 });
   const h = 90;
   const geo = new THREE.CylinderGeometry(46, 190, h, 28, 6, true);
   const pos = geo.attributes.position as THREE.BufferAttribute;
@@ -178,8 +181,8 @@ function mountainside(r: () => number): THREE.Group {
 /** Snow-laden pine boughs on each trunk, starting above head height so they never hide a player. */
 function pines(trunks: Box[], r: () => number): THREE.Group {
   const g = new THREE.Group();
-  const needles = [pbr({ color: 0x2f5a46 }), pbr({ color: 0x3a6b52 })];
-  const snowCap = pbr({ color: 0xf4f8fd, roughness: 0.7 });
+  const needles = [new THREE.MeshToonMaterial({ color: 0x2f5a46, gradientMap: toonRamp() }), new THREE.MeshToonMaterial({ color: 0x3a6b52, gradientMap: toonRamp() })];
+  const snowCap = new THREE.MeshToonMaterial({ color: 0xf4f8fd, emissive: 0x56627a, emissiveIntensity: 0.4, gradientMap: toonRamp() });
   for (const t of trunks) {
     const x = (t.min.x + t.max.x) / 2;
     const z = (t.min.z + t.max.z) / 2;
@@ -206,13 +209,13 @@ function summitFlag(boxes: readonly Box[]) {
   const peak = boxes.filter((b) => b.kind === 'floor').reduce((a, b) => (b.max.y > a.max.y ? b : a));
   const g = new THREE.Group();
   g.position.set((peak.min.x + peak.max.x) / 2, peak.max.y, (peak.min.z + peak.max.z) / 2);
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 3.4, 8), pbr({ color: 0x5a4030 }));
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 3.4, 8), new THREE.MeshToonMaterial({ color: 0x5a4030 }));
   pole.position.y = 1.7;
   const geo = new THREE.PlaneGeometry(1.4, 0.8, 8, 2);
   geo.translate(0.7, 0, 0);
-  const flag = new THREE.Mesh(geo, pbr({ color: 0xe0524a, side: THREE.DoubleSide }));
+  const flag = new THREE.Mesh(geo, new THREE.MeshToonMaterial({ color: 0xe0524a, side: THREE.DoubleSide, gradientMap: toonRamp() }));
   flag.position.y = 3;
-  const cairn = new THREE.Mesh(new THREE.DodecahedronGeometry(0.45, 0), pbr({ color: 0x8a93a3 }));
+  const cairn = new THREE.Mesh(new THREE.DodecahedronGeometry(0.45, 0), new THREE.MeshToonMaterial({ color: 0x8a93a3 }));
   cairn.position.y = 0.2;
   cairn.scale.y = 0.6;
   g.add(pole, flag, cairn);
@@ -231,9 +234,9 @@ function summitFlag(boxes: readonly Box[]) {
 /** The haul rope off each cable station, sagging down the mountain into the clouds, with gondolas riding it. */
 function cableways(rockMat: THREE.Material) {
   const group = new THREE.Group();
-  const steel = pbr({ color: 0x3b4250 });
-  const cabinMat = pbr({ color: 0xd8483e });
-  const glass = pbr({ color: 0xbfe3f5, roughness: 0.04, metalness: 0.1 });
+  const steel = new THREE.MeshToonMaterial({ color: 0x3b4250 });
+  const cabinMat = new THREE.MeshToonMaterial({ color: 0xd8483e, gradientMap: toonRamp() });
+  const glass = new THREE.MeshToonMaterial({ color: 0xbfe3f5, emissive: 0x4a7a96, emissiveIntensity: 0.4 });
   const LEN = 320;
   const DROP = 90;
   const lines: THREE.CatmullRomCurve3[] = [];
@@ -288,12 +291,12 @@ function cableways(rockMat: THREE.Material) {
 }
 
 /** The sea of cloud the summit stands in. */
-function cloudSea(): THREE.Mesh {
-  const tex = cloudSeaTexture();
+function cloudSea(renderer: THREE.WebGLRenderer): THREE.Mesh {
+  const tex = cloudSeaTexture(renderer);
   tex.repeat.set(10, 10);
   const sea = new THREE.Mesh(
     new THREE.PlaneGeometry(2400, 2400),
-    new THREE.MeshBasicMaterial({ map: tex, color: sunlit(0.85), transparent: true, opacity: 0.97, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff, transparent: true, opacity: 0.97, depthWrite: false }),
   );
   sea.rotation.x = -Math.PI / 2;
   sea.position.y = CLOUD_Y;
@@ -304,8 +307,8 @@ function cloudSea(): THREE.Mesh {
 /** A ring of far-off snowy peaks rising out of the clouds. */
 function distantPeaks(r: () => number): THREE.Group {
   const g = new THREE.Group();
-  const rock = [0x8592a8, 0x75839b, 0x96a2b6].map((c) => pbr({ color: c }));
-  const cap = pbr({ color: 0xf6f9fd, roughness: 0.7 });
+  const rock = [0x8592a8, 0x75839b, 0x96a2b6].map((c) => new THREE.MeshToonMaterial({ color: c, gradientMap: toonRamp() }));
+  const cap = new THREE.MeshToonMaterial({ color: 0xf6f9fd, emissive: 0x6a7890, emissiveIntensity: 0.35, gradientMap: toonRamp() });
   for (let i = 0; i < 26; i++) {
     const a = (i / 26) * Math.PI * 2 + r() * 0.15;
     const dist = 320 + r() * 320;
@@ -332,7 +335,7 @@ function horizonClouds(r: () => number): THREE.Group {
   const textures = [1, 2, 3].map((s) => cloudTexture(s * 131));
   const add = (dist: number, y: number, w: number) => {
     const a = r() * Math.PI * 2;
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: textures[Math.floor(r() * textures.length)], color: sunlit().multiply(new THREE.Color(0xe6efff)), fog: false, depthWrite: false, transparent: true }));
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: textures[Math.floor(r() * textures.length)], color: 0xe6efff, fog: false, depthWrite: false, transparent: true }));
     sp.position.set(Math.cos(a) * dist, y, Math.sin(a) * dist);
     sp.scale.set(w, w * 0.5, 1);
     g.add(sp);
@@ -360,7 +363,7 @@ function fallingSnow() {
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const points = pointSprites(geo, { map: softDot(), color: 0xffffff, size: 0.2, transparent: true, opacity: 0.9, depthWrite: false });
+  const points = new THREE.Points(geo, new THREE.PointsMaterial({ map: softDot(), color: 0xffffff, size: 0.2, transparent: true, opacity: 0.9, depthWrite: false }));
   points.frustumCulled = false;
   let last = 0;
   return {

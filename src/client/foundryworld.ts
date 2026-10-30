@@ -15,11 +15,8 @@ import { buildJugMachine, buildPerkMachine } from './jugmachine.ts';
 import { PERKS } from '../shared/perks.ts';
 import { MOON_DIR, NIGHT, makeMoon, makeStars } from './night.ts';
 import { buildPunchMachine } from './punchmachine.ts';
-import { rng, softDot } from './textures.ts';
-import { type World, rampGeometry } from './world.ts';
-import { pbr } from './render/surface.ts';
-import { nightSky } from './render/sky.ts';
-import { pointSprites } from './render/points.ts';
+import { rng, softDot, toonRamp } from './textures.ts';
+import { type World, makeSky, rampGeometry } from './world.ts';
 
 // The Foundry at night. Built for speed: every static box is baked into a handful of merged meshes (one per material),
 // light is faked with glow sprites and floor pools (the only real light besides the moon is a lamp that follows you),
@@ -107,17 +104,19 @@ function floorQuad(x: number, y: number, z: number, w: number, d: number, rot = 
   return g;
 }
 
-export function buildFoundry(map: MapData, accent: number): FoundryWorld {
+export function buildFoundry(map: MapData, renderer: THREE.WebGLRenderer, accent: number): FoundryWorld {
   const lay = map.survival as SurvivalLayout;
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x0d1128, 14, 110);
   const r = rng(7);
+  const ramp = toonRamp();
+  const toon = (p: THREE.MeshToonMaterialParameters) => new THREE.MeshToonMaterial({ gradientMap: ramp, ...p });
 
   // --- Sky and light ------------------------------------------------------
-  scene.add(nightSky(NIGHT, MOON_DIR));
+  scene.add(makeSky(NIGHT, MOON_DIR, true));
   const stars = makeStars();
   scene.add(stars.obj, makeMoon());
-  scene.add(new THREE.HemisphereLight(0x6b82d6, 0x2a2548, 1.1));
+  scene.add(new THREE.HemisphereLight(0x6b82d6, 0x2a2548, 1.3));
   const moon = new THREE.DirectionalLight(NIGHT.light, 0.85);
   moon.position.copy(MOON_DIR).multiplyScalar(120).add(COMPOUND_MID);
   moon.target.position.copy(COMPOUND_MID);
@@ -132,22 +131,22 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
   moon.shadow.normalBias = 0.06;
   scene.add(moon, moon.target);
   // The one real light that moves: a warm glow around you, so rooms read even away from a lamp.
-  const lamp = new THREE.PointLight(0xffe2b8, 32, 24, 1.5);
+  const lamp = new THREE.PointLight(0xffe2b8, 20, 20, 1.5);
   scene.add(lamp);
 
   // --- Materials ----------------------------------------------------------
   const M = {
-    brick: pbr({ map: brickTexture(), vertexColors: true }),
-    gravel: pbr({ map: gravelTexture(), vertexColors: true }),
-    plate: pbr({ map: steelTexture(), vertexColors: true }),
-    hazard: pbr({ map: hazardTexture(), vertexColors: true }),
-    machine: pbr({ map: machineTexture(), vertexColors: true }),
-    boiler: pbr({ map: boilerTexture(), vertexColors: true }),
-    crate: pbr({ map: crateTexture(), vertexColors: true }),
-    conveyor: pbr({ map: conveyorTexture(), vertexColors: true }),
-    concrete: pbr({ map: concreteTexture(), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-    boards: pbr({ map: floorboardTexture(), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-    tiles: pbr({ map: tileTexture(), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    brick: toon({ map: brickTexture(renderer), vertexColors: true }),
+    gravel: toon({ map: gravelTexture(renderer), vertexColors: true }),
+    plate: toon({ map: steelTexture(renderer), vertexColors: true }),
+    hazard: toon({ map: hazardTexture(renderer), vertexColors: true }),
+    machine: toon({ map: machineTexture(renderer), vertexColors: true }),
+    boiler: toon({ map: boilerTexture(renderer), vertexColors: true }),
+    crate: toon({ map: crateTexture(renderer), vertexColors: true }),
+    conveyor: toon({ map: conveyorTexture(renderer), vertexColors: true }),
+    concrete: toon({ map: concreteTexture(renderer), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    boards: toon({ map: floorboardTexture(renderer), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    tiles: toon({ map: tileTexture(renderer), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
   };
   const buckets = new Map<keyof typeof M, THREE.BufferGeometry[]>();
   const put = (k: keyof typeof M, g: THREE.BufferGeometry) => {
@@ -351,7 +350,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
     const cord = l.ceil - l.y - 0.2;
     shadeGeo.push(bake(cylGeo(0.03, cord, 1, l.x, l.y + 0.2 + cord / 2, l.z, 4, false), false));
   }
-  const shades = new THREE.Mesh(mergeGeometries(shadeGeo, false), pbr({ color: 0x2b2f36, side: THREE.DoubleSide }));
+  const shades = new THREE.Mesh(mergeGeometries(shadeGeo, false), toon({ color: 0x2b2f36, side: THREE.DoubleSide }));
   scene.add(shades);
 
   // Glow sprites for the lamps (one draw call) and soft pools of light on the floor (another).
@@ -362,7 +361,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
   const glowGeo = new THREE.BufferGeometry();
   glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPos, 3));
   glowGeo.setAttribute('color', new THREE.BufferAttribute(glowCol, 3));
-  scene.add(pointSprites(glowGeo, { map: dot, size: 2.6, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  scene.add(new THREE.Points(glowGeo, new THREE.PointsMaterial({ map: dot, size: 2.6, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
 
   const yardLights: [number, number][] = [[-44, -40], [44, -40], [-44, 32], [44, 32], [0, 33], [-44, -66], [44, -66], [-28, -84], [28, -84], [-20, -42], [24, -42]];
   const poolGeos: THREE.BufferGeometry[] = [];
@@ -446,7 +445,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
       }
     }
   }
-  scene.add(new THREE.Mesh(mergeGeometries(glass, false), new THREE.MeshBasicMaterial({ map: paneTexture(), color: 0xb5c0ea })));
+  scene.add(new THREE.Mesh(mergeGeometries(glass, false), new THREE.MeshBasicMaterial({ map: paneTexture(renderer), color: 0xb5c0ea })));
 
   // --- The yard: flood-light poles, barrels, a skyline, a water tower ---------
   const prop: THREE.BufferGeometry[] = [];
@@ -454,12 +453,12 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
     prop.push(cylGeo(0.18, 11, 2, x, 5.5, z, 8, false));
     prop.push(boxGeo({ min: { x: x - 0.9, y: 11, z: z - 0.4 }, max: { x: x + 0.9, y: 11.5, z: z + 0.4 }, kind: 'steel' }, 1, false));
   }
-  scene.add(new THREE.Mesh(mergeGeometries(prop, false), pbr({ color: 0x23262d })));
+  scene.add(new THREE.Mesh(mergeGeometries(prop, false), toon({ color: 0x23262d })));
   const lensGeo = new THREE.BufferGeometry();
   lensGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(yardLights.flatMap(([x, z]) => [x, 10.9, z])), 3));
-  scene.add(pointSprites(lensGeo, { map: dot, size: 7, color: 0xcfdcff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  scene.add(new THREE.Points(lensGeo, new THREE.PointsMaterial({ map: dot, size: 7, color: 0xcfdcff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
 
-  const barrels = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.4, 0.4, 1.0, 12), pbr({ color: 0xffffff }), 40);
+  const barrels = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.4, 0.4, 1.0, 12), toon({ color: 0xffffff }), 40);
   const bm = new THREE.Matrix4();
   const barrelAt: [number, number][] = [
     [-47, -43], [-45.8, -43.6], [-46.4, -41.8], [47, -43], [45.6, -43.4], [-47, 35], [-45.6, 34.2], [47, 35], [46, 33.8], [47.2, 25],
@@ -505,7 +504,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
   }
   const dustGeo = new THREE.BufferGeometry();
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
-  scene.add(pointSprites(dustGeo, { map: dot, color: 0xc9d6ff, size: 0.12, transparent: true, opacity: 0.7, depthWrite: false }));
+  scene.add(new THREE.Points(dustGeo, new THREE.PointsMaterial({ map: dot, color: 0xc9d6ff, size: 0.12, transparent: true, opacity: 0.7, depthWrite: false })));
   const steam = [0, 1, 2, 3, 4, 5].map((i) => {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0xc8d6e8, transparent: true, opacity: 0, depthWrite: false }));
     scene.add(s);
@@ -526,7 +525,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
     slab.castShadow = slab.receiveShadow = true;
     g.add(slab);
     const alongX = sx > sz;
-    const sign = new THREE.MeshBasicMaterial({ map: signTexture([d.name.toUpperCase(), `${d.price}`], { w: 512, h: 256, bg: '#202429', fg: '#f5efd6' }), color: 0xd8dff0 });
+    const sign = new THREE.MeshBasicMaterial({ map: signTexture(renderer, [d.name.toUpperCase(), `${d.price}`], { w: 512, h: 256, bg: '#202429', fg: '#f5efd6' }), color: 0xd8dff0 });
     if (d.id === lay.hatch) {
       // The roof hatch: its sign faces down into the hall.
       const p = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), sign);
@@ -573,20 +572,20 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
   const lever = new THREE.Group();
   lever.position.set(lay.power.pos.x, lay.power.pos.y + 1.3, lay.power.pos.z + 0.6);
   lever.rotation.y = lay.power.yaw;
-  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.12), pbr({ color: 0x3a4048 }));
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.12), toon({ color: 0x3a4048 }));
   lever.add(panel);
   const arm = new THREE.Group();
   arm.position.set(0, 0, 0.1);
-  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8), pbr({ color: 0xb8bcc4 }));
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8), toon({ color: 0xb8bcc4 }));
   stick.position.y = 0.25;
-  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), pbr({ color: 0xd23c33 }));
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), toon({ color: 0xd23c33 }));
   knob.position.y = 0.5;
   arm.add(stick, knob);
   lever.add(arm);
   const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), powerOff);
   bulb.position.set(0.3, 0.4, 0.08);
   lever.add(bulb);
-  const powerSign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.45), new THREE.MeshBasicMaterial({ map: signTexture(['POWER'], { w: 512, h: 160, bg: '#2a2e35', fg: '#ffd45a', border: '#8a8f99' }), color: 0xd8dff0 }));
+  const powerSign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.45), new THREE.MeshBasicMaterial({ map: signTexture(renderer, ['POWER'], { w: 512, h: 160, bg: '#2a2e35', fg: '#ffd45a', border: '#8a8f99' }), color: 0xd8dff0 }));
   powerSign.position.set(0, 0.95, 0.02);
   lever.add(powerSign);
   scene.add(lever);
@@ -613,14 +612,14 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
     if (i === 0) m.position.set(0.3, 0, 0.9); // the blade sits at the staff's tip: bring it back to the middle
     if (i === 1) m.position.set(0, 0, 0.33);
     g.add(m, partGlow(0x8ff5e0));
-    const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.6, 12), pbr({ color: 0x3a3f47 }));
+    const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.6, 12), toon({ color: 0x3a3f47 }));
     plinth.position.set(p.pos.x, p.pos.y + 0.3, p.pos.z);
     scene.add(g, plinth);
     return g;
   });
   const bench = new THREE.Group();
   bench.position.set(lay.bench.pos.x, lay.bench.pos.y, lay.bench.pos.z - 0.9);
-  const wood = pbr({ color: 0x7a5a3c });
+  const wood = toon({ color: 0x7a5a3c });
   const top = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.12, 0.8), wood);
   top.position.y = 0.89;
   bench.add(top);
@@ -629,7 +628,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
     leg.position.set(x, 0.42, z);
     bench.add(leg);
   }
-  const benchSign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), new THREE.MeshBasicMaterial({ map: signTexture(['GALE SCYTHE'], { w: 512, h: 128, bg: '#1d3a38', fg: '#8ff5e0', border: '#5a9a92' }), color: 0xd8dff0 }));
+  const benchSign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), new THREE.MeshBasicMaterial({ map: signTexture(renderer, ['GALE SCYTHE'], { w: 512, h: 128, bg: '#1d3a38', fg: '#8ff5e0', border: '#5a9a92' }), color: 0xd8dff0 }));
   benchSign.position.set(0, 1.9, -0.38);
   bench.add(benchSign);
   const benchParts = lay.parts.map((_, i) => {
@@ -648,7 +647,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
 
   // --- Window boards ------------------------------------------------------
   const plankGeo = new THREE.BoxGeometry(3.45, 0.27, 0.1);
-  const planks = new THREE.InstancedMesh(plankGeo, pbr({ map: plankTexture(), color: 0xd8cbb0 }), lay.barricades.length * MAX_BOARDS);
+  const planks = new THREE.InstancedMesh(plankGeo, toon({ map: plankTexture(renderer), color: 0xd8cbb0 }), lay.barricades.length * MAX_BOARDS);
   planks.castShadow = true;
   planks.frustumCulled = false;
   scene.add(planks);
@@ -671,7 +670,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
   };
   const flying: { m: THREE.Mesh; v: THREE.Vector3; w: THREE.Vector3; life: number }[] = [];
   const flyGeo = new THREE.BoxGeometry(3.4, 0.27, 0.1);
-  const flyMat = pbr({ map: plankTexture(), color: 0xd8cbb0 });
+  const flyMat = toon({ map: plankTexture(renderer), color: 0xd8cbb0 });
   const throwPlank = (b: Barricade, y: number) => {
     const m = new THREE.Mesh(flyGeo, flyMat);
     m.position.set(b.pos.x, y, b.pos.z);
@@ -698,7 +697,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
   for (const rm of lay.rooms) {
     if (rm.shape || (rm.x1 - rm.x0) * (rm.z1 - rm.z0) < 50) continue;
     const o = SIGN[rm.name] ?? {};
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.9), new THREE.MeshBasicMaterial({ map: signTexture([rm.name.toUpperCase()], { w: 512, h: 136, bg: '#2a2e35', fg: '#d9d2b8', border: '#8a8f99' }), color: 0xbfc6d8 }));
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.9), new THREE.MeshBasicMaterial({ map: signTexture(renderer, [rm.name.toUpperCase()], { w: 512, h: 136, bg: '#2a2e35', fg: '#d9d2b8', border: '#8a8f99' }), color: 0xbfc6d8 }));
     sign.position.set(o.x ?? (rm.x0 + rm.x1) / 2, o.y ?? rm.floor + Math.min(5.4, (rm.ceil - rm.floor) * 0.62), o.south ? rm.z1 - 0.32 : rm.z0 + 0.32);
     sign.rotation.y = o.south ? Math.PI : 0;
     scene.add(sign);
@@ -707,7 +706,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
 
   // Wall guns are small groups of meshes: only the ones within sight distance are drawn.
   const wallGuns = lay.wallBuys.map((w) => {
-    const g = buildWallBuy(w, accent);
+    const g = buildWallBuy(w, renderer, accent);
     scene.add(g);
     return g;
   });
@@ -716,7 +715,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
   const jug = buildJugMachine(lay.jug);
   jug.obj.rotation.y = -Math.PI / 2; // the tap faces into the room
   scene.add(punch.obj, jug.obj);
-  const decor = buildDecor(scene);
+  const decor = buildDecor(scene, renderer, toon);
   // The other perks: a cask each, in its colour, with its emblem.
   const EMBLEM = { mend: 'cross', zephyr: 'bolt', wind: 'wings' } as const;
   const perkMachines = lay.perks.map((p) => {
@@ -734,7 +733,7 @@ export function buildFoundry(map: MapData, accent: number): FoundryWorld {
   furnaceHalo.scale.set(9, 6, 1);
   furnaceHalo.position.set(lay.punch.x, 1.4, -29.2);
   scene.add(furnaceHalo);
-  const box = buildMysteryBox(accent);
+  const box = buildMysteryBox(renderer, accent);
   scene.add(box.obj);
   let lastT = 0;
   let boxSpot = -1;

@@ -5,8 +5,8 @@ import { type Accessory, HAIR, type HairStyle, type Mouth, SCARF, type Skin, enc
 import { type Gear, itemById } from '../shared/items.ts';
 import { DEFAULT_KNIFE, buildKnife } from './knife.ts';
 import { buildScythe } from './scythe.ts';
+import { toonRamp } from './textures.ts';
 import { buildWear } from './wear.ts';
-import { pbr } from './render/surface.ts';
 
 // Chibi anime sniper: big head (it *is* the head hitbox), huge eyes, spiky hair, a scarf that
 // streams behind at speed, and an AWP. Every player has a look (hair, mouth, accessory): the skin they
@@ -17,6 +17,7 @@ const HEAD_R = 0.25; // a touch inside PLAYER.headRadius so the hair stays insid
 const HIP_Y = 0.78; // hips above feet; legs are this long
 const NECK_Y = 0.55; // in upper-body space (pivots at the hips)
 const AIM_Y = 0.44; // shoulder pivot for the arms + rifle, in upper-body space
+const OUTLINE = 0.0028; // ink line thickness per metre of camera distance
 
 type Vec = [number, number, number];
 type Expr = 'open' | 'blink' | 'hype' | 'ko' | 'zombie';
@@ -26,15 +27,26 @@ const ZOMBIE_HAIR = [0x5d6b4f, 0x7a6f86, 0x8d8a78];
 // ---------------------------------------------------------------------------
 // Shared materials
 
-const solid = (color: number) => pbr({ color });
-const skinMat = solid(0xf6d3b8);
-const zombieSkinMat = solid(0x9fc48a); // minty-green, more Ghibli soot-sprite than gore
-const pantsMat = solid(0x34385a);
-const shoeMat = solid(0xf2efe6);
-const shirtMat = solid(0xfaf6ec);
-const innerEarMat = solid(0xf2a0b0);
-const gunGreenMat = solid(0x5b7442);
-const gunDarkMat = solid(0x2e2c2b);
+const toon = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap: toonRamp() });
+const skinMat = toon(0xf6d3b8);
+const zombieSkinMat = toon(0x9fc48a); // minty-green, more Ghibli soot-sprite than gore
+const pantsMat = toon(0x34385a);
+const shoeMat = toon(0xf2efe6);
+const shirtMat = toon(0xfaf6ec);
+const innerEarMat = toon(0xf2a0b0);
+const gunGreenMat = toon(0x5b7442);
+const gunDarkMat = toon(0x2e2c2b);
+
+/** Inverted-hull ink outline: back faces pushed out along the normal, thicker with distance so it stays visible. */
+const outlineMat = new THREE.MeshBasicMaterial({ color: 0x3a2820, side: THREE.BackSide });
+outlineMat.onBeforeCompile = (sh) => {
+  sh.vertexShader = sh.vertexShader.replace(
+    '#include <begin_vertex>',
+    `vec3 transformed = position;
+     float camDist = -(modelViewMatrix * vec4(position, 1.0)).z;
+     transformed += normal * ${OUTLINE.toFixed(5)} * clamp(camDist, 1.5, 14.0);`,
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Geometry helpers (each builds a fresh geometry baked into its final pose, ready to merge)
@@ -236,9 +248,9 @@ function lookFor(color: number, name = '', zombie = false, skin?: Skin | null): 
     style: sk.style,
     accessory: sk.accessory,
     ahoge: sk.ahoge,
-    jacket: solid(color),
-    hair: solid(hair),
-    scarf: solid(SCARF[sk.scarf]),
+    jacket: toon(color),
+    hair: toon(hair),
+    scarf: toon(SCARF[sk.scarf]),
     faces: alive
       ? { open: alive, blink: alive, hype: alive, ko: face('ko'), zombie: alive }
       : { open: face('open'), blink: face('blink'), hype: face('hype'), ko: face('ko'), zombie: face('zombie') },
@@ -448,11 +460,20 @@ function faceTexture(expr: Expr, iris: number, hair: number, mouth: Mouth) {
 
 // ---------------------------------------------------------------------------
 
-function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, parent: THREE.Object3D) {
+function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, parent: THREE.Object3D, outline = true) {
   const m = new THREE.Mesh(geo, mat);
   m.castShadow = true;
+  if (outline) m.add(new THREE.Mesh(geo, outlineMat));
   parent.add(m);
   return m;
+}
+
+/** Adds the ink outline to every lit mesh under `obj` (glowing halos stay clean). */
+function inked(obj: THREE.Object3D) {
+  const meshes: THREE.Mesh[] = [];
+  obj.traverse((o) => o instanceof THREE.Mesh && !(o.material instanceof THREE.MeshBasicMaterial) && meshes.push(o));
+  for (const m of meshes) m.add(new THREE.Mesh(m.geometry, outlineMat));
+  return obj;
 }
 
 function pivot(parent: THREE.Object3D, x: number, y: number, z: number) {
@@ -517,7 +538,7 @@ export class Avatar {
     }
 
     mesh(GEO.jacket, look.jacket, this.upper);
-    mesh(GEO.shirt, shirtMat, this.upper);
+    mesh(GEO.shirt, shirtMat, this.upper, false);
     mesh(GEO.neck, look.skin, this.upper);
     mesh(GEO.scarf, look.scarf, this.upper);
     for (const s of [-1, 1]) {
@@ -549,28 +570,28 @@ export class Avatar {
     if (!zombie) {
       const rifleItem = itemById(gear?.rifle ?? '');
       const paint = rifleItem?.slot === 'rifle' ? rifleItem.paint : undefined;
-      const glow = (c: number) => pbr({ color: c, emissive: paint?.glow ? c : 0, emissiveIntensity: 0.35 });
+      const glow = (c: number) => new THREE.MeshToonMaterial({ color: c, gradientMap: toonRamp(), emissive: paint?.glow ? c : 0, emissiveIntensity: 0.35 });
       mesh(GEO.gunGreen, paint ? glow(paint.body) : gunGreenMat, this.rifle);
-      mesh(GEO.gunDark, paint ? solid(paint.trim) : gunDarkMat, this.rifle);
+      mesh(GEO.gunDark, paint ? toon(paint.trim) : gunDarkMat, this.rifle);
       const knifeItem = itemById(gear?.knife ?? '');
       const blade = buildKnife(knifeItem?.slot === 'knife' ? knifeItem.paint : DEFAULT_KNIFE);
       blade.scale.setScalar(1.3);
-      this.knife.add(blade);
+      this.knife.add(inked(blade));
     }
     this.knife.visible = false;
 
     this.head = pivot(this.upper, 0, PLAYER.headCenter - HIP_Y, 0);
     mesh(GEO.head, look.skin, this.head);
-    this.face = mesh(GEO.face, look.faces.open, this.head);
+    this.face = mesh(GEO.face, look.faces.open, this.head, false);
     this.face.name = 'face';
     mesh(hairGeo(look.style), look.hair, this.head);
     for (const part of accessoryParts(look.accessory)) {
-      mesh(part.geo, part.mat === 'hair' ? look.hair : part.mat === 'inner' ? innerEarMat : look.jacket, this.head);
+      mesh(part.geo, part.mat === 'hair' ? look.hair : part.mat === 'inner' ? innerEarMat : look.jacket, this.head, part.mat !== 'inner');
     }
     for (const slot of ['hat', 'face', 'back'] as const) {
       const item = itemById(gear?.[slot] ?? '');
       if (zombie || !item || !('wear' in item)) continue;
-      const w = buildWear(item.wear);
+      const w = inked(buildWear(item.wear));
       (slot === 'back' ? this.upper : this.head).add(w);
       w.traverse((o) => o.userData.wing && this.wings.push(o));
     }
@@ -698,13 +719,13 @@ export class Avatar {
   /** A copy without the name tag, for flinging across the map. Knocked out, naturally. */
   /** Put on extra clothes (a zombie's work outfit): on the head, the torso, or the arms. */
   wear(obj: THREE.Object3D, on: 'head' | 'upper' | 'aim') {
-    (on === 'head' ? this.head : on === 'upper' ? this.upper : this.aim).add(obj);
+    (on === 'head' ? this.head : on === 'upper' ? this.upper : this.aim).add(inked(obj));
   }
 
   /** Carrying the Gale Scythe: it takes the knife's place in hand. */
   holdScythe(on: boolean) {
     if (on && !this.scythe) {
-      this.scythe = buildScythe();
+      this.scythe = inked(buildScythe());
       this.scythe.scale.setScalar(1.3);
       this.knife.add(this.scythe);
     }

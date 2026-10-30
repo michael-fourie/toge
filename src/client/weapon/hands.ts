@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { pbr } from '../render/surface.ts';
+import { toonRamp } from '../textures.ts';
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -23,9 +23,10 @@ export class Arm {
     readonly elbow: THREE.Vector3,
     side: 1 | -1,
   ) {
-    const skin = pbr({ color: 0xf3c9a5 });
-    const cloth = pbr({ color: sleeve });
-    const cuffMat = pbr({ color: 0xf4ead2 });
+    const gradientMap = toonRamp();
+    const skin = new THREE.MeshToonMaterial({ color: 0xf3c9a5, gradientMap });
+    const cloth = new THREE.MeshToonMaterial({ color: sleeve, gradientMap });
+    const cuffMat = new THREE.MeshToonMaterial({ color: 0xf4ead2, gradientMap });
 
     // Palm: flat box, normal along -Y; fingers extend along -Z.
     const palm = new THREE.Mesh(new RoundedBoxGeometry(0.068, 0.03, 0.075, 2, 0.012), skin);

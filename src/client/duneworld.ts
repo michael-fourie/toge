@@ -3,25 +3,23 @@ import type { Box } from '../shared/collision.ts';
 import { WELL } from '../shared/dunevillage.ts';
 import type { MapData } from '../shared/map.ts';
 import { awningTexture, duneTexture, mudbrickTexture, palmBarkTexture, roofTexture, sandTexture, sandstoneTexture, tileTexture } from './dunetextures.ts';
-import { padTexture, rng, softDot, woodTexture } from './textures.ts';
-import { type World, boxGeometry, hookRing, puffball, rampGeometry, windGate, windSpirit } from './world.ts';
-import { pbr } from './render/surface.ts';
-import { daySky } from './render/sky.ts';
-import { pointSprites } from './render/points.ts';
+import { padTexture, rng, softDot, toonRamp, woodTexture } from './textures.ts';
+import { type World, boxGeometry, hookRing, makeSky, puffball, rampGeometry, windGate, windSpirit } from './world.ts';
 
 // Dune Village in the late afternoon: a hot clear sky with a pale sun low in the west, long soft shadows, warm sand and
 // ochre walls with turquoise accents (tile, awnings, doors), dust drifting in the light. Gameplay surfaces stay distinct:
 // pale sand floors, block-stone walls, rippled apricot slide ramps, glazed turquoise surf, mint-glowing pads and gates.
 
+const SKY = { zenith: 0x2f86d1, sky: 0x86c8ea, horizon: 0xfbe5bd, below: 0xeccc98, deep: 0xcfa36c };
 const SUN_DIR = new THREE.Vector3(-58, 52, 34).normalize();
 const TURQUOISE = 0x2fa7a3;
 
-export function buildDuneVillage(map: MapData): World {
+export function buildDuneVillage(map: MapData, renderer: THREE.WebGLRenderer): World {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xf3ddb4, 120, 560);
-  scene.add(daySky(SUN_DIR, { turbidity: 6, rayleigh: 1.4, clouds: 0.06 })); // dusty, nearly cloudless
-  scene.add(new THREE.HemisphereLight(0xfff3dc, 0xe6b27a, 0.2));
-  const sun = new THREE.DirectionalLight(0xfff0d2, 3.6);
+  scene.add(makeSky(SKY, SUN_DIR));
+  scene.add(new THREE.HemisphereLight(0xfff3dc, 0xe6b27a, 2.1));
+  const sun = new THREE.DirectionalLight(0xfff0d2, 2.4);
   sun.position.copy(SUN_DIR).multiplyScalar(140);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -34,18 +32,20 @@ export function buildDuneVillage(map: MapData): World {
   sun.shadow.normalBias = 0.05;
   scene.add(sun, sun.target);
 
-  const sand = pbr({ map: sandTexture() });
-  const sandstone = pbr({ map: sandstoneTexture() });
-  const plaster = pbr({ map: mudbrickTexture() });
-  const roof = pbr({ map: roofTexture() });
-  const wood = pbr({ map: woodTexture() });
-  const dune = pbr({ map: duneTexture() });
-  const tile = pbr({ map: tileTexture() });
-  const awning = pbr({ map: awningTexture(), side: THREE.DoubleSide });
-  const bark = pbr({ map: palmBarkTexture() });
-  const clay = pbr({ color: 0xc8764a });
-  const turquoise = pbr({ color: TURQUOISE });
-  const padMat = pbr({ map: padTexture(), emissive: new THREE.Color(0x58e0b8), emissiveIntensity: 0.5 });
+  const ramp = toonRamp();
+  const toon = (p: THREE.MeshToonMaterialParameters) => new THREE.MeshToonMaterial({ gradientMap: ramp, ...p });
+  const sand = toon({ map: sandTexture(renderer) });
+  const sandstone = toon({ map: sandstoneTexture(renderer) });
+  const plaster = toon({ map: mudbrickTexture(renderer) });
+  const roof = toon({ map: roofTexture(renderer) });
+  const wood = toon({ map: woodTexture(renderer) });
+  const dune = toon({ map: duneTexture(renderer) });
+  const tile = toon({ map: tileTexture(renderer), emissive: new THREE.Color(0x1f8c8c), emissiveIntensity: 0.25 });
+  const awning = toon({ map: awningTexture(renderer), side: THREE.DoubleSide });
+  const bark = toon({ map: palmBarkTexture(renderer) });
+  const clay = toon({ color: 0xc8764a });
+  const turquoise = toon({ color: TURQUOISE });
+  const padMat = toon({ map: padTexture(renderer), emissive: new THREE.Color(0x58e0b8), emissiveIntensity: 0.5 });
 
   const pads: THREE.Object3D[] = [];
   const hooks: ReturnType<typeof hookRing>[] = [];
@@ -163,7 +163,7 @@ function well(stone: THREE.Material, roof: THREE.Material, wood: THREE.Material)
   beam.rotation.z = Math.PI / 2;
   beam.rotation.y = Math.PI / 4;
   beam.position.y = 2.9;
-  const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.17, 0.35, 10), pbr({ color: TURQUOISE }));
+  const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.17, 0.35, 10), new THREE.MeshToonMaterial({ color: TURQUOISE, gradientMap: toonRamp() }));
   bucket.position.y = 2.3;
   const cap = new THREE.Mesh(new THREE.ConeGeometry(2.6, 0.9, 4), roof); // sits on the roof slab
   cap.rotation.y = Math.PI / 4;
@@ -241,8 +241,8 @@ function palm(h: number, bark: THREE.Material, r: () => number): THREE.Group {
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.45, h, 10, 6), bark);
   trunk.position.y = h / 2;
   g.add(trunk);
-  const leaf = pbr({ color: 0x5e9a3e, side: THREE.DoubleSide });
-  const leafDark = pbr({ color: 0x467d33, side: THREE.DoubleSide });
+  const leaf = new THREE.MeshToonMaterial({ color: 0x5e9a3e, gradientMap: toonRamp(), side: THREE.DoubleSide });
+  const leafDark = new THREE.MeshToonMaterial({ color: 0x467d33, gradientMap: toonRamp(), side: THREE.DoubleSide });
   const n = 9;
   for (let i = 0; i < n; i++) {
     const len = 3.2 + r() * 1.2;
@@ -261,7 +261,7 @@ function palm(h: number, bark: THREE.Material, r: () => number): THREE.Group {
     frond.rotation.x = (r() - 0.5) * 0.4;
     g.add(frond);
   }
-  const nut = pbr({ color: 0x7a5232 });
+  const nut = new THREE.MeshToonMaterial({ color: 0x7a5232, gradientMap: toonRamp() });
   for (let i = 0; i < 4; i++) {
     const c = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), nut);
     const a = (i / 4) * Math.PI * 2;
@@ -310,7 +310,7 @@ function desert(sand: THREE.Material, r: () => number): THREE.Group {
   ground.position.y = -0.02;
   ground.receiveShadow = true;
   g.add(ground);
-  const tint = [0xe9c08a, 0xe2b27b, 0xf0cd99].map((c) => pbr({ color: c }));
+  const tint = [0xe9c08a, 0xe2b27b, 0xf0cd99].map((c) => new THREE.MeshToonMaterial({ color: c, gradientMap: toonRamp() }));
   for (let i = 0; i < 46; i++) {
     const a = (i / 46) * Math.PI * 2 + r() * 0.12;
     const d = 110 + r() * 330;
@@ -327,8 +327,8 @@ function desert(sand: THREE.Material, r: () => number): THREE.Group {
 /** Flat-roofed houses of the rest of the town peeking over the wall, and a far-off clay tower or two. */
 function skyline(r: () => number): THREE.Group {
   const g = new THREE.Group();
-  const walls = [0xe9cda2, 0xe2bf8e, 0xf0dab4].map((c) => pbr({ color: c }));
-  const lip = pbr({ color: 0xc99868 });
+  const walls = [0xe9cda2, 0xe2bf8e, 0xf0dab4].map((c) => new THREE.MeshToonMaterial({ color: c, gradientMap: toonRamp() }));
+  const lip = new THREE.MeshToonMaterial({ color: 0xc99868, gradientMap: toonRamp() });
   for (let i = 0; i < 40; i++) {
     const a = (i / 40) * Math.PI * 2 + r() * 0.1;
     const d = 66 + r() * 50;
@@ -380,7 +380,10 @@ function dustMotes() {
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(base);
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const points = pointSprites(geo, { map: softDot(), color: 0xfff1d0, size: 0.22, transparent: true, opacity: 0.75, depthWrite: false, sizeAttenuation: true });
+  const points = new THREE.Points(
+    geo,
+    new THREE.PointsMaterial({ map: softDot(), color: 0xfff1d0, size: 0.22, transparent: true, opacity: 0.75, depthWrite: false, sizeAttenuation: true }),
+  );
   points.frustumCulled = false;
   return {
     points,

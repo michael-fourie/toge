@@ -1,11 +1,10 @@
 import * as THREE from 'three';
-import { clamp01, fbm, lerp, noise, ridged, smooth } from './render/noise.ts';
-import { bake } from './render/surface.ts';
-import { blobs, canvas, hex, paint, rng, shade, tint, toTexture } from './textures.ts';
+import { blobs, canvas, rng, toTexture } from './textures.ts';
 
 // Procedural textures for the Foundry: grimy brick, rusted plate, poured concrete, hazard paint, crates. No image assets.
 // Every tiling texture is drawn to wrap, with its sizes chosen so one tile = TILE metres on the box (see foundryworld.ts).
 
+type R = THREE.WebGLRenderer;
 const speckle = (g: CanvasRenderingContext2D, S: number, r: () => number, n: number, colors: string[], alpha: number, size = 2) => {
   for (let i = 0; i < n; i++) {
     g.globalAlpha = alpha * (0.4 + r() * 0.6);
@@ -15,71 +14,68 @@ const speckle = (g: CanvasRenderingContext2D, S: number, r: () => number, n: num
   g.globalAlpha = 1;
 };
 
-/** Soot-stained red brick in running bond: each brick its own fired colour, recessed mortar, soot rising from below. */
-export function brickTexture(): THREE.Texture {
+/** Soot-stained red brick, in running bond. */
+export function brickTexture(renderer: R): THREE.CanvasTexture {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(11);
+  g.fillStyle = '#2f2926';
+  g.fillRect(0, 0, S, S);
   const rows = 16;
-  const reds = [hex(0x6a3b31), hex(0x7d4638), hex(0x8c5240), hex(0x5b342d)];
-  const mortar = hex(0x5d554c);
-  const soot = hex(0x1a1614);
-  return bake(
-    'brick',
-    (u, v, t) => {
-      const ry = v * rows;
-      const row = Math.floor(ry);
-      const fy = ry - row;
-      const cols = 6; // bricks 2.4 rows long, near enough, in a whole number per tile
-      const rx = (u * cols + (row % 2) * 0.5) % cols;
-      const col = Math.floor(rx);
-      const fx = rx - col;
-      const id = (((row * 7 + col * 13) % 29) + 0.5) / 29;
-      const joint = Math.min(Math.min(fx, 1 - fx) * (rows / cols), Math.min(fy, 1 - fy));
-      const inMortar = smooth(0.09, 0.05, joint);
-      const bevel = smooth(0.05, 0.16, joint);
-      const base = reds[Math.floor(id * reds.length)];
-      const n = fbm(u, v, 16, 4, 11) * 0.5 + 0.5;
-      t.r = base[0];
-      t.g = base[1];
-      t.b = base[2];
-      shade(t, 0.8 + n * 0.35);
-      tint(t, mortar, inMortar);
-      const grime = smooth(0.4, 1, 1 - v) * (fbm(u, v, 4, 3, 13) * 0.5 + 0.6); // soot creeps up from the bottom
-      tint(t, soot, clamp01(grime * 0.45 + (fbm(u, v, 6, 3, 17) * 0.5 + 0.5) * 0.15));
-      t.h = bevel * 0.7 + n * 0.25;
-      t.rough = 0.88;
-      t.ao = 0.5 + bevel * 0.5;
-    },
-    { size: 512, normal: 8 },
-  );
+  const bh = S / rows;
+  const bw = bh * 2.4;
+  for (let row = 0; row < rows; row++) {
+    for (let col = -1; col < S / bw + 1; col++) {
+      const x = col * bw + (row % 2 ? bw / 2 : 0);
+      const tint = r();
+      g.fillStyle = tint < 0.2 ? '#6a3b31' : tint < 0.6 ? '#7d4638' : tint < 0.9 ? '#8c5240' : '#5b342d';
+      g.fillRect(x + 2, row * bh + 2, bw - 4, bh - 4);
+    }
+  }
+  blobs(g, S, S, r, 60, ['#1d1917', '#3a2f2a', '#8a7a68'], [14, 50], [0.08, 0.22]);
+  const grad = g.createLinearGradient(0, 0, 0, S); // soot creeps up from the bottom of each tile
+  grad.addColorStop(0, 'rgba(10,8,8,0)');
+  grad.addColorStop(1, 'rgba(10,8,8,0.35)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  speckle(g, S, r, 500, ['#241e1c', '#9a8d7c'], 0.5);
+  return toTexture(c, renderer);
 }
 
-/** Poured concrete floor: four slabs with saw-cut joints, aggregate, hairline cracks, scuffs and oil stains. */
-export function concreteTexture(): THREE.Texture {
-  const light = hex(0x8a8c8f);
-  const dark = hex(0x5b5e62);
-  const oil = hex(0x202124);
-  return bake(
-    'concrete',
-    (u, v, t) => {
-      const n = fbm(u, v, 6, 6, 23) * 0.5 + 0.5;
-      const mottle = fbm(u, v, 2, 3, 29) * 0.5 + 0.5;
-      paint(t, dark, light, n * 0.6 + mottle * 0.4);
-      const agg = smooth(0.78, 0.86, noise(u, v, 180, 31) * 0.5 + 0.5);
-      shade(t, 1 + agg * 0.12 - (1 - agg) * 0.02);
-      const joint = smooth(0.006, 0.0, Math.min(Math.abs(u - 0.5), Math.abs(v - 0.5), u, 1 - u, v, 1 - v));
-      const crack = smooth(0.95, 0.995, ridged(u, v, 3, 4, 37));
-      const stain = smooth(0.7, 0.8, fbm(u, v, 3, 4, 41) * 0.5 + 0.5);
-      tint(t, oil, stain * 0.55);
-      shade(t, 1 - joint * 0.6 - crack * 0.45);
-      t.h = n * 0.3 - joint - crack * 0.6 + agg * 0.1;
-      t.rough = lerp(0.82, 0.35, stain) + joint * 0.1; // oil is slick
-      t.ao = 1 - joint * 0.6 - crack * 0.3;
-    },
-    { size: 1024, normal: 4 },
-  );
+/** Poured concrete floor: slabs with expansion joints, cracks and oil. */
+export function concreteTexture(renderer: R): THREE.CanvasTexture {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(23);
+  g.fillStyle = '#54575c';
+  g.fillRect(0, 0, S, S);
+  blobs(g, S, S, r, 70, ['#5b5e63', '#7b7e82', '#4f5256'], [20, 70], [0.08, 0.2]);
+  blobs(g, S, S, r, 5, ['#1a1b1d'], [18, 40], [0.25, 0.4]); // oil
+  g.strokeStyle = '#2b2d30';
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(0, S / 2);
+  g.lineTo(S, S / 2);
+  g.moveTo(S / 2, 0);
+  g.lineTo(S / 2, S);
+  g.stroke();
+  g.lineWidth = 1.4;
+  g.globalAlpha = 0.6;
+  for (let i = 0; i < 4; i++) {
+    let x = r() * S;
+    let y = r() * S;
+    g.beginPath();
+    g.moveTo(x, y);
+    for (let k = 0; k < 8; k++) g.lineTo((x += (r() - 0.5) * 50), (y += (r() - 0.3) * 40));
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+  speckle(g, S, r, 900, ['#3b3d40', '#8a8d91'], 0.5);
+  return toTexture(c, renderer);
 }
 
 /** Rusty riveted steel plate. */
-export function steelTexture(): THREE.CanvasTexture {
+export function steelTexture(renderer: R): THREE.CanvasTexture {
   const S = 256;
   const [c, g] = canvas(S);
   const r = rng(31);
@@ -107,11 +103,11 @@ export function steelTexture(): THREE.CanvasTexture {
   }
   g.globalAlpha = 1;
   speckle(g, S, r, 300, ['#2a2d31', '#8b6a4f'], 0.45);
-  return toTexture(c);
+  return toTexture(c, renderer);
 }
 
 /** Yellow-and-black hazard stripes (door frames, thresholds, machine skirts). */
-export function hazardTexture(): THREE.CanvasTexture {
+export function hazardTexture(renderer: R): THREE.CanvasTexture {
   const S = 256;
   const [c, g] = canvas(S);
   const r = rng(37);
@@ -128,11 +124,11 @@ export function hazardTexture(): THREE.CanvasTexture {
   }
   blobs(g, S, S, r, 30, ['#3b3020', '#a88a30'], [8, 30], [0.12, 0.3]);
   speckle(g, S, r, 400, ['#1a1a1a', '#f0d070'], 0.5);
-  return toTexture(c);
+  return toTexture(c, renderer);
 }
 
 /** Yellow-painted machinery: panel lines, bolts, chipped paint over metal. */
-export function machineTexture(): THREE.CanvasTexture {
+export function machineTexture(renderer: R): THREE.CanvasTexture {
   const S = 256;
   const [c, g] = canvas(S);
   const r = rng(43);
@@ -156,11 +152,11 @@ export function machineTexture(): THREE.CanvasTexture {
   }
   g.globalAlpha = 1;
   speckle(g, S, r, 300, ['#2c2418'], 0.4);
-  return toTexture(c);
+  return toTexture(c, renderer);
 }
 
 /** The boilers: green-grey riveted tank bands with rust. */
-export function boilerTexture(): THREE.CanvasTexture {
+export function boilerTexture(renderer: R): THREE.CanvasTexture {
   const S = 256;
   const [c, g] = canvas(S);
   const r = rng(47);
@@ -176,11 +172,11 @@ export function boilerTexture(): THREE.CanvasTexture {
     g.fill();
   }
   speckle(g, S, r, 400, ['#2a302b', '#8b6a4f'], 0.45);
-  return toTexture(c);
+  return toTexture(c, renderer);
 }
 
 /** Shipping-crate planks with a cross brace. */
-export function crateTexture(): THREE.CanvasTexture {
+export function crateTexture(renderer: R): THREE.CanvasTexture {
   const S = 256;
   const [c, g] = canvas(S);
   const r = rng(53);
@@ -208,11 +204,11 @@ export function crateTexture(): THREE.CanvasTexture {
   g.lineTo(S - 10, S - 10);
   g.stroke();
   speckle(g, S, r, 300, ['#3a2a18', '#b99366'], 0.4);
-  return toTexture(c);
+  return toTexture(c, renderer);
 }
 
 /** Conveyor belt top: a dark rubber belt over rollers. */
-export function conveyorTexture(): THREE.CanvasTexture {
+export function conveyorTexture(renderer: R): THREE.CanvasTexture {
   const S = 128;
   const [c, g] = canvas(S);
   g.fillStyle = '#2a2b2f';
@@ -222,11 +218,11 @@ export function conveyorTexture(): THREE.CanvasTexture {
   g.fillStyle = '#c9a13a';
   g.fillRect(0, 0, S, 8);
   g.fillRect(0, S - 8, S, 8);
-  return toTexture(c);
+  return toTexture(c, renderer);
 }
 
 /** Dark gravel for the yard. */
-export function gravelTexture(): THREE.CanvasTexture {
+export function gravelTexture(renderer: R): THREE.CanvasTexture {
   const S = 512;
   const [c, g] = canvas(S);
   const r = rng(59);
@@ -235,11 +231,11 @@ export function gravelTexture(): THREE.CanvasTexture {
   blobs(g, S, S, r, 80, ['#34363a', '#47494e', '#2d2f33'], [20, 80], [0.15, 0.3]);
   speckle(g, S, r, 2400, ['#5a5c61', '#25272a', '#6b6a66'], 0.7, 4);
   blobs(g, S, S, r, 8, ['#22302a'], [18, 40], [0.18, 0.3]); // weeds
-  return toTexture(c);
+  return toTexture(c, renderer);
 }
 
 /** Splintered board for the window barricades. */
-export function plankTexture(): THREE.CanvasTexture {
+export function plankTexture(renderer: R): THREE.CanvasTexture {
   const S = 128;
   const [c, g] = canvas(S);
   const r = rng(61);
@@ -256,11 +252,11 @@ export function plankTexture(): THREE.CanvasTexture {
   }
   g.globalAlpha = 1;
   speckle(g, S, r, 120, ['#4a361d', '#c4a373'], 0.5);
-  return toTexture(c);
+  return toTexture(c, renderer);
 }
 
 /** Worn floorboards for the North Wing's upper storey: long boards in staggered rows, one tile = 2 m. */
-export function floorboardTexture(): THREE.CanvasTexture {
+export function floorboardTexture(renderer: R): THREE.CanvasTexture {
   const S = 256;
   const [c, g] = canvas(S);
   const r = rng(71);
@@ -288,11 +284,11 @@ export function floorboardTexture(): THREE.CanvasTexture {
   }
   g.globalAlpha = 1;
   speckle(g, S, r, 300, ['#3d2a17', '#b08c5e'], 0.4);
-  return toTexture(c);
+  return toTexture(c, renderer);
 }
 
 /** Chipped checkerboard tiles (the Showroom, the Break Room, Cold Storage), tinted per room. One tile = 2 m (4x4 tiles). */
-export function tileTexture(): THREE.CanvasTexture {
+export function tileTexture(renderer: R): THREE.CanvasTexture {
   const S = 256;
   const [c, g] = canvas(S);
   const r = rng(83);
@@ -316,11 +312,11 @@ export function tileTexture(): THREE.CanvasTexture {
   }
   blobs(g, S, S, r, 20, ['#4a4f52', '#9a958a'], [6, 22], [0.1, 0.25]); // grime and chips
   speckle(g, S, r, 400, ['#2f3133', '#efe9db'], 0.35);
-  return toTexture(c);
+  return toTexture(c, renderer);
 }
 
 /** Stencilled sign: a dark painted plate with chunky text, one or two lines. Not tiling. */
-export function signTexture(lines: string[], opts: { bg?: string; fg?: string; w?: number; h?: number; border?: string } = {}): THREE.CanvasTexture {
+export function signTexture(renderer: R, lines: string[], opts: { bg?: string; fg?: string; w?: number; h?: number; border?: string } = {}): THREE.CanvasTexture {
   const W = opts.w ?? 512;
   const H = opts.h ?? 256;
   const [c, g] = canvas(W, H);
@@ -338,13 +334,13 @@ export function signTexture(lines: string[], opts: { bg?: string; fg?: string; w
     g.font = `900 ${size}px Impact, 'Arial Black', sans-serif`;
     g.fillText(line, W / 2, (H * (i + 1)) / (n + 1) + (i === 0 && n > 1 ? -2 : 0));
   });
-  const t = toTexture(c, false);
+  const t = toTexture(c, renderer, false);
   t.anisotropy = 4;
   return t;
 }
 
 /** A tall factory window at night: moonlit glass in a dark steel frame with mullions. Not tiling. */
-export function paneTexture(): THREE.CanvasTexture {
+export function paneTexture(renderer: R): THREE.CanvasTexture {
   const [c, g] = canvas(128, 192);
   const grad = g.createLinearGradient(0, 0, 0, 192);
   grad.addColorStop(0, '#5d78c8');
@@ -370,5 +366,5 @@ export function paneTexture(): THREE.CanvasTexture {
   g.moveTo(0, 128);
   g.lineTo(128, 128);
   g.stroke();
-  return toTexture(c, false);
+  return toTexture(c, renderer, false);
 }

@@ -2,9 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { type LootItem, type ZoneState, rarity } from '../shared/royale.ts';
 import { WEAPONS, type WeaponId } from '../shared/weapons.ts';
-import { softDot } from './textures.ts';
+import { softDot, toonRamp } from './textures.ts';
 import { buildGunDisplay } from './weapon/guns.ts';
-import { pbr, type SurfaceParams } from './render/surface.ts';
 
 // Battle Royale in the world: the zone (a wall of lavender storm light that closes in, and a faint ring where it's
 // going next) and the loot lying about (spinning, bobbing, in a little beam coloured by how rare it is).
@@ -75,7 +74,7 @@ export class ZoneFx {
 // ---------------------------------------------------------------------------
 // Loot
 
-const solid = (color: number, extra: SurfaceParams = {}) => pbr({ color, ...extra });
+const toon = (color: number, extra: THREE.MeshToonMaterialParameters = {}) => new THREE.MeshToonMaterial({ color, gradientMap: toonRamp(), ...extra });
 const at = <T extends THREE.Object3D>(o: T, x: number, y: number, z: number): T => (o.position.set(x, y, z), o);
 
 /** A display model with all its parts baked into one mesh per material (so a gun is a handful of draw calls, not dozens). */
@@ -113,34 +112,34 @@ function lootModel(it: LootItem): THREE.Group {
     gun.scale.setScalar(Math.min(2.2, 1.1 / len)); // every gun about a metre long, the pistol a bit bigger than life
     g.add(gun);
   } else if (it.k === 'ammo') {
-    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.36, 0.38), solid(0x5e7d3a));
-    const band = solid(0xffd45a);
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.36, 0.38), toon(0x5e7d3a));
+    const band = toon(0xffd45a);
     g.add(crate);
     for (const x of [-0.24, 0.24]) g.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.38, 0.4), band), x, 0, 0));
     for (const x of [-0.1, 0, 0.1]) g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8), band), x, 0.28, 0));
   } else if (it.k === 'nade') {
-    const body = solid(0x6f8f4a);
-    const cap = solid(0xd9a84e);
+    const body = toon(0x6f8f4a);
+    const cap = toon(0xd9a84e);
     for (const x of [-0.16, 0.16]) {
       g.add(at(new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 10), body), x, 0, 0));
       g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 8), cap), x, 0.17, 0));
     }
   } else if (it.k === 'heal') {
     // An onigiri: a white rice triangle with a nori band.
-    const rice = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 3), solid(0xfffbf0));
+    const rice = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 3), toon(0xfffbf0));
     rice.rotation.x = Math.PI / 2;
     rice.rotation.y = Math.PI / 2;
-    const nori = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 0.22), solid(0x23352a));
+    const nori = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 0.22), toon(0x23352a));
     nori.position.y = -0.1;
     g.add(rice, nori);
   } else {
     // Cloud Tea: a little glass bottle of sky-blue tea with a cork and a cloud on the label.
-    const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.42, 14), solid(0x7fd0ff, { emissive: new THREE.Color(0x2a6fa8), emissiveIntensity: 0.5 }));
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.12, 10), solid(0x9fdcff));
+    const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.42, 14), toon(0x7fd0ff, { emissive: new THREE.Color(0x2a6fa8), emissiveIntensity: 0.5 }));
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.12, 10), toon(0x9fdcff));
     neck.position.y = 0.27;
-    const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.08, 8), solid(0xb78a5a));
+    const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.08, 8), toon(0xb78a5a));
     cork.position.y = 0.36;
-    const cloud = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), solid(0xffffff));
+    const cloud = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), toon(0xffffff));
     cloud.scale.set(1.4, 0.8, 0.5);
     cloud.position.set(0, 0, 0.15);
     g.add(glass, neck, cork, cloud);

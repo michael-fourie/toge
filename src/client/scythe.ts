@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { pbr } from './render/surface.ts';
+import { toonRamp } from './textures.ts';
 
 // The Gale Scythe (Survival's wonder weapon): a weathered wooden staff wrapped in cloth, a pale crescent blade that glows
 // teal, and a wind gem where they meet. Hand space like the knife: the grip at the origin, the staff along -Z, the blade
@@ -8,9 +8,10 @@ import { pbr } from './render/surface.ts';
 const STAFF = 1.15;
 
 export function buildScythe(): THREE.Group {
-  const wood = pbr({ color: 0x8a5d3b });
-  const cloth = pbr({ color: 0xe8dcc0 });
-  const blade = pbr({ color: 0xdff8f2, emissive: 0x5fe0c8, emissiveIntensity: 0.55, side: THREE.DoubleSide });
+  const ramp = toonRamp();
+  const wood = new THREE.MeshToonMaterial({ color: 0x8a5d3b, gradientMap: ramp });
+  const cloth = new THREE.MeshToonMaterial({ color: 0xe8dcc0, gradientMap: ramp });
+  const blade = new THREE.MeshToonMaterial({ color: 0xdff8f2, gradientMap: ramp, emissive: 0x5fe0c8, emissiveIntensity: 0.55, side: THREE.DoubleSide });
   const gem = new THREE.MeshBasicMaterial({ color: 0x8ff5e0 });
   const root = new THREE.Group();
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0) => {

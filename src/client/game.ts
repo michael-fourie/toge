@@ -68,13 +68,11 @@ import { SpeedFx } from './speedfx.ts';
 import type { Net } from './net.ts';
 import { sfx } from './sfx.ts';
 import { ViewModel } from './viewmodel.ts';
-import { Gfx } from './render/gfx.ts';
-import { resolveQuality } from './render/quality.ts';
 import { buildRustworks } from './rustworld.ts';
 import { buildSummit } from './summitworld.ts';
 import { buildDuneVillage } from './duneworld.ts';
 import { RoyaleView } from './royale.ts';
-import { buildWildmere } from './royaleworld.ts';
+import { type WildWorld, buildWildmere } from './royaleworld.ts';
 import { type World, buildWorld } from './world.ts';
 
 type Joined = Extract<ServerMsg, { t: 'joined' }>;
@@ -124,7 +122,7 @@ interface LastHit {
 }
 
 export class Game {
-  private gfx: Gfx;
+  private renderer: THREE.WebGLRenderer;
   private camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.05, 1500);
   private world: World;
   private foundry: FoundryWorld | null = null;
@@ -160,6 +158,7 @@ export class Game {
   private botGraceUntil = BOT_SPAWN_GRACE;
   private time = 0;
   private last = performance.now();
+  private raf = 0;
   private sendAcc = 0;
   private lastSent = '';
   private recentSpawns: number[] = [];
@@ -216,6 +215,7 @@ export class Game {
   private hillHud: HillHud | null = null;
   /** Battle Royale: the phase, zone, loot, shield and grenades as the server tells them (royale.ts), and its world. */
   private br: RoyaleView | null = null;
+  private wild: WildWorld | null = null;
   /** Out of a Royale: how long we've been watching our own body before following someone else. */
   private outFor = 0;
   /** Phones only: the on-screen joystick and buttons. */
@@ -258,8 +258,6 @@ export class Game {
   private use: Use | null = null;
   private repairAt = 0;
   private shadowTick = 0;
-  /** The map's shadow-casting sun (or moon). */
-  private sun: THREE.DirectionalLight | null;
   private boxTick = 0;
   private useHud!: UseHud;
   /** Survival: the Tinker's Workbench, its menu, placing and the contraptions out in the building. */
@@ -269,19 +267,27 @@ export class Game {
     const { container, net, joined } = opts;
     this.mode = joined?.mode ?? 'battle';
     this.teams = !!joined?.teams;
-    this.gfx = new Gfx(resolveQuality()); // phones default to Low: fewer pixels and no post chain, steadier frame rate
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2)); // phones: fewer pixels, steadier frame rate
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.map = mapFor(this.mode, joined?.map, joined?.koth, !!joined?.br);
     this.cols = buildColliders(this.map);
-    this.gfx.canvas.className = 'game-canvas';
-    container.appendChild(this.gfx.canvas);
+    // Neutral keeps the soft painted palette saturated; ACES washes it toward grey-orange.
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.autoClear = false;
+    this.renderer.domElement.className = 'game-canvas';
+    container.appendChild(this.renderer.domElement);
     this.camera.rotation.order = 'YXZ';
 
     const color0 = joined?.players.find((p) => p.id === net?.id)?.color ?? 0xe0614f;
     if (this.mode === 'survival') {
-      this.foundry = buildFoundry(this.map, color0); // Survival is the Foundry, at night
+      this.foundry = buildFoundry(this.map, this.renderer, color0); // Survival is the Foundry, at night
       this.world = this.foundry;
-    } else if (joined?.br) this.world = buildWildmere(this.map);
-    else this.world = (joined?.map === 'rustworks' ? buildRustworks : joined?.map === 'summit' ? buildSummit : joined?.map === 'dunevillage' ? buildDuneVillage : buildWorld)(this.map);
+      this.renderer.shadowMap.autoUpdate = false; // the moon's shadows are redrawn every few frames, not every frame
+    } else if (joined?.br) this.world = this.wild = buildWildmere(this.map, this.renderer);
+    else this.world = (joined?.map === 'rustworks' ? buildRustworks : joined?.map === 'summit' ? buildSummit : joined?.map === 'dunevillage' ? buildDuneVillage : buildWorld)(this.map, this.renderer);
     this.corpses = new Corpses(this.world.scene);
     this.ropeSelf = new Rope(this.world.scene);
     this.grenadeFx = new GrenadeFx(this.world.scene);
@@ -313,8 +319,6 @@ export class Game {
     const self = this.players.get(this.selfId)!;
     this.selfAvatar = new Avatar(self.color, self.name, false, decodeSkin(self.skin), stash.gear);
     this.vm = new ViewModel(self.color, stash.gear);
-    // The Foundry's moon shadows are redrawn every few frames, not every frame (lots of geometry, nothing moves much).
-    this.sun = this.gfx.stage(this.world.scene, this.camera, this.vm, !!this.foundry);
     // Survival and Royale start with the pistol (Royale: and only a little spare ammo); Battle is the AWP with endless mags.
     this.loadout = new Loadout(this.mode !== 'survival' && !joined?.br, this.mode === 'survival' || joined?.br ? 'sparrow' : 'awp', joined?.br ? ROYALE.spare : 1);
     this.vm.equip(this.loadout.gun!.w, false);
@@ -333,7 +337,7 @@ export class Game {
       net?.send({ t: 'sync' }); // the loot and our kit (sent while we sat in the lobby room)
     }
     this.nadeHud = new NadeHud(this.hud.root);
-    this.input = new Input(this.gfx.canvas);
+    this.input = new Input(this.renderer.domElement);
     if (this.mode === 'survival') this.workshop = this.makeWorkshop();
     this.xpOverlay = document.createElement('div');
     this.xpOverlay.className = 'xp-overlay';
@@ -356,7 +360,7 @@ export class Game {
     this.hud.setPaused(true);
     this.hud.onResume = () => this.input.lock();
     this.hud.onLeave = () => this.exit();
-    this.gfx.canvas.addEventListener('click', () => this.input.lock());
+    this.renderer.domElement.addEventListener('click', () => this.input.lock());
 
     for (const p of this.players.values()) if (p.id !== this.selfId) this.addRemote(p);
     if (net) {
@@ -369,8 +373,7 @@ export class Game {
     this.gui = this.buildGui();
     addEventListener('resize', this.resize);
     this.resize();
-    // three's own loop: it advances the node frame (post passes, TRAA history) in step with our frames.
-    this.gfx.renderer.setAnimationLoop(this.frame);
+    this.raf = requestAnimationFrame(this.frame);
     if (import.meta.env.DEV) (window as unknown as { __game: Game }).__game = this; // console poking
   }
 
@@ -378,6 +381,7 @@ export class Game {
   // Main loop
 
   private frame = (now: number) => {
+    this.raf = requestAnimationFrame(this.frame);
     const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000));
     this.last = now;
     this.time += dt;
@@ -402,10 +406,16 @@ export class Game {
     this.recordSelf();
     this.updateRopes(dt);
     this.foundry?.setViewer(this.renderPos);
+    this.wild?.setViewer(this.camera.position);
     this.updateHud(dt);
 
-    if (this.foundry && this.sun && this.shadowTick++ % 3 === 0) this.sun.shadow.needsUpdate = true;
-    this.gfx.render(this.world.scene, this.camera, this.alive && !this.scoped && !this.isDown);
+    if (this.foundry && this.shadowTick++ % 3 === 0) this.renderer.shadowMap.needsUpdate = true;
+    this.renderer.clear();
+    this.renderer.render(this.world.scene, this.camera);
+    if (this.alive && !this.scoped && !this.isDown) {
+      this.renderer.clearDepth();
+      this.renderer.render(this.vm.scene, this.vm.camera);
+    }
   };
 
   private simulate(dt: number) {
@@ -809,6 +819,7 @@ export class Game {
   private makeWorkshop(): Workshop {
     return new Workshop({
       scene: this.world.scene,
+      renderer: this.renderer,
       hudRoot: this.hud.root,
       map: this.map,
       selfId: this.selfId,
@@ -1968,7 +1979,7 @@ export class Game {
   private resize = () => {
     const w = innerWidth;
     const h = innerHeight;
-    this.gfx.setSize(w, h);
+    this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.vm.setAspect(w / h);
@@ -1976,7 +1987,7 @@ export class Game {
 
   exit(reason?: string) {
     sfx.setWind(0);
-    this.gfx.renderer.setAnimationLoop(null);
+    cancelAnimationFrame(this.raf);
     removeEventListener('resize', this.resize);
     this.unsubscribe?.();
     if (this.opts.net) {
@@ -1994,9 +2005,8 @@ export class Game {
     this.drops?.dispose();
     this.workshop?.dispose();
     disposeScene(this.world.scene); // frees the map's GPU memory: the Foundry is a lot of canvas textures
-    this.world.scene.environment?.dispose();
-    this.gfx.dispose();
-    this.gfx.canvas.remove();
+    this.renderer.dispose();
+    this.renderer.domElement.remove();
     this.opts.onExit(reason);
   }
 }

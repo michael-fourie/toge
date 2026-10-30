@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import type { Vec3 } from '../shared/math.ts';
-import { softDot } from './textures.ts';
-import { pbr } from './render/surface.ts';
+import { softDot, toonRamp } from './textures.ts';
 
 export const MINT = 0x8ff5d0;
 export const GOLD = 0xffd98a;
@@ -13,10 +12,11 @@ export const GOLD = 0xffd98a;
 export function buildPunchMachine(pos: Vec3): { obj: THREE.Group; update(time: number): void } {
   const g = new THREE.Group();
   g.position.set(pos.x, pos.y, pos.z);
-  const solid = (color: number) => pbr({ color });
-  const stone = solid(0xbfb59f);
-  const brass = solid(0xd9a441);
-  const brassDark = solid(0xa87a2c);
+  const gradientMap = toonRamp();
+  const toon = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap });
+  const stone = toon(0xbfb59f);
+  const brass = toon(0xd9a441);
+  const brassDark = toon(0xa87a2c);
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
@@ -27,12 +27,12 @@ export function buildPunchMachine(pos: Vec3): { obj: THREE.Group; update(time: n
   };
 
   add(new THREE.CylinderGeometry(0.95, 1.1, 0.35, 10), stone, 0, 0.175, 0);
-  add(new THREE.CylinderGeometry(0.62, 0.74, 0.25, 10), solid(0xa89f8a), 0, 0.475, 0);
+  add(new THREE.CylinderGeometry(0.62, 0.74, 0.25, 10), toon(0xa89f8a), 0, 0.475, 0);
   const body = add(new THREE.SphereGeometry(0.58, 18, 14), brass, 0, 1.15, 0);
   body.scale.y = 0.85;
   add(new THREE.TorusGeometry(0.5, 0.05, 6, 20), brassDark, 0, 1.0, 0).rotation.x = Math.PI / 2; // belly band
   add(new THREE.CylinderGeometry(0.3, 0.42, 0.14, 14), brassDark, 0, 1.6, 0); // lid
-  const knob = add(new THREE.SphereGeometry(0.1, 10, 8), solid(MINT), 0, 1.74, 0);
+  const knob = add(new THREE.SphereGeometry(0.1, 10, 8), toon(MINT), 0, 1.74, 0);
   const spout = add(new THREE.CylinderGeometry(0.07, 0.15, 0.55, 8), brass, 0.6, 1.3, 0);
   spout.rotation.z = -Math.PI / 3;
   const handle = add(new THREE.TorusGeometry(0.3, 0.05, 6, 14, Math.PI), brassDark, -0.55, 1.2, 0);

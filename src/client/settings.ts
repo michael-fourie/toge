@@ -34,10 +34,6 @@ export const DEFAULT_KEYS: Record<Action, string> = {
   scores: 'Tab',
 };
 
-/** Graphics quality (render/quality.ts): auto picks by device. */
-export const GRAPHICS = ['auto', 'low', 'high', 'ultra'] as const;
-export type Graphics = (typeof GRAPHICS)[number];
-
 interface Settings {
   /** Multiplier on the default mouse sensitivity. */
   sensitivity: number;
@@ -47,11 +43,10 @@ interface Settings {
   keys: Record<Action, string>;
   /** Practice bots' difficulty, last picked. */
   bots: BotLevel;
-  graphics: Graphics;
 }
 
 const KEY = 'atrous.settings';
-const DEFAULTS: Settings = { sensitivity: 1, autoHop: true, keys: DEFAULT_KEYS, bots: 'normal', graphics: 'auto' };
+const DEFAULTS: Settings = { sensitivity: 1, autoHop: true, keys: DEFAULT_KEYS, bots: 'normal' };
 
 export function loadSettings(): Settings {
   try {
@@ -59,8 +54,7 @@ export function loadSettings(): Settings {
     const keys = { ...DEFAULT_KEYS };
     for (const a of ACTIONS) if (typeof raw.keys?.[a] === 'string') keys[a] = raw.keys[a];
     const bots = BOT_LEVELS.includes(raw.bots) ? raw.bots : DEFAULTS.bots;
-    const graphics = GRAPHICS.includes(raw.graphics) ? raw.graphics : DEFAULTS.graphics;
-    return { ...DEFAULTS, ...raw, keys, bots, graphics };
+    return { ...DEFAULTS, ...raw, keys, bots };
   } catch {
     return { ...DEFAULTS, keys: { ...DEFAULT_KEYS } };
   }

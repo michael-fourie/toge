@@ -1,5 +1,4 @@
-import { QUALITY_NAME } from '../render/quality.ts';
-import { ACTIONS, ACTION_NAME, type Action, DEFAULT_KEYS, GRAPHICS, type Graphics, keyLabel, loadSettings, saveSettings } from '../settings.ts';
+import { ACTIONS, ACTION_NAME, type Action, DEFAULT_KEYS, keyLabel, loadSettings, saveSettings } from '../settings.ts';
 import { IS_TOUCH } from '../touch.ts';
 import type { Render } from './router.ts';
 import { $, esc, sheet } from './ui.ts';
@@ -26,13 +25,6 @@ export const settings: Render = (root) => {
         <input id="autohop" type="checkbox" role="switch" ${s.autoHop ? 'checked' : ''} />
       </label>
     </fieldset>
-    <fieldset class="settings">
-      <legend>Graphics <small>applies from the next match</small></legend>
-      <label class="setting">
-        <span>Quality <small>Ultra: temporal AA and 4K shadows. Low: no post effects, for phones and older GPUs</small></span>
-        <select id="gfx">${GRAPHICS.map((g) => `<option value="${g}" ${s.graphics === g ? 'selected' : ''}>${QUALITY_NAME[g]}</option>`).join('')}</select>
-      </label>
-    </fieldset>
     <fieldset class="settings key-binds">
       <legend>Controls <small>click a key, then press the new one (Esc cancels)</small></legend>
       <div class="binds" id="binds"></div>
@@ -44,10 +36,8 @@ export const settings: Render = (root) => {
 
   const sens = $<HTMLInputElement>(root, '#sens');
   const autoHop = $<HTMLInputElement>(root, '#autohop');
-  const gfx = $<HTMLSelectElement>(root, '#gfx');
   const notice = $(root, '.notice');
   const save = () => {
-    s.graphics = gfx.value as Graphics;
     s.sensitivity = Number(sens.value);
     s.autoHop = autoHop.checked;
     $(root, '#sens-out').textContent = `${s.sensitivity.toFixed(2)}×`;
@@ -55,7 +45,6 @@ export const settings: Render = (root) => {
   };
   sens.addEventListener('input', save);
   autoHop.addEventListener('change', save);
-  gfx.addEventListener('change', save);
 
   const drawBinds = () => {
     $(root, '#binds').innerHTML = ACTIONS.map(
