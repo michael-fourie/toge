@@ -1,6 +1,6 @@
 # Gambol (and TŌGE)
 
-The site opens on a **game chooser**, a grid of channels in the style of a classic console home menu. Channel 1 is **Gambol**, channel 2 is **TŌGE**; the empty slots are for games to come. **Make your own:** drop a folder into `src/games/` (see [docs/ADDING_A_GAME.md](docs/ADDING_A_GAME.md)). It gets a channel, controller support and online rooms for free. Everything works with a controller: the D-pad or left stick moves, Ⓐ selects, Ⓑ goes back, LB/RB switch tabs.
+The site opens on a **game chooser**, a grid of channels in the style of a classic console home menu. Channel 1 is **Gambol**, channel 2 is **TŌGE**, then **SNAP!** (a reaction party game for up to 12, in `src/games/snap`); the empty slots are for games to come. **Make your own:** drop a folder into `src/games/` (see [docs/ADDING_A_GAME.md](docs/ADDING_A_GAME.md)). It gets a channel, controller support and online rooms for free. Everything works with a controller: the D-pad or left stick moves, Ⓐ selects, Ⓑ goes back, LB/RB switch tabs.
 
 ## TŌGE: mountain pass racing
 
