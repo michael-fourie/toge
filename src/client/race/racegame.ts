@@ -7,7 +7,8 @@ import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeC
 import { type Ai, aiDrive, newAi } from '../../shared/race/driver.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../../shared/race/powerups.ts';
 import { CarFlag, type NetCar, type RaceServerMsg, type Racer } from '../../shared/race/protocol.ts';
-import { type Surface, type Track, type TrackId, getTrack, gridSlot, pointAt } from '../../shared/race/track.ts';
+import { standings } from '../../shared/race/standings.ts';
+import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, pointAt } from '../../shared/race/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../../shared/race/vehicle.ts';
 import { PropView, shieldBubble } from './propview.ts';
 import { rumble, setMenuNav } from '../pad.ts';
@@ -16,7 +17,7 @@ import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
 import { type CarModel, buildCar } from './carmodel.ts';
 import { Effects } from './effects.ts';
 import { garage } from './garageStore.ts';
-import { type Dot, type ResultLine, RaceHud, fmtTime, money, ordinal } from './hud.ts';
+import { type Dot, type ResultLine, RaceHud, type Tag, fmtTime, money, ordinal } from './hud.ts';
 import { DriveControls } from './input.ts';
 import type { RaceNet } from './racenet.ts';
 import { Post } from './post.ts';
@@ -53,6 +54,10 @@ const SPARK_COLORS = [
   [0.8, 0.4, 1],
 ];
 const SOLO_COUNTDOWN = 3.5;
+/** Name tags: fully shown up to TAG_NEAR (m), faded out by TAG_FAR; hills between are checked every TAG_CHECK frames. */
+const TAG_NEAR = 120;
+const TAG_FAR = 280;
+const TAG_CHECK = 6;
 
 const RIVAL_NAMES = ['Haruki', 'Mika', 'Bunta', 'Rin', 'Kenji', 'Sora', 'Aiko', 'Daichi'];
 
@@ -174,6 +179,8 @@ export class RaceGame {
   private boosting = false;
   private wallClock = 0;
   private exited = false;
+  /** Name tags hidden behind a hill, by tag id, and the frame each was last checked. */
+  private tagHidden = new Map<Tag['id'], { hidden: boolean; at: number }>();
 
   constructor(private setup: RaceSetup) {
     this.track = getTrack(setup.track);
@@ -1085,20 +1092,23 @@ export class RaceGame {
     const dots: Dot[] = [{ s: c.s, me: true, color: me.color, x: c.p.x, z: c.p.z }];
     for (const r of this.rivals) dots.push({ s: r.car.s, me: false, color: r.color, x: r.car.p.x, z: r.car.p.z });
     for (const r of this.remotes.values()) dots.push({ s: r.s, me: false, color: r.color, x: r.model.root.position.x, z: r.model.root.position.z });
-    // Place: finishers by time, then everyone else by distance down the road.
-    const entries = [
-      { me: true, f: me.finished, s: c.s },
-      ...this.rivals.map((r) => ({ me: false, f: r.finished, s: r.car.s })),
-      ...[...this.remotes.values()].map((r) => ({ me: false, f: r.finished, s: r.s })),
-    ].sort((a, b) => (a.f !== null && b.f !== null ? a.f - b.f : a.f !== null ? -1 : b.f !== null ? 1 : b.s - a.s));
+    // Everyone in race order (finishers by time, then by distance down the road): your place, the board, the tags.
+    type Who = { name: string; color: string; me: boolean; tag: Tag['id']; root: THREE.Object3D; height: number };
+    const order = standings<Who>([
+      { who: { name: me.name, color: me.color, me: true, tag: 'me', root: me.model.root, height: CARS[c.spec.id].height - c.spec.cg }, finished: me.finished, progress: c.s },
+      ...this.rivals.map((r, i) => ({ who: { name: r.name, color: r.color, me: false, tag: 'ai' + i, root: r.model.root, height: CARS[r.car.spec.id].height - r.car.spec.cg }, finished: r.finished, progress: r.car.s })),
+      ...[...this.remotes.values()].map((r) => ({ who: { name: r.name, color: r.color, me: false, tag: r.id, root: r.model.root, height: CARS[r.spec.id].height - r.spec.cg }, finished: r.finished, progress: r.s })),
+    ]);
+    const followed = this.watching !== null && this.remotes.get(this.watching)?.last ? this.watching : 'me';
+    this.hud.tags(order.filter((e) => e.who.tag !== followed).map((e) => ({ id: e.who.tag, name: e.who.name, color: e.who.color, place: order.indexOf(e) + 1, at: this.tagAt(e.who.tag, e.who.root, e.who.height) })));
     this.hud.update({
       speed: speedOf(c),
       rpm: c.rpm,
       redline: c.spec.redline,
       gear: c.gear,
       shifting: c.shift > 0,
-      place: entries.findIndex((e) => e.me) + 1,
-      field: entries.length,
+      place: order.findIndex((e) => e.who.me) + 1,
+      field: order.length,
       time: me.finished ?? this.time,
       abs: c.absOn,
       tcs: c.tcsOn,
@@ -1109,7 +1119,37 @@ export class RaceGame {
       boost: c.boost > 0,
       heading: yaw,
       dots,
+      board: order.map((e) => ({ name: e.who.name, color: e.who.color, me: e.who.me, finished: e.finished })),
     });
+  }
+
+  /** Where a name tag goes on screen: just over the car's roof, faded with distance, hidden off screen or behind a hill. */
+  private tagAt(id: Tag['id'], root: THREE.Object3D, height: number): Tag['at'] {
+    const cam = this.camera;
+    const p = new THREE.Vector3(root.position.x, root.position.y + height + 0.6, root.position.z);
+    const dist = p.distanceTo(cam.position);
+    if (dist > TAG_FAR) return null;
+    cam.updateMatrixWorld();
+    const ndc = p.clone().project(cam);
+    if (ndc.z > 1 || Math.abs(ndc.x) > 1.1 || Math.abs(ndc.y) > 1.1) return null;
+    let seen = this.tagHidden.get(id);
+    if (!seen || this.puffTick - seen.at >= TAG_CHECK) {
+      let hidden = false;
+      for (let k = 1; k < 8 && !hidden; k++) {
+        const f = k / 8;
+        const x = cam.position.x + (p.x - cam.position.x) * f;
+        const y = cam.position.y + (p.y - cam.position.y) * f;
+        const z = cam.position.z + (p.z - cam.position.z) * f;
+        hidden = heightAt(this.track, x, z) > y + 0.5;
+      }
+      seen = { hidden, at: this.puffTick };
+      this.tagHidden.set(id, seen);
+    }
+    if (seen.hidden) return null;
+    const w = this.setup.container.clientWidth || innerWidth;
+    const h = this.setup.container.clientHeight || innerHeight;
+    const alpha = 1 - Math.min(1, Math.max(0, (dist - TAG_NEAR) / (TAG_FAR - TAG_NEAR)));
+    return { x: (ndc.x * 0.5 + 0.5) * w, y: (-ndc.y * 0.5 + 0.5) * h, alpha };
   }
 
   private resize = () => {
