@@ -9,7 +9,7 @@ import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring';
 export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura';
-export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass';
+export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
  * Something special about a stretch of road, between two control points (`from`/`to` are indexes into
@@ -100,8 +100,13 @@ export interface Track {
   startS: number;
   finishS: number;
   half: number; // half the asphalt width
-  rail: number; // barrier distance from the centreline
-  edge: number; // where the road's plane ends and the blend begins
+  rail: number; // barrier distance from the centreline, where there's no runoff
+  edge: number; // where the road's plane ends and the blend begins, where there's no runoff
+  /** Runoff: extra metres of flat dirt before the barrier, left and right of each sample. */
+  runL: Float64Array;
+  runR: Float64Array;
+  /** The widest the road's plane gets anywhere (edge plus the most runoff). */
+  edgeMax: number;
   grid: Map<number, Int32Array>;
   coarse: { x0: number; z0: number; nx: number; nz: number; base: Float32Array; dist: Float32Array };
   spans: Span[];
@@ -127,7 +132,7 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
     tag: 'Alpine · 6 hairpins · forest esses',
     theme: 'alpine',
     seed: 7,
-    width: 10,
+    width: 12,
     relief: 330,
     features: [
       { kind: 'cut', s0: 1840, s1: 2230 },
@@ -150,7 +155,7 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
     tag: 'Coastal · clifftops · cliff-face zigzag',
     theme: 'coast',
     seed: 23,
-    width: 10,
+    width: 12,
     relief: 140,
     tilt: [-0.55, 0],
     water: 0,
@@ -170,7 +175,7 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
     blurb: 'A rally stage across the mesas: tarmac into two long gravel sections, four crests that put you in the air, and a narrow red-rock canyon.',
     theme: 'desert',
     seed: 41,
-    width: 9,
+    width: 11,
     relief: 240,
     points: [
       [0, 320, 0], [10, 316, -200], [-60, 308, -380], [-40, 298, -560], [60, 288, -720], [200, 276, -820],
@@ -197,7 +202,7 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
     blurb: 'Moonlight and headlights only. Sweepers off the summit, a ladder of eight hairpins down the face, a bridge over the gorge and a tunnel to the village.',
     theme: 'night',
     seed: 77,
-    width: 9,
+    width: 11,
     relief: 300,
     points: [
       [0, 520, 0], [0, 514, -160], [-80, 506, -300], [-220, 496, -360], [-360, 486, -330], [-470, 476, -230],
@@ -224,7 +229,7 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
     blurb: 'Maples on fire with colour. Flowing esses down a river gorge, two bridges, a rock gallery and a few crests, finishing by the lake.',
     theme: 'autumn',
     seed: 59,
-    width: 10,
+    width: 12,
     relief: 220,
     water: 70,
     points: [
@@ -250,7 +255,7 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
     blurb: 'Blossom season. A quick run off the ridge with a crest, two hairpins back to back, a bridge over the falls, a gravel shortcut through the orchard and a sprint along the lake.',
     theme: 'spring',
     seed: 88,
-    width: 10,
+    width: 12,
     relief: 200,
     water: 112,
     points: [
@@ -497,6 +502,11 @@ export function buildTrack(def: TrackDef): Track {
   const half = def.width / 2;
   const rail = half + SHOULDER + VERGE;
   const edge = rail + EDGE_PAD;
+  const startS = nearestS(first);
+  const finishS = nearestS(last);
+  const [runL, runR] = runoff(def, n, x, z, curv, spans, crests, edge, startS, finishS);
+  let edgeMax = edge;
+  for (let i = 0; i < n; i++) edgeMax = Math.max(edgeMax, edge + runL[i], edge + runR[i]);
   let bx0 = Infinity;
   let bx1 = -Infinity;
   let bz0 = Infinity;
@@ -510,7 +520,7 @@ export function buildTrack(def: TrackDef): Track {
 
   // Spatial hash: every sample within reach of a cell is listed in it (ascending), so one lookup finds
   // every stretch of road that can shape the ground at a point.
-  const reach = edge + BLEND + SAMPLE + SOFTMIN * 4; // the smooth minimum reads a little short of the true one
+  const reach = edgeMax + BLEND + SAMPLE + SOFTMIN * 4; // the smooth minimum reads a little short of the true one
   const lists = new Map<number, number[]>();
   for (let i = 0; i < n; i++) {
     const c0 = Math.floor((x[i] - reach) / CELL);
@@ -576,11 +586,14 @@ export function buildTrack(def: TrackDef): Track {
     curv,
     bank,
     length: s[n - 1],
-    startS: nearestS(first),
-    finishS: nearestS(last),
+    startS,
+    finishS,
     half,
     rail,
     edge,
+    runL,
+    runR,
+    edgeMax,
     grid,
     coarse: { x0, z0, nx, nz, base, dist },
     bounds: { x0: bx0, x1: bx1, z0: bz0, z1: bz1 },
@@ -599,6 +612,103 @@ export function buildTrack(def: TrackDef): Track {
 }
 
 const cellKey = (c: number, r: number) => (c + 4096) * 8192 + (r + 4096);
+
+/** Runoff tuning: the rough speed profile that finds the fast bends, and how much room they get (m). */
+const RUN = {
+  grip: 1.2 * 9.81, // lateral grip the profile assumes (m/s²)
+  vmax: 58,
+  brake: 8,
+  accel: 3.5,
+  vmin: 24, // bends slower than this (hairpins) keep the rail close: they're slow, and their legs are near
+  vfull: 42,
+  look: 200, // a bend needs runoff if within this far before it (m) the profile is RUN.dropped (m/s) quicker
+  dropped: 9,
+  min: 3, // runoff at vmin, rising to max by vfull
+  max: 8,
+  landing: 6, // both sides after a jump
+};
+
+/**
+ * Where the barrier stands back. A rail right at the verge of a fast bend is a trap: a car a little too quick
+ * slides onto it and rides it round. So the outside of every bend taken fast (grip-limited in a rough speed
+ * profile, and quicker than RUN.vmin) gets flat dirt before the barrier, widest where it's quickest and
+ * carrying on past the exit, where cars run wide under power; both sides after each jump get some, for wonky
+ * landings. None on bridges, in tunnels and canyons, at the shortcuts' turn-offs or by the gantries, and
+ * never so much that two legs of road come close.
+ */
+function runoff(
+  def: TrackDef, n: number, x: Float64Array, z: Float64Array, curv: Float64Array, spans: Span[], crests: { s: number; len: number }[],
+  edge: number, startS: number, finishS: number,
+): [Float64Array, Float64Array] {
+  const vlim = new Float64Array(n);
+  for (let i = 0; i < n; i++) vlim[i] = Math.min(RUN.vmax, Math.sqrt(RUN.grip / Math.max(1e-6, Math.abs(curv[i]))));
+  const v = Float64Array.from(vlim);
+  for (let i = n - 2; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] ** 2 + 2 * RUN.brake * SAMPLE));
+  const i0 = Math.round(startS / SAMPLE);
+  for (let i = 0; i <= i0; i++) v[i] = 0;
+  for (let i = i0 + 1; i < n; i++) v[i] = Math.min(v[i], Math.sqrt(v[i - 1] ** 2 + 2 * RUN.accel * SAMPLE));
+  const L = new Float64Array(n);
+  const R = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    if (v[i] < RUN.vmin || vlim[i] >= RUN.vmax || v[i] < vlim[i] * 0.98) continue;
+    // Only bends you brake hard for: they're the ones a late braker arrives at too fast.
+    let peak = 0;
+    for (let j = Math.max(0, i - RUN.look / SAMPLE); j < i; j++) peak = Math.max(peak, v[j]);
+    if (peak - v[i] < RUN.dropped) continue;
+    const w = RUN.min + (RUN.max - RUN.min) * smoothstep(RUN.vmin, RUN.vfull, v[i]);
+    const out = curv[i] > 0 ? L : R; // a right-hander's outside is on the left
+    for (let j = Math.max(0, i - 10); j <= Math.min(n - 1, i + 30); j++) out[j] = Math.max(out[j], w);
+  }
+  for (const c of crests)
+    for (let j = Math.round(c.s / SAMPLE) + 4; j <= Math.min(n - 1, Math.round(c.s / SAMPLE) + 70); j++) {
+      L[j] = Math.max(L[j], RUN.landing);
+      R[j] = Math.max(R[j], RUN.landing);
+    }
+  // Kept clear: zero there, easing back in over the 60 m around (smoothing alone would spread runoff into it).
+  const keep = new Float64Array(n).fill(1);
+  const clear = (a: number, b: number) => {
+    for (let i = Math.max(0, Math.floor((a - 60) / SAMPLE)); i <= Math.min(n - 1, Math.ceil((b + 60) / SAMPLE)); i++) keep[i] = 0;
+  };
+  for (const sp of spans) if (sp.kind !== 'gravel') clear(sp.s0 - 10, sp.s1 + 10);
+  for (const f of def.features ?? []) if (f.kind === 'cut') for (const e of [f.s0, f.s1]) clear(e - 10, e + 10);
+  clear(0, startS + 30);
+  clear(finishS - 20, n * SAMPLE);
+  smooth(keep, 10, 3);
+  // Never so wide that the road's planes of two legs come within 40 m (tests/racephysics checks it).
+  const cap = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let c = Infinity;
+    for (let j = 0; j < n; j++) if (Math.abs(i - j) > 50) c = Math.min(c, (x[i] - x[j]) ** 2 + (z[i] - z[j]) ** 2);
+    cap[i] = Math.max(0, (Math.sqrt(c) - 40) / 2 - edge - 1);
+  }
+  for (const a of [L, R]) {
+    for (let i = 0; i < n; i++) a[i] = Math.min(a[i], cap[i]);
+    // Ease in and out over ~60 m, so the barrier never kinks toward a car.
+    smooth(a, 10, 3);
+    for (let i = 0; i < n; i++) a[i] = keep[i] < 1e-3 || a[i] < 0.01 ? 0 : Math.min(a[i] * keep[i], cap[i]); // (the running sum leaves crumbs)
+  }
+  return [L, R];
+}
+
+/** Runoff (m) at sample i on the side of offset `d` (blended across the centreline, where it never matters). */
+const runAt = (t: Track, i: number, d: number) => t.runL[i] + (t.runR[i] - t.runL[i]) * smoothstep(-6, 6, d);
+
+/** Runoff (m) at distance `s` along the road, on the side of offset `d`. */
+export function runoffAt(t: Track, s: number, d: number): number {
+  const f = Math.min(t.n - 1.001, Math.max(0, s / SAMPLE));
+  const i = Math.floor(f);
+  const u = f - i;
+  return runAt(t, i, d) * (1 - u) + runAt(t, i + 1, d) * u;
+}
+
+/** The barrier's distance from the centreline at distance `s`, on the side of offset `d`. */
+export const railAt = (t: Track, s: number, d: number) => t.rail + runoffAt(t, s, d);
+
+/** Where the road's plane ends at distance `s`, on the side of offset `d`. */
+export const edgeAt = (t: Track, s: number, d: number) => t.edge + runoffAt(t, s, d);
+
+/** Runoff of `r` metres is dirt from this far out (|d|): it eats into the grass verge as it widens. */
+export const dirtFrom = (t: Track, r: number) => (r < 0.05 ? Infinity : Math.max(t.half + SHOULDER, t.rail - r));
 
 // ---------------------------------------------------------------------------------------------
 // Queries
@@ -816,23 +926,30 @@ function roadHeight(t: Track, x: number, z: number, onRoad?: Loc): number {
   }
   const dmin = Math.sqrt(dmin2);
   roadDist = dmin;
-  if (dmin <= t.edge + SAMPLE) {
+  if (dmin <= t.edgeMax + SAMPLE) {
     // Legs are always far apart, so a point this close to a road belongs to that one stretch.
     const dist = Math.sqrt(project(t, imin, x, z, pieceLoc));
-    if (dist <= t.edge) {
+    if (dist <= edgeAt(t, pieceLoc.s, pieceLoc.d)) {
       roadHit = true;
       if (onRoad) Object.assign(onRoad, pieceLoc);
       return roadY(t, pieceLoc) + (t.ramps.length ? rampLift(t.ramps, pieceLoc.s, pieceLoc.d) : 0);
     }
   }
-  // How hard the road pulls the ground, by a smooth minimum of the distances (the plain minimum has a
-  // kink where two legs are equally near, which would crease the ground there).
+  // How far past each sample's edge (runoff included) the point is; the road pulls the ground by a smooth
+  // minimum of those (the plain minimum has a kink where two legs are equally near, which would crease the
+  // ground there).
+  let emin = Infinity;
+  for (let k = 0; k < L; k++) {
+    const i = list[k];
+    d2s[k] = Math.sqrt(d2s[k]) - t.edge - runAt(t, i, -(x - t.x[i]) * t.tz[i] + (z - t.z[i]) * t.tx[i]);
+    emin = Math.min(emin, d2s[k]);
+  }
   let soft = 0;
   for (let k = 0; k < L; k++) {
-    d2s[k] = Math.sqrt(d2s[k]) - dmin;
+    d2s[k] -= emin;
     if (d2s[k] < SOFTMIN * 8) soft += Math.exp(-d2s[k] / SOFTMIN);
   }
-  const pull = 1 - smoothstep(t.edge, t.edge + BLEND, dmin - SOFTMIN * Math.log(soft));
+  const pull = 1 - smoothstep(0, BLEND, emin - SOFTMIN * Math.log(soft));
   const T = terrainAt(t, x, z);
   if (pull <= 0) return T;
   let wsum = 0;
@@ -893,7 +1010,8 @@ export function groundAt(t: Track, x: number, z: number, out: Ground): Ground {
     out.ny = ny;
     out.nz = nz;
     const ad = Math.abs(tmpLoc.d);
-    out.surf = ad > t.half + SHOULDER ? 'grass' : t.gravel[tmpLoc.i] ? 'gravel' : ad <= t.half ? 'asphalt' : 'shoulder';
+    out.surf =
+      ad > t.half + SHOULDER ? (ad >= dirtFrom(t, runoffAt(t, tmpLoc.s, tmpLoc.d)) ? 'dirt' : 'grass') : t.gravel[tmpLoc.i] ? 'gravel' : ad <= t.half ? 'asphalt' : 'shoulder';
     return out;
   }
   const onRamp = tmpLoc.i >= 0;

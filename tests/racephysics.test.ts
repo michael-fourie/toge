@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { CAR_IDS, carSpec, newOwnedCar, rating, topSpeed } from '../src/shared/race/cars.ts';
 import { aiDrive, newAi } from '../src/shared/race/driver.ts';
 import { TRACK_LENGTH_KM } from '../src/shared/race/garage.ts';
-import { SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, gridSlot, heightAt, locate, newLoc, roadDistance, roadY } from '../src/shared/race/track.ts';
+import { SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../src/shared/race/track.ts';
 import { type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, stepCar } from '../src/shared/race/vehicle.ts';
 
 const TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
@@ -29,7 +29,8 @@ test('tracks: legs of the road never come close enough to overlap, and no grade 
     for (let i = 0; i < t.n; i += 3)
       for (let j = i + 100; j < t.n; j += 3) {
         const d = Math.hypot(t.x[i] - t.x[j], t.z[i] - t.z[j]);
-        assert.ok(d > 2 * t.edge + 40, `${id}: s=${i * SAMPLE} and s=${j * SAMPLE} are only ${d.toFixed(1)} m apart`);
+        const wide = (k: number) => t.edge + Math.max(t.runL[k], t.runR[k]);
+        assert.ok(d > wide(i) + wide(j) + 40, `${id}: s=${i * SAMPLE} and s=${j * SAMPLE} are only ${d.toFixed(1)} m apart`);
       }
     // Jump ramps are steep on purpose; everywhere else the grade stays sane.
     const onCrest = (s: number) => t.crests.some((c) => Math.abs(s - c.s) < c.len / 2 + 2 * SAMPLE);
@@ -43,8 +44,8 @@ test('tracks: the ground under the road is the road, and it is continuous everyw
   for (const id of TRACKS) {
     const t = getTrack(id);
     for (let s = 10; s < t.length - 10; s += 37) {
-      for (const d of [-t.rail, -t.half, 0, t.half, t.rail]) {
-        const i = Math.floor(s / SAMPLE);
+      const i = Math.floor(s / SAMPLE);
+      for (const d of [-t.rail - t.runL[i], -t.rail, -t.half, 0, t.half, t.rail, t.rail + t.runR[i]]) {
         const x = t.x[i] - t.tz[i] * d;
         const z = t.z[i] + t.tx[i] * d;
         locate(t, x, z, i, loc);
@@ -67,6 +68,63 @@ test('tracks: the ground under the road is the road, and it is continuous everyw
       }
     assert.ok(worst < 0.5, `${id}: a seam in the ground at (${where}): ${worst.toFixed(2)} m`);
   }
+});
+
+test('runoff: dirt before the barrier on the outside of fast bends and after every jump, never on structures', () => {
+  const g = newGround();
+  for (const id of TRACKS) {
+    const t = getTrack(id);
+    // Some, but not so much that the rail stops mattering.
+    const covered = Array.from(t.runL, (l, i) => Math.max(l, t.runR[i]) > 1).filter(Boolean).length / t.n;
+    assert.ok(covered > 0.12 && covered < 0.4, `${id}: runoff on ${(covered * 100).toFixed(0)}% of the road`);
+    // Where it's wide, it's dirt you can drive on: flat road plane out to a barrier that stands back.
+    let wide = 0;
+    for (let i = 0; i < t.n; i++)
+      for (const [side, run] of [[-1, t.runL[i]], [1, t.runR[i]]] as const) {
+        if (run < 4) continue;
+        wide++;
+        const s = i * SAMPLE;
+        const p = pointAt(t, s, side * (t.rail + 1));
+        groundAt(t, p.x, p.z, g);
+        assert.equal(g.surf, 'dirt', `${id}: s=${s} side ${side} is ${g.surf}`);
+        assert.ok(railAt(t, s, side * t.rail) > t.rail + 3.5);
+      }
+    assert.ok(wide > 0, `${id}: no wide runoff anywhere`);
+    for (const c of t.crests) {
+      const i = Math.round((c.s + 60) / SAMPLE);
+      // (Not by a bridge or tunnel, or at a shortcut's turn-off, where the rail has to stay put.)
+      const at = c.s + 60;
+      const blocked = t.spans.some((sp) => sp.kind !== 'gravel' && at > sp.s0 - 100 && at < sp.s1 + 100) || t.cuts.some((k) => Math.min(Math.abs(at - k.s0), Math.abs(at - k.s1)) < 100);
+      if (!blocked) assert.ok(Math.min(t.runL[i], t.runR[i]) > 3, `${id}: no room to land after the jump at s=${c.s}`);
+    }
+    for (const sp of t.spans)
+      if (sp.kind !== 'gravel')
+        for (let i = Math.floor(sp.s0 / SAMPLE); i <= Math.ceil(sp.s1 / SAMPLE); i++) assert.equal(t.runL[i] + t.runR[i], 0, `${id}: runoff on a ${sp.kind}`);
+  }
+});
+
+test('the barrier: grinding along it costs real speed, and steering away gets you off it', () => {
+  // Pressed into the left rail at 150 km/h on full throttle: it should bleed speed hard, not carry it.
+  const along = (input: DriveInput, seconds: number) => {
+    const car = carOn();
+    const s = flat.startS + 150;
+    const p = pointAt(flat, s, -(flat.rail - 1.2));
+    Object.assign(car.p, { x: p.x, y: p.y + 0.4, z: p.z });
+    car.hint = Math.floor(s / SAMPLE);
+    const yaw = Math.atan2(-p.tx, -p.tz) + 0.06; // nosing a little into the rail
+    car.q = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
+    const v = 150 / 3.6;
+    car.v.x = -Math.sin(yaw) * v;
+    car.v.z = -Math.cos(yaw) * v;
+    run(car, { ...gas, steer: -0.15 }, 0.6); // leaning on it
+    const v0 = speedOf(car);
+    run(car, input, seconds);
+    return { car, lost: (v0 - speedOf(car)) * 3.6 };
+  };
+  const ride = along({ ...gas, steer: -0.15 }, 1);
+  assert.ok(ride.lost > 15, `riding the rail only cost ${ride.lost.toFixed(1)} km/h a second`);
+  const off = along({ ...gas, steer: 0.5 }, 1.2);
+  assert.ok(off.car.d > -(flat.rail - 3), `still on the rail at d=${off.car.d.toFixed(2)}`);
 });
 
 test('a parked car settles on its springs and stays put', () => {

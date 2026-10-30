@@ -1003,6 +1003,28 @@ html.pad .tg :is(button, input):focus {
   font: 600 20px 'Barlow Condensed', sans-serif;
   opacity: 0.85;
 }
+.rh-watch {
+  position: absolute;
+  left: 50%;
+  bottom: 120px;
+  transform: translateX(-50%);
+  display: none;
+  gap: 2px;
+  text-align: center;
+  padding: 8px 22px;
+  border-radius: 12px;
+  background: rgba(8, 12, 18, 0.55);
+}
+.rh-watch.on {
+  display: grid;
+}
+.rh-watch b {
+  font: 800 26px 'Barlow Condensed', sans-serif;
+}
+.rh-watch small {
+  font: 600 16px 'Barlow Condensed', sans-serif;
+  opacity: 0.85;
+}
 .rh.wrong::after {
   content: 'WRONG WAY';
   position: absolute;

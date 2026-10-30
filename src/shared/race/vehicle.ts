@@ -12,7 +12,7 @@
 // Frame: body x = right, y = up, -z = forward (three.js). Wheels are 0 FL, 1 FR, 2 RL, 3 RR.
 
 import { type CarSpec, torqueAt } from './cars.ts';
-import { type Ground, type Loc, type Surface, type Track, groundAt, heightAt, locate, newGround, newLoc, onCut, pointAt } from './track.ts';
+import { type Ground, type Loc, type Surface, type Track, groundAt, heightAt, locate, newGround, newLoc, onCut, pointAt, railAt } from './track.ts';
 import { firstPropFrom, isSolid } from './props.ts';
 
 export const TICK_HZ = 120;
@@ -47,6 +47,8 @@ const SURF: Record<Surface, { mu: number; roll: number }> = {
   shoulder: { mu: 0.88, roll: 0.03 },
   gravel: { mu: 0.74, roll: 0.03 },
   grass: { mu: 0.62, roll: 0.09 },
+  // Runoff: grippy enough to steer back onto the road, draggy enough that it costs you.
+  dirt: { mu: 0.8, roll: 0.2 },
 };
 
 export interface DriveInput {
@@ -854,6 +856,12 @@ function invMassAt(car: Car, rx: number, ry: number, rz: number, nx: number, ny:
 
 const RESTITUTION = 0.22;
 const WALL_FRICTION = 0.35;
+/**
+ * Grinding along a barrier slows the car this much (m/s²) on top of the friction. Without it a car pinned on
+ * the outside rail kept nearly all its speed (the arcade layer swings the velocity round to the nose), so
+ * riding the rail through a bend was quicker than driving it, and too fast to ever steer off it.
+ */
+const SCRAPE = 9;
 
 /** Rails either side of the road, and the walls across both ends: the corner that went through is pushed back. */
 function barrier(car: Car, t: Track) {
@@ -871,7 +879,7 @@ function barrier(car: Car, t: Track) {
     const pz = car.p.z + tmp.z - loc.cz;
     const d = px * rx + pz * rz;
     const along = px * loc.tx + pz * loc.tz + loc.s;
-    let pen = Math.abs(d) - t.rail;
+    let pen = Math.abs(d) - railAt(t, along, d);
     let cnx = -Math.sign(d) * rx;
     let cnz = -Math.sign(d) * rz;
     // A shortcut's turn-off: the rail has a gap here.
@@ -899,6 +907,12 @@ function barrier(car: Car, t: Track) {
   if (worst <= 0) return;
   car.p.x += nx * worst;
   car.p.z += nz * worst;
+  const v = Math.hypot(car.v.x, car.v.z);
+  if (v > 1) {
+    const k = Math.max(0, 1 - (SCRAPE * H) / v);
+    car.v.x *= k;
+    car.v.z *= k;
+  }
   const w = car.w;
   const vx = car.v.x + w.y * wz;
   const vz = car.v.z - w.y * wx;

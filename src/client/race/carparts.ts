@@ -80,6 +80,49 @@ const discTex = canvasTexture(256, (g, s) => {
   }
 });
 
+/** Metallic flake: each texel a tiny mirror tilted at random, under a smooth clear coat. */
+const flakeTex = canvasTexture(256, (g, s) => {
+  const img = g.createImageData(s, s);
+  for (let i = 0; i < s * s; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.random() * 0.6;
+    img.data.set([128 + Math.cos(a) * r * 127, 128 + Math.sin(a) * r * 127, 255, 255], i * 4);
+  }
+  g.putImageData(img, 0, 0);
+}, false);
+flakeTex.wrapS = flakeTex.wrapT = THREE.RepeatWrapping;
+flakeTex.repeat.set(60, 30);
+
+/**
+ * Tread: four grooves round the tyre and angled sipes across the blocks (u round the tyre, v across
+ * the lathe's profile), as a normal map.
+ */
+const treadTex = canvasTexture(64, (g, s) => {
+  const H = 256;
+  const hgt = new Float32Array(s * H);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < s; x++) {
+      const v = y / H;
+      // Only the contact patch (the middle of the profile) carries tread.
+      if (v < 0.3 || v > 0.7) continue;
+      const groove = [0.36, 0.45, 0.55, 0.64].some((c) => Math.abs(v - c) < 0.012);
+      const sipe = Math.abs(((x + (v - 0.5) * 60) % 16) - 8) < 1.2 && Math.abs(v - 0.5) > 0.06;
+      hgt[y * s + x] = groove || sipe ? 0 : 1;
+    }
+  const img = g.createImageData(s, H);
+  const at = (x: number, y: number) => hgt[Math.min(H - 1, Math.max(0, y)) * s + ((x + s) % s)];
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < s; x++) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) * 0.8;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * 0.8;
+      const l = Math.hypot(dx, dy, 1);
+      img.data.set([128 - (dx / l) * 127, 128 + (dy / l) * 127, 128 + 127 / l, 255], (y * s + x) * 4);
+    }
+  g.putImageData(img, 0, 0);
+}, false, 256);
+treadTex.wrapS = THREE.RepeatWrapping;
+treadTex.repeat.set(10, 1);
+
 /** Soft rounded-rectangle glow for the underglow, and the contact shadow. */
 function softRect(inner: number): THREE.CanvasTexture {
   return canvasTexture(128, (g, s) => {
@@ -89,14 +132,15 @@ function softRect(inner: number): THREE.CanvasTexture {
         const dx = Math.max(0, Math.abs(x - s / 2 + 0.5) / (s / 2) - inner) / (1 - inner);
         const dy = Math.max(0, Math.abs(y - s / 2 + 0.5) / (s / 2) - inner) / (1 - inner);
         const a = Math.max(0, 1 - Math.hypot(dx, dy));
+        // alphaMap reads the green channel, so the falloff goes in the colour, not the alpha.
         const i = (y * s + x) * 4;
-        img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
-        img.data[i + 3] = Math.round(a * a * 255);
+        img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(a * a * 255);
+        img.data[i + 3] = 255;
       }
     g.putImageData(img, 0, 0);
   }, false);
 }
-const glowTex = softRect(0.55);
+const glowTex = softRect(0.3);
 const blobTex = softRect(0.35);
 
 const plates = new Map<string, THREE.CanvasTexture>();
@@ -135,13 +179,14 @@ export const MAT = {
   alloy: new THREE.MeshStandardMaterial({ color: 0xa9adb3, roughness: 0.3, metalness: 1 }),
   carbon: new THREE.MeshPhysicalMaterial({ color: 0xffffff, map: carbonTex, roughness: 0.35, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.05 }),
   grille: new THREE.MeshStandardMaterial({ color: 0x07080a, roughness: 0.85 }),
-  tyre: new THREE.MeshStandardMaterial({ color: 0x18181a, roughness: 0.9 }),
+  tyre: new THREE.MeshStandardMaterial({ color: 0x1a1a1c, roughness: 0.82, normalMap: treadTex, normalScale: new THREE.Vector2(1.2, 1.2) }),
   sidewall: new THREE.MeshStandardMaterial({ map: sidewallTex, transparent: true, roughness: 0.8, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
   disc: new THREE.MeshStandardMaterial({ map: discTex, roughness: 0.35, metalness: 0.85 }),
   caliper: new THREE.MeshStandardMaterial({ color: 0xd4211b, roughness: 0.35, metalness: 0.3 }),
-  head: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4e0, emissiveIntensity: 2.2, roughness: 0.1 }),
-  drl: new THREE.MeshBasicMaterial({ color: 0xe9f6ff }),
-  amber: new THREE.MeshStandardMaterial({ color: 0xffa21a, emissive: 0xff8a00, emissiveIntensity: 0.9, roughness: 0.2 }),
+  // Lamps are brighter than white on purpose: the race's bloom picks them out (the showroom just clips).
+  head: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4e0, emissiveIntensity: 9, roughness: 0.1 }),
+  drl: new THREE.MeshBasicMaterial({ color: new THREE.Color(8, 9, 10) }),
+  amber: new THREE.MeshStandardMaterial({ color: 0xffa21a, emissive: 0xff8a00, emissiveIntensity: 1.6, roughness: 0.2 }),
   lens: new THREE.MeshPhysicalMaterial({ color: 0x9aa5b1, metalness: 1, roughness: 0.05, clearcoat: 1 }),
   rubber: new THREE.MeshStandardMaterial({ color: 0x0f0f10, roughness: 0.95 }),
   red: new THREE.MeshStandardMaterial({ color: 0xc8102e, roughness: 0.5 }),
@@ -153,10 +198,13 @@ export const isShared = (m: THREE.Material) => SHARED.has(m);
 
 export function paintMaterial(look: Look, color = PAINTS[look.paint]): THREE.MeshPhysicalMaterial {
   const f = look.finish;
-  const m = new THREE.MeshPhysicalMaterial({ color, metalness: 0.1, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.03 });
+  const m = new THREE.MeshPhysicalMaterial({ color, metalness: 0.1, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.6 });
   if (f === 1) {
-    m.metalness = 0.7;
-    m.roughness = 0.32;
+    // Metallic: flake under the clear coat, so the sun sparkles in the base and the coat stays a mirror.
+    m.metalness = 0.75;
+    m.roughness = 0.38;
+    m.normalMap = flakeTex;
+    m.normalScale.set(0.25, 0.25);
   } else if (f === 2) {
     m.metalness = 0.15;
     m.roughness = 0.7;
@@ -167,6 +215,8 @@ export function paintMaterial(look: Look, color = PAINTS[look.paint]): THREE.Mes
     m.iridescence = 0.8;
     m.iridescenceIOR = 1.6;
     m.iridescenceThicknessRange = [250, 700];
+    m.normalMap = flakeTex;
+    m.normalScale.set(0.15, 0.15);
     m.sheen = 0.6;
     m.sheenColor = new THREE.Color(0xffffff);
   }

@@ -85,6 +85,7 @@ export class RaceHud {
       <div class="rh-item" data-el="item"><span class="rh-item-icon" data-el="itemIcon"></span><small data-el="itemName"></small></div>
       <div class="rh-center" data-el="center"></div>
       <div class="rh-banner" data-el="banner"></div>
+      <div class="rh-watch" data-el="watch"></div>
       <div class="rh-help" data-el="help"></div>
       <div class="rh-panel" data-el="panel" hidden></div>`;
     container.appendChild(this.root);
@@ -117,6 +118,12 @@ export class RaceHud {
     this.el.banner.classList.add('on');
     clearTimeout(this.bannerTimer);
     if (ms > 0) this.bannerTimer = window.setTimeout(() => this.el.banner.classList.remove('on'), ms);
+  }
+
+  /** The spectating line after you finish online: who's being followed and the key for the next. Empty hides it. */
+  watching(who: string, hint: string) {
+    this.el.watch.innerHTML = `${who ? `<b>${esc(who)}</b>` : ''}${hint ? `<small>${esc(hint)}</small>` : ''}`;
+    this.el.watch.classList.toggle('on', !!(who || hint));
   }
 
   update(h: HudState) {

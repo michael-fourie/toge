@@ -102,7 +102,7 @@ export function buildCar(owned: OwnedCar): CarModel {
     paint.color.set(0xffffff);
     own.push(tex);
   }
-  const tail = new THREE.MeshStandardMaterial({ color: 0x6a0707, emissive: 0xff1a12, emissiveIntensity: 0.7, roughness: 0.2 });
+  const tail = new THREE.MeshStandardMaterial({ color: 0x6a0707, emissive: 0xff1a12, emissiveIntensity: 3, roughness: 0.2 });
 
   const lower = bodySection(d, sp, b, L, W, H, b.radius);
   const cabin = cabinSection(d, lower, W, H);
@@ -185,7 +185,7 @@ export function buildCar(owned: OwnedCar): CarModel {
         w.holder.rotation.y = front ? -steer : 0;
         w.spin.rotation.x = -ws[i].angle * (w.outward < 0 ? -1 : 1);
       });
-      tail.emissiveIntensity = braking ? 3.4 : 0.7;
+      tail.emissiveIntensity = braking ? 20 : 3;
     },
     dispose() {
       root.traverse((o) => {
@@ -253,9 +253,9 @@ function common(k: Kit, d: Design, owned: OwnedCar, own: { dispose(): void }[]) 
   if (owned.look.glow) {
     const color = GLOWS[owned.look.glow];
     const pool = glowMaterial(color);
-    const strip = new THREE.MeshBasicMaterial({ color });
+    const strip = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(4) });
     own.push(pool, strip);
-    const g = k.put(new THREE.PlaneGeometry(W * 2.5, k.L * 1.05), pool, [0, 0.03, 0], [-Math.PI / 2, 0, 0]);
+    const g = k.put(new THREE.PlaneGeometry(W * 3, k.L * 1.25), pool, [0, 0.03, 0], [-Math.PI / 2, 0, 0]);
     g.userData.solo = true;
     g.userData.glow = true;
     g.renderOrder = 1;

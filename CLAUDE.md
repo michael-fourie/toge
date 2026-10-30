@@ -228,7 +228,9 @@ src/shared/race/
 src/server/race.ts (Race: lobby -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.
-src/client/race/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), carmodel.ts
+src/client/race/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), tracktextures.ts
+  (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
+  post chain: clamp, bloom, film grade per theme (`Look.grade`), then tone mapping), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
   textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`), showroom.ts, hub.ts (the garage screen `drive`), lobby.ts (`drivelobby`), hud.ts, input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
@@ -236,7 +238,7 @@ src/client/race/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
 src/client/pad.ts  gamepads for every menu (spatial focus moves, A/B/LB/RB) and for driving (readPad, padAxis, rumble).
 ```
 
-- Rendering is plain WebGL (`THREE.WebGLRenderer`), ACES tone mapping, one sun shadow map that follows the camera, instanced and tiled scenery. Watch triangle counts (`__race.renderer.info`): forests dominate. A car is ~30k triangles in ~40 draw calls.
+- Rendering is plain WebGL (`THREE.WebGLRenderer`) through `Post` (post.ts), ACES tone mapping, one sun shadow map that follows the camera, instanced and tiled scenery. Bloom thresholds are high by day (the sky itself is bright) and low at night, so lamps and emissives must be brighter than white to glow: keep car lamps, reflectors and signs well above 1. Watch triangle counts (`__race.renderer.info`): forests dominate. A car is ~30k triangles in ~40 draw calls.
 - Never add or remove a light mid-race: three.js recompiles every lit shader when the light count changes (a multi-second freeze). Keep the light in the scene from the start and change its intensity (see the comet light in racegame.ts).
 - Driving is client-authoritative like the shooter; the server times the race, sanity-checks finish times and pays signed-in racers (guests credit themselves from `results`).
 - A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts.
