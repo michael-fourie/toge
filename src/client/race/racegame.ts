@@ -615,8 +615,12 @@ export class RaceGame {
       Object.assign(myInput, { steer: 0, throttle: this.paused ? 0 : this.controls.input.throttle, brake: 1, handbrake: 1, drift: 0 });
     } else if (me.finished !== null || this.phase === 'done') {
       aiDrive(me.car, t, me.ai ?? (me.ai = newAi(0.8, 0)), TICK_DT, myInput);
+      // Finished: brake to a stop, then hold it on the handbrake (the brake at a standstill selects reverse).
+      const moving = forwardSpeed(me.car) > 1.5;
       myInput.throttle = 0;
-      myInput.brake = Math.max(myInput.brake, 0.5);
+      myInput.brake = moving ? 1 : 0;
+      myInput.handbrake = moving ? 0 : 1;
+      myInput.drift = 0;
     } else if (this.paused) Object.assign(myInput, { steer: 0, throttle: 0, brake: 0, handbrake: 0, drift: 0 });
     else {
       const c = this.controls.input;

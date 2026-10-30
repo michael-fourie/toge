@@ -116,8 +116,10 @@ export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput)
     out.brake = 0;
   }
   if (car.s > t.finishS) {
+    // Past the line: brake hard, then hold it on the handbrake (the brake at a standstill selects reverse).
     out.throttle = 0;
-    out.brake = 0.4;
+    out.brake = v > 1.5 ? 1 : 0;
+    out.handbrake = v > 1.5 ? 0 : 1;
   }
 
   // Recover: stuck against something, or facing back up the road.
