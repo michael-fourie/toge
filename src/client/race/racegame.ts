@@ -170,6 +170,7 @@ export class RaceGame {
     this.renderer.domElement.className = 'race-canvas';
     setup.container.appendChild(this.renderer.domElement);
     this.view = buildTrackView(this.track, this.renderer);
+    this.view.scene.add(this.cometLight);
     this.renderer.toneMappingExposure = this.view.exposure;
     this.fx = new Effects(this.view.scene);
     this.propView = new PropView(this.view.scene, this.track);
@@ -409,15 +410,21 @@ export class RaceGame {
     return all[0]?.who ?? null;
   }
 
-  private comets: { mesh: THREE.Mesh; from: number; target: Racing | number; at: number; dur: number }[] = [];
+  private comets: { mesh: THREE.Mesh; lit: boolean; from: number; target: Racing | number; at: number; dur: number }[] = [];
+  // Comets share one look, and one light that lives in the scene all race, dark until a comet carries
+  // it: adding or removing a light mid-race makes three.js recompile every lit shader, a long freeze.
+  private cometGeo = new THREE.SphereGeometry(0.7, 16, 12);
+  private cometMat = new THREE.MeshBasicMaterial({ color: 0x8fd8ff });
+  private cometLight = new THREE.PointLight(0x6fc8ff, 0, 30, 2);
 
   /** A comet leaves distance `from` along the road and homes in on `target`. */
   private launchComet(from: number, target: Racing | number, by: string) {
     const ts = typeof target === 'number' ? (this.remotes.get(target)?.s ?? from) : target.car.s;
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 12), new THREE.MeshBasicMaterial({ color: 0x8fd8ff }));
-    mesh.add(new THREE.PointLight(0x6fc8ff, 40, 30, 2));
+    const mesh = new THREE.Mesh(this.cometGeo, this.cometMat);
     this.view.scene.add(mesh);
-    this.comets.push({ mesh, from, target, at: this.wallClock, dur: Math.max(1.2, (ts - from) / POWER.cometSpeed) });
+    const lit = !this.comets.some((c) => c.lit);
+    if (lit) this.cometLight.intensity = 40;
+    this.comets.push({ mesh, lit, from, target, at: this.wallClock, dur: Math.max(1.2, (ts - from) / POWER.cometSpeed) });
     if (target === this.me) {
       this.hud.banner(`☄️ Comet from ${by}!`, 'Shield up or brace yourself', 1800);
       this.audio.tone(520, 0.6, 0.05, 'sawtooth');
@@ -432,8 +439,7 @@ export class RaceGame {
       const local = typeof cm.target === 'number' ? null : cm.target;
       const tp = local ? local.model.root.position : this.remotes.get(cm.target as number)?.model.root.position;
       if (!tp) {
-        cm.mesh.removeFromParent();
-        this.comets.splice(k, 1);
+        this.dropComet(k);
         continue;
       }
       const ts = local ? local.car.s : (this.remotes.get(cm.target as number)?.s ?? cm.from);
@@ -441,10 +447,10 @@ export class RaceGame {
       const road = pointAt(this.track, cm.from + (ts - cm.from) * u, 0);
       const dive = Math.max(0, (u - 0.8) / 0.2);
       cm.mesh.position.set(road.x + (tp.x - road.x) * dive, road.y + 9 * (1 - dive) + (tp.y - road.y) * dive, road.z + (tp.z - road.z) * dive);
+      if (cm.lit) this.cometLight.position.copy(cm.mesh.position);
       if (this.puffTick % 2 === 0) this.fx.spark(cm.mesh.position.x, cm.mesh.position.y, cm.mesh.position.z, 0, 0.5, 0, [0.5, 0.85, 1], 0.6, 1.6);
       if (u < 1) continue;
-      cm.mesh.removeFromParent();
-      this.comets.splice(k, 1);
+      this.dropComet(k);
       for (let i = 0; i < 40; i++) this.fx.spark(tp.x, tp.y + 0.5, tp.z, (Math.random() - 0.5) * 16, Math.random() * 10, (Math.random() - 0.5) * 16, Math.random() < 0.5 ? [0.5, 0.85, 1] : [1, 1, 1], 0.9, 2.2);
       this.audio.burst(0.9, 0.15, 400, 'lowpass');
       if (!local || now < local.shieldUntil) continue;
@@ -454,6 +460,13 @@ export class RaceGame {
       local.car.v.y += POWER.cometLift;
       if (local === this.me) rumble(1, 1, 900);
     }
+  }
+
+  private dropComet(k: number) {
+    const cm = this.comets[k];
+    cm.mesh.removeFromParent();
+    if (cm.lit) this.cometLight.intensity = 0;
+    this.comets.splice(k, 1);
   }
 
   /** A shockwave from `by` (null: a remote racer) spins out everyone else who isn't shielded. */
@@ -1075,6 +1088,8 @@ export class RaceGame {
     for (const r of [this.me, ...this.rivals]) r.model.dispose();
     for (const r of this.remotes.values()) r.model.dispose();
     this.fx.dispose();
+    this.cometGeo.dispose();
+    this.cometMat.dispose();
     this.view.dispose();
     this.audio.close();
     this.renderer.dispose();

@@ -117,6 +117,9 @@ export const RIM_COLORS = [0xc9ccd1, 0x1a1b1e, 0xd4a017, 0xffffff, 0xb91c1c];
 export const RIM_COLOR_NAMES = ['Silver', 'Black', 'Gold', 'White', 'Red'];
 export const SPOILERS = ['None', 'Ducktail', 'Wing'] as const;
 export const STRIPES = ['None', 'Twin stripes', 'Side stripe'] as const;
+/** Underglow: index 0 is off (its swatch colour is only for the picker). */
+export const GLOWS = [0x2a2c31, 0x22e6ff, 0xff2bd6, 0x7dff3a, 0xffa31a, 0xe8f1ff];
+export const GLOW_NAMES = ['Off', 'Cyan', 'Magenta', 'Lime', 'Amber', 'Ice'];
 
 export interface Look {
   paint: number;
@@ -126,6 +129,7 @@ export interface Look {
   spoiler: number;
   stripe: number;
   stripeColor: number;
+  glow: number;
 }
 
 export interface Tune {
@@ -146,7 +150,7 @@ export const TUNE_RANGE: Record<keyof Tune, { min: number; max: number; step: nu
   final: { min: 0.85, max: 1.15, step: 0.01, label: 'Final drive' },
 };
 
-export const defaultLook = (paint = 0): Look => ({ paint, finish: 1, rims: 0, rimColor: 0, spoiler: 0, stripe: 0, stripeColor: 1 });
+export const defaultLook = (paint = 0): Look => ({ paint, finish: 1, rims: 0, rimColor: 0, spoiler: 0, stripe: 0, stripeColor: 1, glow: 0 });
 export const defaultTune = (car: CarId): Tune => ({ ride: 0, bias: CARS[car].bias, diff: 0.35, final: 1 });
 
 export interface OwnedCar {
@@ -166,6 +170,7 @@ const LOOK_LIMITS: Record<keyof Look, number> = {
   spoiler: SPOILERS.length,
   stripe: STRIPES.length,
   stripeColor: PAINTS.length,
+  glow: GLOWS.length,
 };
 
 const int = (x: unknown, n: number, fallback: number) => (Number.isInteger(x) && (x as number) >= 0 && (x as number) < n ? (x as number) : fallback);
@@ -203,21 +208,22 @@ export function cleanCar(x: unknown): OwnedCar | null {
 /** What other racers need to draw your car: model, look and the upgrade levels (for the class badge). */
 export function encodeCar(c: OwnedCar): string {
   const l = c.look;
-  return [c.model, l.paint, l.finish, l.rims, l.rimColor, l.spoiler, l.stripe, l.stripeColor, PARTS.map((p) => c.up[p]).join('')].join('.');
+  return [c.model, l.paint, l.finish, l.rims, l.rimColor, l.spoiler, l.stripe, l.stripeColor, l.glow, PARTS.map((p) => c.up[p]).join('')].join('.');
 }
 
 export function decodeCar(code: string | null | undefined): OwnedCar | null {
   if (typeof code !== 'string' || code.length > 64) return null;
   const [model, ...rest] = code.split('.');
-  if (!isCarId(model) || rest.length !== 8) return null;
-  const n = rest.slice(0, 7).map(Number);
   const keys = Object.keys(LOOK_LIMITS) as (keyof Look)[];
+  // Codes from before underglow have one look value fewer; it stays off.
+  if (!isCarId(model) || (rest.length !== keys.length + 1 && rest.length !== keys.length)) return null;
+  const n = rest.slice(0, -1).map(Number);
   const look = defaultLook();
-  for (let i = 0; i < keys.length; i++) {
+  for (let i = 0; i < n.length; i++) {
     if (!Number.isInteger(n[i]) || n[i] < 0 || n[i] >= LOOK_LIMITS[keys[i]]) return null;
     look[keys[i]] = n[i];
   }
-  const ups = rest[7];
+  const ups = rest[rest.length - 1];
   if (!/^[0-5]{8}$/.test(ups)) return null;
   const up = noUpgrades();
   PARTS.forEach((p, i) => (up[p] = Number(ups[i])));

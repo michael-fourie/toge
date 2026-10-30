@@ -23,7 +23,7 @@ export const PAD_HELP: [string, string][] = [
   ['RT', 'Accelerate'],
   ['LT (hold)', 'Drift (let go for a boost)'],
   ['Left stick', 'Steer'],
-  ['Ⓑ', 'Brake / reverse'],
+  ['Ⓑ / stick back', 'Brake / reverse'],
   ['Ⓐ / RB', 'Use item'],
   ['Ⓨ', 'Camera'],
   ['LB (hold)', 'Look back'],
@@ -31,6 +31,14 @@ export const PAD_HELP: [string, string][] = [
   ['D-pad ↑ ↓', 'Shift (manual)'],
   ['Menu', 'Pause'],
 ];
+
+/**
+ * Pulling the left stick back brakes, harder the further back. It starts past a third of the travel so a
+ * stick that's mostly steering, a little low, doesn't drag the brakes.
+ */
+export function stickBrake(ly: number): number {
+  return Math.max(0, Math.min(1, (ly - 0.3) / 0.55));
+}
 
 export class DriveControls {
   readonly input: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
@@ -90,6 +98,7 @@ export class DriveControls {
       if (Math.abs(sx) > Math.abs(steer)) steer = sx;
       throttle = Math.max(throttle, pad.rt);
       if (pad.down[BTN.B] || pad.down[BTN.X]) brake = 1;
+      brake = Math.max(brake, stickBrake(pad.ly));
       drift = Math.max(drift, pad.lt);
       if (pad.down[BTN.LB]) this.lookBack = true;
       const map: [number, Action][] = [
@@ -102,7 +111,7 @@ export class DriveControls {
         [BTN.Down, 'shiftDown'],
       ];
       for (const [b, a] of map) if (pad.pressed[b]) this.queued.push(a);
-      if (pad.rt > 0.1 || pad.lt > 0.1 || Math.abs(pad.lx) > 0.2 || pad.pressed.some(Boolean)) this.padSeen = true;
+      if (pad.rt > 0.1 || pad.lt > 0.1 || Math.abs(pad.lx) > 0.2 || pad.ly > 0.3 || pad.pressed.some(Boolean)) this.padSeen = true;
     }
     const inp = this.input;
     inp.steer = steer;

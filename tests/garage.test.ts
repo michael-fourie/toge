@@ -97,12 +97,22 @@ test('payouts: winning pays most, bigger fields and longer roads pay more, solo 
 test('car codes round-trip and reject junk', () => {
   const c = newOwnedCar('shiro', 4);
   c.look.spoiler = 2;
+  c.look.glow = 3;
   c.up.turbo = 3;
   const back = decodeCar(encodeCar(c));
   assert.ok(back);
   assert.deepEqual(back!.look, c.look);
   assert.deepEqual(back!.up, c.up);
-  for (const bad of ['', 'tank.0.0.0.0.0.0.0.00000000', 'shiro.99.0.0.0.0.0.0.00000000', 'shiro.0.0.0.0.0.0.0.0000000', 'shiro.0.0.0.0.0.0.0.99999999']) assert.equal(decodeCar(bad), null, bad);
+  for (const bad of ['', 'tank.0.0.0.0.0.0.0.00000000', 'shiro.99.0.0.0.0.0.0.00000000', 'shiro.0.0.0.0.0.0.0.0000000', 'shiro.0.0.0.0.0.0.0.99999999', 'shiro.0.0.0.0.0.0.0.99.00000000']) assert.equal(decodeCar(bad), null, bad);
+});
+
+test('car codes from before underglow still decode, with it off', () => {
+  const old = decodeCar('shiro.4.1.2.0.2.1.3.03000000');
+  assert.ok(old);
+  assert.equal(old!.look.spoiler, 2);
+  assert.equal(old!.look.stripeColor, 3);
+  assert.equal(old!.look.glow, 0);
+  assert.equal(old!.up.turbo, 3);
 });
 
 test('the server store keeps a garage per user and applies awards', async () => {

@@ -2,7 +2,7 @@
 // Upgrades (crates: the gamble), Paint & Tune, Dealer. The showroom and a Forza-style car card stay
 // beside whichever tab is open.
 
-import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, RIMS, RIM_COLORS, RIM_COLOR_NAMES, SPOILERS, STRIPES, TUNE_RANGE, type Tune, carSpec, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../../shared/race/cars.ts';
+import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, RIMS, RIM_COLORS, RIM_COLOR_NAMES, SPOILERS, STRIPES, TUNE_RANGE, type Tune, carSpec, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../../shared/race/cars.ts';
 import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, tunerCost } from '../../shared/race/garage.ts';
 import { TRACK_DEFS, type TrackId } from '../../shared/race/track.ts';
 import { account } from '../account.ts';
@@ -217,6 +217,8 @@ export const driveHub: Render = (root, ctx, screen) => {
       <div class="tg-row"><span class="tg-label">Spoiler</span>${pills('spoiler', SPOILERS)}</div>
       <div class="tg-row"><span class="tg-label">Stripes</span>${pills('stripe', STRIPES)}</div>
       ${L.stripe ? `<div class="tg-swatches">${swatches('stripeColor', PAINTS, PAINT_NAMES)}</div>` : ''}
+      <div class="tg-row"><span class="tg-label">Underglow</span></div>
+      <div class="tg-swatches">${swatches('glow', GLOWS, GLOW_NAMES)}</div>
       <h2 class="tg-h">Tuning <small>a wing adds downforce (and drag)</small></h2>
       <div class="tg-sliders">${sliders}</div>
       <p class="tg-status" role="status" data-status>${esc(status)}</p>`;
