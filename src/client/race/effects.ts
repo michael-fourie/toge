@@ -14,6 +14,10 @@ export class Effects {
   private sLife = new Float32Array(SMOKE_MAX).fill(1);
   private sCol = new Float32Array(SMOKE_MAX * 3);
   private sSize = new Float32Array(SMOKE_MAX);
+  /** Size at birth and growth over life (smoke swells, sparks shrink), and fade rate. */
+  private sBase = new Float32Array(SMOKE_MAX);
+  private sGrow = new Float32Array(SMOKE_MAX);
+  private sFade = new Float32Array(SMOKE_MAX);
   private sAlpha = new Float32Array(SMOKE_MAX);
   private next = 0;
 
@@ -90,6 +94,24 @@ export class Effects {
     const c = dust ? [0.55, 0.47, 0.36] : [0.86, 0.86, 0.88];
     this.sCol.set(c, i * 3);
     this.sAlpha[i] = Math.min(0.35, 0.1 + amount * 0.18);
+    this.sBase[i] = 1;
+    this.sGrow[i] = 5;
+    this.sFade[i] = 0.6;
+  }
+
+  /** A short-lived glowing particle: drift sparks, boost flames. */
+  spark(x: number, y: number, z: number, vx: number, vy: number, vz: number, color: number[], life: number, size: number) {
+    const i = this.next;
+    this.next = (this.next + 1) % SMOKE_MAX;
+    this.sp.set([x, y, z], i * 3);
+    this.sv.set([vx, vy, vz], i * 3);
+    this.sAge[i] = 0;
+    this.sLife[i] = life;
+    this.sCol.set(color, i * 3);
+    this.sAlpha[i] = 1;
+    this.sBase[i] = size;
+    this.sGrow[i] = -size * 0.8;
+    this.sFade[i] = 2;
   }
 
   /** Lays skid mark between this wheel's last point and here; `strength` 0 lifts the pen. */
@@ -131,8 +153,8 @@ export class Effects {
       this.sp[i * 3 + 2] += this.sv[i * 3 + 2] * dt;
       this.sv[i * 3] *= 1 - dt * 0.8;
       this.sv[i * 3 + 2] *= 1 - dt * 0.8;
-      this.sSize[i] = 1 + k * 5;
-      this.sAlpha[i] *= 1 - dt * 0.6;
+      this.sSize[i] = this.sBase[i] + k * this.sGrow[i];
+      this.sAlpha[i] *= 1 - dt * this.sFade[i];
     }
     const g = this.smoke.geometry;
     for (const n of ['position', 'size', 'alpha', 'color']) g.getAttribute(n).needsUpdate = true;

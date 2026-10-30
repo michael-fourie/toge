@@ -5,12 +5,16 @@
 // Speed comes from looking down the road: the tightest bend in braking range sets the most the car can be
 // doing now and still slow down in time (v² = v_corner² + 2·a·d).
 
-import { type Car, type DriveInput, forwardSpeed, resetCar, speedOf } from './vehicle.ts';
+import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, arcadeMaxYaw, forwardSpeed, resetCar, speedOf, steerLimit } from './vehicle.ts';
 import { SAMPLE, type Track, pointAt } from './track.ts';
+import { firstPropFrom, isSolid } from './props.ts';
 
 const G = 9.81;
 /** Share of the tyres' peak grip that's usable mid-corner once load transfer is counted. */
 const USABLE = 0.86;
+const GRAVEL = 0.74;
+/** How fast (m/s) the AI takes a crest. */
+const CREST_SPEED = 26;
 
 export interface Ai {
   /** 0.8 (gentle) .. 1 (on the limit): how much of the tyres' grip it dares to use. */
@@ -40,11 +44,22 @@ export function targetSpeed(car: Car, t: Track, skill: number): number {
   const decel = mu * G * 0.75 - G * grade;
   const reach = (v * v) / (2 * decel) + 40;
   let best = Infinity;
+  // Arcade handling corners at the grip it promises; the simulation at the tyres'.
+  const corner = DEFAULT_ASSISTS.arcade ? ARCADE.grip * skill * USABLE : mu;
   for (let d = 0; d <= reach; d += 4) {
     const k = Math.abs(curvAt(t, car.s + d));
     if (k < 1e-4) continue;
-    const vc = Math.sqrt((mu * G) / k);
+    // Gravel has about three quarters of tarmac's grip.
+    const j = Math.max(0, Math.min(t.n - 1, Math.round((car.s + d) / SAMPLE)));
+    const vc = Math.sqrt(((t.gravel[j] ? corner * GRAVEL : corner) * G) / k);
     const allowed = Math.sqrt(vc * vc + 2 * decel * Math.max(0, d - 8));
+    if (allowed < best) best = allowed;
+  }
+  // Lift for jumps: a crest taken flat out lands you in the next bend.
+  for (const c of t.crests) {
+    const d = c.s - c.len / 2 - car.s;
+    if (d < -c.len / 2 || d > reach) continue;
+    const allowed = Math.sqrt(CREST_SPEED ** 2 + 2 * decel * Math.max(0, d));
     if (allowed < best) best = allowed;
   }
   return best;
@@ -57,7 +72,12 @@ export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput)
   const ld = Math.max(9, Math.min(42, 6 + v * 0.55));
   const ahead = car.s + ld;
   const lean = Math.max(-(t.half - 1.4), Math.min(t.half - 1.4, curvAt(t, ahead + 10) * 240));
-  const off = Math.max(-(t.half - 1.2), Math.min(t.half - 1.2, ai.lane + lean));
+  let off = Math.max(-(t.half - 1.2), Math.min(t.half - 1.2, ai.lane + lean));
+  // Steer round bales and barrels coming up on our line (cones it just drives through).
+  for (let i = firstPropFrom(t.props, car.s); i < t.props.length && t.props[i].s < car.s + ld + 25; i++) {
+    const p = t.props[i];
+    if (isSolid(p.kind) && Math.abs(p.d - off) < 3.2) off = p.d > 0 ? p.d - 3.4 : p.d + 3.4;
+  }
   const target = pointAt(t, ahead, off);
 
   // Car frame from its quaternion: forward = q·(0,0,-1), right = q·(1,0,0) (xz only).
@@ -69,11 +89,18 @@ export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput)
   const dx = target.x - car.p.x;
   const dz = target.z - car.p.z;
   const alpha = Math.atan2(dx * rx + dz * rz, dx * fx + dz * fz);
-  const wheelbase = sp.axleF + sp.axleR;
-  const delta = Math.atan((2 * wheelbase * Math.sin(alpha)) / ld);
-  const speed = speedOf(car);
-  const lim = sp.steer / (1 + (speed / 24) ** 2);
-  out.steer = Math.max(-1, Math.min(1, delta / lim));
+  // Pure pursuit: the curvature that reaches the target point.
+  const kappa = (2 * Math.sin(alpha)) / ld;
+  if (DEFAULT_ASSISTS.arcade) {
+    // Arcade handling turns at a yaw rate set by the stick.
+    out.steer = Math.max(-1, Math.min(1, (speedOf(car) * kappa) / arcadeMaxYaw(speedOf(car))));
+  } else {
+    const delta = Math.atan((sp.axleF + sp.axleR) * kappa);
+    out.steer = Math.max(-1, Math.min(1, delta / steerLimit(car, DEFAULT_ASSISTS)));
+  }
+  out.drift = 0;
+  // Airborne: hold it straight and wait for the landing.
+  if (!car.wheels.some((w) => w.contact)) out.steer = 0;
 
   const want = targetSpeed(car, t, ai.skill);
   const err = want - v;

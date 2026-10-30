@@ -9,7 +9,7 @@ import { type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCa
 const TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
 
 /** A dead-straight, dead-flat test strip. */
-const flat = buildTrack({ id: 'koripass', name: 'flat', blurb: '', theme: 'alpine', seed: 1, width: 12, relief: 0, points: Array.from({ length: 21 }, (_, i) => [0, 100, -i * 200] as [number, number, number]) });
+const flat = buildTrack({ id: 'koripass', name: 'flat', tag: '', blurb: '', theme: 'alpine', seed: 1, width: 12, relief: 0, points: Array.from({ length: 21 }, (_, i) => [0, 100, -i * 200] as [number, number, number]) });
 
 const idle: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
 const gas: DriveInput = { steer: 0, throttle: 1, brake: 0, handbrake: 0 };
@@ -31,7 +31,9 @@ test('tracks: legs of the road never come close enough to overlap, and no grade 
         const d = Math.hypot(t.x[i] - t.x[j], t.z[i] - t.z[j]);
         assert.ok(d > 2 * t.edge + 40, `${id}: s=${i * SAMPLE} and s=${j * SAMPLE} are only ${d.toFixed(1)} m apart`);
       }
-    for (let i = 0; i + 5 < t.n; i++) assert.ok(Math.abs(t.y[i + 5] - t.y[i]) / (5 * SAMPLE) < 0.12, `${id}: grade at s=${i * SAMPLE}`);
+    // Jump ramps are steep on purpose; everywhere else the grade stays sane.
+    const onCrest = (s: number) => t.crests.some((c) => Math.abs(s - c.s) < c.len / 2 + 2 * SAMPLE);
+    for (let i = 0; i + 5 < t.n; i++) if (!onCrest(i * SAMPLE)) assert.ok(Math.abs(t.y[i + 5] - t.y[i]) / (5 * SAMPLE) < 0.12, `${id}: grade at s=${i * SAMPLE}`);
     assert.ok(Math.abs((t.finishS - t.startS) / 1000 - TRACK_LENGTH_KM[id]) < 0.15, `${id}: TRACK_LENGTH_KM is out of date`);
   }
 });

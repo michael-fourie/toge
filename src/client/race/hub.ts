@@ -3,7 +3,7 @@
 // beside whichever tab is open.
 
 import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, RIMS, RIM_COLORS, RIM_COLOR_NAMES, SPOILERS, STRIPES, TUNE_RANGE, type Tune, carSpec, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../../shared/race/cars.ts';
-import { CRATES, type CrateResult, MYSTERY_COST, current, tunerCost } from '../../shared/race/garage.ts';
+import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, tunerCost } from '../../shared/race/garage.ts';
 import { TRACK_DEFS, type TrackId } from '../../shared/race/track.ts';
 import { account } from '../account.ts';
 import type { Render } from '../menu/router.ts';
@@ -127,7 +127,7 @@ export const driveHub: Render = (root, ctx, screen) => {
         .map((id) => {
           const d = TRACK_DEFS[id];
           return `<button class="tg-track ${id}" data-track="${id}" aria-pressed="${id === track}">
-            <b>${esc(d.name)}</b><small>${d.theme === 'alpine' ? 'Alpine · 5.3 km · 370 m drop' : 'Coastal · 3.6 km · 230 m drop'}</small><p>${esc(d.blurb)}</p></button>`;
+            <b>${esc(d.name)}</b><small>${esc(d.tag)} · ${TRACK_LENGTH_KM[id]} km</small><p>${esc(d.blurb)}</p></button>`;
         })
         .join('')}
     </div>

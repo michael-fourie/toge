@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import { SAMPLE, SEA_LEVEL, SHOULDER, type Track, fbm, heightAt, pointAt, roadDistance, terrainAt } from '../../shared/race/track.ts';
+import { SAMPLE, SHOULDER, type Theme, type Track, fbm, heightAt, pointAt, roadDistance, terrainAt } from '../../shared/race/track.ts';
 
 interface Look {
   sun: [number, number]; // elevation, azimuth (degrees)
@@ -20,11 +20,20 @@ interface Look {
   verge: number[];
   snowline: number;
   treeline: number;
+  /** Night: the sky's sun sits below the horizon and the light comes from the moon instead. */
+  moon?: [number, number];
+  light?: number; // light colour
+  lightPower?: number;
+  hemi?: number;
+  forest?: number; // how wooded (added to the forest noise)
 }
 
-const LOOKS: Record<'alpine' | 'coast', Look> = {
+const LOOKS: Record<Theme, Look> = {
   alpine: { sun: [22, 215], turbidity: 4, rayleigh: 1.4, fog: 0xa9bfd6, fogDensity: 0.00038, exposure: 0.42, grass: [0.16, 0.28, 0.09], grassDry: [0.34, 0.36, 0.16], rock: [0.36, 0.35, 0.34], verge: [0.28, 0.31, 0.17], snowline: 470, treeline: 440 },
   coast: { sun: [14, 250], turbidity: 6, rayleigh: 2.2, fog: 0xd8c8b4, fogDensity: 0.00034, exposure: 0.42, grass: [0.42, 0.45, 0.2], grassDry: [0.62, 0.55, 0.32], rock: [0.72, 0.66, 0.55], verge: [0.55, 0.5, 0.3], snowline: 1e9, treeline: 1e9 },
+  desert: { sun: [30, 140], turbidity: 8, rayleigh: 1.2, fog: 0xe0b48a, fogDensity: 0.0003, exposure: 0.4, grass: [0.66, 0.42, 0.24], grassDry: [0.78, 0.55, 0.32], rock: [0.62, 0.3, 0.18], verge: [0.7, 0.5, 0.32], snowline: 1e9, treeline: 1e9, forest: -0.35 },
+  night: { sun: [-5, 230], moon: [38, 120], turbidity: 2, rayleigh: 3, fog: 0x0b1120, fogDensity: 0.0006, exposure: 0.9, grass: [0.12, 0.2, 0.08], grassDry: [0.22, 0.25, 0.12], rock: [0.3, 0.3, 0.32], verge: [0.22, 0.24, 0.16], snowline: 520, treeline: 500, light: 0x9db5ff, lightPower: 0.55, hemi: 0.12, forest: 0.2 },
+  autumn: { sun: [18, 200], turbidity: 5, rayleigh: 1.6, fog: 0xd9c7a8, fogDensity: 0.00036, exposure: 0.42, grass: [0.42, 0.4, 0.14], grassDry: [0.58, 0.46, 0.18], rock: [0.45, 0.42, 0.38], verge: [0.42, 0.36, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.2 },
 };
 
 export interface TrackView {
@@ -66,7 +75,9 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
   pmrem.dispose();
   scene.fog = new THREE.FogExp2(look.fog, look.fogDensity);
 
-  const sun = new THREE.DirectionalLight(0xffe6c4, 2.4);
+  const sun = new THREE.DirectionalLight(look.light ?? 0xffe6c4, look.lightPower ?? 2.4);
+  // At night the light comes from the moon, not the sun the sky is shaded with.
+  const lightDir = look.moon ? new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - look.moon[0]), THREE.MathUtils.degToRad(look.moon[1])) : sunDir;
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   const sc = sun.shadow.camera;
@@ -77,7 +88,8 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x4a4030, 0.35));
+  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x4a4030, look.hemi ?? 0.35));
+  if (look.moon) scene.add(stars(lightDir, keep));
 
   const rng = mulberry(t.def.seed * 7919);
 
@@ -95,11 +107,18 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
     // Snow on gentle slopes high up; sand by the sea.
     const snow = THREE.MathUtils.smoothstep(h + n * 30, look.snowline, look.snowline + 40) * THREE.MathUtils.smoothstep(ny, 0.6, 0.8);
     for (let i = 0; i < 3; i++) out[i] += (0.93 - out[i]) * snow;
-    if (t.def.theme === 'coast') {
-      const sand = 1 - THREE.MathUtils.smoothstep(h, SEA_LEVEL + 2, SEA_LEVEL + 7);
-      const sandC = [0.82, 0.74, 0.56];
-      for (let i = 0; i < 3; i++) out[i] += (sandC[i] - out[i]) * sand;
-      if (h < SEA_LEVEL - 1) for (let i = 0; i < 3; i++) out[i] *= 0.6;
+    const water = t.def.water;
+    if (water !== undefined) {
+      // A beach by the sea, a muddy shore by a lake; darker under water.
+      const shore = 1 - THREE.MathUtils.smoothstep(h, water + 1.5, water + 6);
+      const sandC = t.def.theme === 'coast' ? [0.82, 0.74, 0.56] : [0.45, 0.4, 0.3];
+      for (let i = 0; i < 3; i++) out[i] += (sandC[i] - out[i]) * shore;
+      if (h < water - 1) for (let i = 0; i < 3; i++) out[i] *= 0.6;
+    }
+    if (t.def.theme === 'desert') {
+      // Red-rock bands up the mesa faces.
+      const band = 0.5 + 0.5 * Math.sin(h * 0.35 + n * 2);
+      for (let i = 0; i < 3; i++) out[i] *= 0.85 + band * 0.25;
     }
     // Trodden verge by the road.
     const rd = roadDistance(t, x, z);
@@ -163,12 +182,26 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
   const roadTex = keep(roadTexture());
   roadTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const roadMat = keep(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.82, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  const gravelTex = keep(gravelTexture());
+  gravelTex.anisotropy = roadTex.anisotropy;
+  const gravelMat = keep(new THREE.MeshStandardMaterial({ map: gravelTex, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  // Ribbon pieces: at most ROAD_CHUNK samples, and a new piece wherever the surface changes.
+  const pieces: [number, number][] = [];
+  for (let i0 = 0; i0 < t.n - 1; ) {
+    let i1 = Math.min(t.n - 1, i0 + 100);
+    for (let i = i0 + 1; i < i1; i++)
+      if (t.gravel[i] !== t.gravel[i0]) {
+        i1 = i;
+        break;
+      }
+    pieces.push([i0, i1]);
+    i0 = i1;
+  }
   // Across: verge | shoulder | road | shoulder | verge, matching the texture's columns.
   const cross = [-(t.rail + 1.2), -(t.half + SHOULDER), -t.half, t.half, t.half + SHOULDER, t.rail + 1.2];
   const crossU = [0, 0.12, 0.2, 0.8, 0.88, 1];
   const ROAD_CHUNK = 100;
-  for (let i0 = 0; i0 < t.n - 1; i0 += ROAD_CHUNK) {
-    const i1 = Math.min(t.n - 1, i0 + ROAD_CHUNK);
+  for (const [i0, i1] of pieces) {
     const pos: number[] = [];
     const uvs: number[] = [];
     const idx: number[] = [];
@@ -191,10 +224,13 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geo.setIndex(idx);
     geo.computeVertexNormals();
-    const m = new THREE.Mesh(geo, roadMat);
+    const m = new THREE.Mesh(geo, t.gravel[i0] ? gravelMat : roadMat);
     m.receiveShadow = true;
     scene.add(m);
   }
+
+  // --- Bridges and tunnels
+  structures(scene, t, keep, !!look.moon);
 
   // --- Armco both sides: a galvanised beam on posts.
   const railMat = keep(new THREE.MeshStandardMaterial({ color: 0xb9bec4, metalness: 0.85, roughness: 0.38, side: THREE.DoubleSide }));
@@ -261,7 +297,7 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
   }
   chev.count = ci;
   scene.add(chev);
-  if (t.def.theme === 'alpine') {
+  if (t.def.theme === 'alpine' || t.def.theme === 'night') {
     const poleGeo = keep(new THREE.CylinderGeometry(0.04, 0.04, 2, 6));
     const poleMat = keep(new THREE.MeshStandardMaterial({ map: keep(stripeTexture()), roughness: 0.6 }));
     const poles = new THREE.InstancedMesh(poleGeo, poleMat, Math.ceil(t.n / 12) * 2);
@@ -282,17 +318,17 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
 
   // --- Forests and rocks
   scatter(scene, t, look, rng, inner, keep);
-  village(scene, t, rng, keep);
+  village(scene, t, rng, keep, !!look.moon);
 
-  // --- The sea
+  // --- The sea (or a lake)
   let sea: THREE.Mesh | null = null;
-  if (t.def.theme === 'coast') {
+  if (t.def.water !== undefined) {
     const normal = keep(noiseNormal(256));
     normal.repeat.set(400, 400);
     const mat = keep(new THREE.MeshStandardMaterial({ color: 0x0f4d68, roughness: 0.1, metalness: 0.1, normalMap: normal, normalScale: new THREE.Vector2(0.35, 0.35), envMapIntensity: 1.2 }));
     sea = new THREE.Mesh(keep(new THREE.PlaneGeometry(16000, 16000)), mat);
     sea.rotation.x = -Math.PI / 2;
-    sea.position.y = SEA_LEVEL;
+    sea.position.y = t.def.water;
     sea.receiveShadow = true;
     scene.add(sea);
   }
@@ -307,7 +343,7 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
       const sx = Math.round(x / texel) * texel;
       const sz = Math.round(z / texel) * texel;
       sun.target.position.set(sx, y, sz);
-      sun.position.set(sx + sunDir.x * 200, y + sunDir.y * 200, sz + sunDir.z * 200);
+      sun.position.set(sx + lightDir.x * 200, y + lightDir.y * 200, sz + lightDir.z * 200);
       if (sea) {
         const n = (sea.material as THREE.MeshStandardMaterial).normalMap!;
         n.offset.set(time * 0.004, time * 0.0025);
@@ -390,7 +426,10 @@ function gantry(scene: THREE.Scene, t: Track, s: number, text: string, chequer: 
 
 /** Trees (pines up the mountain, cypress and round pines by the sea) and boulders, instanced per 400 m tile. */
 function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T) {
-  const tree = keep(t.def.theme === 'alpine' ? pineGeometry() : coastTreeGeometry());
+  const theme = t.def.theme;
+  const tree = keep(theme === 'alpine' || theme === 'night' ? pineGeometry() : theme === 'coast' ? coastTreeGeometry() : theme === 'desert' ? cactusGeometry() : mapleGeometry());
+  // Maples each get their own autumn colour.
+  const leaves = theme === 'autumn' ? [0xd8431f, 0xe8742a, 0xf2b233, 0xb8261e, 0xc9a23a, 0x6f8a32].map((c) => new THREE.Color(c)) : null;
   const treeMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
   const rock = keep(rockGeometry());
   const rockMat = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(...look.rock).multiplyScalar(0.9), roughness: 0.95, flatShading: true }));
@@ -409,9 +448,9 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
           const pz = z + rng() * 10;
           const rd = roadDistance(t, px, pz);
           if (rd < t.edge + 9) continue;
-          const forest = fbm(px / 140, pz / 140, t.def.seed + 11, 3) + (t.def.theme === 'alpine' ? 0.15 : -0.05);
+          const forest = fbm(px / 140, pz / 140, t.def.seed + 11, 3) + (look.forest ?? (theme === 'alpine' ? 0.15 : -0.05));
           const h = heightAt(t, px, pz);
-          if (h < SEA_LEVEL + 2.5) continue;
+          if (t.def.water !== undefined && h < t.def.water + 2.5) continue;
           const slope = Math.abs(heightAt(t, px + 2, pz) - h) + Math.abs(heightAt(t, px, pz + 2) - h);
           // Thick by the road, thinning with distance (fog hides the rest).
           if (forest > 0.08 && rng() < 0.7 - Math.min(0.45, rd / 1400) && slope < 3.2 && h < look.treeline + rng() * 30 && rd < 700) {
@@ -430,7 +469,10 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
       ] as const) {
         if (!list.length) continue;
         const im = new THREE.InstancedMesh(geo, mat, list.length);
-        list.forEach((mm, i) => im.setMatrixAt(i, mm));
+        list.forEach((mm, i) => {
+          im.setMatrixAt(i, mm);
+          if (leaves && list === trees) im.setColorAt(i, leaves[Math.floor(rng() * leaves.length)]);
+        });
         im.castShadow = true;
         im.receiveShadow = true;
         im.computeBoundingSphere();
@@ -440,10 +482,29 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
 }
 
 /** A cluster of houses beside the road near the finish (chalets or a harbour town). */
-function village(scene: THREE.Scene, t: Track, rng: () => number, keep: <T extends { dispose(): void }>(x: T) => T) {
-  const coast = t.def.theme === 'coast';
-  const walls = coast ? [0xf3ead9, 0xe9c9a0, 0xd9e6ee, 0xf1d3c2, 0xfff6e8] : [0x8a5a3b, 0xe9e1d2, 0x9b6a45, 0xd8cbb4];
-  const roofC = coast ? 0xb4583b : 0x3c3f45;
+function village(scene: THREE.Scene, t: Track, rng: () => number, keep: <T extends { dispose(): void }>(x: T) => T, night: boolean) {
+  const theme = t.def.theme;
+  const walls = theme === 'coast' ? [0xf3ead9, 0xe9c9a0, 0xd9e6ee, 0xf1d3c2, 0xfff6e8] : theme === 'desert' ? [0xc98a5a, 0xd9a273, 0xb87650] : [0x8a5a3b, 0xe9e1d2, 0x9b6a45, 0xd8cbb4];
+  const roofC = theme === 'coast' ? 0xb4583b : theme === 'desert' ? 0x9a5a38 : 0x3c3f45;
+  // At night the village is lit: a few street lamps that really light the road.
+  if (night) {
+    const pole = keep(new THREE.CylinderGeometry(0.08, 0.1, 6, 6));
+    const poleMat = keep(new THREE.MeshStandardMaterial({ color: 0x30343a, roughness: 0.6 }));
+    const bulbMat = keep(new THREE.MeshStandardMaterial({ color: 0xffd9a0, emissive: 0xffc070, emissiveIntensity: 4 }));
+    for (const s of [t.finishS - 80, t.finishS - 10, t.finishS + 60, t.startS - 20]) {
+      const p = pointAt(t, s, t.rail + 1.2);
+      const g = new THREE.Group();
+      g.position.set(p.x, p.y, p.z);
+      const m = new THREE.Mesh(pole, poleMat);
+      m.position.y = 3;
+      const bulb = new THREE.Mesh(keep(new THREE.SphereGeometry(0.25, 10, 8)), bulbMat);
+      bulb.position.y = 6.1;
+      const light = new THREE.PointLight(0xffc98a, 60, 40, 1.6);
+      light.position.y = 6;
+      g.add(m, bulb, light);
+      scene.add(g);
+    }
+  }
   const box = keep(new THREE.BoxGeometry(1, 1, 1));
   const roofGeo = keep(new THREE.CylinderGeometry(0.72, 0.72, 1, 3, 1));
   roofGeo.rotateZ(Math.PI / 2);
@@ -475,6 +536,112 @@ function village(scene: THREE.Scene, t: Track, rng: () => number, keep: <T exten
       }
       scene.add(g);
     }
+}
+
+/** Concrete for bridges and tunnels: a deck on piers over each gorge, a lit gallery through each hill. */
+function structures(scene: THREE.Scene, t: Track, keep: <T extends { dispose(): void }>(x: T) => T, night: boolean) {
+  const concrete = keep(new THREE.MeshStandardMaterial({ color: 0x9c9a94, roughness: 0.85, map: keep(noiseTexture(128, 0.6)) }));
+  const lampMat = keep(new THREE.MeshStandardMaterial({ color: 0xfff4d8, emissive: 0xffe2a8, emissiveIntensity: night ? 6 : 3 }));
+  const w = t.rail + 1.2;
+  const ribbon = (i0: number, i1: number, profile: [number, number][]) => {
+    // A strip swept along the road through (d, height above the road) points.
+    const pos: number[] = [];
+    const idx: number[] = [];
+    const m = profile.length;
+    for (let i = i0; i <= i1; i++) {
+      for (const [d, hy] of profile) pos.push(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * Math.max(-w, Math.min(w, d)) + hy, t.z[i] + t.tx[i] * d);
+      if (i < i1) {
+        const a = (i - i0) * m;
+        for (let k = 0; k < m - 1; k++) idx.push(a + k, a + k + m, a + k + 1, a + k + 1, a + k + m, a + k + m + 1);
+      }
+    }
+    const geo = keep(new THREE.BufferGeometry());
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, concrete);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  };
+  const box = keep(new THREE.BoxGeometry(1, 1, 1));
+  for (const sp of t.spans) {
+    const i0 = Math.max(0, Math.floor(sp.s0 / SAMPLE));
+    const i1 = Math.min(t.n - 1, Math.ceil(sp.s1 / SAMPLE));
+    if (sp.kind === 'bridge') {
+      // The deck: under the road, from one side to the other, with a lip each side.
+      ribbon(i0, i1, [
+        [-w, 0.02],
+        [-w, -1.6],
+        [w, -1.6],
+        [w, 0.02],
+      ]);
+      for (let i = i0 + 6; i < i1 - 3; i += 14) {
+        for (const side of [-0.6, 0.6]) {
+          const d = side * w;
+          const x = t.x[i] - t.tz[i] * d;
+          const z = t.z[i] + t.tx[i] * d;
+          const top = t.y[i] - 1.5;
+          const ground = terrainAt(t, x, z) - 3;
+          if (top - ground < 2) continue;
+          const pier = new THREE.Mesh(box, concrete);
+          pier.scale.set(2.2, top - ground, 2.2);
+          pier.position.set(x, (top + ground) / 2, z);
+          pier.rotation.y = Math.atan2(-t.tx[i], -t.tz[i]);
+          pier.castShadow = true;
+          scene.add(pier);
+        }
+      }
+    } else if (sp.kind === 'tunnel') {
+      // Walls up to a roof, and a facade over each mouth.
+      const H = 6.2;
+      ribbon(i0, i1, [
+        [w + 0.6, -0.5],
+        [w, -0.5],
+        [w, H],
+        [-w, H],
+        [-w, -0.5],
+        [-w - 0.6, -0.5],
+      ]);
+      ribbon(i0, i1, [
+        [-w - 0.6, H + 0.8],
+        [w + 0.6, H + 0.8],
+      ]);
+      for (const i of [i0, i1]) {
+        const face = new THREE.Mesh(box, concrete);
+        face.scale.set(w * 2 + 14, 9, 1.2);
+        face.position.set(t.x[i], t.y[i] + H + 4.4, t.z[i]);
+        face.rotation.y = Math.atan2(-t.tx[i], -t.tz[i]);
+        scene.add(face);
+      }
+      for (let i = i0 + 3; i < i1; i += 6) {
+        const lamp = new THREE.Mesh(box, lampMat);
+        lamp.scale.set(1.6, 0.1, 0.4);
+        lamp.position.set(t.x[i], t.y[i] + H - 0.06, t.z[i]);
+        lamp.rotation.y = Math.atan2(-t.tx[i], -t.tz[i]);
+        scene.add(lamp);
+      }
+    }
+  }
+}
+
+/** Stars and a moon for night tracks. */
+function stars(moonDir: THREE.Vector3, keep: <T extends { dispose(): void }>(x: T) => T): THREE.Group {
+  const g = new THREE.Group();
+  const n = 1800;
+  const pos = new Float32Array(n * 3);
+  const rng = mulberry(99);
+  for (let i = 0; i < n; i++) {
+    const v = new THREE.Vector3().setFromSphericalCoords(9000, Math.acos(rng() * 0.95), rng() * Math.PI * 2);
+    pos.set([v.x, v.y, v.z], i * 3);
+  }
+  const geo = keep(new THREE.BufferGeometry());
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.add(new THREE.Points(geo, keep(new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, fog: false }))));
+  const moon = new THREE.Mesh(keep(new THREE.SphereGeometry(220, 24, 16)), keep(new THREE.MeshBasicMaterial({ color: 0xf4f1e2, fog: false })));
+  moon.position.copy(moonDir).multiplyScalar(8500);
+  g.add(moon);
+  return g;
 }
 
 // --- Procedural geometry and textures --------------------------------------------------------
@@ -532,6 +699,29 @@ function coastTreeGeometry() {
   c2.scale(1, 0.4, 1);
   c2.translate(1.4, 8.4, 0.6);
   parts.push(tint(c2, 0x4a6834));
+  return merge(parts);
+}
+
+function mapleGeometry() {
+  // White canopy and dark trunk: each tree's instance colour tints it red, orange or gold.
+  const parts = [tint(new THREE.CylinderGeometry(0.18, 0.3, 4, 6).translate(0, 2, 0), 0x3a2a20)];
+  const crown = new THREE.IcosahedronGeometry(3.2, 1);
+  crown.scale(1, 0.85, 1).translate(0, 5.6, 0);
+  parts.push(tint(crown, 0xffffff));
+  const c2 = new THREE.IcosahedronGeometry(2.2, 0);
+  c2.translate(1.2, 7, 0.4);
+  parts.push(tint(c2, 0xf0f0f0));
+  return merge(parts);
+}
+
+function cactusGeometry() {
+  // A saguaro: a column with two arms.
+  const green = 0x4f6b3a;
+  const parts = [tint(new THREE.CylinderGeometry(0.35, 0.42, 6, 8).translate(0, 3, 0), green)];
+  parts.push(tint(new THREE.CylinderGeometry(0.25, 0.25, 1.4, 6).rotateZ(Math.PI / 2).translate(0.7, 2.6, 0), green));
+  parts.push(tint(new THREE.CylinderGeometry(0.25, 0.25, 2, 6).translate(1.4, 3.4, 0), green));
+  parts.push(tint(new THREE.CylinderGeometry(0.22, 0.22, 1.2, 6).rotateZ(Math.PI / 2).translate(-0.6, 3.6, 0), green));
+  parts.push(tint(new THREE.CylinderGeometry(0.22, 0.22, 1.6, 6).translate(-1.2, 4.2, 0), green));
   return merge(parts);
 }
 
@@ -631,6 +821,30 @@ function roadTexture() {
   // Tyre-darkened lines where cars actually drive.
   g.fillStyle = 'rgba(0,0,0,0.12)';
   for (const u of [0.32, 0.4, 0.6, 0.68]) g.fillRect(W * u, 0, W * 0.05, H);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Loose gravel: no lines, packed ruts where the cars go. */
+function gravelTexture() {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(S, S);
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      const u = x / S;
+      const rut = Math.exp(-(((u - 0.38) / 0.06) ** 2)) + Math.exp(-(((u - 0.62) / 0.06) ** 2));
+      const n = Math.random();
+      const grain = fbm((x / S) * 24, (y / S) * 24, 8, 3);
+      const v = 128 + n * 60 + grain * 30 - rut * 25;
+      img.data.set([v * 1.05, v * 0.86, v * 0.66, 255], (y * S + x) * 4);
+    }
+  g.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.RepeatWrapping;

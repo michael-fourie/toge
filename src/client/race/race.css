@@ -327,7 +327,7 @@ html.pad .tg :is(button, input):focus {
 
 .tg-tracks {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 10px;
 }
 .tg-track {
@@ -348,6 +348,15 @@ html.pad .tg :is(button, input):focus {
 }
 .tg-track.saltwind {
   background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #f6c79a, #f0a774 30%, #3c7f9a 31%, #c8b18a 60%, #7b8a52);
+}
+.tg-track.redmesa {
+  background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #f7c48a, #e8925a 35%, #a8482a 36%, #c9814f 60%, #7b3b22);
+}
+.tg-track.tsukiyo {
+  background: radial-gradient(circle at 78% 22%, #f4f1e2 0 6%, transparent 7%), linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #0b1430, #1d2b55 40%, #0f1d18 41%, #0a120f);
+}
+.tg-track.momiji {
+  background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #f6d29a, #e9a96a 30%, #c8452a 31%, #e7892f 50%, #6e3a1e);
 }
 .tg-track.small {
   min-height: 70px;
@@ -878,6 +887,68 @@ html.pad .tg :is(button, input):focus {
   opacity: 1;
   color: #ffc940;
   border-color: #ffc940;
+}
+.rh-drift {
+  position: absolute;
+  left: 50%;
+  bottom: 70px;
+  transform: translateX(-50%);
+  font: 800 30px 'Barlow Condensed', system-ui, sans-serif;
+  letter-spacing: 0.12em;
+  color: #fff2cf;
+}
+.rh-drift[data-level='1'] {
+  color: #5cb6ff;
+  text-shadow: 0 0 14px #2b8cff;
+}
+.rh-drift[data-level='2'] {
+  color: #ffa046;
+  text-shadow: 0 0 14px #ff7a1a;
+}
+.rh-drift[data-level='3'] {
+  color: #d58cff;
+  text-shadow: 0 0 16px #b04cff;
+}
+.rh-drift[data-level='boost'] {
+  color: #fff;
+  text-shadow:
+    0 0 10px #4cc3ff,
+    0 0 26px #ff8a2b;
+  animation: rh-pop 0.4s ease-out;
+}
+.rh-item {
+  position: absolute;
+  left: 52px;
+  top: 18px;
+  width: 92px;
+  height: 92px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  border-radius: 18px;
+  background: rgba(8, 12, 18, 0.45);
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  opacity: 0.45;
+  transition:
+    opacity 0.2s,
+    border-color 0.2s;
+}
+.rh-item.on {
+  opacity: 1;
+  border-color: #ffc940;
+  box-shadow: 0 0 18px rgba(255, 201, 64, 0.5);
+}
+.rh-item.spinning {
+  border-color: #fff;
+}
+.rh-item-icon {
+  font-size: 38px;
+  line-height: 1;
+}
+.rh-item small {
+  margin-top: 4px;
+  font: 700 11px 'Barlow', sans-serif;
+  text-align: center;
 }
 .rh-center {
   position: absolute;

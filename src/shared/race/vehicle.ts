@@ -13,6 +13,7 @@
 
 import { type CarSpec, torqueAt } from './cars.ts';
 import { type Ground, type Loc, type Surface, type Track, groundAt, heightAt, locate, newGround, newLoc, pointAt } from './track.ts';
+import { firstPropFrom, isSolid } from './props.ts';
 
 export const TICK_HZ = 120;
 export const TICK_DT = 1 / TICK_HZ;
@@ -31,10 +32,20 @@ const RELAX_Y = 0.45;
 const ROLL_HEIGHT = 0.1; // tyre forces act this far above the contact patch (roll centre)
 const LSD_GAIN = 110; // Nm per rad/s of wheel speed difference at full lock
 const STEER_RATE = 2.6; // how fast the front wheels turn (rad/s)
+/** Body slip (rad) before the steering assist counts it as a slide and starts countersteering. */
+const ASSIST_SLIDE = 0.05;
+/** Stability control: body slip (rad) it allows, and the most it brakes the outside front wheel (Nm). */
+const ESC_SLIDE = 0.07;
+/** How far past the theoretical best angle full lock reaches (some room to tighten a line). */
+const LOCK_HEADROOM = 1.2;
+/** Arcade: how fast an airborne car levels itself (1/s). */
+const AIR_LEVEL = 4;
+const ESC_BRAKE = 1400;
 
 const SURF: Record<Surface, { mu: number; roll: number }> = {
   asphalt: { mu: 1, roll: 0.014 },
   shoulder: { mu: 0.88, roll: 0.03 },
+  gravel: { mu: 0.74, roll: 0.03 },
   grass: { mu: 0.62, roll: 0.09 },
 };
 
@@ -43,6 +54,8 @@ export interface DriveInput {
   throttle: number; // 0..1
   brake: number; // 0..1
   handbrake: number; // 0..1
+  /** Held to drift (arcade handling). */
+  drift?: number;
   shiftUp?: boolean;
   shiftDown?: boolean;
 }
@@ -53,9 +66,14 @@ export interface Assists {
   /** Points the front wheels where the car is going when it slides (Forza's "standard" steering). */
   steer: boolean;
   auto: boolean;
+  /**
+   * Arcade handling (the default): the car turns where you point it, grips, and drifts on the drift
+   * button with mini-turbos. Off, it's the plain simulation underneath.
+   */
+  arcade: boolean;
 }
 
-export const DEFAULT_ASSISTS: Assists = { abs: true, tcs: true, steer: true, auto: true };
+export const DEFAULT_ASSISTS: Assists = { abs: true, tcs: true, steer: true, auto: true, arcade: true };
 
 export interface V3 {
   x: number;
@@ -101,14 +119,33 @@ export interface Car {
   hint: number;
   s: number;
   d: number;
-  /** Strongest impact speed this tick (barrier, ground or another car), for sound and rumble. */
+  /** Strongest impact speed this tick (barrier, another car, an obstacle), for sound and rumble. */
   hit: number;
+  /** Hardest the body slammed into the ground this tick (landing a jump), m/s. */
+  land: number;
   absOn: boolean;
   tcsOn: boolean;
   tcsCut: number;
+  /** Stability control this tick: which front wheel it brakes (-1 none) and how hard (Nm). */
+  escWheel: number;
+  escBrake: number;
   stopTime: number;
   /** How long the car has been on its roof or side (auto-reset). */
   upsideDown: number;
+  /** Arcade drift: direction (-1 left, 1 right, 0 not drifting), how long it's been held, and the sparks it's earned (0-3). */
+  drift: number;
+  driftTime: number;
+  driftLevel: number;
+  /** Seconds of boost left (mini-turbos, items) and how hard it pushes (m/s^2). */
+  boost: number;
+  boostPower: number;
+  /** Lateral tyre grip scale (drifting lets the tyres slide). */
+  latGrip: number;
+  /** Spinning out (hit by oil or a shockwave): seconds left, and which way. */
+  spin: number;
+  spinDir: number;
+  /** Props (indexes into track.props) the car went through this tick: boxes and cones. */
+  touched: number[];
 }
 
 const newWheel = (): Wheel => ({ comp: 0, w: 0, angle: 0, sx: 0, sy: 0, contact: false, load: 0, slip: 0, surf: 'asphalt', fx: 0 });
@@ -150,11 +187,23 @@ export function newCar(spec: CarSpec, x: number, y: number, z: number, yaw: numb
     s: 0,
     d: 0,
     hit: 0,
+    land: 0,
     absOn: false,
     tcsOn: false,
     tcsCut: 0,
+    escWheel: -1,
+    escBrake: 0,
     stopTime: 0,
     upsideDown: 0,
+    drift: 0,
+    driftTime: 0,
+    driftLevel: 0,
+    boost: 0,
+    boostPower: 0,
+    latGrip: 1,
+    spin: 0,
+    spinDir: 1,
+    touched: [],
   };
   // Start with the springs at their static compression so the car doesn't drop onto them.
   car.wheels.forEach((wh, i) => {
@@ -177,6 +226,10 @@ export function resetCar(car: Car, t: Track, s = car.s, d = 0) {
   car.shift = 0;
   car.rpm = car.spec.idle;
   car.upsideDown = 0;
+  car.drift = 0;
+  car.boost = 0;
+  car.latGrip = 1;
+  car.spin = 0;
   for (const w of car.wheels) Object.assign(w, newWheel());
 }
 
@@ -215,6 +268,12 @@ const driven = (sp: CarSpec, i: number) => sp.drive === 'AWD' || (sp.drive === '
 export function stepCar(car: Car, input: DriveInput, t: Track, assists: Assists = DEFAULT_ASSISTS) {
   const sp = car.spec;
   car.hit = 0;
+  car.land = 0;
+  car.touched.length = 0;
+  if (car.spin > 0) {
+    // Spinning out: no say in the matter until it's over.
+    input = { ...input, steer: 0, throttle: 0, drift: 0, brake: 0.3 };
+  }
   rot(car.q, 0, 0, -1, fwd);
   rot(car.q, 1, 0, 0, right);
   const vf = car.v.x * fwd.x + car.v.y * fwd.y + car.v.z * fwd.z;
@@ -251,23 +310,186 @@ export function stepCar(car: Car, input: DriveInput, t: Track, assists: Assists 
   car.shift = Math.max(0, car.shift - TICK_DT);
 
   // Steering: less lock at speed, and with the assist the wheels follow a slide.
-  const lim = sp.steer / (1 + (speed / 24) ** 2);
+  const lim = steerLimit(car, assists);
   let target = clamp(input.steer, -1, 1) * lim;
-  if (assists.steer && speed > 4 && car.gear >= 0) {
+  if (assists.steer && !assists.arcade && speed > 4 && car.gear >= 0) {
+    // Only a real slide: in ordinary grip the path always points a little outside the nose, and
+    // countersteering that would just fight the driver.
     const beta = Math.atan2(vr, Math.max(1, Math.abs(vf)));
-    target += clamp(beta, -0.45, 0.45) * 0.75;
+    const slide = Math.sign(beta) * Math.max(0, Math.abs(beta) - ASSIST_SLIDE);
+    target += clamp(slide, -0.45, 0.45) * 0.8;
   }
   target = clamp(target, -sp.steer, sp.steer);
   car.steer += clamp(target - car.steer, -STEER_RATE * TICK_DT, STEER_RATE * TICK_DT);
 
   car.tcsOn = false;
   car.absOn = false;
+  if (!assists.arcade) stability(car, assists, vf, vr, speed);
   for (let k = 0; k < SUB; k++) substep(car, t, throttle, brake, clamp01(input.handbrake), assists);
+  if (assists.arcade) arcade(car, input, throttle, brake);
+  if (t.props.length) props(car, t);
+  if (car.spin > 0) {
+    car.spin = Math.max(0, car.spin - TICK_DT);
+    car.w.y = car.spinDir * 7;
+    car.v.x *= 1 - TICK_DT * 1.2;
+    car.v.z *= 1 - TICK_DT * 1.2;
+  }
 
   // Auto-reset when stuck on the roof or side.
   rot(car.q, 0, 1, 0, up);
   car.upsideDown = up.y < 0.25 && speed < 3 ? car.upsideDown + TICK_DT : 0;
   if (car.upsideDown > 2.5) resetCar(car, t);
+}
+
+/**
+ * Full lock (rad) at the car's speed. With the steering assist it's the angle that makes the most grip:
+ * the angle the path needs at the tyres' limit, plus the front tyres' peak slip angle. More than that only
+ * scrubs speed (understeer) or spins a rear-driven car, so full stick is always the hardest the car can turn.
+ * Without the assist it's a plain speed-sensitive rack, and the driver has to find the limit.
+ */
+export function steerLimit(car: Car, assists: Assists): number {
+  const sp = car.spec;
+  const v = Math.hypot(car.v.x, car.v.z);
+  if (!assists.steer) return sp.steer / (1 + (v / 24) ** 2);
+  if (v < 3) return sp.steer;
+  const wheelbase = sp.axleF + sp.axleR;
+  // The most lateral acceleration the tyres can give, downforce included, with a little headroom.
+  const aMax = (sp.grip * (G + (0.5 * RHO * sp.clA * v * v) / sp.mass)) * LOCK_HEADROOM;
+  const path = Math.atan((wheelbase * aMax) / (v * v));
+  return Math.min(sp.steer, path + SLIP_PEAK_Y * LOCK_HEADROOM);
+}
+
+/** Arcade handling: lateral grip it promises (g), and how fast it yaws you toward that. */
+export const ARCADE = {
+  grip: 1.9,
+  maxYaw: 2.4, // rad/s at low speed
+  yawResponse: 10, // 1/s
+  /** How fast the travel direction swings round to the nose (1/s): grippy, and while drifting. */
+  align: 7,
+  driftAlign: 1.3,
+  driftGrip: 0.35,
+  /** Drift hold times (s) for blue, orange and purple sparks, and the boost each pays out (s). */
+  levels: [0.7, 1.6, 2.7],
+  boosts: [0, 0.7, 1.1, 1.6],
+  boostAccel: 9,
+  hop: 2.2,
+};
+
+/** Fastest arcade yaw rate (rad/s) at a speed: the lateral grip promised, capped at low speed. */
+export function arcadeMaxYaw(speed: number): number {
+  return Math.min(ARCADE.maxYaw, (ARCADE.grip * G) / Math.max(4, speed));
+}
+
+/**
+ * The arcade layer, run after the physics each tick. It yaws the car toward what the stick asks, swings the
+ * direction of travel round to the nose (so it grips and goes where it points, keeping its speed), and runs
+ * drifts: hold the drift button while steering to hop into a slide that turns tighter (steer in) or wider
+ * (steer out), charging sparks; let go for a mini-turbo.
+ */
+function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
+  const dt = TICK_DT;
+  const grounded = car.wheels.filter((w) => w.contact).length >= 2;
+  rot(car.q, 0, 0, -1, fwd);
+  const hl = Math.hypot(fwd.x, fwd.z) || 1;
+  const fx = fwd.x / hl;
+  const fz = fwd.z / hl;
+  const v = car.v;
+  const speed = Math.hypot(v.x, v.z);
+  const vf = v.x * fx + v.z * fz;
+  const steer = clamp(input.steer, -1, 1);
+  const held = (input.drift ?? 0) > 0.5;
+  // Off the tarmac there's less grip to steer with.
+  const surf = car.wheels.reduce((a, w) => a + (w.contact ? SURF[w.surf].mu : 1), 0) / 4;
+
+  // Drifts.
+  if (car.drift === 0 && held && grounded && speed > 9 && vf > 0 && Math.abs(steer) > 0.25) {
+    car.drift = Math.sign(steer);
+    car.driftTime = 0;
+    car.driftLevel = 0;
+    v.y += ARCADE.hop;
+  } else if (car.drift !== 0) {
+    if (!held || speed < 6 || brake > 0.5) {
+      if (!held && car.driftLevel > 0) {
+        car.boost = Math.max(car.boost, ARCADE.boosts[car.driftLevel]);
+        car.boostPower = ARCADE.boostAccel;
+      }
+      car.drift = 0;
+      car.driftLevel = 0;
+    } else {
+      car.driftTime += dt;
+      car.driftLevel = ARCADE.levels.filter((l) => car.driftTime >= l).length;
+    }
+  }
+  const drifting = car.drift !== 0;
+  car.latGrip = drifting ? ARCADE.driftGrip : 1;
+
+  {
+    // Yaw toward what's asked (reversing turns the other way). In the air you get a little say, to line
+    // up a landing.
+    const max = arcadeMaxYaw(speed) * (0.55 + 0.45 * surf) * (grounded ? 1 : 0.3);
+    let want: number;
+    if (drifting) want = -car.drift * max * (1.05 + 0.45 * steer * car.drift);
+    else want = -steer * max * (speed < 0.5 ? 0 : Math.min(1, speed / 3));
+    if (vf < -0.5) want = -want;
+    car.w.y += (want - car.w.y) * Math.min(1, dt * ARCADE.yawResponse * (grounded ? 1 : 0.4));
+  }
+  if (grounded) {
+
+    // Swing the travel direction round to the nose, keeping the speed.
+    if (speed > 0.5) {
+      const dir = vf >= 0 ? 1 : -1;
+      const beta = Math.atan2(v.x * -fz * dir + v.z * fx * dir, v.x * fx * dir + v.z * fz * dir); // velocity relative to the nose
+      const rate = (drifting ? ARCADE.driftAlign : ARCADE.align) * (0.5 + 0.5 * surf);
+      const turn = -beta * (1 - Math.exp(-dt * rate));
+      const c = Math.cos(turn);
+      const s = Math.sin(turn);
+      const nx = v.x * c - v.z * s;
+      const nz = v.x * s + v.z * c;
+      v.x = nx;
+      v.z = nz;
+    }
+  }
+
+  // In the air the car levels itself (kart-style), so jumps land on four wheels instead of the nose.
+  if (!grounded) {
+    rot(car.q, 0, 1, 0, up);
+    // Axis to turn our up toward the world's: up × (0, 1, 0).
+    const ax = -up.z;
+    const az = up.x;
+    const k = Math.min(1, dt * AIR_LEVEL);
+    car.w.x += (ax * AIR_LEVEL - car.w.x) * k;
+    car.w.z += (az * AIR_LEVEL - car.w.z) * k;
+  }
+
+  // Boost: a shove along the nose.
+  if (car.boost > 0) {
+    car.boost = Math.max(0, car.boost - dt);
+    if (grounded) {
+      v.x += fx * car.boostPower * dt;
+      v.z += fz * car.boostPower * dt;
+    }
+  }
+  void throttle;
+}
+
+/**
+ * Stability control (on with traction control): when the tail steps out (the car yaws into the turn and
+ * the path falls outside the nose), cut the power and brake the outside front wheel, which yaws it back.
+ */
+function stability(car: Car, assists: Assists, vf: number, vr: number, speed: number) {
+  car.escWheel = -1;
+  car.escBrake = 0;
+  if (!assists.tcs || speed < 8 || vf < 2) return;
+  const beta = Math.atan2(vr, vf); // + = sliding toward the car's right
+  rot(car.q, 0, 1, 0, up);
+  const yaw = car.w.x * up.x + car.w.y * up.y + car.w.z * up.z; // + = turning left
+  const over = Math.abs(beta) - ESC_SLIDE;
+  if (over <= 0 || Math.sign(beta) !== Math.sign(yaw)) return;
+  const k = Math.min(1, over * 6);
+  car.escWheel = yaw > 0 ? 1 : 0; // the outside front
+  car.escBrake = k * ESC_BRAKE;
+  car.tcsCut = Math.max(car.tcsCut, k);
+  car.tcsOn = true;
 }
 
 function autoShift(car: Car, throttle: number) {
@@ -424,6 +646,7 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
     const isDriven = driven(sp, i);
     let brakeT = brake * sp.brake * (a === 0 ? sp.bias : 1 - sp.bias) * 0.5;
     if (a === 1) brakeT += handbrake * sp.handbrake;
+    if (i === car.escWheel) brakeT += car.escBrake;
     wh.fx = 0;
     if (wh.contact) {
       const g = grounds[i];
@@ -483,7 +706,7 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
       // Low-speed damping: near a standstill the relaxation is an undamped spring (wheel against tyre,
       // car against tyre), so without this a stopped car rings instead of settling.
       const slow = Math.max(0, 1 - avx / 3);
-      fy = clamp(fy - slow * vy * wh.load * 0.3, -D, D);
+      fy = clamp(fy - slow * vy * wh.load * 0.3, -D, D) * car.latGrip;
       fx = clamp(fx + slow * (wh.w * sp.radius - vx) * wh.load * 0.8, -D, D);
       wh.slip = rho;
       wh.fx = fx;
@@ -502,6 +725,8 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
         car.absOn = true;
       }
       if (isDriven && throttleIn > 0.05 && spin > allowed) wantCut = Math.max(wantCut, Math.min(1, (spin - allowed) / allowed));
+      // Mid-corner, cornering and drive share one grip budget: ease off once drive pushes the tyre past its peak.
+      if (isDriven && throttleIn > 0.05 && wh.sx > 0 && Math.abs(ny) > 0.4 && rho > 1.15) wantCut = Math.max(wantCut, Math.min(1, (rho - 1.15) * 1.5));
     } else brakeT += 4;
     // Wheel spin.
     const I = sp.wheelInertia + (isDriven ? engineI : 0);
@@ -557,7 +782,7 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
       const ht = Math.hypot(pvx, pvz) || 1;
       const mu = 0.55;
       addForce((-pvx / ht) * fn * mu, fn, (-pvz / ht) * fn * mu, px, py, pz);
-      if (-pvy > 2) car.hit = Math.max(car.hit, -pvy);
+      if (-pvy > 2) car.land = Math.max(car.land, -pvy);
     }
   }
 
@@ -693,6 +918,60 @@ function barrier(car: Car, t: Track) {
   }
   impulse(car, nx * j + fx, 0, nz * j + fz, wx, 0, wz);
   car.hit = Math.max(car.hit, -vn);
+}
+
+/** Spins the car out for `seconds` (oil, a shockwave), unless it's already spinning. */
+export function spinOut(car: Car, seconds: number) {
+  if (car.spin > 0) return;
+  car.spin = seconds;
+  car.spinDir = Math.random() < 0.5 ? -1 : 1;
+  car.drift = 0;
+  car.boost = 0;
+}
+
+const CONE_DRAG = 0.985;
+
+/**
+ * The car against the road's props: bales and barrels push it back (like another car that doesn't
+ * move); cones and mystery boxes it just drives through, noting them in `touched` (a cone costs a little speed).
+ */
+function props(car: Car, t: Track) {
+  const list = t.props;
+  const cs = circles(car);
+  const rc = car.spec.body.hw;
+  for (let i = firstPropFrom(list, car.s - 8); i < list.length && list[i].s < car.s + 8; i++) {
+    const p = list[i];
+    for (const c of cs) {
+      const dx = c.x - p.x;
+      const dz = c.z - p.z;
+      const dist = Math.hypot(dx, dz);
+      const pen = rc + p.r - dist;
+      if (pen <= 0 || dist < 1e-4 || Math.abs(car.p.y - p.y) > 3) continue;
+      if (!isSolid(p.kind)) {
+        if (!car.touched.includes(i)) {
+          car.touched.push(i);
+          if (p.kind === 'cone') {
+            car.v.x *= CONE_DRAG;
+            car.v.z *= CONE_DRAG;
+          }
+        }
+        break;
+      }
+      const nx = dx / dist;
+      const nz = dz / dist;
+      car.p.x += nx * pen;
+      car.p.z += nz * pen;
+      const rx = c.x - nx * rc - car.p.x;
+      const rz = c.z - nz * rc - car.p.z;
+      const vx = car.v.x + car.w.y * rz;
+      const vz = car.v.z - car.w.y * rx;
+      const vn = vx * nx + vz * nz;
+      if (vn >= 0) continue;
+      const j = (-(1 + RESTITUTION) * vn) / invMassAt(car, rx, 0, rz, nx, 0, nz);
+      impulse(car, nx * j, 0, nz * j, rx, 0, rz);
+      car.hit = Math.max(car.hit, -vn);
+    }
+  }
 }
 
 /**

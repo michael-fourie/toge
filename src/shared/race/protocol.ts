@@ -24,6 +24,8 @@ export interface NetCar {
   p: [number, number, number];
   q: [number, number, number, number];
   v: [number, number, number];
+  /** Yaw rate (rad/s, + = turning left), so receivers can predict the car forward. */
+  w: number;
   /** Distance along the road (for positions). */
   s: number;
   /** Front wheel angle (rad), wheel spin (rad/s), engine rpm. */
@@ -34,7 +36,8 @@ export interface NetCar {
   f: number;
 }
 
-export const CarFlag = { Brake: 1, Reverse: 2, Skid: 4, Offroad: 8 } as const;
+/** Bits of NetCar.f. The drift's spark level (0-3) rides in the top two bits. */
+export const CarFlag = { Brake: 1, Reverse: 2, Skid: 4, Offroad: 8, Drift: 16, Boost: 32, LevelShift: 6, Shield: 256 } as const;
 
 export interface ResultRow {
   id: number;
@@ -63,6 +66,9 @@ export type RaceServerMsg =
   | { t: 'snap'; cars: NetCar[] }
   | { t: 'finished'; id: number; time: number }
   | { t: 'results'; track: TrackId; rows: ResultRow[] }
+  | { t: 'pong'; n: number }
+  /** Someone used an item that reaches other racers: an oil slick dropped at `p`, or a shockwave. */
+  | { t: 'item'; by: number; kind: 'oil' | 'shock'; p?: [number, number, number] }
   | { t: 'error'; message: string };
 
 export type RaceClientMsg =
@@ -70,11 +76,14 @@ export type RaceClientMsg =
   | { t: 'start' }
   | { t: 'car'; car: string }
   | ({ t: 'state' } & Omit<NetCar, 'id'>)
-  | { t: 'finish'; time: number };
+  | { t: 'finish'; time: number }
+  | { t: 'ping'; n: number }
+  | { t: 'item'; kind: 'oil' | 'shock'; p?: [number, number, number] };
 
 export const RACE = {
   maxPlayers: 8,
   countdownMs: 4000,
+  /** The room's clock tick (phases, timeouts). Car poses are relayed as they arrive, not on this tick. */
   snapshotHz: 20,
   /** After the first finisher, the rest have this long before they're a DNF. */
   dnfSeconds: 40,

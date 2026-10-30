@@ -5,9 +5,11 @@
 import * as THREE from 'three';
 import { CARS, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, newOwnedCar, CAR_IDS, rating } from '../../shared/race/cars.ts';
 import { type Ai, aiDrive, newAi } from '../../shared/race/driver.ts';
+import { ITEMS, type Item, POWER, rollItem } from '../../shared/race/powerups.ts';
 import { CarFlag, type NetCar, type RaceServerMsg, type Racer } from '../../shared/race/protocol.ts';
 import { type Track, type TrackId, getTrack, gridSlot } from '../../shared/race/track.ts';
-import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, stepCar, wheelLocal, yawOf } from '../../shared/race/vehicle.ts';
+import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../../shared/race/vehicle.ts';
+import { PropView, shieldBubble } from './propview.ts';
 import { rumble, setMenuNav } from '../pad.ts';
 import { esc } from '../menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
@@ -35,7 +37,18 @@ type Phase = 'countdown' | 'racing' | 'finished' | 'done';
 type Cam = 'chase' | 'near' | 'hood' | 'bumper';
 const CAMS: Cam[] = ['chase', 'near', 'hood', 'bumper'];
 const SEND_HZ = 20;
-const INTERP_DELAY = 0.12;
+/** Remote cars are predicted forward from their last pose at most this far (s); past that they hold. */
+const MAX_PREDICT = 0.35;
+/** How fast the gap between a car's shown pose and a fresh update closes (1/s). */
+const CORRECT_RATE = 7;
+const PING_EVERY = 2;
+/** Drift sparks by level: plain, blue, orange, purple (kart-racer style). */
+const SPARK_COLORS = [
+  [1, 0.9, 0.6],
+  [0.35, 0.7, 1],
+  [1, 0.55, 0.15],
+  [0.8, 0.4, 1],
+];
 const SOLO_COUNTDOWN = 3.5;
 const SOLO_WAIT_AFTER = 15;
 
@@ -53,6 +66,11 @@ interface Racing {
   finished: number | null;
   ai?: Ai;
   input: DriveInput;
+  /** The item held (and uses left), when an AI uses it, and how long its shield lasts (wall clock). */
+  item: { kind: Item; uses: number } | null;
+  itemAt: number;
+  shieldUntil: number;
+  bubble: THREE.Mesh;
 }
 
 interface Remote {
@@ -63,14 +81,25 @@ interface Remote {
   model: CarModel;
   spec: CarSpec;
   engine: Engine | null;
-  buf: { t: number; c: NetCar }[];
+  /** The latest pose received, and when (local seconds). */
+  last: { c: NetCar; at: number } | null;
+  /** What's on screen (predicted pose + a decaying correction), so updates never snap. */
+  shownP: THREE.Vector3;
+  shownQ: THREE.Quaternion;
+  err: THREE.Vector3;
   /** A stand-in Car (pose only) for bumping into. */
   ghost: Car;
+  bubble: THREE.Mesh;
   s: number;
   finished: number | null;
   spin: number;
   rpm: number;
 }
+
+const UP = new THREE.Vector3(0, 1, 0);
+
+/** Yaw rate (rad/s, + = turning left): angular velocity about the world's up. */
+const yawRate = (c: Car) => c.w.y;
 
 const ASSIST_KEY = 'atrous.assists';
 function loadAssists(): Assists {
@@ -92,6 +121,10 @@ export class RaceGame {
   private hud: RaceHud;
   private audio: RaceAudio;
   private fx: Effects;
+  private propView: PropView;
+  /** Your item slot: the roulette spinning until `rouletteUntil`, then the item and its uses. */
+  private rouletteUntil = 0;
+  private pending: Item | null = null;
   private controls = new DriveControls();
   private me: Racing;
   private rivals: Racing[] = [];
@@ -111,6 +144,9 @@ export class RaceGame {
   private raf = 0;
   private paused = false;
   private sendAcc = 0;
+  private pingAcc = 0;
+  /** Round trip to the server (s), smoothed. Roughly how old another car's pose is when it lands. */
+  private rtt = 0;
   private offNet: (() => void) | null = null;
   private resetAt = 0;
   private finishedAt = 0;
@@ -118,6 +154,8 @@ export class RaceGame {
   private puffTick = 0;
   private rumbleAt = 0;
   private lastGear = 1;
+  private lastLevel = 0;
+  private boosting = false;
   private wallClock = 0;
   private exited = false;
 
@@ -134,6 +172,7 @@ export class RaceGame {
     this.view = buildTrackView(this.track, this.renderer);
     this.renderer.toneMappingExposure = this.view.exposure;
     this.fx = new Effects(this.view.scene);
+    this.propView = new PropView(this.view.scene, this.track);
     this.hud = new RaceHud(setup.container, this.track);
     this.audio = new RaceAudio();
 
@@ -185,6 +224,7 @@ export class RaceGame {
     car.s = g.s;
     const model = buildCar(owned);
     this.view.scene.add(model.root);
+    this.headlights(model.root, owned);
     const b = CARS[owned.model];
     return {
       car,
@@ -197,6 +237,10 @@ export class RaceGame {
       color: hexColor(PAINTS[owned.look.paint]),
       finished: null,
       input: { steer: 0, throttle: 0, brake: 0, handbrake: 0 },
+      item: null,
+      itemAt: 0,
+      shieldUntil: 0,
+      bubble: this.bubbleFor(model.root, b.length),
     };
   }
 
@@ -204,6 +248,7 @@ export class RaceGame {
     const owned = decodeCar(r.car) ?? newOwnedCar('pebble');
     const model = buildCar(owned);
     this.view.scene.add(model.root);
+    this.headlights(model.root, owned);
     const spec = carSpec(owned);
     const slot = this.setup.online!.grid[r.id] ?? 0;
     const g = gridSlot(this.track, slot);
@@ -216,26 +261,162 @@ export class RaceGame {
       model,
       spec,
       engine: new Engine(this.audio, CARS[owned.model].cyl, owned.up.turbo > 0, 0.4),
-      buf: [],
+      last: null,
+      shownP: new THREE.Vector3(g.x, g.y + spec.cg, g.z),
+      shownQ: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, g.yaw, 0)),
+      err: new THREE.Vector3(),
       ghost,
       s: g.s,
       finished: null,
       spin: 0,
       rpm: spec.idle,
+      bubble: this.bubbleFor(model.root, CARS[owned.model].length),
     });
+  }
+
+  /** Night: every car lights the road ahead. */
+  private headlights(root: THREE.Object3D, owned: OwnedCar) {
+    if (this.track.def.theme !== 'night') return;
+    const b = CARS[owned.model];
+    const cg = carSpec(owned).cg;
+    const beam = new THREE.SpotLight(0xfff1d6, 900, 150, 0.55, 0.6, 2);
+    beam.position.set(0, 0.7 - cg, -b.length / 2);
+    beam.target.position.set(0, -cg - 1, -40);
+    root.add(beam, beam.target);
+    // A little red glow behind, so you can see who's on your tail.
+    const glow = new THREE.PointLight(0xff2a1a, 4, 8, 2);
+    glow.position.set(0, 0.6 - cg, b.length / 2 + 0.5);
+    root.add(glow);
+  }
+
+  // --- items ---------------------------------------------------------------------------------
+
+  private bubbleFor(root: THREE.Object3D, length: number): THREE.Mesh {
+    const b = shieldBubble(length);
+    root.add(b);
+    return b;
+  }
+
+  /** Mystery boxes within reach of distance `s` along the road. */
+  private *boxesNear(s: number): Generator<[number, (typeof this.track.props)[number]]> {
+    const props = this.track.props;
+    for (let i = 0; i < props.length; i++) if (props[i].kind === 'box' && Math.abs(props[i].s - s) < 12) yield [i, props[i]];
+  }
+
+  /** Where `r` is in the race (1-based) and how many are racing, for item odds. */
+  private placeOf(r: Racing): [number, number] {
+    const all = [...[this.me, ...this.rivals].map((x) => ({ x, s: x.car.s })), ...[...this.remotes.values()].map((x) => ({ x: null, s: x.s }))];
+    all.sort((a, b) => b.s - a.s);
+    return [all.findIndex((e) => e.x === r) + 1, all.length];
+  }
+
+  /** Boxes, cones and oil for the cars we simulate; AI rivals use what they're holding. */
+  private pickups() {
+    const now = this.wallClock;
+    for (const r of [this.me, ...this.rivals]) {
+      for (const i of r.car.touched) {
+        const p = this.track.props[i];
+        if (p.kind === 'cone') this.propView.knockCone(i, r.car.v.x, r.car.v.z);
+        else if (p.kind === 'box' && this.propView.takeBox(i, now)) {
+          if (r === this.me) {
+            if (!r.item && now >= this.rouletteUntil) {
+              this.rouletteUntil = now + POWER.roulette;
+              this.pending = rollItem(...this.placeOf(r), Math.random);
+              this.audio.tone(990, 0.08, 0.05, 'square');
+            }
+          } else if (!r.item) {
+            const kind = rollItem(...this.placeOf(r), Math.random);
+            r.item = { kind, uses: ITEMS[kind].uses };
+            r.itemAt = now + 1 + Math.random() * 4;
+          }
+        }
+      }
+      for (const sl of this.propView.slicks)
+        if (!sl.hit.has(r) && Math.hypot(sl.x - r.car.p.x, sl.z - r.car.p.z) < POWER.oilRadius + 0.6 && Math.abs(sl.y - r.car.p.y) < 3) {
+          sl.hit.add(r);
+          if (now < r.shieldUntil) continue;
+          spinOut(r.car, POWER.oilSpin);
+          if (r === this.me) {
+            this.hud.banner('Oil!', '', 1200);
+            rumble(0.8, 0.6, 500);
+          }
+        }
+      if (r !== this.me && r.item && now >= r.itemAt && this.phase !== 'countdown') {
+        this.useItem(r);
+        if (r.item) r.itemAt = now + 0.8;
+      }
+      r.bubble.visible = now < r.shieldUntil;
+    }
+    if (this.pending && now >= this.rouletteUntil) {
+      this.me.item = { kind: this.pending, uses: ITEMS[this.pending].uses };
+      this.hud.banner(ITEMS[this.pending].name, this.controls.padSeen ? 'Ⓐ to use' : 'E to use', 1400);
+      this.audio.tone(1320, 0.15, 0.05, 'triangle');
+      this.pending = null;
+    }
+  }
+
+  private useItem(r: Racing) {
+    const it = r.item;
+    if (!it) return;
+    const c = r.car;
+    const now = this.wallClock;
+    switch (it.kind) {
+      case 'turbo':
+      case 'triple':
+        c.boost = Math.max(c.boost, POWER.turboSeconds);
+        c.boostPower = POWER.turboAccel;
+        break;
+      case 'shield':
+        r.shieldUntil = now + POWER.shieldSeconds;
+        break;
+      case 'oil': {
+        const yaw = yawOf(c);
+        const back = c.spec.axleR + 2.6;
+        const x = c.p.x + Math.sin(yaw) * back;
+        const z = c.p.z + Math.cos(yaw) * back;
+        const y = c.p.y - c.spec.cg;
+        this.propView.addSlick(x, y, z, now);
+        if (r === this.me) this.setup.online?.net.send({ t: 'item', kind: 'oil', p: [x, y, z] });
+        break;
+      }
+      case 'shock':
+        this.shockwave(r, r.name);
+        if (r === this.me) this.setup.online?.net.send({ t: 'item', kind: 'shock' });
+        break;
+    }
+    if (r === this.me) this.audio.burst(0.3, 0.06, 1800, 'highpass');
+    it.uses--;
+    if (it.uses <= 0) r.item = null;
+  }
+
+  /** A shockwave from `by` (null: a remote racer) spins out everyone else who isn't shielded. */
+  private shockwave(by: Racing | null, name: string) {
+    const now = this.wallClock;
+    for (const r of [this.me, ...this.rivals]) {
+      if (r === by || now < r.shieldUntil) continue;
+      spinOut(r.car, POWER.shockSpin);
+    }
+    if (by !== this.me) {
+      this.hud.banner(`⚡ Shockwave from ${name}!`, '', 1600);
+      if (now >= this.me.shieldUntil) rumble(1, 1, 600);
+    }
+    this.audio.burst(0.8, 0.1, 300, 'lowpass');
   }
 
   // --- network ---------------------------------------------------------------------------------
 
   private onNet(m: RaceServerMsg) {
     const now = performance.now() / 1000;
-    if (m.t === 'go') this.go();
+    if (m.t === 'pong') this.rtt = this.rtt ? this.rtt * 0.7 + (now - m.n / 1000) * 0.3 : now - m.n / 1000;
+    else if (m.t === 'go') this.go();
     else if (m.t === 'snap') {
       for (const c of m.cars) {
         const r = this.remotes.get(c.id);
         if (!r) continue;
-        r.buf.push({ t: now, c });
-        if (r.buf.length > 30) r.buf.shift();
+        // Keep what's on screen where it is: the jump to the new prediction becomes an error that decays.
+        r.last = { c, at: now };
+        r.err.copy(r.shownP).sub(this.predict(r, now, new THREE.Vector3(), null));
+        if (r.err.lengthSq() > 64) r.err.set(0, 0, 0); // a reset or a long gap: just jump
         r.s = c.s;
       }
     } else if (m.t === 'finished') {
@@ -256,6 +437,10 @@ export class RaceGame {
           this.remotes.delete(id);
         }
       if (m.phase === 'lobby' && this.phase === 'done') this.exit('lobby');
+    } else if (m.t === 'item') {
+      const from = this.remotes.get(m.by)?.name ?? 'Someone';
+      if (m.kind === 'oil' && m.p) this.propView.addSlick(m.p[0], m.p[1], m.p[2], this.wallClock);
+      else if (m.kind === 'shock') this.shockwave(null, from);
     } else if (m.t === 'error') this.exit('garage', m.message);
   }
 
@@ -263,13 +448,22 @@ export class RaceGame {
     const net = this.setup.online?.net;
     if (!net) return;
     const c = this.me.car;
-    const f = (this.me.input.brake > 0.1 ? CarFlag.Brake : 0) | (c.gear < 0 ? CarFlag.Reverse : 0) | (c.wheels.some((w) => w.slip > 1.1) ? CarFlag.Skid : 0) | (c.wheels.some((w) => w.surf === 'grass') ? CarFlag.Offroad : 0);
+    const f =
+      (this.me.input.brake > 0.1 ? CarFlag.Brake : 0) |
+      (c.gear < 0 ? CarFlag.Reverse : 0) |
+      (c.wheels.some((w) => w.slip > 1.1) ? CarFlag.Skid : 0) |
+      (c.wheels.some((w) => w.surf === 'grass' || w.surf === 'gravel') ? CarFlag.Offroad : 0) |
+      (c.drift ? CarFlag.Drift : 0) |
+      (c.boost > 0 ? CarFlag.Boost : 0) |
+      (c.driftLevel << CarFlag.LevelShift) |
+      (this.wallClock < this.me.shieldUntil ? CarFlag.Shield : 0);
     const r = (x: number) => Math.round(x * 1000) / 1000;
     net.send({
       t: 'state',
       p: [r(c.p.x), r(c.p.y), r(c.p.z)],
       q: [r(c.q.x), r(c.q.y), r(c.q.z), r(c.q.w)],
       v: [r(c.v.x), r(c.v.y), r(c.v.z)],
+      w: r(yawRate(c)),
       s: r(c.s),
       st: r(c.steer),
       ws: r((c.wheels[2].w + c.wheels[3].w) / 2),
@@ -300,6 +494,7 @@ export class RaceGame {
       }
       if (this.acc > TICK_DT) this.acc = 0;
       this.fx.update(dt);
+      this.propView.update(this.wallClock, dt);
     }
     this.render(dt, Math.min(1, this.acc / TICK_DT));
   };
@@ -321,6 +516,8 @@ export class RaceGame {
       resetCar(this.me.car, this.track);
       this.resetAt = this.wallClock + 2;
       this.hud.banner('Back on the road', '', 1200);
+    } else if (a === 'item') {
+      if (this.phase === 'racing') this.useItem(this.me);
     } else if (a === 'shiftUp' || a === 'shiftDown') {
       if (!this.assists.auto && this.phase !== 'countdown') this.me.input[a] = true;
     }
@@ -343,18 +540,19 @@ export class RaceGame {
     const live = this.phase === 'racing';
     const myInput = me.input;
     if (this.phase === 'countdown') {
-      Object.assign(myInput, { steer: 0, throttle: this.paused ? 0 : this.controls.input.throttle, brake: 1, handbrake: 1 });
+      Object.assign(myInput, { steer: 0, throttle: this.paused ? 0 : this.controls.input.throttle, brake: 1, handbrake: 1, drift: 0 });
     } else if (me.finished !== null || this.phase === 'done') {
       aiDrive(me.car, t, me.ai ?? (me.ai = newAi(0.8, 0)), TICK_DT, myInput);
       myInput.throttle = 0;
       myInput.brake = Math.max(myInput.brake, 0.5);
-    } else if (this.paused) Object.assign(myInput, { steer: 0, throttle: 0, brake: 0, handbrake: 0 });
+    } else if (this.paused) Object.assign(myInput, { steer: 0, throttle: 0, brake: 0, handbrake: 0, drift: 0 });
     else {
       const c = this.controls.input;
       myInput.steer = c.steer;
       myInput.throttle = c.throttle;
       myInput.brake = c.brake;
       myInput.handbrake = c.handbrake;
+      myInput.drift = c.drift;
     }
     for (const r of this.rivals) {
       if (this.phase === 'countdown') Object.assign(r.input, { steer: 0, throttle: Math.random() < 0.02 ? 1 : r.input.throttle * 0.95, brake: 1, handbrake: 1 });
@@ -368,6 +566,7 @@ export class RaceGame {
       stepCar(r.car, r.input, t, assists);
       r.input.shiftUp = r.input.shiftDown = false;
     }
+    this.pickups();
     // Bumps
     const all = [me, ...this.rivals];
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) collideCars(all[i].car, all[j].car, true);
@@ -375,7 +574,21 @@ export class RaceGame {
     if (me.car.hit > 2.5) {
       this.audio.impact(me.car.hit);
       rumble(Math.min(1, me.car.hit / 10), 0.5, 180);
+    } else if (me.car.land > 4) {
+      this.audio.impact(me.car.land * 0.4);
+      rumble(Math.min(1, me.car.land / 14), 0.3, 140);
     }
+    // Drift sparks levelling up, and the mini-turbo going off.
+    if (me.car.driftLevel > this.lastLevel) {
+      this.audio.tone(700 + me.car.driftLevel * 260, 0.12, 0.05, 'triangle');
+      rumble(0.15, 0.4, 90);
+    }
+    this.lastLevel = me.car.driftLevel;
+    if (me.car.boost > 0 && !this.boosting) {
+      this.audio.burst(0.6, 0.12, 900, 'bandpass');
+      rumble(0.5, 0.8, 300);
+    }
+    this.boosting = me.car.boost > 0;
     if (me.car.gear !== this.lastGear) {
       if (live) this.audio.shift();
       this.lastGear = me.car.gear;
@@ -390,6 +603,11 @@ export class RaceGame {
     }
     // Network
     if (this.setup.online && (live || this.phase === 'countdown' || this.phase === 'finished')) {
+      this.pingAcc += TICK_DT;
+      if (this.pingAcc >= PING_EVERY) {
+        this.pingAcc = 0;
+        this.setup.online.net.send({ t: 'ping', n: Math.round(performance.now()) });
+      }
       this.sendAcc += TICK_DT;
       if (this.sendAcc >= 1 / SEND_HZ) {
         this.sendAcc = 0;
@@ -429,7 +647,7 @@ export class RaceGame {
     this.myPrize = res.ok ? (res.paid ?? 0) : 0;
     const lines: ResultLine[] = [...done, ...dnf].map((r, i) => ({ place: r.finished !== null ? i + 1 : 0, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me }));
     const note = res.ok ? `You won ${money(this.myPrize)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`;
-    const p = this.hud.panel(`${this.hud.resultsHtml(this.setup.track === 'koripass' ? 'Kōri Pass' : 'Saltwind Cliffs', lines)}
+    const p = this.hud.panel(`${this.hud.resultsHtml(this.track.def.name, lines)}
       <p class="rh-note">${esc(note)}</p>
       <div class="rh-buttons"><button data-act="again" data-autofocus>Race again</button><button data-act="garage">Garage</button></div>`);
     setMenuNav(true);
@@ -473,6 +691,7 @@ export class RaceGame {
         <button data-act="abs">ABS: ${onOff(a.abs)}</button>
         <button data-act="tcs">Traction control: ${onOff(a.tcs)}</button>
         <button data-act="steer">Steering assist: ${onOff(a.steer)}</button>
+        <button data-act="arcade">Handling: ${a.arcade ? 'Arcade (drift on LT / Space)' : 'Simulation'}</button>
         <button data-act="auto">Gearbox: ${a.auto ? 'Automatic' : 'Manual'}</button>
         <button data-act="leave">${this.setup.online ? 'Leave race' : 'Quit to garage'}</button>
       </div>`);
@@ -504,8 +723,9 @@ export class RaceGame {
             this.cam = CAMS[(CAMS.indexOf(this.cam) + 1) % CAMS.length];
             localStorage.setItem(CAM_KEY, this.cam);
             return redo();
-          case 'abs':
+          case 'arcade':
           case 'tcs':
+          case 'abs':
           case 'steer':
           case 'auto':
             this.assists[last] = !this.assists[last];
@@ -536,23 +756,31 @@ export class RaceGame {
     );
   }
 
+  /**
+   * Where a remote car is now, by its last pose carried forward: position along its velocity, heading
+   * along its yaw rate, for as long as the pose has been travelling (time since it landed + our round trip,
+   * which stands in for its trip from the sender). Capped, so a dropped connection doesn't fly off.
+   */
+  private predict(r: Remote, now: number, p: THREE.Vector3, q: THREE.Quaternion | null): THREE.Vector3 {
+    const l = r.last!;
+    const age = Math.min(MAX_PREDICT, now - l.at + this.rtt);
+    p.set(l.c.p[0] + l.c.v[0] * age, l.c.p[1] + l.c.v[1] * age, l.c.p[2] + l.c.v[2] * age);
+    if (q) q.setFromAxisAngle(UP, l.c.w * age).multiply(new THREE.Quaternion(...l.c.q));
+    return p;
+  }
+
   private poseRemote(r: Remote, now: number, dt: number) {
-    const t = now - INTERP_DELAY;
-    const b = r.buf;
-    if (!b.length) return;
-    let a = b[0];
-    let c = b[b.length - 1];
-    for (let i = 0; i < b.length - 1; i++)
-      if (b[i].t <= t && b[i + 1].t >= t) {
-        a = b[i];
-        c = b[i + 1];
-        break;
-      }
-    const k = c.t > a.t ? Math.min(1.5, Math.max(0, (t - a.t) / (c.t - a.t))) : 1;
-    const p = new THREE.Vector3(...a.c.p).lerp(new THREE.Vector3(...c.c.p), k);
-    const q = new THREE.Quaternion(...a.c.q).slerp(new THREE.Quaternion(...c.c.q), Math.min(1, k));
-    r.model.root.position.copy(p);
+    if (!r.last) return;
+    const c = r.last;
+    const target = new THREE.Quaternion();
+    const p = this.predict(r, now, new THREE.Vector3(), target);
+    r.err.multiplyScalar(Math.exp(-dt * CORRECT_RATE));
+    r.shownP.copy(p).add(r.err);
+    r.shownQ.slerp(target, 1 - Math.exp(-dt * 16));
+    const q = r.shownQ;
+    r.model.root.position.copy(r.shownP);
     r.model.root.quaternion.copy(q);
+    p.copy(r.shownP);
     const g = r.ghost;
     g.p = { x: p.x, y: p.y, z: p.z };
     g.q = { x: q.x, y: q.y, z: q.z, w: q.w };
@@ -566,6 +794,10 @@ export class RaceGame {
       c.c.st,
       (c.c.f & CarFlag.Brake) !== 0,
     );
+    r.bubble.visible = (c.c.f & CarFlag.Shield) !== 0;
+    // Remote cars grab boxes on their own screens; take them here too so they vanish for us.
+    for (const [i, box] of this.boxesNear(c.c.s)) if (Math.hypot(box.x - p.x, box.z - p.z) < box.r + 1) this.propView.takeBox(i, this.wallClock);
+    this.driftFx(r.model.root, sp.axleR, sp.track, sp.cg, (c.c.f & CarFlag.Drift) !== 0, (c.c.f >> CarFlag.LevelShift) & 3, (c.c.f & CarFlag.Boost) !== 0, g.v.x, g.v.z);
     if (c.c.f & CarFlag.Skid && this.puffTick % 3 === 0) this.fx.puff(p.x, p.y - sp.cg, p.z, g.v.x, g.v.z, 0.6, (c.c.f & CarFlag.Offroad) !== 0);
   }
 
@@ -601,6 +833,22 @@ export class RaceGame {
       this.fx.mark(idx * 4 + i, wp.x, wp.y, wp.z, rx, rz, 0.22, marking ? Math.min(1, (w.slip - 1.2) * 1.2) : 0);
       if ((smoking && this.puffTick % 3 === 0) || (dirt && this.puffTick % 4 === 0)) this.fx.puff(wp.x, wp.y, wp.z, c.v.x, c.v.z, Math.min(1.5, w.slip - 1.5), dirt);
     });
+    this.driftFx(root, c.spec.axleR, c.spec.track, c.spec.cg, c.drift !== 0, c.driftLevel, c.boost > 0, c.v.x, c.v.z);
+  }
+
+  /** Sparks off the rear wheels while drifting (coloured by the level earned), flames from the exhaust while boosting. */
+  private driftFx(root: THREE.Object3D, axleR: number, track: number, cg: number, drifting: boolean, level: number, boosting: boolean, vx: number, vz: number) {
+    if (drifting && this.puffTick % 2 === 0) {
+      const color = SPARK_COLORS[level];
+      for (const side of [-0.5, 0.5]) {
+        const p = new THREE.Vector3(side * track, 0.05 - cg, axleR + 0.1).applyMatrix4(root.matrixWorld);
+        for (let k = 0; k < 2; k++) this.fx.spark(p.x, p.y, p.z, vx * 0.7 + (Math.random() - 0.5) * 3, 1 + Math.random() * 2, vz * 0.7 + (Math.random() - 0.5) * 3, color, 0.3, level ? 0.5 : 0.3);
+      }
+    }
+    if (boosting) {
+      const p = new THREE.Vector3(0, 0.35 - cg, axleR + 1.2).applyMatrix4(root.matrixWorld);
+      for (let k = 0; k < 3; k++) this.fx.spark(p.x, p.y, p.z, vx * 0.6 + (Math.random() - 0.5), (Math.random() - 0.3) * 1.2, vz * 0.6 + (Math.random() - 0.5), Math.random() < 0.5 ? [1, 0.55, 0.15] : [0.4, 0.75, 1], 0.25, 0.9);
+    }
   }
 
   private updateCamera(dt: number) {
@@ -651,7 +899,7 @@ export class RaceGame {
       this.camera.position.x += (Math.random() - 0.5) * shake;
       this.camera.position.y += (Math.random() - 0.5) * shake;
       this.camera.lookAt(this.camLook);
-      this.camera.fov = 60 + Math.min(18, speed * 0.22);
+      this.camera.fov = 60 + Math.min(18, speed * 0.22) + (c.boost > 0 ? 8 : 0);
     }
     this.camera.updateProjectionMatrix();
   }
@@ -715,6 +963,9 @@ export class RaceGame {
       tcs: c.tcsOn,
       wrongWay: this.phase === 'racing' && tangentDot < -0.3 && speedOf(c) > 3,
       manual: !this.assists.auto,
+      drift: c.drift !== 0 ? c.driftLevel : -1,
+      item: this.wallClock < this.rouletteUntil ? { icon: ITEMS[(['turbo', 'oil', 'shield', 'triple', 'shock'] as Item[])[Math.floor(this.wallClock * 12) % 5]].icon, name: '', spinning: true } : me.item ? { icon: ITEMS[me.item.kind].icon, name: ITEMS[me.item.kind].name + (me.item.uses > 1 ? ` ×${me.item.uses}` : ''), spinning: false } : null,
+      boost: c.boost > 0,
       heading: yaw,
       dots,
     });

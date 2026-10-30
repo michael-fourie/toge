@@ -29,6 +29,11 @@ export interface HudState {
   tcs: boolean;
   wrongWay: boolean;
   manual: boolean;
+  /** Drift spark level (0-3), or -1 when not drifting. */
+  drift: number;
+  boost: boolean;
+  /** The item slot: what you hold (or the roulette spinning), or null. */
+  item: { icon: string; name: string; spinning: boolean } | null;
   heading: number; // yaw
   dots: Dot[];
 }
@@ -76,6 +81,8 @@ export class RaceHud {
         <div class="rh-gear" data-el="gear">N</div>
         <div class="rh-assists"><span data-el="abs">ABS</span><span data-el="tcs">TCS</span><span data-el="mt">MT</span></div>
       </div>
+      <div class="rh-drift" data-el="drift"></div>
+      <div class="rh-item" data-el="item"><span class="rh-item-icon" data-el="itemIcon"></span><small data-el="itemName"></small></div>
       <div class="rh-center" data-el="center"></div>
       <div class="rh-banner" data-el="banner"></div>
       <div class="rh-help" data-el="help"></div>
@@ -123,6 +130,16 @@ export class RaceHud {
     this.el.tcs.classList.toggle('on', h.tcs);
     this.el.mt.classList.toggle('on', h.manual);
     this.root.classList.toggle('wrong', h.wrongWay);
+    const d = this.el.drift;
+    const label = h.boost ? 'BOOST!' : h.drift >= 0 ? ['DRIFT', 'DRIFT ●', 'DRIFT ●●', 'DRIFT ●●●'][h.drift] : '';
+    if (d.textContent !== label) d.textContent = label;
+    d.dataset.level = h.boost ? 'boost' : String(h.drift);
+    this.el.item.classList.toggle('on', !!h.item);
+    this.el.item.classList.toggle('spinning', !!h.item?.spinning);
+    const icon = h.item?.icon ?? '';
+    if (this.el.itemIcon.textContent !== icon) this.el.itemIcon.textContent = icon;
+    const name = h.item?.name ?? '';
+    if (this.el.itemName.textContent !== name) this.el.itemName.textContent = name;
     this.drawTach(h);
     this.drawMap(h);
     this.drawStrip(h.dots);

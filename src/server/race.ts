@@ -7,6 +7,8 @@ import type { Socket } from './lobby.ts';
 const OPEN = 1;
 /** How often a live room re-announces itself to the directory. */
 const HEARTBEAT_MS = 30_000;
+/** One attack item per racer per this many ms at most. */
+const ITEM_GAP_MS = 700;
 /** No real descent is quicker than this; a faster "finish" is ignored. */
 const MIN_RACE_SECONDS = 40;
 
@@ -48,6 +50,8 @@ export class Race {
   private firstFinish = 0;
   private lastBeat = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** When each racer last used an attack item (a cheap guard against spam). */
+  private itemAt = new Map<number, number>();
 
   constructor(
     readonly code: string,
@@ -114,10 +118,27 @@ export class Race {
       case 'state': {
         if (!m.racing || m.time !== null || (this.phase !== 'racing' && this.phase !== 'countdown')) return;
         const okVec = (a: unknown, n: number, lim: number) => Array.isArray(a) && a.length === n && a.every((x) => finite(x, lim));
-        if (!okVec(msg.p, 3, 1e5) || !okVec(msg.q, 4, 2) || !okVec(msg.v, 3, 200) || !finite(msg.s, 1e5) || !finite(msg.st, 2) || !finite(msg.ws, 1e3) || !finite(msg.rpm, 2e4) || !finite(msg.f, 255)) return;
-        m.state = { id: c.id, p: msg.p, q: msg.q, v: msg.v, s: msg.s, st: msg.st, ws: msg.ws, rpm: msg.rpm, f: msg.f | 0 };
+        if (!okVec(msg.p, 3, 1e5) || !okVec(msg.q, 4, 2) || !okVec(msg.v, 3, 200) || !finite(msg.w, 50) || !finite(msg.s, 1e5) || !finite(msg.st, 2) || !finite(msg.ws, 1e3) || !finite(msg.rpm, 2e4) || !finite(msg.f, 1023)) return;
+        m.state = { id: c.id, p: msg.p, q: msg.q, v: msg.v, w: msg.w, s: msg.s, st: msg.st, ws: msg.ws, rpm: msg.rpm, f: msg.f | 0 };
+        // Relay straight away (no waiting for a tick): every millisecond here is a millisecond of lag.
+        const text = JSON.stringify({ t: 'snap', cars: [m.state] } satisfies RaceServerMsg);
+        for (const o of this.members.values()) if (o !== m && o.client.ws.readyState === OPEN) o.client.ws.send(text);
         break;
       }
+      case 'item': {
+        // Relayed to everyone else; each client works out whether it was hit.
+        if (this.phase !== 'racing' || !m.racing || (msg.kind !== 'oil' && msg.kind !== 'shock')) return;
+        if (msg.kind === 'oil' && !(Array.isArray(msg.p) && msg.p.length === 3 && msg.p.every((x) => finite(x, 1e5)))) return;
+        const now = this.now();
+        if (now - (this.itemAt.get(c.id) ?? 0) < ITEM_GAP_MS) return;
+        this.itemAt.set(c.id, now);
+        const text = JSON.stringify({ t: 'item', by: c.id, kind: msg.kind, p: msg.kind === 'oil' ? msg.p : undefined } satisfies RaceServerMsg);
+        for (const o of this.members.values()) if (o !== m && o.client.ws.readyState === OPEN) o.client.ws.send(text);
+        break;
+      }
+      case 'ping':
+        if (finite(msg.n, 1e9)) sendTo(c, { t: 'pong', n: msg.n });
+        break;
       case 'finish': {
         if (this.phase !== 'racing' || !m.racing || m.time !== null || !finite(msg.time, 1e4)) return;
         const elapsed = (this.now() - this.goAt) / 1000;
@@ -188,10 +209,6 @@ export class Race {
       this.phase = 'lobby';
       this.broadcastRoom();
       this.onChange(this);
-    }
-    if (this.phase === 'racing' || this.phase === 'countdown') {
-      const cars = [...this.members.values()].flatMap((m) => (m.state ? [m.state] : []));
-      if (cars.length) this.broadcast({ t: 'snap', cars });
     }
   }
 

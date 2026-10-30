@@ -27,7 +27,7 @@ function room() {
   return { race, join, advance, last, inbox, paid, isEmpty: () => empty };
 }
 
-const pose = (s: number) => ({ t: 'state' as const, p: [0, 0, 0] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number], v: [0, 0, -30] as [number, number, number], s, st: 0, ws: 80, rpm: 5000, f: 0 });
+const pose = (s: number) => ({ t: 'state' as const, p: [0, 0, 0] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number], v: [0, 0, -30] as [number, number, number], w: 0, s, st: 0, ws: 80, rpm: 5000, f: 0 });
 
 test('the first player hosts; only the host picks the track and starts', () => {
   const r = room();
@@ -55,16 +55,25 @@ test('countdown, go, relayed poses, finishes ranked by time, prizes, then back t
   r.advance(RACE.countdownMs + 100);
   assert.equal(r.race.phase, 'racing');
   assert.ok(r.last(1, 'go'));
+  // Poses are relayed the moment they arrive, to everyone but the sender.
+  const before = r.inbox.get(3)!.length;
   r.race.handle(a, pose(100));
   r.race.handle(b, pose(90));
-  r.advance(100);
-  const snap = r.last(3, 'snap');
-  assert.ok(snap && snap.t === 'snap' && snap.cars.length === 2);
+  const relayed = r.inbox.get(3)!.slice(before).filter((m) => m.t === 'snap');
+  assert.deepEqual(relayed.map((m) => m.t === 'snap' && m.cars[0].id), [1, 2]);
+  assert.ok(!r.inbox.get(1)!.some((m) => m.t === 'snap' && m.cars.some((x) => x.id === 1)), 'nobody hears their own car');
   // Junk poses are dropped.
   r.race.handle(c, { ...pose(1), p: [NaN, 0, 0] });
-  r.advance(100);
-  const snap2 = r.last(3, 'snap');
-  assert.ok(snap2 && snap2.t === 'snap' && snap2.cars.every((x) => x.id !== 3));
+  assert.ok(!r.inbox.get(1)!.some((m) => m.t === 'snap' && m.cars.some((x) => x.id === 3)));
+  // Attack items are relayed to the others, not back to the user.
+  r.race.handle(a, { t: 'item', kind: 'oil', p: [1, 2, 3] });
+  assert.deepEqual(r.last(2, 'item'), { t: 'item', by: 1, kind: 'oil', p: [1, 2, 3] });
+  assert.ok(!r.last(1, 'item'));
+  r.race.handle(b, { t: 'item', kind: 'oil', p: [NaN, 0, 0] });
+  assert.ok(!r.inbox.get(1)!.some((m) => m.t === 'item'), 'junk is dropped');
+  // Ping is answered.
+  r.race.handle(a, { t: 'ping', n: 7 });
+  assert.deepEqual(r.last(1, 'pong'), { t: 'pong', n: 7 });
 
   r.advance(90_000);
   r.race.handle(b, { t: 'finish', time: 90.1 });

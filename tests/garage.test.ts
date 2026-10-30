@@ -119,3 +119,22 @@ test('the server store keeps a garage per user and applies awards', async () => 
   assert.equal(g.wins, 1);
   assert.equal((await store.act('mike', { a: 'buy', model: 'vanta' })).ok, false);
 });
+
+test('item odds: the leader gets more defence, the back of the pack more turbos and shockwaves', async () => {
+  const { rollItem } = await import('../src/shared/race/powerups.ts');
+  let seed = 1;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const tally = (place: number) => {
+    const c: Record<string, number> = {};
+    for (let i = 0; i < 4000; i++) {
+      const it = rollItem(place, 8, rnd);
+      c[it] = (c[it] ?? 0) + 1;
+    }
+    return c;
+  };
+  const first = tally(1);
+  const last = tally(8);
+  assert.ok(first.oil > last.oil && first.shield > last.shield);
+  assert.ok(last.triple > first.triple && last.shock > first.shock);
+  assert.ok((first.shock ?? 0) < 100, 'the leader almost never gets a shockwave');
+});
