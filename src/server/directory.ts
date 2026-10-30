@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { NET } from '../shared/constants.ts';
 import type { BattleMap, GameMode, LobbyInfo } from '../shared/protocol.ts';
+import type { RaceLobbyInfo } from '../shared/race/protocol.ts';
 import { HEARTBEAT_SECONDS } from './lobby.ts';
 
 /** Entries older than this are dead lobbies (or reservations nobody connected to). */
@@ -10,9 +11,14 @@ interface Entry extends LobbyInfo {
   at: number;
 }
 
+interface RaceEntry extends RaceLobbyInfo {
+  at: number;
+}
+
 /**
  * One global registry of open lobbies: hands out codes, answers "list" and "does this code exist".
  * Lobbies are separate Durable Objects (one per match); they report here on join/leave and on a heartbeat.
+ * The shooter's lobbies use the instance named 'all'; race lobbies their own instance, 'race'.
  */
 export class Directory extends DurableObject {
   private async live(): Promise<Entry[]> {
@@ -41,6 +47,15 @@ export class Directory extends DurableObject {
   async report(code: string, mode: GameMode, teams: boolean, map: BattleMap | undefined, host: string, players: number, koth = false, br = false): Promise<void> {
     const entry: Entry = { code, mode, teams: teams || undefined, map: mode === 'battle' ? map : undefined, koth: koth || undefined, br: br || undefined, host, players, max: NET.maxPlayersPerLobby, at: Date.now() };
     await this.ctx.storage.put(code, entry);
+  }
+
+  async reportRace(info: RaceLobbyInfo): Promise<void> {
+    await this.ctx.storage.put(info.code, { ...info, at: Date.now() } satisfies RaceEntry);
+  }
+
+  /** The race directory's lobbies (same storage shape, a different instance). */
+  async listRaces(): Promise<RaceLobbyInfo[]> {
+    return ((await this.live()) as unknown as RaceEntry[]).filter((e) => e.players > 0).map(({ at: _at, ...info }) => info);
   }
 
   async remove(code: string): Promise<void> {

@@ -1,5 +1,9 @@
 # Menu plan
 
+The landing page is the **game chooser** (`menu/games.ts`, `games.css`): a 4×3 grid of channels (Gambol, TŌGE, then empty slots), a bottom bar with the clock, an account button and a message board. Picking a channel zooms into its page (animated banner, blurb, **Menu** / **Start**). Start goes to that game's home: Gambol's title screen (below) or TŌGE's garage (`race/hub.ts`). Back from either returns to the chooser, as does the ⌂ button on Gambol's home. Every screen works with a controller via `pad.ts`: focus follows the D-pad/stick, Ⓐ presses, Ⓑ is Back (it sends Escape), LB/RB switch tabs. A modal marks itself `data-nav-scope` so focus stays inside it.
+
+The rest of this file describes Gambol's menus.
+
 Each choice gets its own page, so the title screen has three big doors and nothing else. Everything stays on the painted sky, with cream paper sheets, Kaisei Decol headings, Zen Maru body text, and meadow-green primary actions.
 
 ## Screens

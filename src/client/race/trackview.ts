@@ -1,0 +1,689 @@
+// Draws a race track from its shared definition: physical sky (and the environment map it bakes), terrain
+// with height/slope colouring, the road ribbon (lines, shoulders, verges), Armco, chevrons at the tight
+// bends, snow poles or stone walls, start and finish gantries, instanced forests and rocks, villages and the sea.
+// Static geometry is chunked so the frustum culls what's behind you.
+
+import * as THREE from 'three';
+import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import { SAMPLE, SEA_LEVEL, SHOULDER, type Track, fbm, heightAt, pointAt, roadDistance, terrainAt } from '../../shared/race/track.ts';
+
+interface Look {
+  sun: [number, number]; // elevation, azimuth (degrees)
+  turbidity: number;
+  rayleigh: number;
+  fog: number;
+  fogDensity: number;
+  exposure: number;
+  grass: number[];
+  grassDry: number[];
+  rock: number[];
+  verge: number[];
+  snowline: number;
+  treeline: number;
+}
+
+const LOOKS: Record<'alpine' | 'coast', Look> = {
+  alpine: { sun: [22, 215], turbidity: 4, rayleigh: 1.4, fog: 0xa9bfd6, fogDensity: 0.00038, exposure: 0.42, grass: [0.16, 0.28, 0.09], grassDry: [0.34, 0.36, 0.16], rock: [0.36, 0.35, 0.34], verge: [0.28, 0.31, 0.17], snowline: 470, treeline: 440 },
+  coast: { sun: [14, 250], turbidity: 6, rayleigh: 2.2, fog: 0xd8c8b4, fogDensity: 0.00034, exposure: 0.42, grass: [0.42, 0.45, 0.2], grassDry: [0.62, 0.55, 0.32], rock: [0.72, 0.66, 0.55], verge: [0.55, 0.5, 0.3], snowline: 1e9, treeline: 1e9 },
+};
+
+export interface TrackView {
+  scene: THREE.Scene;
+  sun: THREE.DirectionalLight;
+  exposure: number;
+  /** Keeps the shadow box and the sea under the camera. */
+  follow(x: number, y: number, z: number, t: number): void;
+  dispose(): void;
+}
+
+export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackView {
+  const look = LOOKS[t.def.theme];
+  const scene = new THREE.Scene();
+  const disposables: { dispose(): void }[] = [];
+  const keep = <T extends { dispose(): void }>(x: T) => (disposables.push(x), x);
+
+  // --- Sky, sun, environment
+  const sky = new Sky();
+  sky.scale.setScalar(20000);
+  const u = sky.material.uniforms;
+  u.turbidity.value = look.turbidity;
+  u.rayleigh.value = look.rayleigh;
+  u.mieCoefficient.value = 0.004;
+  u.mieDirectionalG.value = 0.8;
+  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - look.sun[0]), THREE.MathUtils.degToRad(look.sun[1]));
+  u.sunPosition.value.copy(sunDir);
+  scene.add(sky);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envScene = new THREE.Scene();
+  const envSky = new Sky();
+  envSky.scale.setScalar(1000);
+  Object.assign(envSky.material.uniforms, THREE.UniformsUtils.clone(u));
+  envSky.material.uniforms.sunPosition.value.copy(sunDir);
+  envScene.add(envSky);
+  const env = keep(pmrem.fromScene(envScene, 0.02)).texture;
+  scene.environment = env;
+  scene.environmentIntensity = 0.55;
+  pmrem.dispose();
+  scene.fog = new THREE.FogExp2(look.fog, look.fogDensity);
+
+  const sun = new THREE.DirectionalLight(0xffe6c4, 2.4);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  const sc = sun.shadow.camera;
+  sc.left = sc.bottom = -45;
+  sc.right = sc.top = 45;
+  sc.near = 1;
+  sc.far = 400;
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.03;
+  scene.add(sun, sun.target);
+  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x4a4030, 0.35));
+
+  const rng = mulberry(t.def.seed * 7919);
+
+  // --- Terrain: a fine grid around the road and a coarse ring out to the horizon
+  const detail = keep(noiseTexture(256, 0.5));
+  const terrainMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, map: detail, roughness: 0.96, metalness: 0 }));
+  const { x0, x1, z0, z1 } = t.bounds;
+  const pad = 420;
+  const inner = { x0: x0 - pad, x1: x1 + pad, z0: z0 - pad, z1: z1 + pad };
+  const colorAt = (x: number, z: number, h: number, ny: number, out: number[]) => {
+    const n = fbm(x / 60, z / 60, t.def.seed + 3, 3) * 0.5 + 0.5;
+    const steep = THREE.MathUtils.smoothstep(ny, 0.72, 0.9);
+    const g = look.grass.map((c, i) => c + (look.grassDry[i] - c) * n);
+    for (let i = 0; i < 3; i++) out[i] = look.rock[i] + (g[i] - look.rock[i]) * steep;
+    // Snow on gentle slopes high up; sand by the sea.
+    const snow = THREE.MathUtils.smoothstep(h + n * 30, look.snowline, look.snowline + 40) * THREE.MathUtils.smoothstep(ny, 0.6, 0.8);
+    for (let i = 0; i < 3; i++) out[i] += (0.93 - out[i]) * snow;
+    if (t.def.theme === 'coast') {
+      const sand = 1 - THREE.MathUtils.smoothstep(h, SEA_LEVEL + 2, SEA_LEVEL + 7);
+      const sandC = [0.82, 0.74, 0.56];
+      for (let i = 0; i < 3; i++) out[i] += (sandC[i] - out[i]) * sand;
+      if (h < SEA_LEVEL - 1) for (let i = 0; i < 3; i++) out[i] *= 0.6;
+    }
+    // Trodden verge by the road.
+    const rd = roadDistance(t, x, z);
+    const verge = 1 - THREE.MathUtils.smoothstep(rd, t.edge, t.edge + 10);
+    for (let i = 0; i < 3; i++) out[i] += (look.verge[i] - out[i]) * verge * 0.7;
+  };
+  const terrainChunk = (cx0: number, cz0: number, cx1: number, cz1: number, step: number, sink: (x: number, z: number) => number, far: boolean) => {
+    const nx = Math.round((cx1 - cx0) / step) + 1;
+    const nz = Math.round((cz1 - cz0) / step) + 1;
+    const pos = new Float32Array(nx * nz * 3);
+    const col = new Float32Array(nx * nz * 3);
+    const uv = new Float32Array(nx * nz * 2);
+    const hs = new Float32Array(nx * nz);
+    for (let r = 0; r < nz; r++)
+      for (let c = 0; c < nx; c++) {
+        const x = cx0 + c * step;
+        const z = cz0 + r * step;
+        hs[r * nx + c] = far ? terrainAt(t, x, z) : heightAt(t, x, z);
+      }
+    const tmp = [0, 0, 0];
+    for (let r = 0; r < nz; r++)
+      for (let c = 0; c < nx; c++) {
+        const i = r * nx + c;
+        const x = cx0 + c * step;
+        const z = cz0 + r * step;
+        const hx = hs[r * nx + Math.min(nx - 1, c + 1)] - hs[r * nx + Math.max(0, c - 1)];
+        const hz = hs[Math.min(nz - 1, r + 1) * nx + c] - hs[Math.max(0, r - 1) * nx + c];
+        const ny = 1 / Math.hypot(hx / (2 * step), 1, hz / (2 * step));
+        const h = hs[i];
+        pos.set([x, h - sink(x, z), z], i * 3);
+        colorAt(x, z, h, ny, tmp);
+        col.set(tmp, i * 3);
+        uv.set([x / 7, z / 7], i * 2);
+      }
+    const idx: number[] = [];
+    for (let r = 0; r < nz - 1; r++)
+      for (let c = 0; c < nx - 1; c++) {
+        const a = r * nx + c;
+        idx.push(a, a + nx, a + 1, a + 1, a + nx, a + nx + 1);
+      }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(keep(geo), terrainMat);
+    mesh.receiveShadow = !far;
+    scene.add(mesh);
+  };
+  // Under the road ribbon the terrain dips a little so it never pokes through.
+  const underRoad = (x: number, z: number) => (roadDistance(t, x, z) < t.edge + 6 ? 0.45 : 0);
+  const CH = 300;
+  for (let cx = inner.x0; cx < inner.x1; cx += CH)
+    for (let cz = inner.z0; cz < inner.z1; cz += CH) terrainChunk(cx, cz, Math.min(inner.x1, cx + CH), Math.min(inner.z1, cz + CH), 6, underRoad, false);
+  const FAR = 4200;
+  const insideInner = (x: number, z: number) => (x > inner.x0 + 1 && x < inner.x1 - 1 && z > inner.z0 + 1 && z < inner.z1 - 1 ? 40 : 0);
+  terrainChunk(inner.x0 - FAR, inner.z0 - FAR, inner.x1 + FAR, inner.z1 + FAR, 70, insideInner, true);
+
+  // --- Road ribbon (chunks of ~200 m)
+  const roadTex = keep(roadTexture());
+  roadTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const roadMat = keep(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.82, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  // Across: verge | shoulder | road | shoulder | verge, matching the texture's columns.
+  const cross = [-(t.rail + 1.2), -(t.half + SHOULDER), -t.half, t.half, t.half + SHOULDER, t.rail + 1.2];
+  const crossU = [0, 0.12, 0.2, 0.8, 0.88, 1];
+  const ROAD_CHUNK = 100;
+  for (let i0 = 0; i0 < t.n - 1; i0 += ROAD_CHUNK) {
+    const i1 = Math.min(t.n - 1, i0 + ROAD_CHUNK);
+    const pos: number[] = [];
+    const uvs: number[] = [];
+    const idx: number[] = [];
+    for (let i = i0; i <= i1; i++) {
+      for (let k = 0; k < cross.length; k++) {
+        const d = cross[k];
+        const x = t.x[i] - t.tz[i] * d;
+        const z = t.z[i] + t.tx[i] * d;
+        const y = Math.abs(d) <= t.edge ? t.y[i] - t.bank[i] * d : heightAt(t, x, z);
+        pos.push(x, y + 0.03, z);
+        uvs.push(crossU[k], (i * SAMPLE) / 12);
+      }
+      if (i < i1) {
+        const a = (i - i0) * cross.length;
+        for (let k = 0; k < cross.length - 1; k++) idx.push(a + k, a + k + 1, a + k + cross.length, a + k + 1, a + k + 1 + cross.length, a + k + cross.length);
+      }
+    }
+    const geo = keep(new THREE.BufferGeometry());
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, roadMat);
+    m.receiveShadow = true;
+    scene.add(m);
+  }
+
+  // --- Armco both sides: a galvanised beam on posts.
+  const railMat = keep(new THREE.MeshStandardMaterial({ color: 0xb9bec4, metalness: 0.85, roughness: 0.38, side: THREE.DoubleSide }));
+  for (const side of [-1, 1]) {
+    for (let i0 = 0; i0 < t.n - 1; i0 += ROAD_CHUNK) {
+      const i1 = Math.min(t.n - 1, i0 + ROAD_CHUNK);
+      const pos: number[] = [];
+      const idx: number[] = [];
+      for (let i = i0; i <= i1; i++) {
+        const d = side * (t.rail + 0.15);
+        const x = t.x[i] - t.tz[i] * d;
+        const z = t.z[i] + t.tx[i] * d;
+        const y = t.y[i] - t.bank[i] * d;
+        // A W-beam: three points in profile (low, bulge, high).
+        pos.push(x, y + 0.42, z, x - t.tz[i] * side * 0.06, y + 0.6, z + t.tx[i] * side * 0.06, x, y + 0.78, z);
+        if (i < i1) {
+          const a = (i - i0) * 3;
+          idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
+        }
+      }
+      const geo = keep(new THREE.BufferGeometry());
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, railMat);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      scene.add(m);
+    }
+  }
+  const postEvery = 2; // samples (4 m)
+  const nPosts = Math.ceil(t.n / postEvery) * 2;
+  const posts = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(0.12, 0.85, 0.08)), keep(new THREE.MeshStandardMaterial({ color: 0x8e9399, metalness: 0.7, roughness: 0.5 })), nPosts);
+  const m4 = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const v = new THREE.Vector3();
+  const one = new THREE.Vector3(1, 1, 1);
+  let pi = 0;
+  for (let i = 0; i < t.n; i += postEvery)
+    for (const side of [-1, 1]) {
+      const d = side * (t.rail + 0.3);
+      v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 0.42, t.z[i] + t.tx[i] * d);
+      q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]), 0));
+      posts.setMatrixAt(pi++, m4.compose(v, q, one));
+    }
+  posts.count = pi;
+  posts.castShadow = true;
+  scene.add(posts);
+
+  // --- Chevrons on the outside of tight bends, and (alpine) red-and-white snow poles.
+  const chevTex = keep(chevronTexture());
+  const chev = new THREE.InstancedMesh(keep(new THREE.PlaneGeometry(0.9, 0.9)), keep(new THREE.MeshStandardMaterial({ map: chevTex, side: THREE.DoubleSide, emissive: 0x222200, roughness: 0.5 })), 600);
+  let ci = 0;
+  for (let i = 0; i < t.n && ci < 600; i += 6) {
+    const k = t.curv[i];
+    if (Math.abs(k) < 1 / 75) continue;
+    const side = -Math.sign(k); // outside of the bend
+    const d = side * (t.rail + 0.9);
+    v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 1.5, t.z[i] + t.tx[i] * d);
+    // Face back up the road; mirror for left-handers.
+    q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]) + Math.PI, 0));
+    chev.setMatrixAt(ci++, m4.compose(v, q, new THREE.Vector3(k > 0 ? 1 : -1, 1, 1)));
+  }
+  chev.count = ci;
+  scene.add(chev);
+  if (t.def.theme === 'alpine') {
+    const poleGeo = keep(new THREE.CylinderGeometry(0.04, 0.04, 2, 6));
+    const poleMat = keep(new THREE.MeshStandardMaterial({ map: keep(stripeTexture()), roughness: 0.6 }));
+    const poles = new THREE.InstancedMesh(poleGeo, poleMat, Math.ceil(t.n / 12) * 2);
+    let k = 0;
+    for (let i = 0; i < t.n; i += 12)
+      for (const side of [-1, 1]) {
+        const d = side * (t.rail + 1.6);
+        v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 1, t.z[i] + t.tx[i] * d);
+        poles.setMatrixAt(k++, m4.compose(v, q.identity(), one));
+      }
+    poles.count = k;
+    scene.add(poles);
+  }
+
+  // --- Start and finish gantries, with a chequered line across the road at the finish.
+  gantry(scene, t, t.startS, 'START', false, keep);
+  gantry(scene, t, t.finishS, 'FINISH', true, keep);
+
+  // --- Forests and rocks
+  scatter(scene, t, look, rng, inner, keep);
+  village(scene, t, rng, keep);
+
+  // --- The sea
+  let sea: THREE.Mesh | null = null;
+  if (t.def.theme === 'coast') {
+    const normal = keep(noiseNormal(256));
+    normal.repeat.set(400, 400);
+    const mat = keep(new THREE.MeshStandardMaterial({ color: 0x0f4d68, roughness: 0.1, metalness: 0.1, normalMap: normal, normalScale: new THREE.Vector2(0.35, 0.35), envMapIntensity: 1.2 }));
+    sea = new THREE.Mesh(keep(new THREE.PlaneGeometry(16000, 16000)), mat);
+    sea.rotation.x = -Math.PI / 2;
+    sea.position.y = SEA_LEVEL;
+    sea.receiveShadow = true;
+    scene.add(sea);
+  }
+
+  return {
+    scene,
+    sun,
+    exposure: look.exposure,
+    follow(x, y, z, time) {
+      // Move the shadow box with the camera, in whole texels so the edges don't crawl.
+      const texel = 90 / 2048;
+      const sx = Math.round(x / texel) * texel;
+      const sz = Math.round(z / texel) * texel;
+      sun.target.position.set(sx, y, sz);
+      sun.position.set(sx + sunDir.x * 200, y + sunDir.y * 200, sz + sunDir.z * 200);
+      if (sea) {
+        const n = (sea.material as THREE.MeshStandardMaterial).normalMap!;
+        n.offset.set(time * 0.004, time * 0.0025);
+      }
+    },
+    dispose() {
+      for (const d of disposables) d.dispose();
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh && m.geometry) m.geometry.dispose();
+      });
+      sky.material.dispose();
+      envSky.material.dispose();
+    },
+  };
+}
+
+function gantry(scene: THREE.Scene, t: Track, s: number, text: string, chequer: boolean, keep: <T extends { dispose(): void }>(x: T) => T) {
+  const c = pointAt(t, s, 0);
+  const yaw = Math.atan2(-c.tx, -c.tz);
+  const g = new THREE.Group();
+  g.position.set(c.x, c.y, c.z);
+  g.rotation.y = yaw;
+  const steel = keep(new THREE.MeshStandardMaterial({ color: 0x2b2f36, metalness: 0.6, roughness: 0.45 }));
+  const span = t.rail + 0.8;
+  for (const side of [-1, 1]) {
+    const post = new THREE.Mesh(keep(new THREE.BoxGeometry(0.4, 6.2, 0.4)), steel);
+    post.position.set(side * span, 3.1, 0);
+    post.castShadow = true;
+    g.add(post);
+  }
+  const beam = new THREE.Mesh(keep(new THREE.BoxGeometry(span * 2 + 0.4, 1.3, 0.35)), steel);
+  beam.position.y = 6.2;
+  g.add(beam);
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 128;
+  const x = canvas.getContext('2d')!;
+  if (chequer) {
+    for (let i = 0; i < 64; i++) for (let j = 0; j < 8; j++) {
+      x.fillStyle = (i + j) % 2 ? '#111' : '#fff';
+      x.fillRect(i * 16, j * 16, 16, 16);
+    }
+    x.fillStyle = 'rgba(0,0,0,0.6)';
+    x.fillRect(300, 20, 424, 88);
+  } else {
+    x.fillStyle = '#c8102e';
+    x.fillRect(0, 0, 1024, 128);
+  }
+  x.fillStyle = '#fff';
+  x.font = 'bold 84px system-ui, sans-serif';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.fillText(text, 512, 68);
+  const tex = keep(new THREE.CanvasTexture(canvas));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  for (const z of [-0.19, 0.19]) {
+    const banner = new THREE.Mesh(keep(new THREE.PlaneGeometry(span * 2, 1.1)), keep(new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.35 })));
+    banner.position.set(0, 6.2, z);
+    if (z < 0) banner.rotation.y = Math.PI; // one face toward each direction
+    g.add(banner);
+  }
+  if (chequer) {
+    const lineTex = keep(new THREE.CanvasTexture(chequerCanvas()));
+    lineTex.colorSpace = THREE.SRGBColorSpace;
+    lineTex.magFilter = THREE.NearestFilter;
+    const line = new THREE.Mesh(keep(new THREE.PlaneGeometry(t.half * 2, 1.2)), keep(new THREE.MeshStandardMaterial({ map: lineTex, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })));
+    line.rotation.x = -Math.PI / 2;
+    line.position.y = 0.05;
+    line.receiveShadow = true;
+    g.add(line);
+  } else {
+    const line = new THREE.Mesh(keep(new THREE.PlaneGeometry(t.half * 2, 0.4)), keep(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })));
+    line.rotation.x = -Math.PI / 2;
+    line.position.y = 0.05;
+    g.add(line);
+  }
+  scene.add(g);
+}
+
+/** Trees (pines up the mountain, cypress and round pines by the sea) and boulders, instanced per 400 m tile. */
+function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T) {
+  const tree = keep(t.def.theme === 'alpine' ? pineGeometry() : coastTreeGeometry());
+  const treeMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
+  const rock = keep(rockGeometry());
+  const rockMat = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(...look.rock).multiplyScalar(0.9), roughness: 0.95, flatShading: true }));
+  const TILE = 400;
+  const q = new THREE.Quaternion();
+  const v = new THREE.Vector3();
+  const s = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let tx = area.x0; tx < area.x1; tx += TILE)
+    for (let tz = area.z0; tz < area.z1; tz += TILE) {
+      const trees: THREE.Matrix4[] = [];
+      const rocks: THREE.Matrix4[] = [];
+      for (let x = tx; x < tx + TILE; x += 10)
+        for (let z = tz; z < tz + TILE; z += 10) {
+          const px = x + rng() * 10;
+          const pz = z + rng() * 10;
+          const rd = roadDistance(t, px, pz);
+          if (rd < t.edge + 9) continue;
+          const forest = fbm(px / 140, pz / 140, t.def.seed + 11, 3) + (t.def.theme === 'alpine' ? 0.15 : -0.05);
+          const h = heightAt(t, px, pz);
+          if (h < SEA_LEVEL + 2.5) continue;
+          const slope = Math.abs(heightAt(t, px + 2, pz) - h) + Math.abs(heightAt(t, px, pz + 2) - h);
+          // Thick by the road, thinning with distance (fog hides the rest).
+          if (forest > 0.08 && rng() < 0.7 - Math.min(0.45, rd / 1400) && slope < 3.2 && h < look.treeline + rng() * 30 && rd < 700) {
+            const sc = 0.75 + rng() * 0.7;
+            q.setFromAxisAngle(up, rng() * Math.PI * 2);
+            trees.push(new THREE.Matrix4().compose(v.set(px, h - 0.2, pz), q, s.set(sc, sc * (0.85 + rng() * 0.4), sc)));
+          } else if (rng() < 0.02 + (slope > 2.5 ? 0.06 : 0)) {
+            const sc = 0.5 + rng() * 2.2;
+            q.setFromEuler(new THREE.Euler(rng(), rng() * 6, rng()));
+            rocks.push(new THREE.Matrix4().compose(v.set(px, h - sc * 0.3, pz), q, s.set(sc, sc * 0.7, sc)));
+          }
+        }
+      for (const [list, geo, mat] of [
+        [trees, tree, treeMat],
+        [rocks, rock, rockMat],
+      ] as const) {
+        if (!list.length) continue;
+        const im = new THREE.InstancedMesh(geo, mat, list.length);
+        list.forEach((mm, i) => im.setMatrixAt(i, mm));
+        im.castShadow = true;
+        im.receiveShadow = true;
+        im.computeBoundingSphere();
+        scene.add(im);
+      }
+    }
+}
+
+/** A cluster of houses beside the road near the finish (chalets or a harbour town). */
+function village(scene: THREE.Scene, t: Track, rng: () => number, keep: <T extends { dispose(): void }>(x: T) => T) {
+  const coast = t.def.theme === 'coast';
+  const walls = coast ? [0xf3ead9, 0xe9c9a0, 0xd9e6ee, 0xf1d3c2, 0xfff6e8] : [0x8a5a3b, 0xe9e1d2, 0x9b6a45, 0xd8cbb4];
+  const roofC = coast ? 0xb4583b : 0x3c3f45;
+  const box = keep(new THREE.BoxGeometry(1, 1, 1));
+  const roofGeo = keep(new THREE.CylinderGeometry(0.72, 0.72, 1, 3, 1));
+  roofGeo.rotateZ(Math.PI / 2);
+  roofGeo.rotateY(Math.PI / 2);
+  const roofMat = keep(new THREE.MeshStandardMaterial({ color: roofC, roughness: 0.8 }));
+  const spots = [t.finishS - 60, t.finishS - 20, t.finishS + 30, t.finishS + 80, t.finishS + 140, t.startS - 30, t.startS + 40];
+  for (const s of spots)
+    for (const side of [-1, 1]) {
+      if (rng() < 0.25) continue;
+      const d = side * (t.rail + 9 + rng() * 14);
+      const p = pointAt(t, s + rng() * 10, d);
+      const h = heightAt(t, p.x, p.z);
+      const w = 6 + rng() * 4;
+      const dpt = 7 + rng() * 4;
+      const ht = 4 + rng() * 3;
+      const g = new THREE.Group();
+      g.position.set(p.x, h, p.z);
+      g.rotation.y = Math.atan2(-p.tx, -p.tz) + (rng() < 0.5 ? 0 : Math.PI / 2);
+      const wall = new THREE.Mesh(box, keep(new THREE.MeshStandardMaterial({ color: walls[Math.floor(rng() * walls.length)], roughness: 0.85 })));
+      wall.scale.set(w, ht + 3, dpt);
+      wall.position.y = (ht + 3) / 2 - 3;
+      const roof = new THREE.Mesh(roofGeo, roofMat);
+      roof.scale.set(w * 1.15, ht * 0.45, dpt * 1.1);
+      roof.position.y = ht + ht * 0.16;
+      for (const m of [wall, roof]) {
+        m.castShadow = true;
+        m.receiveShadow = true;
+        g.add(m);
+      }
+      scene.add(g);
+    }
+}
+
+// --- Procedural geometry and textures --------------------------------------------------------
+
+function tint(geo: THREE.BufferGeometry, color: number) {
+  const c = new THREE.Color(color);
+  const n = geo.getAttribute('position').count;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+
+function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const ni = parts.map((p) => p.toNonIndexed());
+  const total = ni.reduce((a, p) => a + p.getAttribute('position').count, 0);
+  const pos = new Float32Array(total * 3);
+  const nor = new Float32Array(total * 3);
+  const col = new Float32Array(total * 3);
+  let o = 0;
+  for (const p of ni) {
+    p.computeVertexNormals();
+    pos.set(p.getAttribute('position').array as Float32Array, o * 3);
+    nor.set(p.getAttribute('normal').array as Float32Array, o * 3);
+    col.set(p.getAttribute('color').array as Float32Array, o * 3);
+    o += p.getAttribute('position').count;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.computeBoundingSphere();
+  return g;
+}
+
+function pineGeometry() {
+  const parts = [tint(new THREE.CylinderGeometry(0.18, 0.28, 3, 5, 1, true).translate(0, 1.5, 0), 0x4a3424)];
+  const tiers = [
+    [3.2, 4.8, 2.9],
+    [2.2, 4.0, 5.6],
+    [1.2, 3.2, 8.0],
+  ];
+  for (const [r, h, y] of tiers) parts.push(tint(new THREE.ConeGeometry(r, h, 7, 1, true).translate(0, y, 0), 0x1f3d26));
+  return merge(parts);
+}
+
+function coastTreeGeometry() {
+  // A stone pine: tall bare trunk, flat umbrella crown.
+  const parts = [tint(new THREE.CylinderGeometry(0.2, 0.32, 7, 6).translate(0, 3.5, 0), 0x5b4433)];
+  const crown = new THREE.SphereGeometry(3.6, 10, 6);
+  crown.scale(1, 0.38, 1);
+  crown.translate(0, 7.6, 0);
+  parts.push(tint(crown, 0x3e5a2c));
+  const c2 = new THREE.SphereGeometry(2.4, 8, 5);
+  c2.scale(1, 0.4, 1);
+  c2.translate(1.4, 8.4, 0.6);
+  parts.push(tint(c2, 0x4a6834));
+  return merge(parts);
+}
+
+function rockGeometry() {
+  const g = new THREE.IcosahedronGeometry(1, 0);
+  const p = g.getAttribute('position');
+  for (let i = 0; i < p.count; i++) {
+    const s = 0.75 + 0.5 * Math.abs(Math.sin(i * 12.9898) * 43758.5453 % 1);
+    p.setXYZ(i, p.getX(i) * s, p.getY(i) * s, p.getZ(i) * s);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+function mulberry(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let x = Math.imul(a ^ (a >>> 15), 1 | a);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function noiseTexture(size: number, contrast: number) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(size, size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const n = fbm((x / size) * 8, (y / size) * 8, 5, 4) * 0.5 + Math.random() * 0.25;
+      const v = Math.round(255 * Math.min(1, Math.max(0, 0.82 + n * contrast * 0.6)));
+      img.data.set([v, v, v, 255], (y * size + x) * 4);
+    }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function noiseNormal(size: number) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(size, size);
+  const h = (x: number, y: number) => fbm((x / size) * 6, (y / size) * 6, 9, 4);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const dx = h((x + 1) % size, y) - h((x - 1 + size) % size, y);
+      const dy = h(x, (y + 1) % size) - h(x, (y - 1 + size) % size);
+      img.data.set([128 + dx * 400, 128 + dy * 400, 255, 255], (y * size + x) * 4);
+    }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+/** Columns across the road: verge, shoulder, white edge line, asphalt with a dashed centre line, mirrored. */
+function roadTexture() {
+  const W = 512;
+  const H = 512;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const u = x / W;
+      const n = Math.random();
+      const grain = fbm((x / W) * 30, (y / H) * 30, 3, 3);
+      let r: number, gg: number, b: number;
+      if (u < 0.12 || u > 0.88) {
+        // Gravel verge.
+        const v = 110 + n * 70 + grain * 30;
+        r = v * 0.95;
+        gg = v * 0.9;
+        b = v * 0.8;
+      } else if (u < 0.2 || u > 0.8) {
+        const v = 92 + n * 34 + grain * 16;
+        r = gg = b = v;
+      } else {
+        const v = 64 + n * 30 + grain * 14;
+        r = gg = b = v;
+      }
+      img.data.set([r, gg, b, 255], (y * W + x) * 4);
+    }
+  g.putImageData(img, 0, 0);
+  g.fillStyle = 'rgba(240,240,232,0.92)';
+  g.fillRect(W * 0.2 + 4, 0, 9, H);
+  g.fillRect(W * 0.8 - 13, 0, 9, H);
+  g.fillStyle = 'rgba(245,240,225,0.9)';
+  g.fillRect(W / 2 - 4, 0, 8, H * 0.35);
+  // Tyre-darkened lines where cars actually drive.
+  g.fillStyle = 'rgba(0,0,0,0.12)';
+  for (const u of [0.32, 0.4, 0.6, 0.68]) g.fillRect(W * u, 0, W * 0.05, H);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function chevronTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ffcf1a';
+  g.fillRect(0, 0, 128, 128);
+  g.fillStyle = '#111';
+  g.beginPath();
+  g.moveTo(34, 18);
+  g.lineTo(94, 64);
+  g.lineTo(34, 110);
+  g.lineTo(56, 110);
+  g.lineTo(116, 64);
+  g.lineTo(56, 18);
+  g.fill();
+  g.strokeStyle = '#111';
+  g.lineWidth = 6;
+  g.strokeRect(3, 3, 122, 122);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function stripeTexture() {
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  for (let i = 0; i < 8; i++) {
+    g.fillStyle = i % 2 ? '#fff' : '#d21f1f';
+    g.fillRect(0, i * 8, 4, 8);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function chequerCanvas() {
+  const c = document.createElement('canvas');
+  c.width = 160;
+  c.height = 16;
+  const g = c.getContext('2d')!;
+  for (let i = 0; i < 20; i++)
+    for (let j = 0; j < 2; j++) {
+      g.fillStyle = (i + j) % 2 ? '#111' : '#f4f4f4';
+      g.fillRect(i * 8, j * 8, 8, 8);
+    }
+  return c;
+}

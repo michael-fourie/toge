@@ -5,7 +5,14 @@ import { help } from './menu/help.ts';
 import { host } from './menu/host.ts';
 import { join } from './menu/join.ts';
 import { lobby } from './menu/lobby.ts';
-import { type Ctx, type Joined, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
+import { type Ctx, type DriveOpts, type Joined, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
+import { games } from './menu/games.ts';
+import { driveHub } from './race/hub.ts';
+import { driveLobby } from './race/lobby.ts';
+import { RaceGame } from './race/racegame.ts';
+import { garage } from './race/garageStore.ts';
+import { current } from '../shared/race/garage.ts';
+import { setMenuNav, startMenuNav } from './pad.ts';
 import { accountScreen } from './menu/account.ts';
 import { inventory } from './menu/inventory.ts';
 import { settings } from './menu/settings.ts';
@@ -22,9 +29,10 @@ import { sfx } from './sfx.ts';
 import { setupTouchPage } from './touch.ts';
 
 const app = document.getElementById('app')!;
-const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { title, host, join, lobby, help, settings, account: accountScreen, casino, inventory, practice };
+const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { games, title, host, join, lobby, help, settings, account: accountScreen, casino, inventory, practice, drive: driveHub, drivelobby: driveLobby };
 
-let game: Game | null = null;
+/** Whatever is running full screen: a Gambol match or a TOGE race. Browser Back leaves it. */
+let game: { exit(): void } | null = null;
 let leaveScreen: (() => void) | null = null;
 
 /** The sky stays put while screens swap on top of it. */
@@ -40,7 +48,7 @@ function stage(): HTMLElement {
 function show(s: Screen) {
   // Browser Back during a match leaves the match (its onExit brings us back to the title).
   if (game) return game.exit();
-  if (s.name === 'game') return router.replace({ name: 'title' });
+  if (s.name === 'game') return router.replace({ name: 'games' });
   leaveScreen?.();
   leaveScreen = null;
   leaveScreen = SCREENS[s.name](stage(), ctx, s) ?? null;
@@ -54,12 +62,14 @@ const ctx: Ctx = {
   replace: router.replace,
   back: router.back,
   play: (joined, bots) => void play(joined, bots),
+  drive: (opts) => void drive(opts),
   joined: null,
 };
 
-// Esc = Back everywhere in the menu (in a match, Esc belongs to the game's pause menu).
+// Esc (or B on a controller) = Back everywhere in the menu (in a match, Esc belongs to the game's pause menu).
 addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !game && (history.state as Screen | null)?.name !== 'title') router.back();
+  const at = history.state as Screen | null;
+  if (e.key === 'Escape' && !game && !(at?.name === 'games' && !at.channel)) router.back();
 });
 addEventListener('click', (e) => {
   if ((e.target as HTMLElement).closest('[data-back]')) router.back();
@@ -104,6 +114,7 @@ async function play(joined?: Joined, bots?: BotLevel) {
   // immediately so no lobby messages arrive before the game is listening.
   if (!joined) await nextPaint();
   app.innerHTML = '';
+  setMenuNav(false);
   game = new Game({
     container: app,
     name: playerName(),
@@ -113,6 +124,7 @@ async function play(joined?: Joined, bots?: BotLevel) {
     onExit: (reason) => {
       game = null;
       ctx.joined = null;
+      setMenuNav(true);
       router.replace({ name: 'title', notice: reason });
     },
   });
@@ -122,20 +134,50 @@ async function play(joined?: Joined, bots?: BotLevel) {
   hide();
 }
 
+/** Starts a TOGE race with the car you have selected. */
+async function drive(opts: DriveOpts) {
+  leaveScreen?.();
+  leaveScreen = null;
+  router.mark({ name: 'game' });
+  const hide = showLoading();
+  await nextPaint();
+  app.innerHTML = '';
+  game = new RaceGame({
+    container: app,
+    track: opts.track,
+    name: playerName(),
+    car: current(garage.g),
+    rivals: opts.rivals,
+    online: opts.online,
+    onExit: (to, notice) => {
+      game = null;
+      router.replace(to === 'lobby' ? { name: 'drivelobby' } : { name: 'drive', notice });
+    },
+  });
+  await nextPaint();
+  await nextPaint();
+  hide();
+}
+
 // ---------------------------------------------------------------------------
 // Boot. A deep link (/?join=ABCD) lands on the Join page with the code filled in.
 
 setupTouchPage(); // phones: touch styles + the rotate-your-phone card (nothing on desktop)
+startMenuNav(); // controllers: D-pad / stick moves focus, A presses, B backs out
 void account.refresh(); // who's signed in (the title updates when this lands)
 
-// A reload restores the page you were on, except the lobby room and matches (the connection is gone).
+// A reload restores the page you were on, except lobby rooms and matches (the connection is gone).
 const deepLink = new URLSearchParams(location.search).get('join');
+const raceLink = new URLSearchParams(location.search).get('race');
 const restored = history.state as Screen | null;
 if (deepLink) {
-  history.replaceState({ name: 'title', depth: 0 }, '', location.pathname);
+  history.replaceState({ name: 'games', depth: 0 }, '', location.pathname);
   router.push({ name: 'join', code: deepLink.toUpperCase() });
-} else if (restored && restored.name !== 'lobby' && restored.name !== 'game') {
+} else if (raceLink) {
+  history.replaceState({ name: 'games', depth: 0 }, '', location.pathname);
+  router.push({ name: 'drivelobby', code: raceLink.toUpperCase() });
+} else if (restored && restored.name !== 'lobby' && restored.name !== 'drivelobby' && restored.name !== 'game') {
   router.replace({ ...restored, notice: undefined });
 } else {
-  router.replace({ name: 'title' });
+  router.replace({ name: 'games' });
 }
