@@ -4,6 +4,8 @@ Atrous: a browser multiplayer movement shooter. Think CS:GO Combat Surf with bho
 
 The site is a **game chooser** (menu/games.ts: a console-style channel grid; channel 1 Gambol, channel 2 **TŌGE**, the mountain racing game). Everything below "Priorities" is about Gambol, the shooter; TŌGE has its own section, "TŌGE (racing)", further down. Both games share the router, accounts and the Worker.
 
+**Other games are plug-ins:** a folder in `src/games/<id>/` with a `channel.ts` (a `GameChannel`) shows up on the menu by itself (`src/games/registry.ts`, `import.meta.glob`). They run in the `play` screen (`menu/play.ts`) with a `GameApi`, and get online rooms from the generic `PartyRoom` Durable Object (`server/party.ts`, `partyroom.ts`; `/ws?game=party&kind=<id>`, `/api/parties?game=<id>`). Working on one: read `src/games/CLAUDE.md` (agent rules) and `docs/ADDING_A_GAME.md`. MASH (`src/games/mash`) is the worked example; `_template` is the starting point.
+
 ## Priorities (in order)
 
 1. **Momentum is sacred.** Movement must feel like CS:GO bhop. Never add anything that eats speed on its own: no air friction, no friction on the jump tick, no "redirect" mechanics. Shot-recoil push was removed for exactly this. Air jumps were removed once too and are back as the double jump and wall kick: they only raise vertical speed or add push, never touch horizontal momentum (tests in the "Air jumps" block).

@@ -3,43 +3,12 @@
 // Works with a mouse, the keyboard (Tab/Enter) and a gamepad (pad.ts moves focus; A starts, B backs out).
 
 import { account } from '../account.ts';
-import { gambolBanner, tougeBanner } from './banners.ts';
-import type { Render, Screen } from './router.ts';
+import { CHANNELS, type Channel } from '../../games/registry.ts';
+import type { Render } from './router.ts';
 import { $, esc } from './ui.ts';
 import './games.css';
 
-interface Channel {
-  id: 'gambol' | 'touge';
-  title: string;
-  tagline: string;
-  about: string;
-  facts: string[];
-  banner: (c: HTMLCanvasElement) => void;
-  /** Where Start goes. */
-  start: Screen;
-}
-
-const CHANNELS: Channel[] = [
-  {
-    id: 'gambol',
-    title: 'GAMBOL',
-    tagline: 'Sky-island sniper brawls',
-    about: 'Bhop, surf, slide and wallrun across floating islands with an AWP. Battle, King of the Hill, Battle Royale and Survival.',
-    facts: ['1–12 players online', 'Practice vs bots', 'Mouse & keyboard'],
-    banner: gambolBanner,
-    start: { name: 'title' },
-  },
-  {
-    id: 'touge',
-    title: 'TŌGE',
-    tagline: 'Mountain pass racing',
-    about: 'Race your lobby down the mountain. Real tyre and suspension physics, two passes to master, prize money to gamble on upgrades, and a garage that follows your account.',
-    facts: ['1–8 players online', 'Solo vs rivals', 'Controller recommended'],
-    banner: tougeBanner,
-    start: { name: 'drive' },
-  },
-];
-
+/** At least this many slots (three rows); more games add rows. */
 const SLOTS = 12;
 
 let audio: AudioContext | null = null;
@@ -101,7 +70,7 @@ export const games: Render = (root, ctx, screen) => {
 };
 
 function grid(root: HTMLElement, ctx: Parameters<Render>[1]): () => void {
-  const tiles = Array.from({ length: SLOTS }, (_, i) => {
+  const tiles = Array.from({ length: Math.max(SLOTS, Math.ceil(CHANNELS.length / 4) * 4) }, (_, i) => {
     const c = CHANNELS[i];
     if (!c) return `<div class="wii-tile vacant" aria-hidden="true"></div>`;
     return `
@@ -187,7 +156,7 @@ function channelPage(root: HTMLElement, ctx: Parameters<Render>[1], c: Channel):
   start.addEventListener('click', () => {
     blip('start');
     root.querySelector('.wii-channel')!.classList.add('launch');
-    setTimeout(() => ctx.go(c.start), 260);
+    setTimeout(() => ctx.go(c.screen ?? { name: 'play', gameId: c.id }), 260);
   });
   root.addEventListener('focusin', () => blip('tick'));
   const quick = () => start.click();

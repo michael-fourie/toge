@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { NET } from '../shared/constants.ts';
 import type { BattleMap, GameMode, LobbyInfo } from '../shared/protocol.ts';
 import type { RaceLobbyInfo } from '../shared/race/protocol.ts';
+import type { PartyInfo } from '../shared/party.ts';
 import { HEARTBEAT_SECONDS } from './lobby.ts';
 
 /** Entries older than this are dead lobbies (or reservations nobody connected to). */
@@ -51,6 +52,15 @@ export class Directory extends DurableObject {
 
   async reportRace(info: RaceLobbyInfo): Promise<void> {
     await this.ctx.storage.put(info.code, { ...info, at: Date.now() } satisfies RaceEntry);
+  }
+
+  /** Plug-in games' rooms: each game has its own instance ('party:<game id>'). */
+  async reportParty(info: PartyInfo): Promise<void> {
+    await this.ctx.storage.put(info.code, { ...info, at: Date.now() });
+  }
+
+  async listParties(): Promise<PartyInfo[]> {
+    return ((await this.live()) as unknown as (PartyInfo & { at: number })[]).filter((e) => e.players > 0 && e.game).map(({ at: _at, ...info }) => info);
   }
 
   /** The race directory's lobbies (same storage shape, a different instance). */

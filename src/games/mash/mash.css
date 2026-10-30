@@ -1,0 +1,81 @@
+/* MASH. Every rule is scoped under .mash so it can't leak into the rest of the site. */
+.mash {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: linear-gradient(135deg, #ff3d7f, #ffb84d);
+  font: 600 18px system-ui, sans-serif;
+  color: #fff;
+  text-align: center;
+}
+.mash h1 {
+  margin: 0;
+  font-size: clamp(48px, 10vw, 110px);
+  letter-spacing: 0.08em;
+}
+.mash button,
+.mash input {
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  color: #6b1030;
+  background: #fff;
+}
+.mash input {
+  width: 110px;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+}
+.mash :is(button, input):focus-visible,
+html.pad .mash :is(button, input):focus {
+  outline: 4px solid #2b1040;
+  outline-offset: 3px;
+}
+.mash-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+.mash ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.mash-bar {
+  display: grid;
+  grid-template-columns: 120px min(60vw, 520px) 40px;
+  align-items: center;
+  gap: 10px;
+}
+.mash-bar i {
+  height: 18px;
+  border-radius: 9px;
+  background: #fff;
+}
+.mash-bar.me i {
+  background: #2b1040;
+}
+.mash-hit {
+  width: 180px;
+  height: 180px;
+  border-radius: 50% !important;
+  font-size: 28px !important;
+  background: #e8203a !important;
+  color: #fff !important;
+}
+.mash-back {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+}
+.mash-note {
+  min-height: 1.2em;
+}

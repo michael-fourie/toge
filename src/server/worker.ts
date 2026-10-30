@@ -1,17 +1,21 @@
 import type { Accounts } from './accounts.ts';
 import type { Directory } from './directory.ts';
 import type { RaceRoom } from './raceroom.ts';
+import type { PartyRoom } from './partyroom.ts';
+import { isGameId } from '../shared/party.ts';
 import type { LobbyRoom } from './room.ts';
 import type { GarageAction } from '../shared/race/garage.ts';
 
 export { Accounts } from './accounts.ts';
 export { Directory } from './directory.ts';
 export { RaceRoom } from './raceroom.ts';
+export { PartyRoom } from './partyroom.ts';
 export { LobbyRoom } from './room.ts';
 
 export interface Env {
   LOBBY: DurableObjectNamespace<LobbyRoom>;
   RACE: DurableObjectNamespace<RaceRoom>;
+  PARTY: DurableObjectNamespace<PartyRoom>;
   DIRECTORY: DurableObjectNamespace<Directory>;
   ACCOUNTS: DurableObjectNamespace<Accounts>;
 }
@@ -95,6 +99,27 @@ async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, ur
   return room.fetch(new Request(target, req));
 }
 
+/** A room of a plug-in game (src/games/<kind>): each game has its own directory of codes. */
+async function partySocket(req: Request<unknown, IncomingRequestCfProperties>, url: URL, env: Env, name: string, user: boolean): Promise<Response> {
+  const kind = url.searchParams.get('kind');
+  if (!isGameId(kind)) return refuse('Unknown game.');
+  const dir = env.DIRECTORY.getByName(`party:${kind}`);
+  const join = url.searchParams.get('code')?.toUpperCase();
+  let code: string;
+  let room: DurableObjectStub<PartyRoom>;
+  if (join) {
+    if (!(await dir.has(join))) return refuse('No room with that code.');
+    code = join;
+    room = env.PARTY.getByName(`${kind}:${code}`);
+  } else {
+    code = await dir.allocate();
+    room = env.PARTY.getByName(`${kind}:${code}`, { locationHint: regionHint(req.cf) });
+  }
+  const target = new URL(req.url);
+  target.search = new URLSearchParams({ code, kind, name, user: user ? '1' : '' }).toString();
+  return room.fetch(new Request(target, req));
+}
+
 /** Durable Objects are created near whoever first touches them; hint at the host's region so the match is close to them. */
 function regionHint(cf: IncomingRequestCfProperties | undefined): DurableObjectLocationHint | undefined {
   switch (cf?.continent) {
@@ -131,6 +156,10 @@ export default {
     if (url.pathname === '/api/lobbies') return Response.json(await dir.list());
     if (url.pathname === '/api/races') return Response.json(await env.DIRECTORY.getByName('race').listRaces());
     if (url.pathname === '/api/garage') return garageApi(req, url, env.ACCOUNTS.getByName('all'));
+    if (url.pathname === '/api/parties') {
+      const game = url.searchParams.get('game');
+      return isGameId(game) ? Response.json(await env.DIRECTORY.getByName(`party:${game}`).listParties()) : Response.json([]);
+    }
     if (['/api/me', '/api/register', '/api/login', '/api/logout'].includes(url.pathname)) return accountApi(req, url, env.ACCOUNTS.getByName('all'));
 
     if (url.pathname === '/ws') {
@@ -141,6 +170,7 @@ export default {
       // Signed in: you play as your username. Guests keep their typed name unless it belongs to an account.
       const { name, user } = await env.ACCOUNTS.getByName('all').identify(readCookie(req), url.searchParams.get('name') ?? '');
       if (url.searchParams.get('game') === 'race') return raceSocket(req, url, env, name, user);
+      if (url.searchParams.get('game') === 'party') return partySocket(req, url, env, name, user);
       const mode = url.searchParams.get('mode') ?? '';
       const teams = url.searchParams.get('teams') === '1' ? '1' : '';
       const map = url.searchParams.get('map') ?? '';

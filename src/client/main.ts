@@ -7,6 +7,7 @@ import { join } from './menu/join.ts';
 import { lobby } from './menu/lobby.ts';
 import { type Ctx, type DriveOpts, type Joined, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
 import { games } from './menu/games.ts';
+import { play as playGame } from './menu/play.ts';
 import { driveHub } from './race/hub.ts';
 import { driveLobby } from './race/lobby.ts';
 import { RaceGame } from './race/racegame.ts';
@@ -29,7 +30,7 @@ import { sfx } from './sfx.ts';
 import { setupTouchPage } from './touch.ts';
 
 const app = document.getElementById('app')!;
-const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { games, title, host, join, lobby, help, settings, account: accountScreen, casino, inventory, practice, drive: driveHub, drivelobby: driveLobby };
+const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { games, title, host, join, lobby, help, settings, account: accountScreen, casino, inventory, practice, drive: driveHub, drivelobby: driveLobby, play: playGame };
 
 /** Whatever is running full screen: a Gambol match or a TOGE race. Browser Back leaves it. */
 let game: { exit(): void } | null = null;

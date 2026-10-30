@@ -9,13 +9,14 @@ import type { TrackId } from '../../shared/race/track.ts';
 import type { RaceNet } from '../race/racenet.ts';
 
 /** `games` is the landing page (the game chooser); `title` is Gambol's home, `drive` TOGE's garage. */
-export type ScreenName = 'games' | 'title' | 'host' | 'join' | 'lobby' | 'help' | 'settings' | 'account' | 'casino' | 'inventory' | 'practice' | 'drive' | 'drivelobby' | 'game';
+export type ScreenName = 'games' | 'title' | 'host' | 'join' | 'lobby' | 'help' | 'settings' | 'account' | 'casino' | 'inventory' | 'practice' | 'drive' | 'drivelobby' | 'play' | 'game';
 
 export interface Screen {
   name: ScreenName;
   notice?: string; // title: why we came back (e.g. "Disconnected")
   code?: string; // join / drivelobby: prefilled lobby code
   channel?: string; // games: the open channel page
+  gameId?: string; // play: which plug-in game (src/games/<id>)
   dtab?: string; // drive: which garage tab is open
   mode?: GameMode; // host: which game type starts selected
   tab?: 'items' | 'character'; // inventory: which tab opens

@@ -12,6 +12,7 @@
     "bindings": [
       { "name": "LOBBY", "class_name": "LobbyRoom" },
       { "name": "RACE", "class_name": "RaceRoom" },
+      { "name": "PARTY", "class_name": "PartyRoom" },
       { "name": "DIRECTORY", "class_name": "Directory" },
       { "name": "ACCOUNTS", "class_name": "Accounts" }
     ]
@@ -20,6 +21,7 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["LobbyRoom", "Directory"] },
     { "tag": "v2", "new_sqlite_classes": ["Accounts"] },
-    { "tag": "v3", "new_sqlite_classes": ["RaceRoom"] }
+    { "tag": "v3", "new_sqlite_classes": ["RaceRoom"] },
+    { "tag": "v4", "new_sqlite_classes": ["PartyRoom"] }
   ]
 }

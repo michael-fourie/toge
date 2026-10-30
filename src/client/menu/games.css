@@ -246,6 +246,28 @@ html.pad .wii-hint {
   margin-top: 4px;
 }
 
+/* --- A plug-in game's full-screen host --- */
+.menu-stage:has(.game-host) {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+.menu:has(.game-host) > .sky {
+  display: none;
+}
+.game-host {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  background: #000;
+  color: #fff;
+}
+.game-host-error {
+  margin: 40vh auto 0;
+  text-align: center;
+  font: 600 18px system-ui, sans-serif;
+}
+
 /* --- Pills (Menu / Start / OK) --- */
 .wii-pill {
   min-width: clamp(150px, 18vw, 260px);
