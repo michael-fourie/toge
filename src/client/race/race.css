@@ -361,6 +361,15 @@ html.pad .tg :is(button, input):focus {
 .tg-track.sakura {
   background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #cfe2f4, #f7dbe6 32%, #f2a9c1 33%, #e98fae 52%, #5e8a3c 53%, #34552a);
 }
+.tg-track.monza {
+  background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #f3d7a6, #e6b87a 30%, #b5492a 31%, #3c3f45 46%, #3c3f45 54%, #c98a3a 55%, #6b5a2a);
+}
+.tg-track.spa {
+  background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #b9c9d6, #dfe6ea 32%, #2f5a3a 33%, #3c3f45 50%, #3c3f45 56%, #24402b 57%, #17291c);
+}
+.tg-track.monaco {
+  background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #9fd0f0, #e6f2fa 30%, #f3ead9 31%, #e9c9a0 45%, #1f6f9f 46%, #134a6e);
+}
 .tg-track.small {
   min-height: 70px;
 }
@@ -777,6 +786,11 @@ html.pad .tg :is(button, input):focus {
 .rh-time {
   font: 700 26px 'Barlow Condensed', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
+}
+.rh-lap {
+  font: 700 22px 'Barlow Condensed', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
 }
 .rh-strip {
   position: absolute;

@@ -1,14 +1,19 @@
 import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
 
-// Race tracks: a point-to-point road down a mountain, built from a handful of control points, plus the
-// ground under it. Shared and deterministic: the car physics, the AI, the renderer and the tests all ask the
-// same functions where the ground is, so what you see is what you drive on.
+// Race tracks: a point-to-point road down a mountain (or a closed circuit raced for laps), built from a
+// handful of control points, plus the ground under it. Shared and deterministic: the car physics, the AI, the
+// renderer and the tests all ask the same functions where the ground is, so what you see is what you drive on.
 //
 // The road is a centreline sampled every SAMPLE metres. Across it the surface is a plane (with a little
 // banking in corners) out to the barriers; past them it eases into procedural hills over BLEND metres.
+//
+// A circuit is unrolled: its samples repeat once per lap (with a run-up before the line and a runoff after the
+// last lap), so `s` is the distance raced and everything that reads the road ahead or compares `s` with the
+// finish works unchanged. Only one lap's samples go in the spatial hash, and the renderer draws one lap
+// (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -56,8 +61,10 @@ export interface TrackDef {
   blurb: string;
   theme: Theme;
   seed: number;
-  /** Control points [x, y, z] the road threads through, start line to finish line. */
+  /** Control points [x, y, z] the road threads through, start line to finish line (once round a circuit). */
   points: [number, number, number][];
+  /** A closed circuit raced this many laps (at least 2). Circuits have no features and no props. */
+  laps?: number;
   /** Asphalt width (m). */
   width: number;
   /** How tall the far hills get (m). */
@@ -72,6 +79,7 @@ export interface TrackDef {
 export const SAMPLE = 2; // metres between centreline samples
 const PRE = 90; // straight run-up before the start line (the grid sits here)
 const RUNOFF = 240; // straight after the finish line to brake in
+const LAP_PRE = 150; // a circuit's grid: this much of the lap before the line
 export const SHOULDER = 2.5; // paved strip outside the white lines
 export const VERGE = 3; // grass between the shoulder and the barrier
 /** The road's plane carries on this far past the barrier so the rails stand on level ground. */
@@ -99,6 +107,8 @@ export interface Track {
   length: number;
   startS: number;
   finishS: number;
+  /** Samples per lap on a circuit (sample i + lap is the same place as sample i); 0 on a point-to-point road. */
+  lap: number;
   half: number; // half the asphalt width
   rail: number; // barrier distance from the centreline, where there's no runoff
   edge: number; // where the road's plane ends and the blend begins, where there's no runoff
@@ -272,6 +282,67 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       { kind: 'cut', s0: 2578, s1: 3198 },
     ],
   },
+  // Circuits after famous Grand Prix tracks, scaled to fit: closed loops raced for laps.
+  monza: {
+    id: 'monza',
+    name: 'Monza',
+    tag: 'Temple of speed · 3 laps · chicanes',
+    blurb: 'An Italian parkland circuit in autumn: flat-out straights broken by the first-corner chicane, Curva Grande, the Lesmos, Ascari and the long Parabolica onto the line.',
+    theme: 'autumn',
+    seed: 61,
+    width: 12,
+    relief: 40,
+    laps: 3,
+    points: [
+      [0, 160, 0], [0, 160, -148.8], [0, 161, -272.8], [6.2, 161, -296.4], [26, 161, -303.8], [32.2, 161, -323.6],
+      [34.1, 162, -359.6], [40.3, 162, -409.2], [58.9, 163, -471.2], [108.5, 164, -514.6], [170.5, 165, -533.2],
+      [198.4, 165, -540.6], [210.8, 165, -554.9], [228.2, 165, -551.8], [238.7, 165, -534.4], [266.6, 166, -523.9],
+      [291.4, 166, -496], [303.8, 165, -452.6], [297.6, 164, -409.2], [279, 163, -365.8], [257.3, 162, -291.4],
+      [244.9, 161, -223.2], [260.4, 161, -197.2], [248, 161, -172.4], [230.6, 160, -155], [228.2, 160, -127.1],
+      [232.5, 159, 0], [229.4, 158, 111.6], [217, 158, 167.4], [179.8, 158, 207.7], [124, 158, 217],
+      [68.2, 159, 192.2], [24.8, 159, 136.4], [5, 160, 68.2],
+    ],
+  },
+  spa: {
+    id: 'spa',
+    name: 'Spa',
+    tag: 'Ardennes · 2 laps · Eau Rouge',
+    blurb: 'A long lap through the forest: La Source hairpin, down into Eau Rouge and up Raidillon, the Kemmel straight, Pouhon, Blanchimont and the Bus Stop chicane.',
+    theme: 'alpine',
+    seed: 73,
+    width: 12,
+    relief: 160,
+    laps: 2,
+    points: [
+      [0, 100, 0], [0, 101, -90], [15, 102, -135], [55, 102, -150], [85, 101, -120], [110, 97, -40], [135, 93, 60],
+      [140, 92, 110], [165, 95, 150], [175, 100, 200], [240, 105, 330], [310, 109, 470], [345, 110, 530],
+      [395, 110, 560], [430, 109, 595], [438, 106, 640], [420, 102, 685], [385, 100, 705], [345, 98, 690],
+      [260, 94, 720], [200, 90, 760], [180, 87, 820], [190, 85, 880], [160, 83, 920], [120, 82, 940], [60, 82, 930],
+      [0, 83, 880], [-40, 87, 700], [-50, 91, 500], [-40, 95, 300], [-30, 97, 180], [-10, 98, 160], [-20, 98, 130],
+      [0, 99, 80],
+    ],
+  },
+  monaco: {
+    id: 'monaco',
+    name: 'Monaco',
+    tag: 'Street circuit · 2 laps · hairpin',
+    blurb: 'Tight and twisting round the harbour: Sainte Dévote, the climb to Casino, the slowest hairpin anywhere, the run along the sea, the pool chicanes and Rascasse.',
+    theme: 'coast',
+    seed: 97,
+    width: 11,
+    relief: 120,
+    tilt: [0, -0.25],
+    water: 0,
+    laps: 2,
+    points: [
+      [0, 10, 0], [0, 11, -110], [8, 12, -150], [40, 13, -165], [150, 20, -200], [240, 28, -260], [285, 34, -320],
+      [300, 38, -380], [330, 40, -410], [400, 40, -412], [460, 37, -380], [490, 34, -330], [487, 31, -268],
+      [497, 30, -238], [518, 29, -228], [540, 28, -240], [550, 27, -275], [575, 24, -315], [630, 20, -328],
+      [690, 16, -290], [708, 13, -200], [700, 11, -90], [698, 10, -30], [668, 9, 20], [675, 9, 80], [645, 8, 165],
+      [560, 8, 195], [470, 8, 182], [445, 8, 215], [400, 8, 224], [340, 8, 224], [312, 8, 186], [270, 8, 180],
+      [150, 8, 195], [55, 8, 215], [25, 8, 212], [5, 9, 185], [-5, 9, 100],
+    ],
+  },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -338,15 +409,17 @@ export const smoothstep = (a: number, b: number, x: number) => {
 
 type P3 = [number, number, number];
 
-/** Centripetal Catmull-Rom through the points, densely sampled. */
-function spline(pts: P3[]): P3[] {
+/** Centripetal Catmull-Rom through the points, densely sampled (`closed`: round and back to the first). */
+function spline(pts: P3[], closed = false): P3[] {
   const out: P3[] = [];
   const knot = (a: P3, b: P3) => Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])) || 1e-4;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(0, i - 1)];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[Math.min(pts.length - 1, i + 2)];
+  const N = pts.length;
+  const at = (i: number) => (closed ? pts[(i + N) % N] : pts[Math.max(0, Math.min(N - 1, i))]);
+  for (let i = 0; i < (closed ? N : N - 1); i++) {
+    const p0 = at(i - 1);
+    const p1 = at(i);
+    const p2 = at(i + 1);
+    const p3 = at(i + 2);
     const t1 = knot(p0, p1);
     const t2 = t1 + knot(p1, p2);
     const t3 = t2 + knot(p2, p3);
@@ -365,8 +438,34 @@ function spline(pts: P3[]): P3[] {
       out.push(p);
     }
   }
-  out.push(pts[pts.length - 1]);
+  out.push(closed ? pts[0] : pts[N - 1]);
   return out;
+}
+
+/** `m` points evenly spaced round a closed polyline (its last point is its first). */
+function ring(dense: P3[]): P3[] {
+  let len = 0;
+  for (let i = 0; i < dense.length - 1; i++) len += Math.hypot(dense[i + 1][0] - dense[i][0], dense[i + 1][2] - dense[i][2]);
+  const m = Math.round(len / SAMPLE);
+  const out: P3[] = [];
+  let acc = 0;
+  for (let i = 0; i < dense.length - 1 && out.length < m; i++) {
+    const a = dense[i];
+    const b = dense[i + 1];
+    const l = Math.hypot(b[0] - a[0], b[2] - a[2]);
+    while (out.length < m && (out.length * len) / m <= acc + l) {
+      const f = l > 0 ? ((out.length * len) / m - acc) / l : 0;
+      out.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f]);
+    }
+    acc += l;
+  }
+  return out;
+}
+
+/** On a circuit, makes `a` repeat every lap exactly: each sample takes its value from the second lap, which is
+ * far enough from both ends of the unrolled road that end effects (smoothing, the speed profile) never reach it. */
+function retile(a: Float64Array, lap: number, pre: number) {
+  for (let i = 0; i < a.length; i++) a[i] = a[pre + lap + ((((i - pre) % lap) + lap) % lap)];
 }
 
 function smooth(a: Float64Array, radius: number, passes: number) {
@@ -398,47 +497,33 @@ export function getTrack(id: TrackId): Track {
 
 export function buildTrack(def: TrackDef): Track {
   const pts = def.points;
-  const dir = (a: P3, b: P3) => {
-    const l = Math.hypot(b[0] - a[0], b[2] - a[2]);
-    return [(b[0] - a[0]) / l, (b[2] - a[2]) / l];
-  };
-  const [sx, sz] = dir(pts[1], pts[0]);
-  const [ex, ez] = dir(pts[pts.length - 2], pts[pts.length - 1]);
-  const first = pts[0];
-  const last = pts[pts.length - 1];
-  const ext: P3[] = [
-    [first[0] + sx * PRE, first[1], first[2] + sz * PRE],
-    [first[0] + sx * PRE * 0.5, first[1], first[2] + sz * PRE * 0.5],
-    ...pts,
-    [last[0] + ex * RUNOFF * 0.5, last[1] - 1, last[2] + ez * RUNOFF * 0.5],
-    [last[0] + ex * RUNOFF, last[1] - 2, last[2] + ez * RUNOFF],
-  ];
-  const dense = spline(ext);
-
-  // Resample at even arc length.
   const xs: number[] = [];
   const ys: number[] = [];
   const zs: number[] = [];
-  let acc = 0;
-  let next = 0;
-  for (let i = 0; i < dense.length - 1; i++) {
-    const a = dense[i];
-    const b = dense[i + 1];
-    const l = Math.hypot(b[0] - a[0], b[2] - a[2]);
-    while (next <= acc + l) {
-      const f = l > 0 ? (next - acc) / l : 0;
-      xs.push(a[0] + (b[0] - a[0]) * f);
-      ys.push(a[1] + (b[1] - a[1]) * f);
-      zs.push(a[2] + (b[2] - a[2]) * f);
-      next += SAMPLE;
+  // A circuit: one lap of samples from the start line, unrolled (the run-up is the end of the lap before).
+  const laps = def.laps ?? 0;
+  let lap = 0;
+  const pre = Math.ceil(LAP_PRE / SAMPLE);
+  if (laps) {
+    if (laps < 2 || def.features?.length) throw new Error(`${def.id}: a circuit needs 2+ laps and no features`);
+    const one = ring(spline(pts, true));
+    lap = one.length;
+    const total = pre + laps * lap + Math.ceil(RUNOFF / SAMPLE) + 1;
+    for (let i = 0; i < total; i++) {
+      const p = one[(((i - pre) % lap) + lap) % lap];
+      xs.push(p[0]);
+      ys.push(p[1]);
+      zs.push(p[2]);
     }
-    acc += l;
-  }
+  } else roadSamples(pts, xs, ys, zs);
   const n = xs.length;
   const x = Float64Array.from(xs);
   const y = Float64Array.from(ys);
   const z = Float64Array.from(zs);
   smooth(y, 18, 3); // no steps in the grade, even through hairpins
+  if (lap) retile(y, lap, pre);
+  const first = pts[0];
+  const last = pts[pts.length - 1];
   const nearestS = (p: P3) => {
     let best = 0;
     let bd = Infinity;
@@ -496,15 +581,16 @@ export function buildTrack(def: TrackDef): Track {
   const curv = new Float64Array(n);
   for (let i = 1; i < n - 1; i++) curv[i] = (tx[i - 1] * tz[i] - tz[i - 1] * tx[i]) / SAMPLE;
   smooth(curv, 5, 2);
+  if (lap) for (const a of [tx, tz, curv]) retile(a, lap, pre);
   const bank = new Float64Array(n);
   for (let i = 0; i < n; i++) bank[i] = Math.max(-0.07, Math.min(0.07, curv[i] * 3));
 
   const half = def.width / 2;
   const rail = half + SHOULDER + VERGE;
   const edge = rail + EDGE_PAD;
-  const startS = nearestS(first);
-  const finishS = nearestS(last);
-  const [runL, runR] = runoff(def, n, x, z, curv, spans, crests, edge, startS, finishS);
+  const startS = lap ? pre * SAMPLE : nearestS(first);
+  const finishS = lap ? startS + laps * lap * SAMPLE : nearestS(last);
+  const [runL, runR] = runoff(def, n, x, z, curv, spans, crests, edge, startS, finishS, lap, pre);
   let edgeMax = edge;
   for (let i = 0; i < n; i++) edgeMax = Math.max(edgeMax, edge + runL[i], edge + runR[i]);
   let bx0 = Infinity;
@@ -519,10 +605,13 @@ export function buildTrack(def: TrackDef): Track {
   }
 
   // Spatial hash: every sample within reach of a cell is listed in it (ascending), so one lookup finds
-  // every stretch of road that can shape the ground at a point.
+  // every stretch of road that can shape the ground at a point. A circuit lists one lap (samples 1..lap, so
+  // every listed sample has a segment either side).
   const reach = edgeMax + BLEND + SAMPLE + SOFTMIN * 4; // the smooth minimum reads a little short of the true one
   const lists = new Map<number, number[]>();
-  for (let i = 0; i < n; i++) {
+  const h0 = lap ? 1 : 0;
+  const h1 = lap ? lap + 1 : n;
+  for (let i = h0; i < h1; i++) {
     const c0 = Math.floor((x[i] - reach) / CELL);
     const c1 = Math.floor((x[i] + reach) / CELL);
     const r0 = Math.floor((z[i] - reach) / CELL);
@@ -556,7 +645,7 @@ export function buildTrack(def: TrackDef): Track {
       let hs = 0;
       let bd = Infinity;
       let bi = 0;
-      for (let i = 0; i < n; i += 4) {
+      for (let i = h0; i < h1; i += 4) {
         const d2 = (x[i] - px) ** 2 + (z[i] - pz) ** 2;
         if (d2 < bd) {
           bd = d2;
@@ -588,6 +677,7 @@ export function buildTrack(def: TrackDef): Track {
     length: s[n - 1],
     startS,
     finishS,
+    lap,
     half,
     rail,
     edge,
@@ -605,10 +695,47 @@ export function buildTrack(def: TrackDef): Track {
     cuts: [],
   };
   for (const f of def.features ?? []) if (f.kind === 'cut') t.cuts.push(makeCut(t, f.s0, f.s1));
+  if (lap) return t; // circuits are clean racing: no item boxes, obstacles or ramps
   const placed = placeProps(t);
   t.props = placed.props;
   t.ramps = placed.ramps;
   return t;
+}
+/** A point-to-point road's centreline: a straight run-up to the start, the points, a straight runoff past the finish. */
+function roadSamples(pts: P3[], xs: number[], ys: number[], zs: number[]) {
+  const dir = (a: P3, b: P3) => {
+    const l = Math.hypot(b[0] - a[0], b[2] - a[2]);
+    return [(b[0] - a[0]) / l, (b[2] - a[2]) / l];
+  };
+  const [sx, sz] = dir(pts[1], pts[0]);
+  const [ex, ez] = dir(pts[pts.length - 2], pts[pts.length - 1]);
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  const ext: P3[] = [
+    [first[0] + sx * PRE, first[1], first[2] + sz * PRE],
+    [first[0] + sx * PRE * 0.5, first[1], first[2] + sz * PRE * 0.5],
+    ...pts,
+    [last[0] + ex * RUNOFF * 0.5, last[1] - 1, last[2] + ez * RUNOFF * 0.5],
+    [last[0] + ex * RUNOFF, last[1] - 2, last[2] + ez * RUNOFF],
+  ];
+  const dense = spline(ext);
+
+  // Resample at even arc length.
+  let acc = 0;
+  let next = 0;
+  for (let i = 0; i < dense.length - 1; i++) {
+    const a = dense[i];
+    const b = dense[i + 1];
+    const l = Math.hypot(b[0] - a[0], b[2] - a[2]);
+    while (next <= acc + l) {
+      const f = l > 0 ? (next - acc) / l : 0;
+      xs.push(a[0] + (b[0] - a[0]) * f);
+      ys.push(a[1] + (b[1] - a[1]) * f);
+      zs.push(a[2] + (b[2] - a[2]) * f);
+      next += SAMPLE;
+    }
+    acc += l;
+  }
 }
 
 const cellKey = (c: number, r: number) => (c + 4096) * 8192 + (r + 4096);
@@ -638,7 +765,7 @@ const RUN = {
  */
 function runoff(
   def: TrackDef, n: number, x: Float64Array, z: Float64Array, curv: Float64Array, spans: Span[], crests: { s: number; len: number }[],
-  edge: number, startS: number, finishS: number,
+  edge: number, startS: number, finishS: number, lap: number, pre: number,
 ): [Float64Array, Float64Array] {
   const vlim = new Float64Array(n);
   for (let i = 0; i < n; i++) vlim[i] = Math.min(RUN.vmax, Math.sqrt(RUN.grip / Math.max(1e-6, Math.abs(curv[i]))));
@@ -671,14 +798,22 @@ function runoff(
   };
   for (const sp of spans) if (sp.kind !== 'gravel') clear(sp.s0 - 10, sp.s1 + 10);
   for (const f of def.features ?? []) if (f.kind === 'cut') for (const e of [f.s0, f.s1]) clear(e - 10, e + 10);
-  clear(0, startS + 30);
-  clear(finishS - 20, n * SAMPLE);
+  if (lap) for (let s = startS; s <= finishS; s += lap * SAMPLE) clear(s - 20, s + 30); // the line, every lap
+  else {
+    clear(0, startS + 30);
+    clear(finishS - 20, n * SAMPLE);
+  }
   smooth(keep, 10, 3);
-  // Never so wide that the road's planes of two legs come within 40 m (tests/racephysics checks it).
+  // Never so wide that the road's planes of two legs come within 40 m (tests/racephysics checks it). On a
+  // circuit, the same place a lap later is the same leg.
+  const apart = (i: number, j: number) => {
+    const k = Math.abs(i - j);
+    return (lap ? Math.min(k % lap, lap - (k % lap)) : k) > 50;
+  };
   const cap = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     let c = Infinity;
-    for (let j = 0; j < n; j++) if (Math.abs(i - j) > 50) c = Math.min(c, (x[i] - x[j]) ** 2 + (z[i] - z[j]) ** 2);
+    for (let j = 0; j < n; j++) if (apart(i, j)) c = Math.min(c, (x[i] - x[j]) ** 2 + (z[i] - z[j]) ** 2);
     cap[i] = Math.max(0, (Math.sqrt(c) - 40) / 2 - edge - 1);
   }
   for (const a of [L, R]) {
@@ -686,6 +821,7 @@ function runoff(
     // Ease in and out over ~60 m, so the barrier never kinks toward a car.
     smooth(a, 10, 3);
     for (let i = 0; i < n; i++) a[i] = keep[i] < 1e-3 || a[i] < 0.01 ? 0 : Math.min(a[i] * keep[i], cap[i]); // (the running sum leaves crumbs)
+    if (lap) retile(a, lap, pre); // the same barrier every lap
   }
   return [L, R];
 }
@@ -794,6 +930,8 @@ export function locate(t: Track, x: number, z: number, hint: number, out: Loc): 
         }
       }
     }
+    // The hash holds one lap: keep to the lap the car is on.
+    if (t.lap && hint >= 0) bi = Math.max(0, Math.min(t.n - 1, bi + t.lap * Math.round((hint - bi) / t.lap)));
   }
   project(t, bi, x, z, out);
   return out;
@@ -1078,6 +1216,12 @@ export function onCut(t: Track, x: number, z: number, margin = 1): boolean {
   const c = nearCut(t, x, z);
   return !!c && c.d <= CUT_HALF + margin;
 }
+
+/** The lap a car at distance `s` is on (1..laps), or 0 on a point-to-point road. */
+export const lapOf = (t: Track, s: number) => (t.lap ? Math.max(1, Math.min(t.def.laps!, Math.floor((s - t.startS) / (t.lap * SAMPLE)) + 1)) : 0);
+
+/** A circuit as one lap, for drawing it (sample `lap` closes the loop onto sample 0); a road as it is. */
+export const lapView = (t: Track): Track => (t.lap ? { ...t, n: t.lap + 1, length: t.lap * SAMPLE, finishS: t.startS } : t);
 
 /** Where grid slot `k` sits: two columns, staggered back from the start line. */
 export function gridSlot(t: Track, k: number): { x: number; y: number; z: number; yaw: number; s: number } {

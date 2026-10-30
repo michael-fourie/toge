@@ -121,7 +121,7 @@ export const driveHub: Render = (root, ctx, screen) => {
   // --- tab bodies --------------------------------------------------------------------------------
 
   const raceTab = () => `
-    <h2 class="tg-h">Choose a pass</h2>
+    <h2 class="tg-h">Choose a track</h2>
     <div class="tg-tracks">
       ${(Object.keys(TRACK_DEFS) as TrackId[])
         .map((id) => {

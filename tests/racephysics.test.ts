@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { CAR_IDS, carSpec, newOwnedCar, rating, topSpeed } from '../src/shared/race/cars.ts';
 import { aiDrive, newAi } from '../src/shared/race/driver.ts';
 import { TRACK_LENGTH_KM } from '../src/shared/race/garage.ts';
-import { SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../src/shared/race/track.ts';
+import { SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../src/shared/race/track.ts';
 import { type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, stepCar } from '../src/shared/race/vehicle.ts';
 
 const TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
@@ -26,8 +26,11 @@ const run = (car: Car, input: DriveInput, seconds: number, t = flat) => {
 test('tracks: legs of the road never come close enough to overlap, and no grade is absurd', () => {
   for (const id of TRACKS) {
     const t = getTrack(id);
-    for (let i = 0; i < t.n; i += 3)
-      for (let j = i + 100; j < t.n; j += 3) {
+    // A circuit repeats every lap: check one lap, where the same place a lap on is the same leg.
+    const n = t.lap || t.n;
+    for (let i = 0; i < n; i += 3)
+      for (let j = i + 100; j < n; j += 3) {
+        if (t.lap && j - i > t.lap - 100) continue;
         const d = Math.hypot(t.x[i] - t.x[j], t.z[i] - t.z[j]);
         const wide = (k: number) => t.edge + Math.max(t.runL[k], t.runR[k]);
         assert.ok(d > wide(i) + wide(j) + 40, `${id}: s=${i * SAMPLE} and s=${j * SAMPLE} are only ${d.toFixed(1)} m apart`);
@@ -67,6 +70,35 @@ test('tracks: the ground under the road is the road, and it is continuous everyw
         }
       }
     assert.ok(worst < 0.5, `${id}: a seam in the ground at (${where}): ${worst.toFixed(2)} m`);
+  }
+});
+
+test('circuits: every lap is the same road, the race is every lap, and a car keeps to its lap', () => {
+  const loc = newLoc();
+  for (const id of TRACKS) {
+    const t = getTrack(id);
+    const laps = t.def.laps;
+    if (!laps) continue;
+    assert.ok(t.lap > 0 && laps >= 2);
+    assert.equal(t.finishS - t.startS, laps * t.lap * SAMPLE);
+    // The road, its banking and its barriers repeat exactly a lap on (so the one lap drawn is the road driven).
+    for (let i = 0; i + t.lap < t.n; i += 7)
+      for (const a of [t.x, t.y, t.z, t.bank, t.curv, t.runL, t.runR]) assert.equal(a[i], a[i + t.lap], `${id}: lap ${i}`);
+    // The loop closes smoothly: no kink where the lap's last sample meets its first.
+    const i0 = Math.round(t.startS / SAMPLE);
+    assert.ok(Math.hypot(t.x[i0] - t.x[i0 - 1], t.z[i0] - t.z[i0 - 1]) < SAMPLE * 1.05);
+    assert.ok(t.tx[i0] * t.tx[i0 - 1] + t.tz[i0] * t.tz[i0 - 1] > 0.99);
+    // Located from anywhere on the lap the car is on, even when the search falls back to the (one-lap) hash.
+    for (let lap = 1; lap <= laps; lap++) {
+      const s = t.startS + (lap - 1) * t.lap * SAMPLE + 500;
+      const p = pointAt(t, s, 2);
+      locate(t, p.x, p.z, Math.round(s / SAMPLE) + 30, loc);
+      assert.ok(Math.abs(loc.s - s) < 1, `${id}: located lap ${lap} at s=${loc.s.toFixed(0)}, not ${s}`);
+      assert.equal(lapOf(t, s), lap);
+    }
+    // The grid is on the road behind the line.
+    const g = gridSlot(t, 7);
+    assert.ok(g.s > 0 && g.s < t.startS);
   }
 });
 
@@ -223,7 +255,7 @@ test('AI drivers get every car down every track, with no NaNs and few big crashe
       const inp = { ...idle };
       let time = 0;
       let crashes = 0;
-      while (car.s < t.finishS && time < 400) {
+      while (car.s < t.finishS && time < 400 * Math.max(1, TRACK_LENGTH_KM[id] / 5)) {
         aiDrive(car, t, ai, TICK_DT, inp);
         stepCar(car, inp, t);
         assert.ok(Number.isFinite(car.p.x + car.p.y + car.p.z), `${model} on ${id}: NaN at ${time}`);
