@@ -579,7 +579,7 @@ export class RaceGame {
 
   private frame = (now: number) => {
     this.raf = requestAnimationFrame(this.frame);
-    const dt = Math.min(0.1, (now - this.last) / 1000);
+    const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000)); // never negative: a first frame can predate `last`
     this.last = now;
     this.wallClock += dt;
     this.controls.poll(dt);

@@ -255,3 +255,28 @@ test('specs: upgrades make a car faster and raise its rating; classes span the c
   const classes = new Set(CAR_IDS.map((id) => rating(carSpec(newOwnedCar(id))).cls));
   assert.ok(classes.size >= 4, [...classes].join());
 });
+
+test('after the finish line the car rolls to a stop and stays there, never backing up the road', () => {
+  // The driver used to hold the foot brake past the line; at a standstill the automatic box took that as
+  // "select reverse" and the car reversed back over the line. Every car, both as an AI rival and as you.
+  for (const id of CAR_IDS) {
+    const t = flat;
+    const car = carOn(t, id);
+    const ai = newAi(0.8, 0);
+    const inp: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
+    // Drive at the line at speed, so the car crosses it moving.
+    while (car.s < t.finishS + 1) {
+      inp.throttle = 1;
+      stepCar(car, inp, t);
+      assert.ok(car.s < t.length, `${id}: never reached the line`);
+    }
+    const crossed = car.s;
+    for (let i = 0; i < 10 * TICK_HZ; i++) {
+      aiDrive(car, t, ai, TICK_DT, inp);
+      stepCar(car, inp, t);
+    }
+    assert.ok(car.gear >= 0, `${id}: ended in reverse (gear ${car.gear})`);
+    assert.ok(speedOf(car) < 0.5, `${id}: still moving at ${speedOf(car).toFixed(1)} m/s`);
+    assert.ok(car.s > crossed, `${id}: rolled back over the line (s ${car.s.toFixed(1)} < ${crossed.toFixed(1)})`);
+  }
+});
