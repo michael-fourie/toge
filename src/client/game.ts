@@ -1008,7 +1008,7 @@ export class Game {
     const extra = this.streak.kill(this.time);
     sfx.kill();
     if (!zombie && this.opts.net && this.mode === 'battle') this.award(COIN.kill);
-    if (!zombie && !this.opts.net) this.award(COIN.bot); // practice bots pay a little (and no XP)
+    if (!zombie && !this.opts.net && !stash.onServer) this.award(COIN.bot); // practice bots pay a guest a little (and no XP); an account is only paid by the server
     if (this.opts.net) this.gainXp(zombie ? 'Zombies' : 'Kills', zombie ? XP.zombieKill : XP.battleKill);
     const all = [...style, ...extra];
     if (all.length === 0) this.hud.center(pick(YEETS));
@@ -1020,7 +1020,7 @@ export class Game {
     return style.length ? style.map((f) => f.label).join(' ') : null;
   }
 
-  /** Account XP (client-side, like coins), tallied by what earned it for the after-game card. A level-up gets a banner. */
+  /** Account XP (paid like coins), tallied by what earned it for the after-game card. A level-up gets a banner. */
   private gainXp(label: string, n: number) {
     const before = levelOf(stash.inv.xp).level;
     stash.gainXp(n);
@@ -1042,7 +1042,7 @@ export class Game {
     this.xpLines = [];
   }
 
-  /** Coins for something we did (client-side, like the rest of the stash): saved, and floated up on the HUD. */
+  /** Coins for something we did, floated up on the HUD (a guest's are saved here; the server pays an account itself). */
   private award(n: number) {
     stash.earn(n);
     this.hud.coins(stash.inv.coins, n);

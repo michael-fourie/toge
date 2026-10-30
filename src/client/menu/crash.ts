@@ -1,4 +1,4 @@
-import { CRASH, crashMult, crashPayout, crashPoint, crashTime } from '../../shared/casino.ts';
+import { CRASH, crashMult, crashPayout, crashTime } from '../../shared/casino.ts';
 import { stash } from '../inventoryStore.ts';
 import { sfx } from '../sfx.ts';
 import { coinText } from './lootui.ts';
@@ -10,12 +10,13 @@ const W = 560;
 const H = 380;
 const PAD = { l: 46, r: 18, t: 18, b: 34 };
 const AFTER = 1.6; // seconds the snapped kite tumbles before you can launch again
+const PEEK_MS = 350; // how often a flying kite asks whether it has snapped
 
 type Phase = 'idle' | 'flying' | 'snapped';
 
 interface Round {
   bet: number;
-  at: number; // where it snaps
+  at: number; // where it snaps: Infinity until the table (the server, for an account) says it has
   t: number; // seconds since launch
   cashed: number | null; // multiplier we got out at
   done: number; // seconds since it snapped
@@ -85,15 +86,32 @@ export function mountCrash(root: HTMLElement): () => void {
     sync();
   });
 
-  const cashOut = (m: number) => {
-    if (!round || round.cashed !== null) return;
-    round.cashed = m;
-    const pay = crashPayout(round.bet, m);
-    stash.earn(pay);
+  /** Asks to get out at `m`; the table pays what it agrees to (it can't be higher than the kite really was). */
+  let cashing = false;
+  const cashOut = async (m: number) => {
+    const r0 = round;
+    if (!r0 || r0.cashed !== null || cashing) return;
+    cashing = true;
+    const r = await stash.act({ a: 'crash', op: 'cash', m });
+    cashing = false;
+    if (!r.ok || r0 !== round) return;
+    if (r.crash?.at !== undefined) r0.at = r.crash.at; // too late: it had already snapped
+    if (r.crash?.cashed === undefined) return;
+    r0.cashed = r.crash.cashed;
+    const pay = r.paid ?? crashPayout(r0.bet, r0.cashed);
     sfx.cash();
-    note.innerHTML = `Cashed out at <b>${m.toFixed(2)}×</b>: +${coinText(pay - round.bet)}`;
+    note.innerHTML = `Cashed out at <b>${r0.cashed.toFixed(2)}×</b>: +${coinText(pay - r0.bet)}`;
     note.classList.add('win');
+    sync();
   };
+
+  /** While a kite is up, ask the table now and then whether its string has snapped (only it knows where). */
+  const peeker = setInterval(async () => {
+    const r0 = round;
+    if (phase !== 'flying' || !r0 || r0.at !== Infinity) return;
+    const r = await stash.act({ a: 'crash', op: 'peek' });
+    if (r.ok && r.crash?.at !== undefined && r0 === round) r0.at = r.crash.at;
+  }, PEEK_MS);
 
   const snap = () => {
     if (!round) return;
@@ -111,12 +129,17 @@ export function mountCrash(root: HTMLElement): () => void {
     sync();
   };
 
-  go.addEventListener('click', () => {
+  let launching = false;
+  go.addEventListener('click', async () => {
     sfx.unlock();
-    if (phase === 'flying') return cashOut(crashMult(round!.t));
+    if (phase === 'flying') return void cashOut(crashMult(round!.t));
     const n = amount();
-    if (!stash.wager(n)) return toast('Not enough coins');
-    round = { bet: n, at: crashPoint(), t: 0, cashed: null, done: 0 };
+    if (launching || phase !== 'idle') return;
+    launching = true;
+    const r = await stash.act({ a: 'crash', op: 'launch', bet: n });
+    launching = false;
+    if (!r.ok) return toast(r.error);
+    round = { bet: n, at: r.crash?.at ?? Infinity, t: 0, cashed: null, done: 0 };
     phase = 'flying';
     lastTenth = 0;
     note.textContent = '';
@@ -244,7 +267,7 @@ export function mountCrash(root: HTMLElement): () => void {
       round.t += dt;
       const m = crashMult(round.t);
       const a = auto();
-      if (round.cashed === null && a !== null && m >= a) cashOut(Math.min(a, round.at));
+      if (round.cashed === null && a !== null && m >= a) void cashOut(Math.min(a, round.at));
       if (m >= round.at) {
         round.t = crashTime(round.at);
         snap();
@@ -271,8 +294,9 @@ export function mountCrash(root: HTMLElement): () => void {
 
   return () => {
     cancelAnimationFrame(raf);
+    clearInterval(peeker);
     offStash();
     // Leaving mid-flight cashes out where the kite is (it hadn't snapped yet).
-    if (phase === 'flying' && round && round.cashed === null) cashOut(crashMult(round.t));
+    if (phase === 'flying' && round && round.cashed === null) void cashOut(crashMult(round.t));
   };
 }

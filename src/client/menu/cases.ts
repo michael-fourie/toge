@@ -74,10 +74,15 @@ export function mountCases(root: HTMLElement): () => void {
     overlay = null;
   };
 
-  /** Pay, then spin the reel to the (already decided) drop. */
-  function open(c: CaseDef) {
-    const got = stash.openCase(c.id);
-    if (!got) return toast('Not enough coins');
+  let opening = false;
+  /** Pay, then spin the reel to the (already decided: by the server, for an account) drop. */
+  async function open(c: CaseDef) {
+    if (opening) return;
+    opening = true;
+    const r = await stash.act({ a: 'case', id: c.id });
+    opening = false;
+    if (!r.ok || !r.got) return toast(r.ok ? 'Something went wrong.' : r.error);
+    const got = r.got;
     sfx.unlock();
     const won = itemById(got.id)!;
     const reel = Array.from({ length: REEL_LEN }, (_, i) => (i === WINNER ? won : rollCase(c.id)));
@@ -136,7 +141,7 @@ export function mountCases(root: HTMLElement): () => void {
           sfx.coin();
           stash.sell(got.u);
           close();
-        } else if (act === 'again') open(c);
+        } else if (act === 'again') void open(c);
         else if (act === 'done') close();
       });
       $(r, '[data-act="done"]').focus();
@@ -154,7 +159,7 @@ export function mountCases(root: HTMLElement): () => void {
 
   root.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-open]');
-    if (b && !b.disabled) open(CASES.find((c) => c.id === b.dataset.open)!);
+    if (b && !b.disabled) void open(CASES.find((c) => c.id === b.dataset.open)!);
   });
 
   return () => {

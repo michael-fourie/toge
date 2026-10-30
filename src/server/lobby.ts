@@ -3,7 +3,8 @@ import { blastTargets } from '../shared/grenade.ts';
 import type { MapData } from '../shared/map.ts';
 import { mapFor } from '../shared/maps.ts';
 import type { BattleMap, ClientMsg, DeathCause, GameMode, NetPlayerState, PlayerInfo, ServerMsg, V3 } from '../shared/protocol.ts';
-import { type Gear, encodeGear } from '../shared/items.ts';
+import { COIN, type Gear, encodeGear } from '../shared/items.ts';
+import { XP } from '../shared/levels.ts';
 import { JACKETS, type Skin, encodeSkin } from '../shared/skin.ts';
 import { RECENT_SPAWNS, pickSpawn } from '../shared/spawn.ts';
 import { type KothState, inZone, newKoth, stepKoth } from '../shared/koth.ts';
@@ -22,6 +23,8 @@ export interface Client {
   id: number;
   ws: Socket;
   name: string;
+  /** Signed in (as `name`): coins and XP are paid into the account by the server. Guests pay themselves. */
+  user?: boolean;
   /** Chosen look; relayed to everyone. Its `jacket` is a colour preference, honoured when free. */
   skin?: Skin;
   gear?: Gear;
@@ -43,6 +46,13 @@ export interface Member {
 
 // Soft storybook palette: Kiki's bow red, sky blue, mustard, meadow green, lavender, Totoro grey, ...
 const COLORS = JACKETS;
+
+/** Where signed-in players' coins and XP live (the Accounts Durable Object). Keyed by username. */
+export interface Bank {
+  pay(name: string, coins: number, xp: number): void;
+  /** Takes the coins if they have them. */
+  spend(name: string, coins: number): Promise<boolean>;
+}
 
 /** How often a live lobby re-announces itself so the directory can expire dead ones. */
 export const HEARTBEAT_SECONDS = 30;
@@ -72,6 +82,8 @@ export class Lobby {
   private hill: KothState | null;
   /** Battle Royale: the warmup, the zone, loot and health (royale.ts). */
   private royale: Royale | null;
+  /** Signed-in players' accounts (set by the room; tests and guests-only setups leave it null). */
+  bank: Bank | null = null;
 
   /** `onChange` fires on join/leave and as a heartbeat; `onEmpty` once the last player leaves. */
   constructor(
@@ -164,6 +176,7 @@ export class Lobby {
     switch (msg.t) {
       case 'state':
         if (!m.info.alive || this.survival?.isDown(client.id)) return; // the downed stay where they fell
+        if (!finite3(msg.p) || !finite3(msg.v) || !finite(msg.yaw) || !finite(msg.pitch) || !Number.isInteger(msg.f)) return; // it's relayed to everyone
         m.state.p = msg.p;
         m.state.v = msg.v;
         m.state.yaw = msg.yaw;
@@ -253,6 +266,7 @@ export class Lobby {
   }
 
   private onShoot(m: Member, msg: Extract<ClientMsg, { t: 'shoot' }>) {
+    if (!validShot(msg)) return; // garbage would slip past the distance checks (NaN compares false) and be relayed
     const now = Date.now();
     const cooldown = msg.knife ? KNIFE.cooldown : this.survival ? this.survival.fireCooldown(m) : this.royale ? this.royale.fireCooldown(m) : WEAPON.fireCooldown; // each gun has its own rate of fire
     if (!m.info.alive || now - m.lastShot < cooldown * 1000 * 0.9) return;
@@ -281,7 +295,11 @@ export class Lobby {
     if (this.overAt) return; // the match is decided: the scores are final
     victim.info.alive = false;
     victim.info.deaths++;
-    if (killer !== victim) killer.info.kills++;
+    if (killer !== victim) {
+      killer.info.kills++;
+      const farmed = !!killer.client.user && !!victim.client.user && killer.client.name === victim.client.name; // your own second tab pays nothing
+      if (!this.survival && !farmed) this.pay(killer, COIN.kill, XP.battleKill);
+    }
     // In Survival you stay down until the round ends; in a live Royale you're out until the next match.
     victim.respawnAt = this.survival || this.royale?.live ? Infinity : Date.now() + RESPAWN_SECONDS * 1000;
     const l = Math.hypot(...dir) || 1;
@@ -298,6 +316,10 @@ export class Lobby {
   /** The match is decided: freeze the scores, show the winner, start the next one in a moment. */
   finish(won: Winner) {
     this.overAt = Date.now() + MATCH_OVER_SECONDS * 1000;
+    for (const m of this.members.values()) {
+      const mine = 'team' in won ? m.info.team === won.team : won.id === m.info.id;
+      this.pay(m, mine ? (this.royale ? COIN.royaleWin : COIN.win) : 0, XP.battleMatch + (mine ? (this.royale ? XP.royaleWin : XP.battleWin) : 0));
+    }
     this.broadcast({ t: 'matchOver', winner: won, players: [...this.members.values()].map((m) => m.info), restartIn: MATCH_OVER_SECONDS });
   }
 
@@ -391,6 +413,11 @@ export class Lobby {
     return { p: [best.pos.x, best.pos.y, best.pos.z], yaw: best.yaw };
   }
 
+  /** Coins and XP for a signed-in player, worked out here (the same amounts the client shows). */
+  pay(m: Member, coins: number, xp: number) {
+    if (m.client.user && (coins > 0 || xp > 0)) this.bank?.pay(m.client.name, coins, xp);
+  }
+
   sendTo(m: Member, msg: ServerMsg) {
     send(m.client, msg);
   }
@@ -403,7 +430,17 @@ export class Lobby {
   }
 }
 
-const finite3 = (v: unknown): v is V3 => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
+const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+const finite3 = (v: unknown): v is V3 => Array.isArray(v) && v.length === 3 && v.every(finite);
+
+/** A `shoot` with the shape the protocol promises (each mode then checks it makes sense). */
+function validShot(msg: Extract<ClientMsg, { t: 'shoot' }>): boolean {
+  if (!finite3(msg.from) || !finite3(msg.to)) return false;
+  if (msg.victim !== undefined && !Number.isInteger(msg.victim)) return false;
+  if (msg.ph !== undefined && !finite(msg.ph)) return false;
+  if (msg.hits !== undefined && !(Array.isArray(msg.hits) && msg.hits.length <= 64 && msg.hits.every((h) => h && typeof h === 'object' && Number.isInteger(h.z)))) return false;
+  return true;
+}
 
 /** A grapple anchor is only relayed if it's a real point within rope reach of the player. */
 function validAnchor(g: V3 | undefined, p: V3): V3 | undefined {

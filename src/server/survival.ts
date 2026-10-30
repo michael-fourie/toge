@@ -3,6 +3,8 @@ import { type Colliders, buildColliders } from '../shared/colliders.ts';
 import { blastTargets } from '../shared/grenade.ts';
 import { findUse, killPoints, maxHp, pierced } from '../shared/interact.ts';
 import { FOUNDRY } from '../shared/foundry.ts';
+import { COIN } from '../shared/items.ts';
+import { XP } from '../shared/levels.ts';
 import { MOD, type ModId, modFor } from '../shared/modifiers.ts';
 import { Nav } from '../shared/nav.ts';
 import { type RunRecord, buildRows, shouldRestart, waitingFor } from '../shared/postgame.ts';
@@ -100,6 +102,11 @@ export class Survival {
     },
     broadcast: (msg) => this.lobby.broadcast(msg),
     sendTo: (m, msg) => this.lobby.sendTo(m, msg),
+    account: (m) => {
+      const bank = this.lobby.bank;
+      if (!bank || !m.client.user) return null;
+      return { spend: (coins) => bank.spend(m.client.name, coins), pay: (coins) => bank.pay(m.client.name, coins, 0) };
+    },
   });
 
   constructor(private lobby: Lobby) {
@@ -150,6 +157,7 @@ export class Survival {
     if (!anyoneUp && this.lobby.members.size > 0) this.setPhase('over', SURVIVAL.gameOverSeconds);
     else if (this.toSpawn === 0 && !this.bossDue && this.zombies.length === 0) {
       this.mod = null; // a modifier lasts its round
+      for (const m of this.lobby.members.values()) this.lobby.pay(m, COIN.round, XP.round); // everyone in the lobby, up or down
       this.reviveAll();
       this.setPhase('intermission', SURVIVAL.intermission);
     }
@@ -585,7 +593,7 @@ export class Survival {
 
   /** A contraption wants to be built (Survival only, by a player who's up, during the run). */
   build(m: Member, msg: Extract<ClientMsg, { t: 'build' }>) {
-    this.workshop.build(m, msg, m.info.alive && !this.isDown(m.info.id) && this.phase !== 'over');
+    this.workshop.build(m, msg, () => m.info.alive && !this.isDown(m.info.id) && this.phase !== 'over');
   }
 
   /**
@@ -610,6 +618,8 @@ export class Survival {
     this.sendMe(m);
     this.maybeDrop(z);
     this.lobby.broadcast({ t: 'zombieDied', id: z.id, killer: m.info.id, headshot, dir, boss: z.boss ? true : undefined, job: z.job, by });
+    if (!by) this.lobby.pay(m, 0, XP.zombieKill);
+    if (z.boss) for (const o of this.lobby.members.values()) this.lobby.pay(o, COIN.boss, XP.boss); // everyone, not just whoever landed it
     if (z.job === 'stoker') this.burst(m, z);
     this.broadcastWave();
     return scored;
@@ -723,7 +733,10 @@ export class Survival {
     this.timer = timer;
     this.broadcastWave();
     if (phase === 'over') {
-      for (const m of this.lobby.members.values()) this.record(m);
+      for (const m of this.lobby.members.values()) {
+        this.record(m);
+        this.lobby.pay(m, 0, XP.survivalGame);
+      }
       this.broadcastPostgame();
     }
   }

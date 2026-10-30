@@ -1,5 +1,5 @@
 // The Casino's table games, as pure rules so they can be tested: Plinko, Blackjack and Crash.
-// Prototype shortcut (same as the rest of the loot): coins live in the browser, so these are as fair as the client.
+// They run through shared/stash.ts: on the server (its dice) for signed-in players, in the browser for guests.
 
 // ---------------------------------------------------------------------------
 // Plinko

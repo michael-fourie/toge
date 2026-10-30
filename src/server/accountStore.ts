@@ -1,4 +1,4 @@
-import { checkCredentials } from '../shared/account.ts';
+import { checkCredentials, cleanName } from '../shared/account.ts';
 
 /** The slice of Durable Object storage the accounts need (so tests can use a Map). */
 export interface KV {
@@ -86,6 +86,7 @@ export class AccountStore {
     const hash = await this.derive(String(password).slice(0, 72), user?.salt ?? '00'.repeat(16));
     if (!user || !same(hash, user.hash)) {
       const count = (lock?.count ?? 0) + 1;
+      if (this.failures.size > 10_000) for (const [k, f] of this.failures) if (f.until <= this.now()) this.failures.delete(k); // random names can't grow it forever
       this.failures.set(lower, { count, until: count >= MAX_FAILS ? this.now() + LOCK_MS : 0 });
       return { ok: false, error: 'Wrong username or password.' };
     }
@@ -117,7 +118,7 @@ export class AccountStore {
   async identify(token: string | undefined, guestName: string): Promise<{ name: string; user: boolean }> {
     const user = await this.me(token);
     if (user) return { name: user, user: true };
-    const typed = String(guestName).trim().slice(0, 16) || 'guest';
+    const typed = cleanName(guestName) || 'guest';
     if (await this.kv.get(`u:${typed.toLowerCase()}`)) return { name: `${typed.slice(0, 8)} (guest)`, user: false };
     return { name: typed, user: false };
   }

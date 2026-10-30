@@ -1,5 +1,5 @@
 // The player's stash: coins, owned items and what's equipped. Pure rules over a plain object, so they're
-// unit-tested; client/inventoryStore.ts saves it. Items are owned individually (`u` is a unique number),
+// unit-tested; server/stashStore.ts keeps an account's, client/inventoryStore.ts a guest's. Items are owned individually (`u` is a unique number),
 // so you can hold duplicates and sell the extras.
 
 import { COIN, type CaseId, type Gear, type Item, RARITY, SLOTS, type Slot, caseById, itemById, rollCase } from './items.ts';

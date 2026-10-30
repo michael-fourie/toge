@@ -1,4 +1,4 @@
-import { PLINKO_MULT, PLINKO_ROWS, type PlinkoDrop, plinkoDrop, plinkoPayout } from '../../shared/casino.ts';
+import { PLINKO_MULT, PLINKO_ROWS, type PlinkoDrop, plinkoPayout } from '../../shared/casino.ts';
 import { stash } from '../inventoryStore.ts';
 import { sfx } from '../sfx.ts';
 import { coinText } from './lootui.ts';
@@ -90,7 +90,7 @@ export function mountPlinko(root: HTMLElement): () => void {
     if (b.settled) return;
     b.settled = true;
     const pay = plinkoPayout(b.bet, b.drop.slot);
-    if (pay > 0) stash.earn(pay);
+    if (pay > 0) stash.reveal(pay); // paid when it was dropped; the counter shows it as it lands
     const m = PLINKO_MULT[b.drop.slot];
     flash.set(b.drop.slot, 1);
     if (pay > b.bet) sfx.coin();
@@ -101,12 +101,13 @@ export function mountPlinko(root: HTMLElement): () => void {
     while (log.children.length > 8) log.lastElementChild!.remove();
   };
 
-  dropBtn.addEventListener('click', () => {
+  dropBtn.addEventListener('click', async () => {
     const n = amount();
     sfx.unlock();
-    if (!stash.wager(n)) return toast('Not enough coins');
-    const ball: Ball = { drop: plinkoDrop(), bet: n, t: 0, settled: false, tick: -1 };
-    if (still) settle(ball);
+    const r = await stash.act({ a: 'plinko', bet: n }, { hold: true }); // the dice are the server's for an account
+    if (!r.ok || !r.drop) return toast(r.ok ? 'Something went wrong.' : r.error);
+    const ball: Ball = { drop: r.drop, bet: n, t: 0, settled: false, tick: -1 };
+    if (still || gone) settle(ball);
     else balls.push(ball);
     sync();
   });
@@ -186,7 +187,9 @@ export function mountPlinko(root: HTMLElement): () => void {
   raf = requestAnimationFrame(frame);
   draw();
 
+  let gone = false;
   return () => {
+    gone = true;
     cancelAnimationFrame(raf);
     offStash();
     for (const b of balls) settle(b); // leaving mid-drop still pays out

@@ -3,6 +3,7 @@ import { NET } from '../shared/constants.ts';
 import type { BattleMap, GameMode, LobbyInfo } from '../shared/protocol.ts';
 import type { RaceLobbyInfo } from '../shared/race/protocol.ts';
 import type { PartyInfo } from '../shared/party.ts';
+import { Limiter } from './limiter.ts';
 import { HEARTBEAT_SECONDS } from './lobby.ts';
 
 /** Entries older than this are dead lobbies (or reservations nobody connected to). */
@@ -22,6 +23,9 @@ interface RaceEntry extends RaceLobbyInfo {
  * The shooter's lobbies use the instance named 'all'; race lobbies their own instance, 'race'.
  */
 export class Directory extends DurableObject {
+  /** New codes per address: each one reserves a code and wakes a room, so a script can't host thousands. */
+  private hosts = new Limiter(10, 1 / 6);
+
   private async live(): Promise<Entry[]> {
     const all = await this.ctx.storage.list<Entry>();
     const now = Date.now();
@@ -33,8 +37,9 @@ export class Directory extends DurableObject {
     return alive;
   }
 
-  /** Picks an unused code and reserves it so two hosts can't race for the same one. */
-  async allocate(): Promise<string> {
+  /** Picks an unused code and reserves it so two hosts can't race for the same one. Null: `ip` is hosting too often. */
+  async allocate(ip = ''): Promise<string | null> {
+    if (!this.hosts.take(ip)) return null;
     const taken = new Set((await this.live()).map((e) => e.code));
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I/O, easy to read out loud
     let code: string;

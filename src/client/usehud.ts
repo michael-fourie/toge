@@ -2,6 +2,8 @@ import { SURVIVAL } from '../shared/constants.ts';
 import type { Use } from '../shared/interact.ts';
 import './usehud.css';
 
+const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+
 /** Survival points counter (bottom left, above health) and the "press F" prompt (below the crosshair). Appends its own elements to the HUD root. */
 export class UseHud {
   private pts: HTMLElement;
@@ -28,13 +30,14 @@ export class UseHud {
     }
     let text = '';
     if (use) {
+      const what = esc(use.text); // it can carry a player's name ("Hold to revive ...")
       const price = use.price ? `<em>${use.price} pts</em>` : '';
       if (use.kind === 'board') text = `<kbd>F</kbd> hold to repair <em>+${SURVIVAL.repairPoints} pts a board</em>`;
-      else if (use.status === 'ready') text = `<kbd>F</kbd> ${use.text} ${price}`;
-      else if (use.status === 'poor') text = `${use.text}: not enough points ${price}`;
-      else if (use.status === 'busy') text = `${use.text} is busy`;
-      else if (use.status === 'off') text = `${use.text}: turn the power on first`;
-      else text = use.text;
+      else if (use.status === 'ready') text = `<kbd>F</kbd> ${what} ${price}`;
+      else if (use.status === 'poor') text = `${what}: not enough points ${price}`;
+      else if (use.status === 'busy') text = `${what} is busy`;
+      else if (use.status === 'off') text = `${what}: turn the power on first`;
+      else text = what;
     }
     if (text !== this.lastPrompt) {
       this.lastPrompt = text;

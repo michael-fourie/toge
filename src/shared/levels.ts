@@ -1,5 +1,5 @@
 // Account levels: XP from kills, finished games and Survival rounds adds up to a level. Pure, unit-tested; the total is
-// kept with the stash (client-side, like coins: see CLAUDE.md "Loot is client-side").
+// kept with the stash (on the server for accounts, like coins: see shared/stash.ts).
 
 /** XP for each thing you do online. Practice earns none. */
 export const XP = {

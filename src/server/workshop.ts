@@ -20,6 +20,8 @@ export interface WorkshopHost {
   hurt(owner: number, z: Zombie, damage: number, dir: V3, by: ContraptionKind): void;
   broadcast(msg: ServerMsg): void;
   sendTo(m: Member, msg: ServerMsg): void;
+  /** A signed-in player's account (their coins are the server's to take), or null for a guest (they paid themselves). */
+  account?(m: Member): { spend(coins: number): Promise<boolean>; pay(coins: number): void } | null;
 }
 
 interface Contraption {
@@ -57,25 +59,52 @@ const away = (from: Vec3, to: Vec3): V3 => {
 
 /**
  * The Survival contraptions (Bloons-style towers) for one lobby: building and scrapping them, and running them every
- * tick against the server's zombies. Coins are client-side, so all we can do is cap how many there are and check where
- * they go. Everything is cleared with the run.
+ * tick against the server's zombies. Signed-in players pay from their account here; guests' coins are client-side, so
+ * for them all we can do is cap how many there are and check where they go. Everything is cleared with the run.
  */
 export class Workshop {
   private list: Contraption[] = [];
   private piles: Pile[] = [];
   private bombs: Bomb[] = [];
   private builtAt = new Map<number, number>();
+  /** Signed-in builders whose account is being charged right now (one build at a time). */
+  private paying = new Set<number>();
   private nextId = 1;
   private nextPile = 1;
 
   constructor(private host: WorkshopHost) {}
 
-  /** Someone wants a contraption here. They already paid (client-side): a refusal refunds it. */
-  build(m: Member, msg: Extract<ClientMsg, { t: 'build' }>, canBuild: boolean) {
+  /**
+   * Someone wants a contraption here. A guest already paid (client-side), so a refusal refunds it. A signed-in player
+   * is charged here, once the spot checks out (and checked again after, since the world moves while we wait).
+   */
+  build(m: Member, msg: Extract<ClientMsg, { t: 'build' }>, canBuild: () => boolean) {
     const def = CONTRAPTIONS[msg.k];
     if (!def) return;
-    const why = this.refusal(m, msg, canBuild);
-    if (why) return this.host.sendTo(m, { t: 'refund', k: msg.k, share: 1, why });
+    const refund = (why: string) => this.host.sendTo(m, { t: 'refund', k: msg.k, share: 1, why });
+    const why = this.refusal(m, msg, canBuild());
+    if (why) return refund(why);
+    const account = this.host.account?.(m);
+    if (!account) return this.place(m, msg);
+    const id = m.info.id;
+    this.paying.add(id);
+    void account.spend(def.price).then(
+      (paid) => {
+        this.paying.delete(id);
+        if (!paid) return refund('Not enough coins');
+        const late = !m.client.lobby ? 'Gone' : this.refusal(m, msg, canBuild());
+        if (!late) return this.place(m, msg);
+        account.pay(def.price);
+        refund(late);
+      },
+      () => {
+        this.paying.delete(id);
+        refund("Couldn't reach your account");
+      },
+    );
+  }
+
+  private place(m: Member, msg: Extract<ClientMsg, { t: 'build' }>) {
     const [x, y, z] = msg.p;
     this.list.push({ id: this.nextId++, kind: msg.k, pos: { x, y, z }, yaw: Number.isFinite(msg.yaw) ? msg.yaw : 0, owner: m.info.id, cd: 0.5 });
     this.builtAt.set(m.info.id, this.host.clock());
@@ -85,7 +114,7 @@ export class Workshop {
   private refusal(m: Member, msg: Extract<ClientMsg, { t: 'build' }>, canBuild: boolean): string | null {
     if (!canBuild) return "Can't build right now";
     const id = m.info.id;
-    if (this.host.clock() - (this.builtAt.get(id) ?? -99) < WORKSHOP.buildCooldown) return 'Easy, one at a time';
+    if (this.paying.has(id) || this.host.clock() - (this.builtAt.get(id) ?? -99) < WORKSHOP.buildCooldown) return 'Easy, one at a time';
     if (this.list.filter((g) => g.owner === id).length >= WORKSHOP.perPlayer) return `You have ${WORKSHOP.perPlayer} out already`;
     if (this.list.length >= WORKSHOP.perLobby) return 'The building is full of contraptions';
     if (!Array.isArray(msg.p) || msg.p.length !== 3 || !msg.p.every(Number.isFinite)) return 'Bad spot';
@@ -100,6 +129,7 @@ export class Workshop {
     const g = this.list.find((c) => c.id === id && c.owner === m.info.id);
     if (!g) return;
     this.remove(g);
+    this.host.account?.(m)?.pay(Math.floor(CONTRAPTIONS[g.kind].price * WORKSHOP.scrapShare));
     this.host.sendTo(m, { t: 'refund', k: g.kind, share: WORKSHOP.scrapShare, why: 'Scrapped' });
     this.sendList();
   }
