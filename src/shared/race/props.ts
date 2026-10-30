@@ -79,6 +79,10 @@ export function placeProps(t: Track): { props: Prop[]; ramps: Ramp[] } {
       const n = t.half >= 5 ? 4 : 3;
       for (let i = 0; i < n; i++) add('box', s, -lane + (2 * lane * i) / (n - 1));
       s += 230 + rng() * 90;
+    } else if (t.def.traffic) {
+      // With traffic on the road there's enough to dodge: boxes only.
+      k++;
+      continue;
     } else if (slot === 3 && k % 8 === 3) {
       // A launch ramp on a straight, with room to land.
       if (busy(s, s + 180) || curvMax(s, s + 170) > 1 / 200) {

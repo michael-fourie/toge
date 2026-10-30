@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { CUT_HALF, SAMPLE, SHOULDER, type Theme, type Track, dirtFrom, fbm, heightAt, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../../shared/race/track.ts';
 import type { Grade } from './post.ts';
-import { FACADE_H, FACADE_W, ROAD_TILE, asphalt, banner, facade, gravel, ground, mulberry, roofTiles, stone, vendingFront } from './tracktextures.ts';
+import { FACADE_H, FACADE_W, NEON_SIGNS, ROAD_TILE, TOWER_H, TOWER_W, asphalt, banner, facade, gravel, ground, mulberry, neonSigns, roofTiles, stone, towerFacade, vendingFront } from './tracktextures.ts';
 
 /** The barrier's distance from the centreline at sample i on one side (-1 left, +1 right), runoff included. */
 const railOf = (t: Track, i: number, side: number) => t.rail + (side < 0 ? t.runL[i] : t.runR[i]);
@@ -55,6 +55,7 @@ const LOOKS: Record<Theme, Look> = {
   desert: { sun: [30, 140], turbidity: 8, rayleigh: 1.2, fog: 0xe0b48a, fogDensity: 0.0003, exposure: 0.4, grass: [0.66, 0.42, 0.24], grassDry: [0.78, 0.55, 0.32], rock: [0.62, 0.3, 0.18], verge: [0.7, 0.5, 0.32], snowline: 1e9, treeline: 1e9, forest: -0.35, grade: grade({ contrast: 1.16, shadows: [0.86, 0.98, 1.14], highlights: [1.08, 0.99, 0.88] }) },
   night: { sun: [-5, 230], moon: [38, 120], turbidity: 2, rayleigh: 3, fog: 0x0b1120, fogDensity: 0.0006, exposure: 0.9, grass: [0.12, 0.2, 0.08], grassDry: [0.22, 0.25, 0.12], rock: [0.3, 0.3, 0.32], verge: [0.22, 0.24, 0.16], snowline: 520, treeline: 500, light: 0x9db5ff, lightPower: 0.55, hemi: 0.12, forest: 0.2, whiteRail: true, grade: grade({ bloom: 0.45, threshold: 4.5, contrast: 1.12, saturation: 1.08, shadows: [0.82, 0.94, 1.22], highlights: [1.1, 0.98, 0.92], vignette: 0.55 }) },
   autumn: { sun: [18, 200], turbidity: 5, rayleigh: 1.6, fog: 0xd9c7a8, fogDensity: 0.00036, exposure: 0.42, grass: [0.42, 0.4, 0.14], grassDry: [0.58, 0.46, 0.18], rock: [0.45, 0.42, 0.38], verge: [0.42, 0.36, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.2, whiteRail: true, grade: grade({ highlights: [1.1, 1.0, 0.85] }) },
+  city: { sun: [-6, 200], moon: [30, 150], turbidity: 2, rayleigh: 3, fog: 0x1b1730, fogDensity: 0.0009, exposure: 0.9, grass: [0.1, 0.1, 0.11], grassDry: [0.16, 0.15, 0.15], rock: [0.2, 0.2, 0.21], verge: [0.18, 0.18, 0.19], snowline: 1e9, treeline: 1e9, light: 0xb4c2ff, lightPower: 0.5, hemi: 0.3, grade: grade({ bloom: 0.6, threshold: 4, contrast: 1.12, saturation: 1.15, shadows: [0.84, 0.9, 1.2], highlights: [1.1, 0.98, 0.95], vignette: 0.5 }) },
   spring: { sun: [28, 160], turbidity: 3, rayleigh: 1.8, fog: 0xdcdfec, fogDensity: 0.00034, exposure: 0.44, grass: [0.22, 0.38, 0.12], grassDry: [0.38, 0.44, 0.2], rock: [0.5, 0.48, 0.46], verge: [0.32, 0.4, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.1, whiteRail: true, grade: grade({ saturation: 0.98, shadows: [0.93, 0.95, 1.08], highlights: [1.05, 1.0, 0.97] }) },
 };
 
@@ -486,8 +487,11 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
   gantry(scene, t, t.finishS, 'FINISH', true, keep);
 
   // --- Forests and rocks
-  scatter(scene, t, look, rng, inner, keep);
-  village(scene, t, rng, keep, !!look.moon);
+  if (t.def.theme === 'city') city(scene, t, rng, inner, keep);
+  else {
+    scatter(scene, t, look, rng, inner, keep);
+    village(scene, t, rng, keep, !!look.moon);
+  }
 
   // --- The sea (or a lake)
   let sea: THREE.Mesh | null = null;
@@ -639,6 +643,169 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
         scene.add(im);
       }
     }
+}
+
+/** Downtown: a tower on every block (tallest near the start), lit offices, neon signs over the street, street lamps, red beacons on top. */
+function city(scene: THREE.Scene, t: Track, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T) {
+  const fac = towerFacade(t.def.seed);
+  keep(fac.map);
+  keep(fac.glow);
+  const wallMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, map: fac.map, emissive: 0xffffff, emissiveMap: fac.glow, emissiveIntensity: 1.3, roughness: 0.3, metalness: 0.45, envMapIntensity: 1.3 }));
+  const roofMat = keep(new THREE.MeshStandardMaterial({ color: 0x26272b, roughness: 0.9 }));
+  const signTex = keep(neonSigns());
+  // Brighter than white: they bloom.
+  const signMat = keep(new THREE.MeshBasicMaterial({ map: signTex, color: new THREE.Color(5, 5, 5), side: THREE.DoubleSide }));
+  const beaconMat = keep(new THREE.MeshBasicMaterial({ color: new THREE.Color(14, 0.6, 0.3) }));
+  const tints = [0xc8d4e6, 0xaab8cc, 0xd9d2c4, 0x9fa6ad, 0xbfc7d2, 0x8f9aa8, 0xe2dccf];
+  const here = newLoc();
+  const sx = t.x[Math.round(t.startS / SAMPLE)];
+  const sz = t.z[Math.round(t.startS / SAMPLE)];
+  /** Clear of the road (and its lamps) at (x, z), by this much (m). */
+  const clear = (x: number, z: number, by: number) => {
+    const rd = roadDistance(t, x, z);
+    if (rd > t.edgeMax + by + 30) return true;
+    if (rd < t.edge) return false;
+    locate(t, x, z, -1, here);
+    return Math.abs(here.d) > railOf(t, here.i, here.d) + by;
+  };
+  const TILE = 400;
+  const LOT = 34;
+  const col = new THREE.Color();
+  for (let tx = area.x0; tx < area.x1; tx += TILE)
+    for (let tz = area.z0; tz < area.z1; tz += TILE) {
+      const wall = { pos: [] as number[], nor: [] as number[], uv: [] as number[], col: [] as number[] };
+      const roof: number[] = [];
+      const signs = { pos: [] as number[], uv: [] as number[] };
+      const beacons: THREE.Vector3[] = [];
+      for (let x = tx; x < tx + TILE; x += LOT)
+        for (let z = tz; z < tz + TILE; z += LOT) {
+          const w = 14 + rng() * (LOT - 20);
+          const d = 14 + rng() * (LOT - 20);
+          const cx = x + LOT / 2 + (rng() - 0.5) * (LOT - 6 - w);
+          const cz = z + LOT / 2 + (rng() - 0.5) * (LOT - 6 - d);
+          if (roadDistance(t, cx, cz) > 900) continue;
+          const pts: [number, number][] = [];
+          for (const fx of [-0.5, 0, 0.5]) for (const fz of [-0.5, 0, 0.5]) pts.push([cx + fx * w, cz + fz * d]);
+          if (!pts.every(([px, pz]) => clear(px, pz, 4))) continue;
+          let floor = Infinity;
+          for (const [px, pz] of pts) floor = Math.min(floor, heightAt(t, px, pz));
+          if (t.def.water !== undefined && floor < t.def.water + 1) continue;
+          const y0 = floor - 3;
+          const downtown = 1 - THREE.MathUtils.smoothstep(Math.hypot(cx - sx, cz - sz), 300, 1500);
+          const h = 12 + rng() ** 2 * (40 + 130 * downtown) + (roadDistance(t, cx, cz) < t.edgeMax + 40 ? 10 : 0);
+          const y1 = floor + h;
+          col.setHex(tints[Math.floor(rng() * tints.length)]);
+          const u0 = Math.floor(rng() * 8) / 8;
+          const v0 = Math.floor(rng() * 4) / 4;
+          const x0 = cx - w / 2;
+          const x1 = cx + w / 2;
+          const z0 = cz - d / 2;
+          const z1 = cz + d / 2;
+          // Four walls, counter-clockwise from outside, the facade at its real size in metres.
+          const faces: [number, number, number, number, number, number][] = [
+            [x0, z1, x1, z1, 0, 1],
+            [x1, z1, x1, z0, 1, 0],
+            [x1, z0, x0, z0, 0, -1],
+            [x0, z0, x0, z1, -1, 0],
+          ];
+          for (const [ax, az, bx, bz, nx, nz] of faces) {
+            const len = Math.hypot(bx - ax, bz - az);
+            const ua = u0;
+            const ub = u0 + len / TOWER_W;
+            const va = v0;
+            const vb = v0 + (y1 - y0) / TOWER_H;
+            wall.pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y0, az, bx, y1, bz, ax, y1, az);
+            wall.uv.push(ua, va, ub, va, ub, vb, ua, va, ub, vb, ua, vb);
+            for (let k = 0; k < 6; k++) {
+              wall.nor.push(nx, 0, nz);
+              wall.col.push(col.r, col.g, col.b);
+            }
+          }
+          roof.push(x0, y1, z0, x0, y1, z1, x1, y1, z1, x0, y1, z0, x1, y1, z1, x1, y1, z0);
+          if (h > 70) beacons.push(new THREE.Vector3(cx, y1 + 0.6, cz));
+          // A neon sign sticking out over the pavement, on the face nearest the road.
+          if (roadDistance(t, cx, cz) < t.edgeMax + 45 && rng() < 0.55) {
+            locate(t, cx, cz, -1, here);
+            const toRoadX = here.cx - cx;
+            const toRoadZ = here.cz - cz;
+            const alongX = Math.abs(toRoadX) > Math.abs(toRoadZ);
+            const fx = alongX ? cx + Math.sign(toRoadX) * (w / 2 + 1.4) : cx + (rng() - 0.5) * (w - 4);
+            const fz = alongX ? cz + (rng() - 0.5) * (d - 4) : cz + Math.sign(toRoadZ) * (d / 2 + 1.4);
+            // The board runs out from the wall (perpendicular to it), so you see it down the street.
+            const ox = alongX ? 1.2 : 0;
+            const oz = alongX ? 0 : 1.2;
+            const sy0 = floor + 4 + rng() * 3;
+            const sy1 = sy0 + 9;
+            const k = Math.floor(rng() * NEON_SIGNS);
+            const ua = k / NEON_SIGNS;
+            const ub = (k + 1) / NEON_SIGNS;
+            signs.pos.push(fx - ox, sy0, fz - oz, fx + ox, sy0, fz + oz, fx + ox, sy1, fz + oz, fx - ox, sy0, fz - oz, fx + ox, sy1, fz + oz, fx - ox, sy1, fz - oz);
+            signs.uv.push(ua, 0, ub, 0, ub, 1, ua, 0, ub, 1, ua, 1);
+          }
+        }
+      if (wall.pos.length) {
+        const g = keep(new THREE.BufferGeometry());
+        g.setAttribute('position', new THREE.Float32BufferAttribute(wall.pos, 3));
+        g.setAttribute('normal', new THREE.Float32BufferAttribute(wall.nor, 3));
+        g.setAttribute('uv', new THREE.Float32BufferAttribute(wall.uv, 2));
+        g.setAttribute('color', new THREE.Float32BufferAttribute(wall.col, 3));
+        const m = new THREE.Mesh(g, wallMat);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        scene.add(m);
+        const rg = keep(new THREE.BufferGeometry());
+        rg.setAttribute('position', new THREE.Float32BufferAttribute(roof, 3));
+        rg.computeVertexNormals();
+        scene.add(new THREE.Mesh(rg, roofMat));
+      }
+      if (signs.pos.length) {
+        const g = keep(new THREE.BufferGeometry());
+        g.setAttribute('position', new THREE.Float32BufferAttribute(signs.pos, 3));
+        g.setAttribute('uv', new THREE.Float32BufferAttribute(signs.uv, 2));
+        scene.add(new THREE.Mesh(g, signMat));
+      }
+      if (beacons.length) {
+        const im = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(0.9, 0.9, 0.9)), beaconMat, beacons.length);
+        beacons.forEach((b, i) => im.setMatrixAt(i, new THREE.Matrix4().makeTranslation(b.x, b.y, b.z)));
+        scene.add(im);
+      }
+    }
+
+  // Street lamps both sides, arms reaching over the road. Their heads glow; the light on the road comes from headlights.
+  const poleMat = keep(new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.5, metalness: 0.6 }));
+  const headMat = keep(new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 6.5, 3.6) }));
+  const pole = keep(new THREE.CylinderGeometry(0.09, 0.13, 8, 6).translate(0, 4, 0));
+  const arm = keep(new THREE.BoxGeometry(0.1, 0.1, 2.4).translate(0, 7.9, -1.1));
+  const head = keep(new THREE.BoxGeometry(0.34, 0.12, 0.7).translate(0, 7.8, -2.2));
+  const every = 16; // samples (32 m)
+  const n = Math.ceil(t.n / every) * 2;
+  const poles = new THREE.InstancedMesh(pole, poleMat, n);
+  const arms = new THREE.InstancedMesh(arm, poleMat, n);
+  const heads = new THREE.InstancedMesh(head, headMat, n);
+  const m4 = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const v = new THREE.Vector3();
+  const one = new THREE.Vector3(1, 1, 1);
+  const up = new THREE.Vector3(0, 1, 0);
+  let k = 0;
+  for (let i = every; i < t.n - every; i += every)
+    for (const side of [-1, 1]) {
+      const dd = side * (railOf(t, i, side) + 0.8);
+      v.set(t.x[i] - t.tz[i] * dd, t.y[i] - t.bank[i] * dd, t.z[i] + t.tx[i] * dd);
+      // The arm (local -z) points across the road.
+      q.setFromAxisAngle(up, Math.atan2(-t.tz[i] * side, t.tx[i] * side));
+      m4.compose(v, q, one);
+      poles.setMatrixAt(k, m4);
+      arms.setMatrixAt(k, m4);
+      heads.setMatrixAt(k, m4);
+      k++;
+    }
+  for (const im of [poles, arms, heads]) {
+    im.count = k;
+    im.computeBoundingSphere();
+    scene.add(im);
+  }
+  poles.castShadow = true;
 }
 
 /** A cluster of houses beside the road near the finish (chalets or a harbour town). */

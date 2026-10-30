@@ -225,7 +225,11 @@ src/shared/race/
                (everything -> physics numbers), torqueAt, rating (PI + class), stats (garage bars).
   garage.ts    money, owned cars, crates (the gamble), payouts, applyAction (every garage change; run by the server for
                accounts and by the client for guests).
-  driver.ts    AI: pure pursuit on a corner-cutting line; target speed from the tightest bend in braking range.
+  driver.ts    AI: pure pursuit on a corner-cutting line; target speed from the tightest bend in braking range; picks a
+               clear lane round city traffic.
+  traffic.ts   city traffic (tracks with `traffic: true`): four lanes, two each way, every car's place a pure function
+               of the race clock (seconds since GO), so it's identical for every racer with nothing on the wire.
+               collideTraffic bumps a car off it; trafficview.ts draws it (instanced, lamps that bloom).
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings.
 src/server/race.ts (Race: lobby -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`). Race lobbies use the Directory instance 'race'
