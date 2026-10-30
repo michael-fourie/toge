@@ -5,6 +5,7 @@ import type { PartyRoom } from './partyroom.ts';
 import { isGameId } from '../shared/party.ts';
 import type { LobbyRoom } from './room.ts';
 import type { GarageAction } from '../shared/race/garage.ts';
+import type { StashAction } from '../shared/stash.ts';
 
 export { Accounts } from './accounts.ts';
 export { Directory } from './directory.ts';
@@ -33,31 +34,42 @@ function sessionCookie(token: string, url: URL, maxAge = SESSION_SECONDS): strin
 
 const sameOrigin = (req: Request, url: URL) => {
   const o = req.headers.get('Origin');
-  return !o || new URL(o).host === url.host;
+  if (!o) return true;
+  try {
+    return new URL(o).host === url.host;
+  } catch {
+    return false; // "null" (a sandboxed frame, a file) or garbage
+  }
 };
+
+/** Who's asking, for per-address rate limits (Cloudflare sets this header; locally there is none). */
+const clientIp = (req: Request) => req.headers.get('CF-Connecting-IP') ?? '';
+
+/** A same-origin JSON POST's body, parsed, or null if it isn't one (or is bigger than `max` bytes). */
+async function jsonBody<T>(req: Request, url: URL, max: number): Promise<T | null> {
+  if (req.method !== 'POST' || !sameOrigin(req, url) || !req.headers.get('Content-Type')?.startsWith('application/json')) return null;
+  try {
+    const text = await req.text();
+    if (text.length > max) return null;
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
 
 /** Sign-up / sign-in / sign-out / who-am-I. POSTs are same-origin JSON only (cookie is SameSite=Lax as well). */
 async function accountApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
   const token = readCookie(req);
   if (url.pathname === '/api/me') return Response.json({ user: await accounts.me(token) });
-  if (req.method !== 'POST' || !sameOrigin(req, url) || !req.headers.get('Content-Type')?.startsWith('application/json')) {
-    return new Response('Bad request', { status: 400 });
-  }
+  const body = await jsonBody<{ username?: unknown; password?: unknown }>(req, url, 1024);
+  if (!body || typeof body !== 'object') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
   if (url.pathname === '/api/logout') {
     await accounts.logout(token);
     return Response.json({ ok: true }, { headers: { 'Set-Cookie': sessionCookie('', url, 0) } });
   }
-  let body: { username?: unknown; password?: unknown };
-  try {
-    const text = await req.text();
-    if (text.length > 1024) throw new Error('too big');
-    body = JSON.parse(text);
-  } catch {
-    return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
-  }
   const username = String(body.username ?? '');
   const password = String(body.password ?? '');
-  const result = url.pathname === '/api/register' ? await accounts.register(username, password) : await accounts.login(username, password);
+  const result = url.pathname === '/api/register' ? await accounts.register(username, password, clientIp(req)) : await accounts.login(username, password, clientIp(req));
   if (!result.ok) return Response.json({ ok: false, error: result.error }, { status: 401 });
   return Response.json({ ok: true, user: result.name }, { headers: { 'Set-Cookie': sessionCookie(result.token, url) } });
 }
@@ -66,18 +78,23 @@ async function accountApi(req: Request, url: URL, accounts: DurableObjectStub<Ac
 async function garageApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
   const token = readCookie(req);
   if (req.method === 'GET') return Response.json({ garage: await accounts.garage(token) });
-  if (req.method !== 'POST' || !sameOrigin(req, url) || !req.headers.get('Content-Type')?.startsWith('application/json')) {
-    return new Response('Bad request', { status: 400 });
-  }
-  let action: GarageAction;
-  try {
-    const text = await req.text();
-    if (text.length > 2048) throw new Error('too big');
-    action = JSON.parse(text);
-  } catch {
-    return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
-  }
+  const action = await jsonBody<GarageAction>(req, url, 2048);
+  if (!action) return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
   return Response.json(await accounts.garageAct(token, action));
+}
+
+/**
+ * The shooter's stash (coins, items, XP) and the Casino: GET reads it, POST applies one action (open a case, sell,
+ * equip, a bet...) with the server's dice, or `{adopt}` brings a browser's old stash over once. Signed-in only.
+ */
+async function stashApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
+  const token = readCookie(req);
+  if (req.method === 'GET') return Response.json({ stash: await accounts.stash(token) });
+  const body = await jsonBody<StashAction | { adopt: unknown }>(req, url, 64 * 1024);
+  if (!body || typeof body !== 'object') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
+  if ('adopt' in body) return Response.json({ stash: await accounts.stash(token, body.adopt ?? null) });
+  if (JSON.stringify(body).length > 512) return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
+  return Response.json(await accounts.stashAct(token, body));
 }
 
 /** Joins or hosts a race lobby (the driving game): same code scheme as the shooter, its own directory. */
@@ -91,7 +108,9 @@ async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, ur
     code = join;
     room = env.RACE.getByName(code);
   } else {
-    code = await dir.allocate();
+    const fresh = await dir.allocate(clientIp(req));
+    if (!fresh) return refuse('Too many new rooms from here. Wait a minute and try again.');
+    code = fresh;
     room = env.RACE.getByName(code, { locationHint: regionHint(req.cf) });
   }
   const target = new URL(req.url);
@@ -112,7 +131,9 @@ async function partySocket(req: Request<unknown, IncomingRequestCfProperties>, u
     code = join;
     room = env.PARTY.getByName(`${kind}:${code}`);
   } else {
-    code = await dir.allocate();
+    const fresh = await dir.allocate(clientIp(req));
+    if (!fresh) return refuse('Too many new rooms from here. Wait a minute and try again.');
+    code = fresh;
     room = env.PARTY.getByName(`${kind}:${code}`, { locationHint: regionHint(req.cf) });
   }
   const target = new URL(req.url);
@@ -156,6 +177,7 @@ export default {
     if (url.pathname === '/api/lobbies') return Response.json(await dir.list());
     if (url.pathname === '/api/races') return Response.json(await env.DIRECTORY.getByName('race').listRaces());
     if (url.pathname === '/api/garage') return garageApi(req, url, env.ACCOUNTS.getByName('all'));
+    if (url.pathname === '/api/stash') return stashApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/parties') {
       const game = url.searchParams.get('game');
       return isGameId(game) ? Response.json(await env.DIRECTORY.getByName(`party:${game}`).listParties()) : Response.json([]);
@@ -164,8 +186,7 @@ export default {
 
     if (url.pathname === '/ws') {
       if (req.headers.get('Upgrade') !== 'websocket') return new Response('Expected websocket', { status: 426 });
-      const origin = req.headers.get('Origin');
-      if (origin && new URL(origin).host !== url.host) return new Response('Bad origin', { status: 403 });
+      if (!sameOrigin(req, url)) return new Response('Bad origin', { status: 403 });
 
       // Signed in: you play as your username. Guests keep their typed name unless it belongs to an account.
       const { name, user } = await env.ACCOUNTS.getByName('all').identify(readCookie(req), url.searchParams.get('name') ?? '');
@@ -186,11 +207,13 @@ export default {
         code = join;
         room = env.LOBBY.getByName(code);
       } else {
-        code = await dir.allocate();
+        const fresh = await dir.allocate(clientIp(req));
+    if (!fresh) return refuse('Too many new rooms from here. Wait a minute and try again.');
+    code = fresh;
         room = env.LOBBY.getByName(code, { locationHint: regionHint(req.cf) });
       }
       const target = new URL(req.url);
-      target.search = new URLSearchParams({ code, name, mode, teams, map, koth, br, skin, gear }).toString();
+      target.search = new URLSearchParams({ code, name, user: user ? '1' : '', mode, teams, map, koth, br, skin, gear }).toString();
       return room.fetch(new Request(target, req));
     }
     return new Response('Not found', { status: 404 });

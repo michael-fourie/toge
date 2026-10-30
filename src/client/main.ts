@@ -23,6 +23,7 @@ import type { BotLevel } from '../shared/bot.ts';
 import { title } from './menu/title.ts';
 import { startSkirmish } from './menu/skirmish.ts';
 import { account } from './account.ts';
+import { stash } from './inventoryStore.ts';
 import { FIELD_BACKDROP, SKY_BACKDROP, playerName } from './menu/ui.ts';
 import { Net } from './net.ts';
 import { loadSettings } from './settings.ts';
@@ -125,6 +126,7 @@ async function play(joined?: Joined, bots?: BotLevel) {
     onExit: (reason) => {
       game = null;
       ctx.joined = null;
+      void stash.refresh(); // an account's coins and XP were paid by the server: show its real total
       setMenuNav(true);
       router.replace({ name: 'title', notice: reason });
     },

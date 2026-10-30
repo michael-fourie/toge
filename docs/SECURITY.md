@@ -1,0 +1,58 @@
+# Security: what's checked where
+
+A game for a group of friends, on Cloudflare's free plan. The rule of thumb: anything that is saved or that another
+player sees is decided or checked by the server; anything the server can't check yet is listed under "Still open".
+
+## Coins, items, XP and the Casino
+
+- **Signed in:** the stash (coins, owned items, what's equipped, XP) lives in the `Accounts` Durable Object
+  (`server/stashStore.ts`, keys `i:<user>` and `t:<user>` for the Casino tables). The browser only asks: `/api/stash`
+  GET reads it, POST runs one `StashAction` through `shared/stash.ts` with the server's dice and clock.
+  - Cases are rolled on the server. Plinko is rolled on the server. Blackjack's shoe and hand are kept on the server
+    and the dealer's hole card isn't sent until the hand is over. Crash's snap point is kept on the server; the client
+    learns it only once the kite has snapped (`peek`), and a cash-out pays at most what the kite had reached by the
+    server's clock.
+  - Match pay is worked out by the room (`Lobby.pay` → `Lobby.bank` → `Accounts.reward`): Battle kills and wins,
+    Survival rounds, the boss, zombie-kill XP, finished runs. The client floats the same numbers up on the HUD, but
+    they're only for show; it reloads the real total when the match ends. Killing your own second tab pays nothing.
+  - Workbench contraptions are charged by the server (`Accounts.spend`) after the spot checks out, and the spot is
+    checked again after the charge; a refusal or a scrap pays back into the account.
+  - The first time an account's stash is read after this moved to the server, the browser's old stash is adopted once:
+    items and XP as they were, coins capped at `STASH_IMPORT_COINS` (5,000).
+- **Guests** keep the stash in localStorage and run the same rules in the browser. It's only ever their own. Practice
+  bots pay guests only.
+- **TŌGE's garage** already worked this way for accounts. A race prize is now paid once per account per race.
+
+## Input from clients
+
+- Every shooter `state` and `shoot` is shape-checked before it's used or relayed (`Lobby.handle`, `validShot`): a
+  non-number coordinate used to slip past the distance checks (NaN compares false) and let a shot hit any zombie
+  anywhere, or be relayed to everyone else's game.
+- Messages per client are rate-limited in the shooter (100/s) and race rooms (60/s; poses are relayed at once). Plug-in
+  game rooms already had one.
+- Typed (guest) names lose markup, quote, control, invisible and direction-flipping characters on the server
+  (`cleanName`), and the Survival use prompt now escapes its text. Screens escape names as well.
+
+## Accounts and hosting
+
+- Passwords: PBKDF2-SHA256 (100k iterations), per-user salt, constant-time compare, 5 misses lock a username for 30 s.
+- Per address: 10 sign-in attempts a minute and 5 new accounts (then one per 10 minutes); 10 new lobbies a minute
+  (then one per 6 s). In memory, per Durable Object (`server/limiter.ts`), so they reset if it's evicted.
+- Session cookie: random 256-bit token, HttpOnly, SameSite=Lax, Secure on https; only its hash is stored.
+- API POSTs must be same-origin JSON; WebSockets must come from the same origin. A malformed `Origin` is refused
+  instead of throwing.
+- Static pages can't be framed (`public/_headers`: `X-Frame-Options`, `frame-ancestors`), with `nosniff` and a
+  referrer policy.
+
+## Still open
+
+- **Movement and hits are client-authoritative** (see CLAUDE.md, Netcode). A cheat client can still teleport, aim for
+  you, or farm kills on an alt account, and with them coins and XP. The fix is the planned server-side movement and
+  hit checks.
+- **TŌGE solo races** are paid from what the client reports (at most once per `SOLO_GAP_MS`); online finish times are
+  checked against the server's clock within a window.
+- **Plug-in games** (`PartyRoom`) relay players' messages unopened: each game must validate what it receives and
+  render names with `textContent`.
+- **No full Content-Security-Policy** yet (only `frame-ancestors`): a `script-src` policy needs a pass over inline
+  styles and the asset loaders first.
+- No password reset, no "sign out everywhere", sessions don't slide. No bot check (Turnstile) on sign-up or hosting.

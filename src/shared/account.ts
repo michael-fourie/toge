@@ -15,3 +15,9 @@ export function checkCredentials(username: string, password: string): string | n
   if (password.length > PASSWORD_MAX) return `Passwords can be at most ${PASSWORD_MAX} characters.`;
   return null;
 }
+
+/** Characters a typed (guest) name can't have: markup, quotes, control characters, invisible and direction-flipping ones. */
+const UNSAFE_NAME = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}<>&"'`\\]/gu;
+
+/** A typed name made safe to show anywhere (every screen escapes names too; this is the second lock). */
+export const cleanName = (name: unknown) => String(name ?? '').replace(UNSAFE_NAME, '').trim().slice(0, USERNAME_MAX).trim();

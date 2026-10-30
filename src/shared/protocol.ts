@@ -171,7 +171,7 @@ export type ClientMsg =
   | { t: 'equip'; slot: number } // Survival and Royale: switch to the gun in this slot
   | { t: 'team'; team: Team } // Battle teams: switch to this side
   | { t: 'shuffle' } // Battle teams: host only, randomise everyone's side
-  | { t: 'build'; k: ContraptionKind; p: V3; yaw: number } // Survival: put a contraption here (the client already paid the coins)
+  | { t: 'build'; k: ContraptionKind; p: V3; yaw: number } // Survival: put a contraption here (a guest already paid the coins; an account is charged by the server)
   | { t: 'sync' }; // Royale: the game screen opened; resend the loot and what I carry (missed while in the lobby room)
 
 // Server -> client

@@ -42,7 +42,7 @@ First time: `npx wrangler login`, then `npm run deploy`. That publishes to `http
 
 - Per-account stats / leaderboards (accounts themselves exist, see above).
 - Server-authoritative movement. Netcode is still client-authoritative (see CLAUDE.md).
-- Rate limiting and Turnstile on lobby creation. A bot could spam `/ws` host requests; each one reserves a code for ~90 s.
+- Turnstile on lobby creation. Hosting is rate-limited per address (`Directory.allocate`), but a botnet could still reserve codes.
 
 ## Accounts (username + password)
 

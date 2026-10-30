@@ -1,4 +1,5 @@
-import { type Card, type Round, SHOE_MIN, canDouble, deal, double, handValue, hit, newShoe, stand } from '../../shared/casino.ts';
+import { type Card, type Round, canDouble, handValue } from '../../shared/casino.ts';
+import type { StashAction } from '../../shared/stash.ts';
 import { stash } from '../inventoryStore.ts';
 import { sfx } from '../sfx.ts';
 import { coinText } from './lootui.ts';
@@ -44,16 +45,17 @@ export function mountBlackjack(root: HTMLElement): () => void {
   const bet = $<HTMLInputElement>(root, '#bj-bet');
   const dealBtn = $<HTMLButtonElement>(root, '#bj-deal');
   const note = $(root, '#bj-note');
-  let shoe = newShoe();
   let round: Round | null = null;
+  /** Waiting on the dealer (the server, for an account): one move at a time. */
+  let busy = false;
 
   const amount = () => Math.floor(Number(bet.value));
   const sync = () => {
     const n = amount();
-    dealBtn.disabled = !(n >= 1 && n <= stash.inv.coins);
+    dealBtn.disabled = busy || !(n >= 1 && n <= stash.inv.coins);
     if (!round) note.textContent = n > stash.inv.coins ? 'Not enough coins' : n < 1 || !Number.isFinite(n) ? 'Bet at least 1 coin' : '';
     const dbl = $<HTMLButtonElement>(root, '#bj-double');
-    dbl.disabled = !round || !canDouble(round) || stash.inv.coins < round.bet;
+    dbl.disabled = busy || !round || !canDouble(round) || stash.inv.coins < round.bet;
   };
   bet.addEventListener('input', sync);
   const offStash = stash.onChange(sync);
@@ -61,7 +63,8 @@ export function mountBlackjack(root: HTMLElement): () => void {
   const show = () => {
     const r = round;
     const playing = !!r && !r.done;
-    $(root, '#bj-dealer').innerHTML = r ? r.dealer.map((c, i) => cardHtml(playing && i === 1 ? null : c, i)).join('') : '';
+    // While it's played the dealer's hole card stays face down (an account's hand doesn't even send it).
+    $(root, '#bj-dealer').innerHTML = r ? [...r.dealer.slice(0, playing ? 1 : undefined), ...(playing ? [null] : [])].map((c, i) => cardHtml(c, i)).join('') : '';
     $(root, '#bj-player').innerHTML = r ? r.player.map((c, i) => cardHtml(c, i)).join('') : '';
     $(root, '#bj-dv').textContent = r ? (playing ? `${handValue([r.dealer[0]]).total}` : `${handValue(r.dealer).total}`) : '';
     $(root, '#bj-pv').textContent = r ? `${handValue(r.player).total}` : '';
@@ -74,45 +77,39 @@ export function mountBlackjack(root: HTMLElement): () => void {
     sync();
   };
 
-  /** Pays the winnings once a round is over. */
-  const settle = () => {
-    if (!round?.done) return;
-    if (round.payout > 0) {
-      stash.earn(round.payout);
-      if (round.payout > round.bet) sfx.coin();
+  /** One move at the table; the winnings are paid as the hand ends. */
+  const play = async (op: Extract<StashAction, { a: 'bj' }>['op'], stake?: number) => {
+    if (busy) return;
+    busy = true;
+    sync();
+    const r = await stash.act({ a: 'bj', op, bet: stake });
+    busy = false;
+    if (!r.ok || !r.round) {
+      sync();
+      return toast(r.ok ? 'Something went wrong.' : r.error);
     }
+    round = r.round;
+    if (op !== 'stand') sfx.caseTick();
+    if (round.done && round.payout > round.bet) sfx.coin();
     show();
   };
 
   dealBtn.addEventListener('click', () => {
     sfx.unlock();
     const n = amount();
-    if (!stash.wager(n)) return toast('Not enough coins');
-    if (shoe.length < SHOE_MIN) shoe = newShoe();
-    round = deal(shoe, n);
-    sfx.caseTick();
-    show();
-    settle();
+    if (n > stash.inv.coins) return toast('Not enough coins');
+    void play('deal', n);
   });
   $(root, '#bj-hit').addEventListener('click', () => {
-    if (!round || round.done) return;
-    hit(round, shoe);
-    sfx.caseTick();
-    show();
-    settle();
+    if (round && !round.done) void play('hit');
   });
   $(root, '#bj-stand').addEventListener('click', () => {
-    if (!round || round.done) return;
-    stand(round, shoe);
-    show();
-    settle();
+    if (round && !round.done) void play('stand');
   });
   $(root, '#bj-double').addEventListener('click', () => {
     if (!round || !canDouble(round)) return;
-    if (!stash.wager(round.bet)) return toast('Not enough coins to double');
-    double(round, shoe);
-    show();
-    settle();
+    if (stash.inv.coins < round.bet) return toast('Not enough coins to double');
+    void play('double');
   });
   root.querySelector('.bet-quick')!.addEventListener('click', (e) => {
     const k = (e.target as HTMLElement).closest<HTMLElement>('[data-bet]')?.dataset.bet;
@@ -126,9 +123,6 @@ export function mountBlackjack(root: HTMLElement): () => void {
   return () => {
     offStash();
     // Walking away mid-hand stands for you, so the stake is never lost to a half-played round.
-    if (round && !round.done) {
-      stand(round, shoe);
-      settle();
-    }
+    if (round && !round.done) void stash.act({ a: 'bj', op: 'stand' });
   };
 }

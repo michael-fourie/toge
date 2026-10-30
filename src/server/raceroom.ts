@@ -1,14 +1,18 @@
 import { DurableObject } from 'cloudflare:workers';
 import { RACE, type RaceClientMsg } from '../shared/race/protocol.ts';
+import { Limiter } from './limiter.ts';
 import { Race, type RaceClient, sendTo } from './race.ts';
 import type { Env } from './worker.ts';
 
 const MAX_MESSAGE_BYTES = 2048;
+/** Messages a client may send per second (with a burst of twice that); a car sends 20 poses a second. Poses are relayed at once, so a flood would be everyone's problem. */
+const MAX_MESSAGES_PER_SECOND = 60;
 
 /** One race lobby (the driving game). Lives while anyone is connected, like LobbyRoom. */
 export class RaceRoom extends DurableObject<Env> {
   private race: Race | null = null;
   private nextId = 1;
+  private flood = new Limiter(MAX_MESSAGES_PER_SECOND * 2, MAX_MESSAGES_PER_SECOND);
 
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -30,14 +34,17 @@ export class RaceRoom extends DurableObject<Env> {
     }
     race.add(client);
     ws.addEventListener('message', (e) => {
-      if (typeof e.data !== 'string' || e.data.length > MAX_MESSAGE_BYTES) return;
+      if (typeof e.data !== 'string' || e.data.length > MAX_MESSAGE_BYTES || !this.flood.take(String(client.id))) return;
       try {
         this.race?.handle(client, JSON.parse(e.data) as RaceClientMsg);
       } catch {
         // malformed JSON: ignore
       }
     });
-    const leave = () => this.race?.remove(client);
+    const leave = () => {
+      this.race?.remove(client);
+      this.flood.forget(String(client.id));
+    };
     ws.addEventListener('close', leave);
     ws.addEventListener('error', leave);
     return new Response(null, { status: 101, webSocket: peer });
@@ -54,7 +61,13 @@ export class RaceRoom extends DurableObject<Env> {
         this.ctx.waitUntil(dir.remove(r.code));
       },
       (rows, users) => {
-        for (const row of rows) if (users.has(row.id)) this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && rows.length > 1));
+        // One prize per account per race, its best finish (rows are in finishing order): a second tab can't double it.
+        const paid = new Set<string>();
+        for (const row of rows) {
+          if (!users.has(row.id) || paid.has(row.name.toLowerCase())) continue;
+          paid.add(row.name.toLowerCase());
+          this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && rows.length > 1));
+        }
       },
     );
     return this.race;
