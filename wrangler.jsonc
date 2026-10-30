@@ -23,5 +23,18 @@
     { "tag": "v2", "new_sqlite_classes": ["Accounts"] },
     { "tag": "v3", "new_sqlite_classes": ["RaceRoom"] },
     { "tag": "v4", "new_sqlite_classes": ["PartyRoom"] }
-  ]
+  ],
+  // Branch previews (`wrangler preview`): each gets its own isolated Durable Objects. The code reads them from `env`,
+  // so the bindings are repeated here or they don't exist in a preview.
+  "previews": {
+    "durable_objects": {
+      "bindings": [
+        { "name": "LOBBY", "class_name": "LobbyRoom" },
+        { "name": "RACE", "class_name": "RaceRoom" },
+        { "name": "PARTY", "class_name": "PartyRoom" },
+        { "name": "DIRECTORY", "class_name": "Directory" },
+        { "name": "ACCOUNTS", "class_name": "Accounts" }
+      ]
+    }
+  }
 }
