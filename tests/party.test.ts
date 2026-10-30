@@ -7,7 +7,7 @@ function room() {
   let now = 1_000_000;
   const inbox = new Map<number, PartyServerMsg[]>();
   let empty = false;
-  const party = new Party('ABCD', 'mash', () => {}, () => (empty = true), () => now);
+  const party = new Party('ABCD', 'demo', () => {}, () => (empty = true), () => now);
   const join = (id: number) => {
     inbox.set(id, []);
     const c: PartyClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, user: false };
@@ -19,7 +19,7 @@ function room() {
 }
 
 test('game ids are simple', () => {
-  assert.ok(isGameId('mash') && isGameId('my-game-2'));
+  assert.ok(isGameId('demo') && isGameId('my-game-2'));
   for (const bad of ['', 'Mash', 'a b', '../x', 'x'.repeat(25), 3]) assert.ok(!isGameId(bad));
 });
 

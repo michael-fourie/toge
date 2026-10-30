@@ -14,8 +14,7 @@ npm run dev                               # open http://localhost:5173
 
 Edit `src/games/my-game/channel.ts`: change `id` to `'my-game'` (lowercase, digits, dashes; same as the
 folder), set the title and text, and write your game in `mount`. Your channel appears on the menu; open it
-to play. `src/games/mash/` is a finished small example with menus, controller support and online
-multiplayer. Copy from it freely.
+to play.
 
 Using Claude Code (or another agent)? Point it at this folder: `src/games/CLAUDE.md` has the rules it should
 follow, and Claude Code reads it automatically when it works in `src/games/`.
@@ -32,7 +31,7 @@ const channel: GameChannel = {
   tagline: 'One line',
   about: 'A paragraph for the channel page.',
   facts: ['1–4 players online', 'Controller'],
-  order: 60,                       // position in the grid (Gambol 1, TŌGE 2, MASH 50)
+  order: 60,                       // position in the grid (Gambol is 1, TŌGE 2)
   banner(canvas) { /* draw an animated tile; stop when !canvas.isConnected */ },
   mount(root, api) {
     // build your game inside `root` (full screen)
