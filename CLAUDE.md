@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Atrous: a browser multiplayer movement shooter. Think CS:GO Combat Surf with bhop, surf, slide and wallrun, AWP-only, on Ghibli-style sky islands. It's a prototype that will evolve a lot. Player-facing docs are in README.md.
+Atrous: a browser multiplayer movement shooter. Think CS:GO Combat Surf with bhop, surf, slide and wallrun, AWP-only, on Ghibli-style sky islands. It's a prototype that will evolve a lot. Player-facing docs are in README.md
 
 The site is a **game chooser** (menu/games.ts: a console-style channel grid; channel 1 Gambol, channel 2 **TŌGE**, the mountain racing game). Everything below "Priorities" is about Gambol, the shooter; TŌGE has its own section, "TŌGE (racing)", further down. Both games share the router, accounts and the Worker.
 
