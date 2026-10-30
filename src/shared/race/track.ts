@@ -7,8 +7,8 @@ import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
 // The road is a centreline sampled every SAMPLE metres. Across it the surface is a plane (with a little
 // banking in corners) out to the barriers; past them it eases into procedural hills over BLEND metres.
 
-export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji';
+export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass';
 
 /**
@@ -241,6 +241,30 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       { kind: 'crest', at: 14, size: 1.6, len: 40 },
       { kind: 'bridge', from: 16, to: 17, size: 50 },
       { kind: 'cut', s0: 620, s1: 1410 },
+    ],
+  },
+  sakura: {
+    id: 'sakura',
+    name: 'Sakura Ridge',
+    tag: 'Spring · cherry blossom · bridge · lake finish',
+    blurb: 'Blossom season. A quick run off the ridge with a crest, two hairpins back to back, a bridge over the falls, a gravel shortcut through the orchard and a sprint along the lake.',
+    theme: 'spring',
+    seed: 88,
+    width: 10,
+    relief: 200,
+    water: 112,
+    points: [
+      [0, 380, 0], [10, 376, -180], [80, 368, -330], [220, 358, -410], [380, 346, -420], [500, 336, -480],
+      [540, 330, -560], [480, 324, -610], [330, 312, -620], [190, 300, -650], [140, 294, -720], [200, 288, -770],
+      [360, 276, -790], [500, 264, -850], [560, 252, -980], [530, 240, -1120], [440, 228, -1220], [300, 216, -1260],
+      [160, 204, -1320], [60, 192, -1440], [40, 180, -1600], [100, 168, -1740], [220, 158, -1820], [380, 150, -1860],
+      [520, 144, -1940], [560, 140, -2080], [500, 134, -2220], [380, 128, -2290], [240, 124, -2320], [120, 122, -2400],
+    ],
+    features: [
+      { kind: 'crest', at: 2, size: 1.8, len: 44 },
+      { kind: 'bridge', from: 14, to: 15, size: 45 },
+      { kind: 'crest', at: 23, size: 2, len: 46 },
+      { kind: 'cut', s0: 2578, s1: 3198 },
     ],
   },
 };

@@ -358,6 +358,9 @@ html.pad .tg :is(button, input):focus {
 .tg-track.momiji {
   background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #f6d29a, #e9a96a 30%, #c8452a 31%, #e7892f 50%, #6e3a1e);
 }
+.tg-track.sakura {
+  background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #cfe2f4, #f7dbe6 32%, #f2a9c1 33%, #e98fae 52%, #5e8a3c 53%, #34552a);
+}
 .tg-track.small {
   min-height: 70px;
 }

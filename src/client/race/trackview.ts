@@ -34,6 +34,7 @@ const LOOKS: Record<Theme, Look> = {
   desert: { sun: [30, 140], turbidity: 8, rayleigh: 1.2, fog: 0xe0b48a, fogDensity: 0.0003, exposure: 0.4, grass: [0.66, 0.42, 0.24], grassDry: [0.78, 0.55, 0.32], rock: [0.62, 0.3, 0.18], verge: [0.7, 0.5, 0.32], snowline: 1e9, treeline: 1e9, forest: -0.35 },
   night: { sun: [-5, 230], moon: [38, 120], turbidity: 2, rayleigh: 3, fog: 0x0b1120, fogDensity: 0.0006, exposure: 0.9, grass: [0.12, 0.2, 0.08], grassDry: [0.22, 0.25, 0.12], rock: [0.3, 0.3, 0.32], verge: [0.22, 0.24, 0.16], snowline: 520, treeline: 500, light: 0x9db5ff, lightPower: 0.55, hemi: 0.12, forest: 0.2 },
   autumn: { sun: [18, 200], turbidity: 5, rayleigh: 1.6, fog: 0xd9c7a8, fogDensity: 0.00036, exposure: 0.42, grass: [0.42, 0.4, 0.14], grassDry: [0.58, 0.46, 0.18], rock: [0.45, 0.42, 0.38], verge: [0.42, 0.36, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.2 },
+  spring: { sun: [28, 160], turbidity: 3, rayleigh: 1.8, fog: 0xdcdfec, fogDensity: 0.00034, exposure: 0.44, grass: [0.22, 0.38, 0.12], grassDry: [0.38, 0.44, 0.2], rock: [0.5, 0.48, 0.46], verge: [0.32, 0.4, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.1 },
 };
 
 export interface TrackView {
@@ -468,8 +469,9 @@ function gantry(scene: THREE.Scene, t: Track, s: number, text: string, chequer: 
 function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T) {
   const theme = t.def.theme;
   const tree = keep(theme === 'alpine' || theme === 'night' ? pineGeometry() : theme === 'coast' ? coastTreeGeometry() : theme === 'desert' ? cactusGeometry() : mapleGeometry());
-  // Maples each get their own autumn colour.
-  const leaves = theme === 'autumn' ? [0xd8431f, 0xe8742a, 0xf2b233, 0xb8261e, 0xc9a23a, 0x6f8a32].map((c) => new THREE.Color(c)) : null;
+  // Maples each get their own autumn colour; in spring the same trees are cherries in blossom, with a few in fresh leaf.
+  const palette = theme === 'autumn' ? [0xd8431f, 0xe8742a, 0xf2b233, 0xb8261e, 0xc9a23a, 0x6f8a32] : theme === 'spring' ? [0xf6b8cc, 0xf9cfdc, 0xee9fb8, 0xfde6ee, 0xf3a9c2, 0x86b04a] : null;
+  const leaves = palette ? palette.map((c) => new THREE.Color(c)) : null;
   const treeMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
   const rock = keep(rockGeometry());
   const rockMat = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(...look.rock).multiplyScalar(0.9), roughness: 0.95, flatShading: true }));
