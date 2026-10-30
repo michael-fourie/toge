@@ -1,4 +1,29 @@
-# Gambol
+# Gambol (and TŌGE)
+
+The site opens on a **game chooser**, a grid of channels in the style of a classic console home menu. Channel 1 is **Gambol**, channel 2 is **TŌGE**; the empty slots are for games to come. Everything works with a controller: the D-pad or left stick moves, Ⓐ selects, Ⓑ goes back, LB/RB switch tabs.
+
+## TŌGE: mountain pass racing
+
+Race your lobby down the mountain. Two passes: **Kōri Pass** (alpine, 5.3 km, six stacked hairpins, forest esses, a run into the village) and **Saltwind Cliffs** (coastal, 3.6 km, clifftops, a zigzag down the cliff face, the harbour wall).
+
+- **Physics**: a rigid body on four raycast wheels at 480 Hz. Springs, dampers and anti-roll bars, so the car squats, dives and rolls. Pacejka-style tyres with combined slip and relaxation, a torque curve, clutch, gearbox, limited-slip diffs, AWD split, aero drag and downforce. Assists (ABS, traction control, steering assist, automatic gears) can each be turned off in the pause menu.
+- **Garage**: five cars from a 100 hp hatch to a 600 hp mid-engined V10, each with a class and PI. Paint (gloss, metallic, matte, pearl), rims, spoiler and stripes; tune ride height, brake bias, diff lock and final drive.
+- **Money and crates**: races pay prize money (more for a win, a bigger field and a longer pass; solo races vs AI pay 60%). Upgrades only come from crates: a Mystery Crate (any part, a chance of +2 or a jackpot, or scrap or nothing) or a Tuner Crate (the part you pick, pricier per level). Buy more cars at the dealer.
+- **Your garage follows your account** when you're signed in (it's stored on the server). Guests keep theirs in the browser.
+- **Online**: Host a race (4-letter code, up to 8 racers, invite link `/?race=CODE`) or Join one from the list. The host picks the pass and starts it.
+
+| Controller | Keyboard | |
+| --- | --- | --- |
+| RT / LT | W / S (↑ ↓) | Throttle / brake (hold brake when stopped to reverse) |
+| Left stick | A D (← →) | Steer |
+| Ⓐ | Space | Handbrake |
+| Ⓑ / Ⓧ | E / Q | Shift up / down (manual gearbox) |
+| Ⓨ | C | Camera (chase, near, hood, bumper) |
+| LB (hold) | V (hold) | Look back |
+| View | R | Reset to the road |
+| Menu | Esc | Pause (assists, camera, volume) |
+
+## Gambol
 
 A silly browser multiplayer movement shooter set on Ghibli-style sky islands: **bhop, surf, slide, wallrun, grapple, snipe**. It's in the spirit of CS:GO Combat Surf.
 

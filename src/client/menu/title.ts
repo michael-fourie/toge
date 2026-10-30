@@ -54,6 +54,7 @@ export const title: Render = (root, ctx, screen) => {
           <button class="tab" data-go="help">How to play</button>
         </nav>
         <div class="top-right">
+          <button class="gear-btn" data-go="games" aria-label="All games" title="All games">⌂</button>
           <button class="gear-btn" data-go="settings" aria-label="Settings" title="Settings">⚙</button>
         </div>
       </header>

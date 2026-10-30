@@ -1,13 +1,17 @@
 import type { Accounts } from './accounts.ts';
 import type { Directory } from './directory.ts';
+import type { RaceRoom } from './raceroom.ts';
 import type { LobbyRoom } from './room.ts';
+import type { GarageAction } from '../shared/race/garage.ts';
 
 export { Accounts } from './accounts.ts';
 export { Directory } from './directory.ts';
+export { RaceRoom } from './raceroom.ts';
 export { LobbyRoom } from './room.ts';
 
 export interface Env {
   LOBBY: DurableObjectNamespace<LobbyRoom>;
+  RACE: DurableObjectNamespace<RaceRoom>;
   DIRECTORY: DurableObjectNamespace<Directory>;
   ACCOUNTS: DurableObjectNamespace<Accounts>;
 }
@@ -54,6 +58,43 @@ async function accountApi(req: Request, url: URL, accounts: DurableObjectStub<Ac
   return Response.json({ ok: true, user: result.name }, { headers: { 'Set-Cookie': sessionCookie(result.token, url) } });
 }
 
+/** The driving game's garage: GET reads it, POST applies one action (crate, buy, paint...). Signed-in only. */
+async function garageApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
+  const token = readCookie(req);
+  if (req.method === 'GET') return Response.json({ garage: await accounts.garage(token) });
+  if (req.method !== 'POST' || !sameOrigin(req, url) || !req.headers.get('Content-Type')?.startsWith('application/json')) {
+    return new Response('Bad request', { status: 400 });
+  }
+  let action: GarageAction;
+  try {
+    const text = await req.text();
+    if (text.length > 2048) throw new Error('too big');
+    action = JSON.parse(text);
+  } catch {
+    return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
+  }
+  return Response.json(await accounts.garageAct(token, action));
+}
+
+/** Joins or hosts a race lobby (the driving game): same code scheme as the shooter, its own directory. */
+async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, url: URL, env: Env, name: string, user: boolean): Promise<Response> {
+  const dir = env.DIRECTORY.getByName('race');
+  const join = url.searchParams.get('code')?.toUpperCase();
+  let code: string;
+  let room: DurableObjectStub<RaceRoom>;
+  if (join) {
+    if (!(await dir.has(join))) return refuse('No race with that code.');
+    code = join;
+    room = env.RACE.getByName(code);
+  } else {
+    code = await dir.allocate();
+    room = env.RACE.getByName(code, { locationHint: regionHint(req.cf) });
+  }
+  const target = new URL(req.url);
+  target.search = new URLSearchParams({ code, name, user: user ? '1' : '', car: (url.searchParams.get('car') ?? '').slice(0, 64) }).toString();
+  return room.fetch(new Request(target, req));
+}
+
 /** Durable Objects are created near whoever first touches them; hint at the host's region so the match is close to them. */
 function regionHint(cf: IncomingRequestCfProperties | undefined): DurableObjectLocationHint | undefined {
   switch (cf?.continent) {
@@ -88,6 +129,8 @@ export default {
     const dir = env.DIRECTORY.getByName('all');
 
     if (url.pathname === '/api/lobbies') return Response.json(await dir.list());
+    if (url.pathname === '/api/races') return Response.json(await env.DIRECTORY.getByName('race').listRaces());
+    if (url.pathname === '/api/garage') return garageApi(req, url, env.ACCOUNTS.getByName('all'));
     if (['/api/me', '/api/register', '/api/login', '/api/logout'].includes(url.pathname)) return accountApi(req, url, env.ACCOUNTS.getByName('all'));
 
     if (url.pathname === '/ws') {
@@ -96,7 +139,8 @@ export default {
       if (origin && new URL(origin).host !== url.host) return new Response('Bad origin', { status: 403 });
 
       // Signed in: you play as your username. Guests keep their typed name unless it belongs to an account.
-      const { name } = await env.ACCOUNTS.getByName('all').identify(readCookie(req), url.searchParams.get('name') ?? '');
+      const { name, user } = await env.ACCOUNTS.getByName('all').identify(readCookie(req), url.searchParams.get('name') ?? '');
+      if (url.searchParams.get('game') === 'race') return raceSocket(req, url, env, name, user);
       const mode = url.searchParams.get('mode') ?? '';
       const teams = url.searchParams.get('teams') === '1' ? '1' : '';
       const map = url.searchParams.get('map') ?? '';

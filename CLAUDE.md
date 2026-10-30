@@ -2,6 +2,8 @@
 
 Atrous: a browser multiplayer movement shooter. Think CS:GO Combat Surf with bhop, surf, slide and wallrun, AWP-only, on Ghibli-style sky islands. It's a prototype that will evolve a lot. Player-facing docs are in README.md.
 
+The site is a **game chooser** (menu/games.ts: a console-style channel grid; channel 1 Gambol, channel 2 **TŌGE**, the mountain racing game). Everything below "Priorities" is about Gambol, the shooter; TŌGE has its own section, "TŌGE (racing)", further down. Both games share the router, accounts and the Worker.
+
 ## Priorities (in order)
 
 1. **Momentum is sacred.** Movement must feel like CS:GO bhop. Never add anything that eats speed on its own: no air friction, no friction on the jump tick, no "redirect" mechanics. Shot-recoil push was removed for exactly this. Air jumps were removed once too and are back as the double jump and wall kick: they only raise vertical speed or add push, never touch horizontal momentum (tests in the "Air jumps" block).
@@ -200,6 +202,41 @@ A playable prototype covering practice and online lobbies. Everything listed in 
 - **Tooling:** the Cloudflare Vite plugin is on Vite 6; Vite 8 is possible now that Node 20+ is required.
 
 Design docs in `docs/` describe the current map and menu. Update them when you change those areas.
+
+## TŌGE (racing)
+
+Realistic driving, not arcade: change the physics only with a test, and keep `tests/racephysics.test.ts` green (it drives every car down every track with the AI).
+
+```
+src/shared/race/
+  track.ts     the tracks as data (TRACK_DEFS: control points, width, theme, relief, tilt) and the ground: a sampled
+               centreline, the road's banked plane out to `edge`, then a blend into procedural hills (every nearby stretch
+               of road contributes, so hairpins stay seamless). heightAt / groundAt / locate (with a hint, so a car never
+               jumps to a parallel leg) / pointAt / gridSlot. Built once per id (getTrack).
+  vehicle.ts   the car: rigid body + 4 raycast wheels, SUB=4 substeps per 120 Hz tick. Suspension (spring, damper, ARB,
+               bump stop), tyres (Pacejka-style curve on normalised combined slip, relaxation lengths, low-speed damping),
+               drivetrain (torque curve, clutch slip at launch, auto/manual box, LSD, AWD split, engine braking, engine
+               inertia through the gears), aero, ABS/TCS/steering assist, body scraping, barrier impulses, collideCars.
+  cars.ts      the catalogue (CARS), upgrades (PARTS, levels 0-5), looks, tuning, encode/decodeCar (the wire code), carSpec()
+               (everything -> physics numbers), torqueAt, rating (PI + class), stats (garage bars).
+  garage.ts    money, owned cars, crates (the gamble), payouts, applyAction (every garage change; run by the server for
+               accounts and by the client for guests).
+  driver.ts    AI: pure pursuit on a corner-cutting line; target speed from the tightest bend in braking range.
+  protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings.
+src/server/race.ts (Race: lobby -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
+  garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`). Race lobbies use the Directory instance 'race'
+  (`/api/races`); sockets are `/ws?game=race`.
+src/client/race/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), carmodel.ts
+  (procedural cars), showroom.ts, hub.ts (the garage screen `drive`), lobby.ts (`drivelobby`), hud.ts, input.ts
+  (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
+  garageStore.ts, racenet.ts, race.css.
+src/client/pad.ts  gamepads for every menu (spatial focus moves, A/B/LB/RB) and for driving (readPad, padAxis, rumble).
+```
+
+- Rendering is plain WebGL (`THREE.WebGLRenderer`), ACES tone mapping, one sun shadow map that follows the camera, instanced and tiled scenery. Watch triangle counts (`__race.renderer.info`): forests dominate.
+- Driving is client-authoritative like the shooter; the server times the race, sanity-checks finish times and pays signed-in racers (guests credit themselves from `results`).
+- A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts.
+- In dev, `window.__race` is the running race. To let the AI drive yours: `const { aiDrive, newAi } = await import('/src/shared/race/driver.ts'); const ai = newAi(0.9, 0); __race.controls.poll = function (dt) { aiDrive(__race.me.car, __race.track, ai, dt, this.input); }`.
 
 ## Verifying in the browser
 

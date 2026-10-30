@@ -1,0 +1,211 @@
+import { decodeCar } from '../shared/race/cars.ts';
+import { payout } from '../shared/race/garage.ts';
+import { RACE, type NetCar, type RaceClientMsg, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/race/protocol.ts';
+import { TRACK_DEFS, type TrackId } from '../shared/race/track.ts';
+import type { Socket } from './lobby.ts';
+
+const OPEN = 1;
+/** How often a live room re-announces itself to the directory. */
+const HEARTBEAT_MS = 30_000;
+/** No real descent is quicker than this; a faster "finish" is ignored. */
+const MIN_RACE_SECONDS = 40;
+
+export interface RaceClient {
+  id: number;
+  ws: Socket;
+  name: string;
+  car: string;
+  /** Signed in (prize money is paid into the account's garage). */
+  user: boolean;
+}
+
+interface Member {
+  client: RaceClient;
+  state: NetCar | null;
+  /** In the current race (joined before the countdown). */
+  racing: boolean;
+  time: number | null;
+}
+
+export const sendTo = (c: RaceClient, msg: RaceServerMsg) => {
+  if (c.ws.readyState === OPEN) c.ws.send(JSON.stringify(msg));
+};
+
+const finite = (x: unknown, lim: number) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= lim;
+
+/**
+ * One race lobby: the roster, the host's track pick, and the race cycle (lobby → countdown → racing →
+ * results → lobby). Driving is client-authoritative; the room relays poses, times the race, ranks the
+ * finishers and works out the prize money.
+ */
+export class Race {
+  readonly members = new Map<number, Member>();
+  hostId = 0;
+  track: TrackId = 'koripass';
+  phase: RacePhase = 'lobby';
+  private phaseEnds = 0;
+  private goAt = 0;
+  private firstFinish = 0;
+  private lastBeat = 0;
+  private timer: ReturnType<typeof setInterval> | null = null;
+
+  constructor(
+    readonly code: string,
+    private onChange: (r: Race) => void,
+    private onEmpty: (r: Race) => void,
+    /** Results are in: pay the signed-in racers. */
+    private onResults: (rows: ResultRow[], users: Set<number>) => void,
+    private now: () => number = Date.now,
+    tick = true,
+  ) {
+    if (tick) this.timer = setInterval(() => this.tick(), 1000 / RACE.snapshotHz);
+  }
+
+  get hostName() {
+    return this.members.get(this.hostId)?.client.name ?? '?';
+  }
+
+  get full() {
+    return this.members.size >= RACE.maxPlayers;
+  }
+
+  add(c: RaceClient) {
+    if (!decodeCar(c.car)) c.car = 'pebble.0.1.0.0.0.0.1.00000000';
+    this.members.set(c.id, { client: c, state: null, racing: false, time: null });
+    if (!this.hostId) this.hostId = c.id;
+    sendTo(c, { t: 'welcome', id: c.id });
+    this.broadcastRoom();
+    this.onChange(this);
+  }
+
+  remove(c: RaceClient) {
+    if (!this.members.delete(c.id)) return;
+    if (this.members.size === 0) {
+      if (this.timer) clearInterval(this.timer);
+      this.onEmpty(this);
+      return;
+    }
+    if (this.hostId === c.id) this.hostId = this.members.keys().next().value!;
+    this.broadcastRoom();
+    this.onChange(this);
+    if (this.phase === 'racing') this.maybeFinish();
+  }
+
+  handle(c: RaceClient, msg: RaceClientMsg) {
+    const m = this.members.get(c.id);
+    if (!m || !msg || typeof msg !== 'object') return;
+    switch (msg.t) {
+      case 'track':
+        if (c.id === this.hostId && this.phase === 'lobby' && msg.track in TRACK_DEFS) {
+          this.track = msg.track;
+          this.broadcastRoom();
+          this.onChange(this);
+        }
+        break;
+      case 'start':
+        if (c.id === this.hostId && this.phase === 'lobby') this.startCountdown();
+        break;
+      case 'car':
+        if (this.phase !== 'racing' && this.phase !== 'countdown' && decodeCar(msg.car)) {
+          c.car = msg.car;
+          this.broadcastRoom();
+        }
+        break;
+      case 'state': {
+        if (!m.racing || m.time !== null || (this.phase !== 'racing' && this.phase !== 'countdown')) return;
+        const okVec = (a: unknown, n: number, lim: number) => Array.isArray(a) && a.length === n && a.every((x) => finite(x, lim));
+        if (!okVec(msg.p, 3, 1e5) || !okVec(msg.q, 4, 2) || !okVec(msg.v, 3, 200) || !finite(msg.s, 1e5) || !finite(msg.st, 2) || !finite(msg.ws, 1e3) || !finite(msg.rpm, 2e4) || !finite(msg.f, 255)) return;
+        m.state = { id: c.id, p: msg.p, q: msg.q, v: msg.v, s: msg.s, st: msg.st, ws: msg.ws, rpm: msg.rpm, f: msg.f | 0 };
+        break;
+      }
+      case 'finish': {
+        if (this.phase !== 'racing' || !m.racing || m.time !== null || !finite(msg.time, 1e4)) return;
+        const elapsed = (this.now() - this.goAt) / 1000;
+        if (elapsed < MIN_RACE_SECONDS) return;
+        // Trust the client's own clock (it started on `go`) within a little latency either way.
+        const time = msg.time >= elapsed - 2 && msg.time <= elapsed + 0.5 ? msg.time : elapsed;
+        m.time = Math.round(time * 1000) / 1000;
+        if (!this.firstFinish) this.firstFinish = this.now();
+        this.broadcast({ t: 'finished', id: c.id, time: m.time });
+        this.maybeFinish();
+        break;
+      }
+    }
+  }
+
+  private startCountdown() {
+    this.phase = 'countdown';
+    this.phaseEnds = this.now() + RACE.countdownMs;
+    this.firstFinish = 0;
+    const grid: Record<number, number> = {};
+    let slot = 0;
+    for (const m of this.members.values()) {
+      m.racing = true;
+      m.time = null;
+      m.state = null;
+      grid[m.client.id] = slot++;
+    }
+    this.broadcast({ t: 'countdown', track: this.track, ms: RACE.countdownMs, grid });
+    this.broadcastRoom();
+    this.onChange(this);
+  }
+
+  /** Everyone still racing has finished (or left), or the DNF clock ran out: rank and pay. */
+  private maybeFinish() {
+    const out = [...this.members.values()].filter((m) => m.racing && m.time === null);
+    const now = this.now();
+    const dnfDue = this.firstFinish && now - this.firstFinish > RACE.dnfSeconds * 1000;
+    const tooLong = now - this.goAt > RACE.maxSeconds * 1000;
+    if (out.length && !dnfDue && !tooLong) return;
+    const field = [...this.members.values()].filter((m) => m.racing);
+    const done = field.filter((m) => m.time !== null).sort((a, b) => a.time! - b.time!);
+    const dnf = field.filter((m) => m.time === null);
+    const rows: ResultRow[] = [...done, ...dnf].map((m, i) => {
+      const place = m.time === null ? 0 : i + 1;
+      return { id: m.client.id, name: m.client.name, car: m.client.car, time: m.time, place, prize: payout(place, field.length, this.track, false) };
+    });
+    this.phase = 'results';
+    this.phaseEnds = now + RACE.resultsSeconds * 1000;
+    for (const m of field) m.racing = false;
+    this.broadcast({ t: 'results', track: this.track, rows });
+    this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)));
+    this.onChange(this);
+  }
+
+  tick() {
+    const now = this.now();
+    if (now - this.lastBeat > HEARTBEAT_MS) {
+      this.lastBeat = now;
+      this.onChange(this);
+    }
+    if (this.phase === 'countdown' && now >= this.phaseEnds) {
+      this.phase = 'racing';
+      this.goAt = now;
+      this.broadcast({ t: 'go' });
+      this.broadcastRoom();
+    } else if (this.phase === 'racing') this.maybeFinish();
+    else if (this.phase === 'results' && now >= this.phaseEnds) {
+      this.phase = 'lobby';
+      this.broadcastRoom();
+      this.onChange(this);
+    }
+    if (this.phase === 'racing' || this.phase === 'countdown') {
+      const cars = [...this.members.values()].flatMap((m) => (m.state ? [m.state] : []));
+      if (cars.length) this.broadcast({ t: 'snap', cars });
+    }
+  }
+
+  private room(): RaceServerMsg {
+    const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, user: m.client.user }));
+    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, phase: this.phase, racers };
+  }
+
+  private broadcastRoom() {
+    this.broadcast(this.room());
+  }
+
+  private broadcast(msg: RaceServerMsg) {
+    const text = JSON.stringify(msg);
+    for (const m of this.members.values()) if (m.client.ws.readyState === OPEN) m.client.ws.send(text);
+  }
+}
