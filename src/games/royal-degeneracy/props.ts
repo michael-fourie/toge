@@ -27,7 +27,9 @@ const COLOURS: Record<string, string> = {
   black: '#1a1a1e',
   navy: '#2d3a5e',
   navyLight: '#3a4a74',
-  leather: '#1c1a1c',
+  leather: '#2a262c',
+  leatherLight: '#3c3640',
+  leatherShine: '#6e6676',
   counter: '#d8d0c0',
   cabinet: '#c9b48e',
   cabinetDoor: '#d6c29c',
@@ -180,12 +182,17 @@ function furniture(k: Kit, b: HBox) {
         const bz = back < 0 ? lo.z : hi.z - 0.22;
         k.box(c, lo.x, y, bz, hi.x, y + 0.85, bz + 0.22);
         for (const x of [lo.x, hi.x - 0.18]) k.box(c, x, y, lo.z, x + 0.18, y + 0.62, hi.z);
-        for (let i = 0; i < 3; i++) k.box(b.mat === 'couch' ? 'navyLight' : c, lo.x + 0.2 + i * ((hi.x - lo.x - 0.4) / 3) + 0.02, y + 0.42, lo.z + 0.05, lo.x + 0.2 + (i + 1) * ((hi.x - lo.x - 0.4) / 3) - 0.02, y + 0.52, hi.z - 0.05);
+        for (let i = 0; i < 3; i++) k.box(b.mat === 'couch' ? 'navyLight' : 'leatherLight', lo.x + 0.2 + i * ((hi.x - lo.x - 0.4) / 3) + 0.02, y + 0.42, lo.z + 0.05, lo.x + 0.2 + (i + 1) * ((hi.x - lo.x - 0.4) / 3) - 0.02, y + 0.52, hi.z - 0.05);
+        // Leather catches the light along the top of the back and the arms.
+        if (b.mat === 'leather') {
+          k.box('leatherShine', lo.x + 0.05, y + 0.85, bz + 0.07, hi.x - 0.05, y + 0.856, bz + 0.15);
+          for (const x of [lo.x, hi.x - 0.18]) k.box('leatherShine', x + 0.05, y + 0.62, lo.z + 0.05, x + 0.13, y + 0.626, hi.z - 0.05);
+        }
       } else {
         const bx = back < 0 ? lo.x : hi.x - 0.22;
         k.box(c, bx, y, lo.z, bx + 0.22, y + 0.85, hi.z);
         for (const z of [lo.z, hi.z - 0.18]) k.box(c, lo.x, y, z, hi.x, y + 0.62, z + 0.18);
-        for (let i = 0; i < 3; i++) k.box(b.mat === 'couch' ? 'navyLight' : c, lo.x + 0.05, y + 0.42, lo.z + 0.2 + i * ((hi.z - lo.z - 0.4) / 3) + 0.02, hi.x - 0.05, y + 0.52, lo.z + 0.2 + (i + 1) * ((hi.z - lo.z - 0.4) / 3) - 0.02);
+        for (let i = 0; i < 3; i++) k.box(b.mat === 'couch' ? 'navyLight' : 'leatherLight', lo.x + 0.05, y + 0.42, lo.z + 0.2 + i * ((hi.z - lo.z - 0.4) / 3) + 0.02, hi.x - 0.05, y + 0.52, lo.z + 0.2 + (i + 1) * ((hi.z - lo.z - 0.4) / 3) - 0.02);
         // The black-and-white throw pillow on the navy couch.
         if (b.mat === 'couch') k.box('white', bx - 0.12 * back, y + 0.5, (lo.z + hi.z) / 2 - 0.2, bx + 0.1, y + 0.82, (lo.z + hi.z) / 2 + 0.15);
       }
