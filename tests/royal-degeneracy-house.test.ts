@@ -74,12 +74,12 @@ const FRONT = Math.PI;
 
 test('house: the stairs turn twice up to floor 2, then double back on a half landing up to floor 3, and back down', () => {
   // From the hall: a few steps left, the long flight toward the back, then right up the last few steps.
-  const up1 = route({ x: 2.8, y: 0, z: 13.15 }, [[LEFT, 1], [BACK, 1.3], [RIGHT, 0.75]]);
+  const up1 = route({ x: 2.8, y: 0, z: 13.15 }, [[LEFT, 1], [BACK, 1.3], [RIGHT, 1.1]]);
   assert.equal(floorOf(up1.pos.y), 1, `floor 1 → 2 ends at ${JSON.stringify(up1.pos)}`);
   assert.equal(roomAt(up1.pos)?.id, 'landing');
   assert.ok(Math.abs(up1.pos.z - 10.15) < 0.4, 'arrives facing the bathroom door');
   // Round the short wall to the foot of flight C, up it (climbing left) to the half landing, then double back up D.
-  const half = route(up1.pos, [[RIGHT, 0.4], [FRONT, 0.4], [LEFT, 1.3]]);
+  const half = route(up1.pos, [[FRONT, 0.4], [LEFT, 1.8]]);
   assert.ok(Math.abs(half.pos.y - 4.5) < 0.05, `the half landing: ${JSON.stringify(half.pos)}`);
   const up2 = route(half.pos, [[BACK, 1], [RIGHT, 1.5]]);
   assert.equal(floorOf(up2.pos.y), 2, `floor 2 → 3 ends at ${JSON.stringify(up2.pos)}`);
@@ -108,7 +108,7 @@ const MAGNETS: Vec3[] = [
   { x: 2.6, y: 0, z: 13.15 },
   { x: 0.62, y: 0.7, z: 13.15 },
   { x: 0.62, y: 2.1, z: 10.15 },
-  { x: 2.8, y: FLOOR_Y[1], z: 10.15 },
+  { x: 3.7, y: FLOOR_Y[1], z: 10.15 },
   { x: 3.7, y: FLOOR_Y[1], z: 11.25 },
   // Up flight C (steep: people take it at a run, so the fill needs stepping stones).
   ...[2.9, 2.3, 1.7, 1.2].map((x) => ({ x, y: FLOOR_Y[1] + ((3.2 - x) / 2.1) * 1.7, z: 11.25 })),

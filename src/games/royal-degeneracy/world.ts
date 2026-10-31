@@ -429,7 +429,7 @@ export class World {
     }
     this.disposables.push(...props.owned);
     // The bathroom mirror (it only renders while you're close enough to see it).
-    this.mirror.position.set(WIDTH - 0.135, FLOOR_Y[1] + 1.55, 10.25);
+    this.mirror.position.set(WIDTH - 0.135, FLOOR_Y[1] + 1.55, 10.75);
     this.mirror.rotation.y = -Math.PI / 2;
     this.mirror.visible = false;
     s.add(this.mirror);

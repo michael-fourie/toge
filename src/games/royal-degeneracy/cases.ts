@@ -57,7 +57,7 @@ export const CASES: Case[] = [
   {
     id: 'unflushed',
     title: 'The Unflushed',
-    scene: { room: 'bath3', x: 7.1, z: 8.4, did: 'didn’t flush (and the floor)' },
+    scene: { room: 'bath3', x: 7.1, z: 10.3, did: 'didn’t flush (and the floor)' },
     open: 'Someone didn’t flush the top toilet. Worse: the floor. Nobody can stand it in there for more than 8 seconds, so search it in relays. One of you did this.',
     weapon: 'a plunger',
     last: 'Wags locks himself in his room and plays the saddest record he owns. The house has to settle this now.',

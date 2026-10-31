@@ -52,7 +52,7 @@ for (const d of DOORS) {
 }
 // The stairs down, as a chain: the top of the long flight (on the landing), its corner landing, the hall.
 const chain = [
-  { pos: { x: 2.8, y: FLOOR_Y[1], z: 10.15 }, rooms: ['landing'] },
+  { pos: { x: 3.7, y: FLOOR_Y[1], z: 10.15 }, rooms: ['landing'] },
   { pos: { x: 0.62, y: 2.1, z: 10.15 }, rooms: ['stairs1'] },
   { pos: { x: 0.62, y: 0.7, z: 13.15 }, rooms: ['stairs1'] },
   { pos: { x: 2.6, y: 0, z: 13.15 }, rooms: ['hall'] },

@@ -281,16 +281,16 @@ wall(0, 7.3, 5.6, W, 5.6);
 const TRIANGLE: Prism = { floor: 0, pts: [[3.5, 5.9], [6.1, 5.9], [3.5, 9.3]], h: CEILING[0], tv: true };
 prism(TRIANGLE);
 // The stairs: a few steps left from the hall (A1), a corner landing, the long flight toward the back (A2), a second
-// corner landing, and a few steps right (A3) up onto floor 2, facing the bathroom door. Each flight sits on a solid
-// base; beside A2 the space under floor 2 is filled in (it's floor-2 floor above). A wooden banister runs along A1
+// corner landing, and a few steps right (A3) up onto floor 2, facing the bathroom door. A3 runs right up to the
+// landing's wall, over the dining room's way through to the hall (2.1 m under it). Beside A2 it's filled in. A wooden banister runs along A1
 // and the first landing.
 flight(0, 1.1, 12.65, 2.1, 13.65, 0, 0.7, 'x', -1);
 box(0, 'stair', 0.12, 0, 12.65, 1.1, 0.7, 13.65);
 box(0, 'stair', 0.12, 0, 10.65, 1.1, 0.7, 12.65);
 flight(0, 0.12, 10.65, 1.1, 12.65, 0.7, 2.1, 'z', -1);
 box(0, 'stair', 0.12, 0, 9.65, 1.3, 2.1, 10.65);
-box(0, 'stair', 1.3, 0, 9.65, 2.3, 2.1, 10.65);
-flight(0, 1.3, 9.65, 2.3, 10.65, 2.1, FLOOR_Y[1], 'x', 1);
+box(0, 'stair', 1.3, 0, 9.65, 2.1, 2.1, 10.65);
+flight(0, 1.3, 9.65, 3.2, 10.65, 2.1, FLOOR_Y[1], 'x', 1);
 box(0, 'wall', 1.1, -0.8, 10.65, 2.1, FLOOR_Y[1] - SLAB, 12.65);
 box(0, 'banister', 1.1, 0, 13.65, 2.1, 1.25, 13.73);
 box(0, 'banister', 0.12, 0.7, 13.65, 1.1, 1.65, 13.73);
@@ -322,9 +322,9 @@ furn(0, 'bin', 3.5, 21.3, 4.2, 22, 0.7);
 furn(0, 'shelf', 3.4, 19.4, 3.84, 19.86, 0.9);
 
 // ---------------------------------------------------------------------------------------------
-// Floor 2 (traced from floor2.jpg): Selby (back left) with the covered balcony behind, Dev (back right), the
-// bathroom (middle right), Xang (front right), Will Palmer (front left) with the front balcony, the landing in the
-// middle. The long flight from the hall arrives at the back of its well (L2). The way up doubles back: flight C
+// Floor 2 (traced from floor2.jpg): the landing is a plain rectangle. Its stair wall has the way down and the way up;
+// Selby's and Dev's doors are on its back wall, Will Palmer's and Xang's on its front wall, each facing the other;
+// the bathroom door is at the far end. The covered balcony is behind Selby, the front balcony in front of Will. The long flight from the hall arrives at the back of its well (L2). The way up doubles back: flight C
 // climbs left from the landing to a half landing by the well, then flight D climbs right into the top hall. The
 // whole stair block is solid underneath, and railed where it meets the landing.
 
@@ -335,23 +335,28 @@ furn(0, 'shelf', 3.4, 19.4, 3.84, 19.86, 0.9);
  */
 const SB = { x0: 0.12, x1: 1.1, x2: 3.2, z0: 8.55, zD: 9.55, zA: 9.65, zA1: 10.65, zC: 10.75, z1: 11.75 };
 const HALF = 4.5;
+/** The floor-2 landing (a rectangle), where the rooms either side divide, and the doors' places along it. */
+const L2 = { x0: SB.x2, x1: 6.6, z0: 6.5, z1: 13.4 };
+const MID = 4.9;
+const DOOR_A = 3.95;
+const DOOR_B = 5.85;
 
 room('stairs2', 'the stairs', 1, SB.x0, SB.z0, SB.x1, SB.z1, 'stair');
 room('stairs2', 'the stairs', 1, SB.x1, SB.z0, SB.x2, SB.zA, 'stair');
-room('stairs2', 'the stairs', 1, SB.x1, SB.zA, 2.3, SB.zA1, 'stair');
+room('stairs2', 'the stairs', 1, SB.x1, SB.zA, SB.x2, SB.zA1, 'stair');
 room('stairs2', 'the stairs', 1, SB.x1, SB.zA1, SB.x2, SB.z1, 'stair');
-room('selby', 'Selby’s room', 1, 0, 0, 4.05, 6.8);
-room('dev', 'Dev’s room', 1, 4.05, 0, W, 6.2);
-room('bath2', 'the bathroom', 1, 6.6, 6.2, W, 12.2, 'tile');
-room('xang', 'Xang’s room', 1, 4.95, 12.2, W, DEPTH);
-room('will', 'Will Palmer’s room', 1, 0, 13.4, 4.95, DEPTH);
-room('landing', 'the landing', 1, 0, 6.2, 6.6, 13.4);
+room('selby', 'Selby’s room', 1, 0, 0, MID, L2.z0);
+room('dev', 'Dev’s room', 1, MID, 0, W, L2.z0);
+room('bath2', 'the bathroom', 1, L2.x1, L2.z0, W, L2.z1, 'tile');
+room('xang', 'Xang’s room', 1, MID, L2.z1, W, DEPTH);
+room('will', 'Will Palmer’s room', 1, 0, L2.z1, MID, DEPTH);
+room('landing', 'the landing', 1, L2.x0, L2.z0, L2.x1, L2.z1);
 room('balcony', 'the covered balcony', 1, 0, -3.2, 4.05, 0, 'porch', true);
 room('frontbalcony', 'the front balcony', 1, 0, DEPTH, 4.4, 22.2, 'porch', true);
 
 // The slab, with the well over A2 and A3 cut out of it.
 slab(1, 'wood', -0.12, -0.12, W + 0.12, SB.zA);
-slab(1, 'wood', 2.3, SB.zA, W + 0.12, SB.zA1);
+slab(1, 'wood', SB.x2, SB.zA, W + 0.12, SB.zA1);
 slab(1, 'wood', SB.x1, SB.zA1, W + 0.12, 13.34);
 slab(1, 'wood', -0.12, 13.34, W + 0.12, DEPTH + 0.12);
 slab(1, 'porch', 0, -3.2, 4.05, -0.12);
@@ -368,7 +373,6 @@ box(1, 'wall', SB.x1, FLOOR_Y[1], SB.zD, SB.x2, FLOOR_Y[2] + 1, SB.zA);
 box(1, 'wall', SB.x0, FLOOR_Y[1], SB.z0 - 0.08, SB.x2, FLOOR_Y[2] + 1, SB.z0);
 box(1, 'wall', SB.x1, FLOOR_Y[1], SB.z1, SB.x2, HALF + 1, SB.z1 + 0.08);
 box(1, 'banister', SB.x0, HALF, SB.z1, SB.x1, HALF + 1, SB.z1 + 0.08);
-box(1, 'banister', SB.x1, FLOOR_Y[1], SB.z1 + 0.08, SB.x1 + 0.08, FLOOR_Y[1] + 1, 13.34);
 // Balcony railings and posts.
 box(1, 'rail', 0, FLOOR_Y[1], -3.2, 4.05, FLOOR_Y[1] + 1, -3.12);
 box(1, 'rail', -0.05, FLOOR_Y[1], -3.2, 0.05, FLOOR_Y[1] + 1, -0.12);
@@ -383,44 +387,44 @@ wall(1, 0, 0, W, 0, [{ at: 2, kind: 'door', id: 'balcony' }, { at: 6.2, kind: 'w
 wall(1, 0, DEPTH, W, DEPTH, [{ at: 1.7, kind: 'door', id: 'frontbalcony' }, { at: 6.5, kind: 'window' }], EXT, 'brick');
 wall(1, 0, 0, 0, DEPTH, [{ at: 3, kind: 'window' }, { at: 16.6, kind: 'window' }], EXT, 'brick');
 wall(1, W, 0, W, DEPTH, [{ at: 3, kind: 'window' }, { at: 9.6, kind: 'window', w: 0.7 }, { at: 16.6, kind: 'window' }], EXT, 'brick');
-wall(1, 0, 6.8, 4.05, 6.8, [{ at: 3.2, kind: 'door', id: 'selby' }]);
-wall(1, 4.05, 0, 4.05, 6.8);
-wall(1, 4.05, 6.2, W, 6.2, [{ at: 1.15, kind: 'door', id: 'dev' }]);
-wall(1, 6.6, 6.2, 6.6, 12.2, [{ at: 3.95, kind: 'door', id: 'bath2' }]);
-wall(1, 4.95, 12.2, W, 12.2, [{ at: 0.75, kind: 'door', id: 'xang' }]);
-wall(1, 0, 13.4, 4.95, 13.4, [{ at: 4.2, kind: 'door', id: 'will' }]);
-wall(1, 4.95, 12.2, 4.95, DEPTH);
+wall(1, 0, L2.z0, W, L2.z0, [{ at: DOOR_A, kind: 'door', id: 'selby' }, { at: DOOR_B, kind: 'door', id: 'dev' }]);
+wall(1, 0, L2.z1, W, L2.z1, [{ at: DOOR_A, kind: 'door', id: 'will' }, { at: DOOR_B, kind: 'door', id: 'xang' }]);
+wall(1, MID, 0, MID, L2.z0);
+wall(1, MID, L2.z1, MID, DEPTH);
+wall(1, L2.x1, L2.z0, L2.x1, L2.z1, [{ at: 10.15 - L2.z0, kind: 'door', id: 'bath2' }]);
+// The landing's stair wall: the way down (A3 arriving) and the way up (the foot of C), walls either side.
+wall(1, L2.x0, L2.z0, L2.x0, SB.z0);
+wall(1, L2.x0, SB.z1, L2.x0, L2.z1);
 
 // Selby: bed in the front-left corner, the Bike Stu desk on the right wall. Dev: bed in the back-right corner, the
 // desk by the door, the bookshelf. The bathroom: tub at the back, sink, toilet at the front. Xang: bed in the
 // back-right corner, desk down the left wall. Will: desk in the back-left corner, bed along the right wall.
-furn(1, 'bed', 0.12, 4.6, 1.2, 6.74, 0.5);
-furn(1, 'desk', 3.4, 2, 3.99, 4.6, 0.75);
+furn(1, 'bed', 0.12, 4.3, 1.2, 6.44, 0.5);
+furn(1, 'desk', 4.25, 2, 4.84, 4.6, 0.75);
 furn(1, 'radiator', 0.12, 1.6, 0.3, 2.8, 0.6);
-furn(1, 'bed', 5.9, 0.12, W - 0.12, 2.1, 0.55);
-furn(1, 'desk', 6.3, 5.5, 7.8, 6.14, 0.75);
-furn(1, 'shelf', 4.11, 0.8, 4.45, 2.2, 1.8);
+furn(1, 'bed', 6.3, 0.12, W - 0.12, 2.1, 0.55);
+furn(1, 'desk', 6.9, 5.8, 8.1, 6.44, 0.75);
+furn(1, 'shelf', 4.96, 0.8, 5.3, 2.2, 1.8);
 furn(1, 'radiator', W - 0.3, 3.2, W - 0.12, 4.4, 0.6);
-furn(1, 'tub', 7.5, 6.3, W - 0.12, 8, 0.55);
-furn(1, 'sink', 7.8, 9.9, W - 0.12, 10.6, 0.85);
-furn(1, 'toilet', 7.75, 11.2, W - 0.12, 12.1, 0.45);
-furn(1, 'bed', 6.6, 12.3, W - 0.12, 14.4, 0.5);
-furn(1, 'desk', 5.02, 16.8, 5.6, 19.86, 0.75);
+furn(1, 'tub', 7.5, 6.6, W - 0.12, 8.3, 0.55);
+furn(1, 'sink', 7.8, 10.4, W - 0.12, 11.1, 0.85);
+furn(1, 'toilet', 7.75, 12.45, W - 0.12, 13.32, 0.45);
+furn(1, 'bed', 6.6, 13.5, W - 0.12, 15.6, 0.5);
+furn(1, 'desk', 4.96, 16.8, 5.55, 19.86, 0.75);
 furn(1, 'bed', 3.2, 15.4, 4.88, 19.86, 0.5);
 furn(1, 'desk', 0.12, 13.5, 2.4, 14.1, 0.75);
 furn(1, 'radiator', 0.12, 15.8, 0.3, 17, 0.6);
 furn(1, 'bin', 3, -3.05, 3.8, -2.4, 0.7);
 
 // ---------------------------------------------------------------------------------------------
-// Floor 3: Jung (back), the bathroom (middle right), Wags (front). Flight D arrives from the left into the top hall;
-// the eaves storage down the left is only reached through hatches in Jung's and Wags's rooms, never from the hall.
+// Floor 3: the top hall is a rectangle: the stairs on one side (flight D arrives from the left), Jung's door on its
+// back wall and Wags's facing it on the front wall, the top bathroom's door at the far end. The eaves storage down
+// the left is only reached through hatches in Jung's and Wags's rooms, never from the hall.
 
 room('stairs3', 'the stairs', 2, SB.x0, SB.z0, SB.x2, SB.z1, 'stair');
-room('jung', 'Jung’s room', 2, 2.1, 0, W, 6.5);
-room('jung', 'Jung’s room', 2, 2.1, 6.5, 4.4, 8.45);
-room('bath3', 'the top bathroom', 2, 6.4, 6.5, W, 12.15, 'tile');
-room('hall3', 'the top hall', 2, 4.4, 6.5, 6.4, 12.15);
-room('hall3', 'the top hall', 2, SB.x2, 8.45, 4.4, 12.15);
+room('jung', 'Jung’s room', 2, 2.1, 0, W, 8.45);
+room('bath3', 'the top bathroom', 2, 6.4, 8.45, W, 12.15, 'tile');
+room('hall3', 'the top hall', 2, SB.x2, 8.45, 6.4, 12.15);
 room('wags', 'Wags’s room', 2, 2.1, 12.15, W, DEPTH);
 room('eaves', 'the back eaves', 2, 0, 0, 2.1, 8.45, 'stair');
 room('eaves2', 'the front eaves', 2, 0, 12.15, 2.1, DEPTH, 'stair');
@@ -439,18 +443,16 @@ wall(2, 0, DEPTH, W, DEPTH, [{ at: 5, kind: 'window', w: 1.4 }], EXT, 'brick');
 wall(2, 0, 0, 0, DEPTH, [], EXT, 'brick');
 wall(2, W, 0, W, DEPTH, [{ at: 3.4, kind: 'window' }, { at: 9.4, kind: 'window', w: 0.7 }, { at: 16.4, kind: 'window' }], EXT, 'brick');
 wall(2, 2.1, 0, 2.1, 8.45, [{ at: 5.5, kind: 'hatch', id: 'hatch-back', w: 0.9 }]);
-wall(2, 0, 8.45, 4.4, 8.45);
-wall(2, 4.4, 6.5, 4.4, 8.45);
-wall(2, 4.4, 6.5, W, 6.5, [{ at: 0.65, kind: 'door', id: 'jung' }]);
-wall(2, 6.4, 6.5, 6.4, 12.2, [{ at: 4, kind: 'door', id: 'bath3' }]);
-wall(2, 0, 12.15, W, 12.15, [{ at: 5.05, kind: 'door', id: 'wags' }]);
+wall(2, 0, 8.45, W, 8.45, [{ at: 4.8, kind: 'door', id: 'jung' }]);
+wall(2, 0, 12.15, W, 12.15, [{ at: 4.8, kind: 'door', id: 'wags' }]);
+wall(2, 6.4, 8.45, 6.4, 12.15, [{ at: 1.85, kind: 'door', id: 'bath3' }]);
 wall(2, 2.1, 12.15, 2.1, DEPTH, [{ at: 3.8, kind: 'hatch', id: 'hatch-front', w: 0.9 }]);
 
 furn(2, 'desk', 2.2, 0.8, 2.8, 3.8, 0.75);
 furn(2, 'bed', 6.7, 3.4, W - 0.12, 6.4, 0.5);
-furn(2, 'toilet', 7.75, 6.62, W - 0.12, 7.5, 0.45);
-furn(2, 'sink', 7.8, 8.2, W - 0.12, 8.9, 0.85);
-furn(2, 'tub', 7.65, 10.4, W - 0.12, 12.1, 0.55);
+furn(2, 'toilet', 7.75, 8.57, W - 0.12, 9.45, 0.45);
+furn(2, 'sink', 7.8, 10, W - 0.12, 10.7, 0.85);
+furn(2, 'tub', 7.65, 10.85, W - 0.12, 12.08, 0.55);
 furn(2, 'bed', 6.9, 12.3, W - 0.12, 15, 0.5);
 furn(2, 'records', 3.8, 19.4, 5.9, 19.88, 0.8);
 furn(2, 'radiator', W - 0.3, 17.5, W - 0.12, 18.7, 0.6);
@@ -472,8 +474,8 @@ spot('duo-mattress-b', 'duo', 'Grab the other side of Mikol’s mattress', 6.6, 
 spot('pan-kitchen', 'chore', 'Scrub the pan in the sink', 4.8, 0.95, 4.85, 'pan');
 spot('pan-xang', 'chore', 'Scrub the pan on Xang’s desk', 5.3, 3.55, 18.4, 'pan');
 spot('pan-jung', 'chore', 'Scrub the pan under Jung’s desk', 2.5, 6.35, 2.3, 'pan');
-spot('plunge-2', 'chore', 'Plunge the toilet', 8, 3.25, 11.65, 'plunge');
-spot('plunge-3', 'chore', 'Plunge the top toilet', 8, 6.05, 7.05, 'plunge');
+spot('plunge-2', 'chore', 'Plunge the toilet', 8, 3.25, 12.85, 'plunge');
+spot('plunge-3', 'chore', 'Plunge the top toilet', 8, 6.05, 9.0, 'plunge');
 spot('socks-mikol', 'chore', 'Pair the socks on Mikol’s radiator', 6.1, 0.6, 19.76, 'socks');
 spot('socks-dev', 'chore', 'Pair the socks on Dev’s radiator', W - 0.21, 3.4, 3.8, 'socks');
 spot('socks-will', 'chore', 'Pair the socks on Will’s radiator', 0.21, 3.4, 16.4, 'socks');
@@ -491,7 +493,7 @@ spot('binbag', 'chore', 'Take the kitchen bin bag out to the wheelie bin', 2.66,
 // Sabotage fixes.
 spot('fix-fuse', 'fix', 'Flip the trip switch at the fuse box', 0.2, 1.5, 4.4);
 spot('fix-stopcock', 'fix', 'Shut the stopcock under the sink', 5.5, 0.3, 4.55);
-spot('fix-plunge', 'fix', 'Plunge the overflowing toilet', 8, 3.25, 11.65);
+spot('fix-plunge', 'fix', 'Plunge the overflowing toilet', 8, 3.25, 12.85);
 spot('fix-alarm', 'fix', 'Wave a tea towel under the smoke alarm', 2.2, 2.3, 15.5);
 spot('fix-router', 'fix', 'Reboot the router', 3.62, 1.05, 19.63);
 // Sneak routes (Degenerates only): out a window, along a roof, in somewhere else.
@@ -509,7 +511,7 @@ vice('roll-dining', 'roll', 'Roll a joint', 0.7, 0.82, 7.2);
 vice('roll-jung', 'roll', 'Roll a joint', 2.5, 6.4, 3.3);
 vice('bong-living', 'bong', 'the coffee-table bong', 6.8, 0.6, 9.05);
 vice('bong-xang', 'bong', 'Xang’s bong', 5.3, 3.75, 17.7);
-vice('bong-selby', 'bong', 'the Bike Stu bong', 3.7, 3.75, 4.1);
+vice('bong-selby', 'bong', 'the Bike Stu bong', 4.55, 3.75, 4.1);
 vice('bong-mikol', 'bong', 'Mikol’s bong', 8.05, 0.95, 18.4);
 vice('coke', 'coke', 'Do a line off the plate', 5.75, 0.46, 9.6);
 vice('pill', 'pill', 'Take the mystery pill', 0.8, 0.8, 8.8);
@@ -521,19 +523,19 @@ spot('s-sofa', 'search', 'the sofa cushions', 7.9, 0.5, 8.8);
 spot('s-leather', 'search', 'the leather couch cushions', 5.8, 0.5, 12);
 spot('s-mikol-bed', 'search', 'under Mikol’s bed', 7.6, 0.3, 14);
 spot('s-hall-shoes', 'search', 'the shoe pile by the door', 0.5, 0.2, 18.5);
-spot('s-selby-bed', 'search', 'under Selby’s bed', 0.7, 3.1, 5.6);
-spot('s-selby-desk', 'search', 'the Bike Stu desk', 3.7, 3.6, 2.8);
-spot('s-dev-shelf', 'search', 'Dev’s bookshelf', 4.25, 3.9, 1.5);
+spot('s-selby-bed', 'search', 'under Selby’s bed', 0.7, 3.1, 5.4);
+spot('s-selby-desk', 'search', 'the Bike Stu desk', 4.55, 3.6, 2.8);
+spot('s-dev-shelf', 'search', 'Dev’s bookshelf', 5.15, 3.9, 1.5);
 spot('s-dev-bed', 'search', 'under Dev’s bed', 7.2, 3.1, 1.2);
-spot('s-bath2-cabinet', 'search', 'the bathroom cabinet', 8.05, 4.4, 10.25);
-spot('s-xang-bed', 'search', 'under Xang’s bed', 7.5, 3.1, 13.4);
+spot('s-bath2-cabinet', 'search', 'the bathroom cabinet', 8.05, 4.4, 10.75);
+spot('s-xang-bed', 'search', 'under Xang’s bed', 7.5, 3.1, 14.5);
 spot('s-xang-floor', 'search', 'Xang’s floordrobe', 6, 3, 18.4);
 spot('s-will-bed', 'search', 'under Will’s bed', 4, 3.1, 17.5);
 spot('s-will-desk', 'search', 'Will’s desk drawer', 0.9, 3.6, 13.8);
 spot('s-balcony', 'search', 'the balcony junk', 1, 3.1, -2.6);
 spot('s-jung-desk', 'search', 'Jung’s desk', 2.5, 6.4, 1.5);
 spot('s-jung-bed', 'search', 'under Jung’s bed', 7.5, 5.9, 5);
-spot('s-bath3-cabinet', 'search', 'the top bathroom cabinet', 8.05, 7.2, 8.55);
+spot('s-bath3-cabinet', 'search', 'the top bathroom cabinet', 8.05, 7.2, 10.35);
 spot('s-wags-records', 'search', 'the record crates', 4.8, 6.4, 19.6);
 spot('s-wags-bed', 'search', 'under Wags’s bed', 7.6, 5.9, 13.6);
 spot('s-eaves', 'search', 'the eaves boxes', 0.5, 6.2, 4.7);

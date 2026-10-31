@@ -325,7 +325,7 @@ function clutter(k: Kit) {
   const f = (i: number) => FLOOR_Y[i];
   // Cans on the coffee table, the dining table and the floor by the couches.
   const cans: [number, number, number][] = [
-    [6, 0.42, 9.2], [6.3, 0.42, 9.5], [6.7, 0.42, 9.1], [0.5, 0.76, 7.6], [0.9, 0.76, 8.4], [7.3, 0, 11.3], [4.6, 0, 11.1], [2.5, 0, 11.6], [6.9, f(1) + 0.75, 5.7],
+    [6, 0.42, 9.2], [6.3, 0.42, 9.5], [6.7, 0.42, 9.1], [0.5, 0.76, 7.6], [0.9, 0.76, 8.4], [7.3, 0, 11.3], [4.6, 0, 11.1], [2.5, 0, 11.6], [7.5, f(1) + 0.75, 6.1],
     [5.2, f(1) + 0.75, 18.2], [8.1, f(2) + 0.5, 4.2], [4.2, 0.92, 4.95], [5.7, 0.92, 4.9],
   ];
   for (const [x, y, z] of cans) {
@@ -343,7 +343,7 @@ function clutter(k: Kit) {
   k.cone('cone', 3.45, 0, 13.25, 0.17, 0.7);
   k.box('cone', 3.25, 0, 13.05, 3.65, 0.04, 13.45);
   // Dev's room: a shag runner, a plant in a pot.
-  k.box('rug', 5, f(1) + 0.002, 2.6, 5.7, f(1) + 0.02, 5.6);
+  k.box('rug', 5.5, f(1) + 0.002, 2.6, 6.2, f(1) + 0.02, 5.6);
   // Rugs, each with a border: the hall runner, under the coffee table, and one in most bedrooms.
   const rug = (floor: number, x0: number, z0: number, x1: number, z1: number, c1: string, c2: string) => {
     const y = f(floor);

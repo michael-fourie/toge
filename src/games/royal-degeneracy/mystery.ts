@@ -176,8 +176,8 @@ export class Evidence {
       add(new THREE.CylinderGeometry(0.14, 0.14, 0.04, 16), '#2a2a2e', 5.62, 0.95 + 14 * 0.03, 0.45, 0.2);
     } else if (caseId === 'unflushed') {
       const y = FLOOR_Y[2];
-      add(new THREE.CylinderGeometry(0.45, 0.45, 0.005, 24), '#7a5a1a', 7.6, y + 0.003, 7.4);
-      add(new THREE.CylinderGeometry(0.3, 0.3, 0.005, 24), '#8a6a2a', 7.0, y + 0.004, 8.1);
+      add(new THREE.CylinderGeometry(0.45, 0.45, 0.005, 24), '#7a5a1a', 7.4, y + 0.003, 9.95);
+      add(new THREE.CylinderGeometry(0.3, 0.3, 0.005, 24), '#8a6a2a', 6.9, y + 0.004, 10.7);
     } else if (caseId === 'record') {
       // Side B, in two halves, and its sleeve.
       const y = FLOOR_Y[2];
