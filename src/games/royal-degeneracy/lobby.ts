@@ -9,6 +9,7 @@ import { POWERS, powerOf } from './abilities.ts';
 import { CATS, label, valueOf } from './clues.ts';
 import { Person } from './people.ts';
 import { loadStats, statsLine } from './stats.ts';
+import { paintHouse } from './housefront.ts';
 import { CHOICES, MIN_PLAYERS, degeneratesFor, type Settings } from './rules.ts';
 
 // ---------------------------------------------------------------------------------------------
@@ -131,6 +132,7 @@ export interface MenuHandlers {
 
 export function renderMenu(root: HTMLElement, note: string, h: MenuHandlers) {
   root.innerHTML = `
+    <canvas class="rd-backdrop" aria-hidden="true"></canvas>
     <div class="rd-screen rd-menu">
       <p class="rd-kicker">282 · a whodunit in the old house</p>
       <h1 class="rd-logo">ROYAL<br><span>DEGENERACY</span></h1>
@@ -148,6 +150,8 @@ export function renderMenu(root: HTMLElement, note: string, h: MenuHandlers) {
       <p class="rd-note" data-note></p>
       <button class="rd-btn ghost" data-exit>◀ Menu</button>
     </div>`;
+  // The house at night behind it all, windows flicking on and off.
+  paintHouse(root.querySelector<HTMLCanvasElement>('.rd-backdrop')!, false);
   root.querySelector('[data-note]')!.textContent = note;
   root.querySelector('[data-stats]')!.textContent = statsLine(loadStats());
   const code = root.querySelector<HTMLInputElement>('[data-code]')!;

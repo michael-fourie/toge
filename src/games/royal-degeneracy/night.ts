@@ -29,6 +29,7 @@ import { Person } from './people.ts';
 import { saveNight } from './stats.ts';
 import { VIBES, aided, buzz, clearRip, comingDown, crashed, drag, haze, munch, settle, splash, exhaleJoint, eyeShift, heldCode, high, light, line, newVibe, pack, packed, pickUp, pill, putDown, ripDraw, rolled, sober, speedOf, tripping, wired, type Exhale } from './vices.ts';
 import { HeldView, SmokeFx } from './smoke.ts';
+import { Rain } from './weather.ts';
 import { KILL_RANGE, TIMES, type Joiner, type PrivateView, type PublicView, type Status } from './rules.ts';
 import { World } from './world.ts';
 
@@ -230,6 +231,8 @@ export class NightSession {
   /** Your hands in first person (a joint, a bong), and the house's smoke. */
   private held: HeldView;
   private smokeFx: SmokeFx;
+  /** The drizzle outside. */
+  private rain = new Rain();
   /** Mid-drag on the joint or mid-rip on the bong (L held). */
   private smoking = false;
   /** Flicking the lighter at a rolled joint (seconds left), packing the bowl (seconds held). */
@@ -328,6 +331,7 @@ export class NightSession {
     this.world.scene.add(this.body.root);
     this.held = new HeldView(lookFor(this.char, me.name).skin, lookFor(this.char, me.name).shirt);
     this.smokeFx = new SmokeFx(this.world.scene, 220);
+    this.world.scene.add(this.rain.mesh);
     this.self.setLayer(1);
     this.world.scene.add(this.self.root);
     this.world.mirror.getReflectionCamera(this.camera).layers.enable(1);
@@ -2007,6 +2011,11 @@ export class NightSession {
     const party = { x: 7.85, y: 1, z: 12.2 };
     const record = { x: 5, y: FLOOR_Y[2] + 1, z: 19.5 };
     this.audio.loop('party', party, music, this.muffle(party));
+    // The rain: all round you outside, a drum on the roof up top, a hush through the walls elsewhere.
+    this.rain.update(dt);
+    const here = roomAt({ ...this.walker.pos, y: this.walker.pos.y + 0.1 });
+    const outside = !here || here.outside;
+    this.audio.loop('rain', { x: this.camera.position.x, y: this.camera.position.y + 2, z: this.camera.position.z }, outside ? 0.3 : floorOf(this.walker.pos.y) === 2 ? 0.16 : 0.07, outside ? 0 : 1);
     this.audio.loop('record', record, ph === 'over' ? 0.5 : music * 0.8, ph === 'over' ? 0 : this.muffle(record));
     this.world.setPower(kind !== 'power');
     this.world.setFlood(kind === 'flood' && sab ? Math.min(1, (this.roam - (sab[1] - SAB.crisis)) / SAB.crisis) : 0);
@@ -2242,6 +2251,7 @@ export class NightSession {
 
   destroy() {
     this.held.dispose();
+    this.rain.dispose();
     this.smokeFx.dispose();
     this.touch?.dispose();
     this.voice.dispose();

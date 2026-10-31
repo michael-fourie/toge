@@ -235,7 +235,7 @@ test('royal: messages are shape-checked: the host’s own views pass, junk doesn
   assert.equal(st?.t, 'st');
   const me = readMsg(JSON.parse(JSON.stringify({ t: 'me', v: privateView(n, 1) })));
   assert.equal(me?.t, 'me');
-  assert.deepEqual(readMsg({ t: 'p', x: 1, y: 0, z: 2, yaw: 0.5, pitch: 0.1, f: 3 }), { t: 'p', x: 1, y: 0, z: 2, yaw: 0.5, pitch: 0.1, f: 3, e: 0 });
+  assert.deepEqual(readMsg({ t: 'p', x: 1, y: 0, z: 2, yaw: 0.5, pitch: 0.1, f: 3 }), { t: 'p', x: 1, y: 0, z: 2, yaw: 0.5, pitch: 0.1, f: 3, e: 0, h: 0 });
   for (const bad of [
     null,
     'hi',

@@ -89,6 +89,11 @@ const LOOKS: Record<string, Look> = {
   lamp: { color: '#ffe2a8', glow: '#ffcf7a' },
   window: { color: '#ffd38a', glow: '#ff9f40' },
   asphalt: { color: '#2a2a30' },
+  kerb: { color: '#7c7a74' },
+  roadLine: { color: '#d8c060', glow: '#3a3010' },
+  car: { color: '#7a2230' },
+  tyre: { color: '#151518' },
+  pole: { color: '#34343c' },
   bark: { color: '#4a3a30' },
   wire: { color: '#111111' },
 };
@@ -490,8 +495,43 @@ export class World {
   }
 
   private addOutside(bld: Builder) {
-    // The street and the sidewalk.
-    bld.quad('asphalt', [-14, GROUND + 0.01, 30.3], [24, GROUND + 0.01, 30.3], [24, GROUND + 0.01, 44], [-14, GROUND + 0.01, 44], [0, 1, 0], 0, 2);
+    // The street: the pavement, the kerb, the road with its centre line, a streetlight, a parked car, and the houses
+    // across the road (a few windows still lit).
+    const g = GROUND;
+    const solid = (mat: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) =>
+      addBox(bld, { min: { x: x0, y: y0, z: z0 }, max: { x: x1, y: y1, z: z1 }, kind: 'cover', mat: mat as HBox['mat'], floor: 0 });
+    bld.quad('path', [-14, g + 0.012, 28.3], [24, g + 0.012, 28.3], [24, g + 0.012, 30.3], [-14, g + 0.012, 30.3], [0, 1, 0], 0, 2);
+    solid('kerb', -14, g - 0.1, 30.25, 24, g + 0.1, 30.45);
+    bld.quad('asphalt', [-14, g - 0.09, 30.45], [24, g - 0.09, 30.45], [24, g - 0.09, 44], [-14, g - 0.09, 44], [0, 1, 0], 0, 2);
+    for (let x = -13; x < 24; x += 3) bld.quad('roadLine', [x, g - 0.085, 37.1], [x + 1.5, g - 0.085, 37.1], [x + 1.5, g - 0.085, 37.3], [x, g - 0.085, 37.3], [0, 1, 0], 0, 2);
+    solid('kerb', -14, g - 0.1, 43.8, 24, g + 0.1, 44);
+    bld.quad('path', [-14, g + 0.012, 44], [24, g + 0.012, 44], [24, g + 0.012, 46], [-14, g + 0.012, 46], [0, 1, 0], 0, 2);
+    // The streetlight (its lamp is one of OUT_LAMPS).
+    solid('pole', WIDTH + 1.74, g, 29.34, WIDTH + 1.86, 4.7, 29.46);
+    solid('pole', WIDTH + 1.4, 4.6, 29.34, WIDTH + 1.86, 4.7, 29.46);
+    solid('lamp', WIDTH + 1.3, 4.45, 29.28, WIDTH + 1.6, 4.6, 29.52);
+    // A parked car, a little dented.
+    solid('tyre', 2.9, g - 0.09, 31.1, 3.5, g + 0.5, 31.3);
+    solid('tyre', 6.3, g - 0.09, 31.1, 6.9, g + 0.5, 31.3);
+    solid('tyre', 2.9, g - 0.09, 32.9, 3.5, g + 0.5, 33.1);
+    solid('tyre', 6.3, g - 0.09, 32.9, 6.9, g + 0.5, 33.1);
+    solid('car', 2.5, g + 0.25, 31.2, 7.3, g + 1.05, 33);
+    solid('car', 3.6, g + 1.05, 31.35, 6.2, g + 1.65, 32.85);
+    bld.quad('darkWindow', [3.7, g + 1.1, 31.33], [6.1, g + 1.1, 31.33], [6.1, g + 1.6, 31.33], [3.7, g + 1.6, 31.33], [0, 0, -1], 0, 1);
+    // The houses across the road: brick fronts, peaked roofs, windows (some lit).
+    let k = 0;
+    for (const [x0, x1, hgt] of [[-13, -4, 8], [-2.5, 7, 9.5], [8.5, 16, 7.5], [17.5, 26, 9]] as [number, number, number][]) {
+      solid('neighbour', x0, g, 47, x1, g + hgt, 58);
+      const mid = (x0 + x1) / 2;
+      bld.quad('neighbourRoof', [x0 - 0.3, g + hgt, 46.7], [x1 + 0.3, g + hgt, 46.7], [mid + 0.3, g + hgt + 2.6, 52.5], [mid - 0.3, g + hgt + 2.6, 52.5], [0, 0.9, -0.4], 0, 2);
+      for (const y of [g + 1, g + 4])
+        for (let x = x0 + 1.2; x < x1 - 1.4; x += 2.4) {
+          const m = Math.abs(Math.sin(k++ * 7.31) * 43758.5) % 1 > 0.55 ? 'window' : 'darkWindow';
+          bld.quad(m, [x, y, 46.98], [x + 1.1, y, 46.98], [x + 1.1, y + 1.4, 46.98], [x, y + 1.4, 46.98], [0, 0, -1], 0, 1);
+        }
+      // A front door each.
+      bld.quad('fence', [mid - 0.5, g, 46.98], [mid + 0.5, g, 46.98], [mid + 0.5, g + 2.1, 46.98], [mid - 0.5, g + 2.1, 46.98], [0, 0, -1], 0, 1);
+    }
     // The gable roof: two shingled slopes along the house, the green gable faces front and back.
     const eave = FLOOR_Y[2] + 2.6;
     const ridge = eave + 3.4;

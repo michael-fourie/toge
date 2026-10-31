@@ -14,20 +14,28 @@ export type Muffle = 0 | 1 | 2;
 interface Loop {
   gain: GainNode;
   lp: BiquadFilterNode;
+  panner: PannerNode;
 }
 
-export type LoopKind = 'party' | 'record';
+export type LoopKind = 'party' | 'record' | 'rain';
 
-/** Writes a short loop into a buffer: the party's four-on-the-floor thump, or a dusty three-chord record. */
+/** Writes a short loop into a buffer: the party's four-on-the-floor thump, a dusty three-chord record, or rain. */
 function synthLoop(ctx: AudioContext, kind: LoopKind): AudioBuffer {
   const sr = ctx.sampleRate;
-  const secs = kind === 'party' ? 2 : 6;
+  const secs = kind === 'party' ? 2 : kind === 'rain' ? 4 : 6;
   const buf = ctx.createBuffer(1, sr * secs, sr);
   const d = buf.getChannelData(0);
   let seed = 9;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  let prev = 0;
   for (let i = 0; i < d.length; i++) {
     const t = i / sr;
+    if (kind === 'rain') {
+      // A soft hiss (smoothed noise) with drips scattered through it.
+      prev = prev * 0.86 + rnd() * 0.14;
+      d[i] = prev * 0.9 + (Math.random() < 0.0009 ? rnd() * 0.5 : 0);
+      continue;
+    }
     if (kind === 'party') {
       // 120 bpm: a kick every beat, a hat on the off-beats, a bass line underneath.
       const beat = t % 0.5;
@@ -314,10 +322,14 @@ export class Audio {
       p.positionZ.value = at.z;
       src.connect(g).connect(lp).connect(p).connect(this.master);
       src.start();
-      l = { gain: g, lp };
+      l = { gain: g, lp, panner: p };
       this.loops.set(kind, l);
     }
     const t = ctx.currentTime;
+    // (The rain follows you round; the others stay put.)
+    l.panner.positionX.value = at.x;
+    l.panner.positionY.value = at.y;
+    l.panner.positionZ.value = at.z;
     l.gain.gain.setTargetAtTime(gain * (muffle === 2 ? 0.45 : muffle === 1 ? 0.7 : 1), t, 0.3);
     l.lp.frequency.setTargetAtTime(muffle === 2 ? 220 : muffle === 1 ? 700 : 9000, t, 0.3);
   }
