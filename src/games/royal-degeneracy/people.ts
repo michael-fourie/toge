@@ -469,7 +469,7 @@ export class Person {
         if (hit) {
           this.joint.root.position.set(0.02, -0.06, -0.17);
           this.joint.root.rotation.set(0.15, -0.2, 0);
-          this.armR.rotation.set(-2.2, 0, 0.6);
+          this.armR.rotation.set(2.2, 0, 0.6);
         } else {
           this.joint.root.position.set(0, -0.47, -0.02);
           this.joint.root.rotation.set(0.4, 0, 0);
@@ -483,8 +483,8 @@ export class Person {
         if (this.bong.root.parent !== this.chest) this.chest.add(this.bong.root);
         this.bong.root.position.set(0.03, hit ? 0.02 : -0.12, -0.2);
         this.bong.root.rotation.set(hit ? 0.25 : 0, 0, 0);
-        this.armL.rotation.set(hit ? -1.25 : -0.9, 0, 0.25);
-        this.armR.rotation.set(hit ? -1.45 : -0.8, 0, -0.35);
+        this.armL.rotation.set(hit ? 1.25 : 0.9, 0, 0.25);
+        this.armR.rotation.set(hit ? 1.45 : 0.8, 0, -0.35);
         this.bong.set(1, hit ? 0.7 : 0, hit, dt);
       }
     }
@@ -554,49 +554,50 @@ export class Person {
     }
     if (p.sit) {
       this.hips.position.y = 0.5;
-      this.legL.rotation.set(-1.5, 0, 0);
-      this.legR.rotation.set(-1.5, 0, 0);
+      this.legL.rotation.set(1.5, 0, 0);
+      this.legR.rotation.set(1.5, 0, 0);
     } else {
       const crouch = p.crouch ? 0.32 : 0;
       this.hips.position.y = HIP - crouch + Math.abs(Math.cos(this.phase)) * 0.025 * walk;
-      this.legL.rotation.set(s * 0.65 - crouch * 1.2, 0, 0);
-      this.legR.rotation.set(-s * 0.65 - crouch * 1.2, 0, 0);
+      this.legL.rotation.set(s * 0.65 + crouch * 1.2, 0, 0);
+      this.legR.rotation.set(-s * 0.65 + crouch * 1.2, 0, 0);
       this.chest.rotation.x = -crouch * 0.9;
       this.armL.rotation.x = -s * 0.55;
       this.armR.rotation.x = s * 0.55;
     }
-    if (p.point) this.armR.rotation.set(-Math.PI / 2 - p.pitch, 0, 0.05);
+    // Arms and legs hang down: a positive x rotation swings them forward (the face is at -z).
+    if (p.point) this.armR.rotation.set(Math.PI / 2 + p.pitch, 0, 0.05);
     if (p.phone) {
-      this.armR.rotation.set(-1.15, 0, 0.45);
-      this.armL.rotation.set(-1.05, 0, -0.35);
+      this.armR.rotation.set(1.15, 0, 0.45);
+      this.armL.rotation.set(1.05, 0, -0.35);
     }
     const t = performance.now() / 1000;
     switch (p.emote) {
       case 'wave':
-        this.armR.rotation.set(-2.7, 0, -0.35 + Math.sin(t * 12) * 0.35);
+        this.armR.rotation.set(2.7, 0, -0.35 + Math.sin(t * 12) * 0.35);
         break;
       case 'point':
-        this.armR.rotation.set(-Math.PI / 2 - p.pitch, 0, 0.05);
+        this.armR.rotation.set(Math.PI / 2 + p.pitch, 0, 0.05);
         break;
       case 'shrug':
-        this.armL.rotation.set(-0.5, 0, 0.9);
-        this.armR.rotation.set(-0.5, 0, -0.9);
+        this.armL.rotation.set(0.5, 0, 0.9);
+        this.armR.rotation.set(0.5, 0, -0.9);
         break;
       case 'facepalm':
-        this.armR.rotation.set(-2.5, 0, 0.75);
+        this.armR.rotation.set(2.5, 0, 0.75);
         break;
       case 'dance':
         this.body.position.y = Math.abs(Math.sin(t * 6)) * 0.08;
         this.chest.rotation.y = Math.sin(t * 3) * 0.4;
-        this.armL.rotation.set(-2.6 + Math.sin(t * 6) * 0.5, 0, 0.3);
-        this.armR.rotation.set(-2.6 - Math.sin(t * 6) * 0.5, 0, -0.3);
+        this.armL.rotation.set(2.6 - Math.sin(t * 6) * 0.5, 0, 0.3);
+        this.armR.rotation.set(2.6 + Math.sin(t * 6) * 0.5, 0, -0.3);
         break;
       case 'five':
-        this.armR.rotation.set(-2.95, 0, -0.1);
+        this.armR.rotation.set(2.95, 0, -0.1);
         break;
       case 'hug':
-        this.armL.rotation.set(-1.45, 0, 0.5);
-        this.armR.rotation.set(-1.45, 0, -0.5);
+        this.armL.rotation.set(1.45, 0, 0.5);
+        this.armR.rotation.set(1.45, 0, -0.5);
         break;
     }
     if (this.said && performance.now() > this.saidUntil) this.clearSaid();

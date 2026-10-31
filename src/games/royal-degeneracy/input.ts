@@ -25,6 +25,8 @@ export interface Frame {
   /** Q / Ⓨ: your ability. G / D-pad down: emotes. */
   ability: boolean;
   emote: boolean;
+  /** G (or D-pad down) still held: the emote wheel stays open. */
+  emoteHeld: boolean;
   /** L / RB: light a joint; held, a drag on it or a rip off the bong. */
   light: boolean;
   lightHeld: boolean;
@@ -192,6 +194,7 @@ export class Input {
       altHeld: this.any(BIND.alt) || !!pd[4],
       ability: this.any(BIND.ability, this.pressed) || !!pp[3],
       emote: this.any(BIND.emote, this.pressed) || !!pp[13],
+      emoteHeld: this.any(BIND.emote) || !!pd[13],
       light: this.any(BIND.light, this.pressed) || !!pp[5],
       lightHeld: this.any(BIND.light) || !!pd[5],
       drop: this.any(BIND.drop, this.pressed) || !!pp[14],

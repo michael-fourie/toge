@@ -117,23 +117,67 @@ export class PowerUI {
     grid.querySelector<HTMLButtonElement>('button')?.focus();
   }
 
-  /** The emote wheel: number keys, clicks or the pad. */
-  emoteMenu(pick: (e: number) => void) {
+  /**
+   * The emote wheel: held open (G), aimed by moving the mouse (or the stick) away from its middle, picked by letting
+   * go (or a click). `wheelPick` is the EMOTES index under the aim, or -1 while you're still in the middle.
+   */
+  wheelPick = -1;
+  private wheelItems: HTMLElement[] = [];
+  private wheelLabel: HTMLElement | null = null;
+  private wheelAim = { x: 0, y: 0 };
+
+  get wheelOpen() {
+    return !!this.menu?.classList.contains('rd-wheel');
+  }
+
+  openWheel() {
     this.closeMenu();
-    const box = el('div', 'rd-emotes');
-    box.dataset.navScope = '';
-    EMOTES.forEach((e, i) => {
-      if (!e) return;
-      const b = el('button', 'rd-btn small', `${i} ${EMOTE_NAMES[e]}`);
-      b.addEventListener('click', () => {
-        pick(i);
-        this.closeMenu();
-      });
-      box.append(b);
+    const box = el('div', 'rd-wheel');
+    const ids = EMOTES.map((e, i) => (e ? i : -1)).filter((i) => i > 0);
+    this.wheelItems = ids.map((i, k) => {
+      const e = EMOTES[i] as Exclude<Emote, ''>;
+      const [icon, ...name] = EMOTE_NAMES[e].split(' ');
+      const item = el('div', 'rd-wheel-item');
+      item.append(el('b', '', icon), el('span', '', name.join(' ')));
+      const a = (k / ids.length) * Math.PI * 2;
+      item.style.left = `${50 + Math.sin(a) * 36}%`;
+      item.style.top = `${50 - Math.cos(a) * 36}%`;
+      item.dataset.emote = String(i);
+      box.append(item);
+      return item;
     });
+    this.wheelLabel = el('div', 'rd-wheel-mid', 'Move to pick · let go of G');
+    box.append(this.wheelLabel);
+    this.wheelAim = { x: 0, y: 0 };
+    this.wheelPick = -1;
     this.menu = box;
     this.parent.append(box);
-    box.querySelector<HTMLButtonElement>('button')?.focus();
+  }
+
+  /** Mouse (or stick) movement since last frame, in pixels: steers the pick. */
+  aimWheel(dx: number, dy: number) {
+    if (!this.wheelOpen) return;
+    const a = this.wheelAim;
+    a.x += dx;
+    a.y += dy;
+    const len = Math.hypot(a.x, a.y);
+    // Kept within a short reach, so changing your mind is a small flick.
+    if (len > 120) {
+      a.x *= 120 / len;
+      a.y *= 120 / len;
+    }
+    const n = this.wheelItems.length;
+    let k = -1;
+    if (len > 26) {
+      const ang = (Math.atan2(a.x, -a.y) + Math.PI * 2) % (Math.PI * 2);
+      k = Math.round(ang / ((Math.PI * 2) / n)) % n;
+    }
+    this.wheelItems.forEach((item, j) => item.classList.toggle('on', j === k));
+    this.wheelPick = k < 0 ? -1 : Number(this.wheelItems[k].dataset.emote);
+    if (this.wheelLabel) {
+      const e = this.wheelPick > 0 ? (EMOTES[this.wheelPick] as Exclude<Emote, ''>) : null;
+      this.wheelLabel.textContent = e ? EMOTE_NAMES[e] : 'Move to pick · let go of G';
+    }
   }
 
   dispose() {

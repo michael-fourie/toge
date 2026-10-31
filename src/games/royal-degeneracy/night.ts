@@ -1518,15 +1518,24 @@ export class NightSession {
   // -------------------------------------------------------------------------------------------
   // Abilities, emotes and the cast's tells
 
-  /** Q (your ability) and G (emotes), and the emote wheel's number keys. */
+  /** Q (your ability) and G (the emote wheel: hold, aim with the mouse, let go; number keys work too). */
   private abilityInput(f: Frame, ph: PublicView['ph']) {
-    if (this.powerUI.menuOpen && !this.phone.open) {
-      for (let i = 1; i < EMOTES.length; i++) if (f.keys.has(`Digit${i}`)) this.pickEmote(i);
+    if (this.powerUI.wheelOpen && !this.phone.open) {
+      for (let i = 1; i < EMOTES.length; i++) if (f.keys.has(`Digit${i}`)) return this.pickEmote(i);
+      this.powerUI.aimWheel(f.mx, f.my);
+      if (f.click || !f.emoteHeld) {
+        const i = this.powerUI.wheelPick;
+        if (i > 0) this.pickEmote(i);
+        else {
+          this.powerUI.closeMenu();
+          this.afterOverlay();
+        }
+      }
+      return;
     }
     if (this.overlay() || this.chore || this.paused || this.ghost) return;
     if (f.emote && (ph === 'night' || this.inMeeting())) {
-      this.o.api.setMenuNav(true);
-      this.powerUI.emoteMenu((i) => this.pickEmote(i));
+      this.powerUI.openWheel();
       return;
     }
     if (f.ability) this.usePower(ph);
