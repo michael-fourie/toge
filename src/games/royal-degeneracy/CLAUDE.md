@@ -13,7 +13,7 @@ your hands, the phone, the plant menu), `abilities.ts` (each character's ability
 it) and `powers.ts` (the ability chip, result cards, Proof menu, emote wheel, buzz arrow, Bongus glows). `vices.ts` (joints, bongs, the plate, the mystery
 pill: pure state and timings; effects and prompts in night.ts, only on your own screen), `props.ts` (procedural furniture, clutter,
 signs, flags and posters, merged per colour; world.ts skips the plain boxes it replaces), `sabotage.ts` (sabotages and fixes,
-pure), `stats.ts` (your nights, in this browser), `touch.ts` (phone controls: they drive Input's touch methods), `voice.ts` (proximity voice: WebRTC signalled through party messages `{t:'vc'}`, checked by `readVoice`; game.ts routes them to `session.voice`). The raccoon, Bike Stu's randoms and the reveal's replay frames run
+pure), `stats.ts` (your nights, in this browser), `touch.ts` (phone controls: they drive Input's touch methods), `voice.ts` (proximity voice: WebRTC signalled through party messages `{t:'vc'}`, checked by `readVoice`; game.ts routes them to `session.voice`). `smoke.ts` (the bong and joint models, the smoke particles, and HeldView: your hands in first person, drawn over the world after a depth clear), `coon.ts` (the raccoon as a herding game: a doorway graph with escape routes, pure; referee.ts runs it). The raccoon, Bike Stu's randoms and the reveal's replay frames run
 in `referee.ts`. Quirks that
 only change your own screen (Rock Hound, Supervisor, Couch Lock, Illogical!, Will's cologne) live in `night.ts`. Tests: `tests/royal-degeneracy.test.ts` (rules, messages, cards),
 `tests/royal-degeneracy-clues.test.ts` (the mystery), `tests/royal-degeneracy-cast.test.ts` (abilities, locked
@@ -21,6 +21,8 @@ clues, two-person chores), `tests/royal-degeneracy-house-alive.test.ts` (sabotag
 Sink, awards, stats), `tests/royal-degeneracy-vices.test.ts`, `tests/royal-degeneracy-step8.test.ts` (every case deals, voice gain and messages) and `tests/royal-degeneracy-house.test.ts` (spawns, doorways,
 the square-spiral stairs, a flood fill that reaches every room and spot, shoves, nudges, seats). In dev, `window.__royal` is the app (`__royal.session` the
 night, `__royal.referee` the host's referee).
+
+Stairs collide as smooth ramps but are drawn as treads and white risers (world.ts `addBox`); hand-height rails are drawn as balusters. Windows (`house.ts` WINDOWS) get casings, mullions, sills and curtains in props.ts; their glass is night-blue from inside and a lit room's glow from outside.
 
 Lamp light is baked into the house's vertex colours (world.ts `bake`) as a multiplier, so the power cut still goes
 dark. The bathroom mirror is a three.js Reflector that only renders near it; you appear in it on render layer 1.

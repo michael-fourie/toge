@@ -53,11 +53,13 @@ const LOOKS: Record<string, Look> = {
   feature: { color: '#d8b8b0', tex: 'brick' },
   trim: { color: '#f4f0e6' },
   rail: { color: '#efe9dc' },
-  glass: { color: '#4a5a8a', glow: '#1a2244', clear: true },
-  ceiling: { color: '#f2ede2' },
+  glass: { color: '#3a4a78', glow: '#121a36', clear: true },
+  skirting: { color: '#f3eee2' },
+  ceiling: { color: '#f2ede2', tex: 'stipple' },
   fence: { color: '#6b5440' },
   neighbour: { color: '#6d4a3e', tex: 'brick' },
   neighbourRoof: { color: '#3a3a42' },
+  darkWindow: { color: '#1c2238', glow: '#0a0e1c' },
   tv: { color: '#111216', glow: '#24304a' },
   bed: { color: '#5f7a9a' },
   desk: { color: '#9a7350' },
@@ -78,6 +80,8 @@ const LOOKS: Record<string, Look> = {
   junk: { color: '#a8875e' },
   shingle: { color: '#ffffff', tex: 'shingle' },
   door: { color: '#f6f3ec' },
+  doorPanel: { color: '#e6e0d2' },
+  brass: { color: '#c9a24e' },
   hatch: { color: '#9a7a52' },
   lamp: { color: '#ffe2a8', glow: '#ffcf7a' },
   window: { color: '#ffd38a', glow: '#ff9f40' },
@@ -128,7 +132,8 @@ function bake(v: V, n: V): number {
     const dz = l.z - v[2];
     const d2 = dx * dx + dy * dy + dz * dz;
     const facing = Math.max(0, (dx * n[0] + dy * n[1] + dz * n[2]) / Math.sqrt(d2 + 1e-6));
-    light += (0.75 * (0.35 + 0.65 * facing)) / (1 + d2 / 5);
+    // Ceilings right over a lamp get less of it, or they'd glare.
+    light += ((n[1] < -0.5 ? 0.45 : 0.75) * (0.35 + 0.65 * facing)) / (1 + d2 / 5);
   }
   // A touch of darkness right at the floor and in the top corners.
   const up = v[1] - [0, 2.8, 5.6][f];
@@ -166,7 +171,7 @@ class Builder {
     if (!p) this.parts.set(mat, (p = { pos: [], uv: [], nrm: [], col: [] }));
     const lit = !mat.startsWith('glass') && mat !== 'window' && mat !== 'wire';
     const look = LOOKS[mat];
-    const m = look?.tex ? texture(look.tex)!.metres : 1;
+    const m = mat.startsWith('paint:') ? texture('plaster')!.metres : look?.tex ? texture(look.tex)!.metres : 1;
     for (const v of pts) {
       p.pos.push(v[0], v[1], v[2]);
       p.uv.push(v[uAxis] / m, v[vAxis] / m);
@@ -195,7 +200,7 @@ const mats = new Map<string, THREE.Material>();
 function material(key: string, baked = false): THREE.Material {
   let m = mats.get(baked ? `b:${key}` : key);
   if (m) return m;
-  if (key.startsWith('paint:')) m = new THREE.MeshToonMaterial({ color: key.slice(6), gradientMap: ramp(), vertexColors: baked });
+  if (key.startsWith('paint:')) m = new THREE.MeshToonMaterial({ color: key.slice(6), map: texture('plaster')!.tex, gradientMap: ramp(), vertexColors: baked });
   else {
     const l = LOOKS[key] ?? { color: '#ff00ff' };
     const t = l.tex ? texture(l.tex)!.tex : null;
@@ -206,7 +211,7 @@ function material(key: string, baked = false): THREE.Material {
       emissive: l.glow ?? '#000000',
       transparent: !!l.clear,
       opacity: l.clear ? 0.45 : 1,
-      side: l.clear ? THREE.DoubleSide : THREE.FrontSide,
+      side: THREE.FrontSide,
       vertexColors: baked,
     });
   }
@@ -214,8 +219,12 @@ function material(key: string, baked = false): THREE.Material {
   return m;
 }
 
+/** The boxes stairs are drawn as: wooden treads, white-painted risers and sides. */
+const STEPS = new WeakSet<HBox>();
+
 /** Which material a box's face gets (paint follows the room the face looks into). */
 function faceMat(b: HBox, n: V, c: V): string {
+  if (STEPS.has(b)) return n[1] > 0.5 ? b.mat : 'trim';
   const floors = new Set(['wood', 'tile', 'lino', 'grass', 'porch', 'path']);
   if (floors.has(b.mat)) {
     if (n[1] > 0.5) return b.mat;
@@ -223,9 +232,16 @@ function faceMat(b: HBox, n: V, c: V): string {
     return 'ceiling';
   }
   if (b.ramp) return n[1] > 0.3 ? b.mat : 'trim';
+  // Windows: night glass from inside; from outside, a lit room's warm glow.
+  if (b.mat === 'glass') {
+    const p = { x: c[0] + n[0] * 0.3, y: FLOOR_Y[b.floor] + 1, z: c[2] + n[2] * 0.3 };
+    const out = p.x < 0 || p.x > WIDTH || p.z < 0 || p.z > DEPTH || !!roomAt(p)?.outside;
+    return out ? 'window' : 'glass';
+  }
   if (b.mat === 'wall' || b.mat === 'brick') {
     if (n[1] !== 0) return 'trim';
-    const probe = { x: c[0] + n[0] * 0.3, y: c[1], z: c[2] + n[2] * 0.3 };
+    // Probe at the face's own floor (a strip above a window is still that room, not the floor above).
+    const probe = { x: c[0] + n[0] * 0.3, y: FLOOR_Y[b.floor] + 1.2, z: c[2] + n[2] * 0.3 };
     const outside = probe.x < 0 || probe.x > WIDTH || probe.z < 0 || probe.z > DEPTH;
     if (outside) return b.mat === 'brick' ? 'brick' : 'trim';
     const r = roomAt(probe);
@@ -248,7 +264,39 @@ function addBox(bld: Builder, b: HBox) {
   const t11 = top(x1, z1);
   const t01 = top(x0, z1);
   const mid = (a: V, c: V): V => [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2, (a[2] + c[2]) / 2];
-  const face = (a: V, bb: V, c: V, d: V, n: V, u: 0 | 1 | 2, v: 0 | 1 | 2) => bld.quad(faceMat(b, n, mid(a, c)), a, bb, c, d, n, u, v);
+  const fy = FLOOR_Y[b.floor];
+  const face = (a: V, bb: V, c: V, d: V, n: V, u: 0 | 1 | 2, v: 0 | 1 | 2) => {
+    const mat = faceMat(b, n, mid(a, c));
+    bld.quad(mat, a, bb, c, d, n, u, v);
+    // A skirting board along the foot of every painted wall that reaches the floor.
+    if (mat.startsWith('paint:') && n[1] === 0 && b.min.y <= fy + 0.01) {
+      const o = 0.016;
+      const h = 0.11;
+      const p = (q: V, y: number, out: number): V => [q[0] + n[0] * out, y, q[2] + n[2] * out];
+      bld.quad('skirting', p(a, fy, o), p(bb, fy, o), p(bb, fy + h, o), p(a, fy + h, o), n, u, 1);
+      bld.quad('skirting', p(a, fy + h, 0), p(bb, fy + h, 0), p(bb, fy + h, o), p(a, fy + h, o), [0, 1, 0], u, 1);
+    }
+  };
+  // Stairs: drawn as real treads and risers (the collision stays a smooth slope; feet are never more than half a
+  // step off it).
+  if (b.ramp && (b.mat === 'stair' || b.mat === 'porch')) {
+    const ax = b.ramp.axis;
+    const a0 = b.min[ax];
+    const a1 = b.max[ax];
+    const n = Math.max(2, Math.round((b.max.y - b.min.y) / 0.18));
+    const h = (b.max.y - b.min.y) / n;
+    const run = (a1 - a0) / n;
+    for (let i = 0; i < n; i++) {
+      const s0 = b.ramp.rise > 0 ? a0 + i * run : a1 - (i + 1) * run;
+      const top = b.min.y + (i + 0.5) * h;
+      const min = { ...b.min, [ax]: s0 };
+      const max = { ...b.max, [ax]: s0 + run, y: Math.min(b.max.y, top) };
+      const step: HBox = { ...b, min, max, ramp: undefined };
+      STEPS.add(step);
+      addBox(bld, step);
+    }
+    return;
+  }
   // Top (flat or sloped).
   let tn: V = [0, 1, 0];
   if (b.ramp) {
@@ -263,6 +311,30 @@ function addBox(bld: Builder, b: HBox) {
   face([x0, y0, z1], [x1, y0, z1], [x1, t11, z1], [x0, t01, z1], [0, 0, 1], 0, 1);
   face([x0, y0, z0], [x0, y0, z1], [x0, t01, z1], [x0, t00, z0], [-1, 0, 0], 2, 1);
   face([x1, y0, z0], [x1, y0, z1], [x1, t11, z1], [x1, t10, z0], [1, 0, 0], 2, 1);
+}
+
+/** A railing at hand height (porch, balconies, stair wells): drawn as a capped rail on spindles, not a slab. */
+const isBalustrade = (b: HBox) => b.mat === 'rail' && b.max.y - b.min.y > 0.7 && b.max.y - b.min.y < 1.15;
+
+function addBalustrade(bld: Builder, b: HBox) {
+  const longX = b.max.x - b.min.x >= b.max.z - b.min.z;
+  const ax = longX ? 'x' : 'z';
+  const cx = (b.min.x + b.max.x) / 2;
+  const cz = (b.min.z + b.max.z) / 2;
+  const at = (a0: number, a1: number, y0: number, y1: number, half: number): HBox => ({
+    ...b,
+    min: longX ? { x: a0, y: y0, z: cz - half } : { x: cx - half, y: y0, z: a0 },
+    max: longX ? { x: a1, y: y1, z: cz + half } : { x: cx + half, y: y1, z: a1 },
+  });
+  const top = b.max.y;
+  addBox(bld, at(b.min[ax], b.max[ax], top - 0.06, top, 0.05));
+  addBox(bld, at(b.min[ax], b.max[ax], b.min.y + 0.06, b.min.y + 0.11, 0.03));
+  const len = b.max[ax] - b.min[ax];
+  const n = Math.max(1, Math.round(len / 0.13));
+  for (let i = 0; i <= n; i++) {
+    const a = b.min[ax] + (len * i) / n;
+    addBox(bld, at(Math.max(b.min[ax], a - 0.018), Math.min(b.max[ax], a + 0.018), b.min.y + 0.11, top - 0.06, 0.018));
+  }
 }
 
 interface DoorView {
@@ -324,7 +396,7 @@ export class World {
     ];
 
     const bld = new Builder();
-    for (const b of BOXES) if (b.mat !== 'invisible' && !DRAWN.has(b.mat)) addBox(bld, b);
+    for (const b of BOXES) if (b.mat !== 'invisible' && !DRAWN.has(b.mat)) (isBalustrade(b) ? addBalustrade : addBox)(bld, b);
     this.addOutside(bld);
     for (const m of bld.build()) {
       s.add(m);
@@ -415,6 +487,21 @@ export class World {
       [WIDTH + 1.2, WIDTH + 9],
     ]) {
       const mid = (x0 + x1) / 2;
+      // Their windows: on the street front and on the side facing us; some rooms are lit, some asleep.
+      const r = (i: number) => (Math.sin(i * 12.9898 + x0) * 43758.5453) % 1;
+      let k = 0;
+      for (const y of [0.4, 3.3, 6.1])
+        for (const x of [x0 + 1.6, mid, x1 - 1.6]) {
+          const m = Math.abs(r(k++)) > 0.45 ? 'window' : 'darkWindow';
+          bld.quad(m, [x - 0.5, y, 22.02], [x + 0.5, y, 22.02], [x + 0.5, y + 1.3, 22.02], [x - 0.5, y + 1.3, 22.02], [0, 0, 1], 0, 1);
+        }
+      const side = x0 < 0 ? x1 + 0.02 : x0 - 0.02;
+      const n: V = [x0 < 0 ? 1 : -1, 0, 0];
+      for (const y of [0.4, 3.3, 6.1])
+        for (const z of [1.5, 6, 11, 16.5]) {
+          const m = Math.abs(r(k++)) > 0.6 ? 'window' : 'darkWindow';
+          bld.quad(m, [side, y, z - 0.45], [side, y, z + 0.45], [side, y + 1.2, z + 0.45], [side, y + 1.2, z - 0.45], n, 2, 1);
+        }
       bld.quad('neighbourRoof', [x0 - 0.3, 9, -2.3], [mid, 12, -2.3], [mid, 12, 22.3], [x0 - 0.3, 9, 22.3], [-0.6, 0.8, 0], 2, 1);
       bld.quad('neighbourRoof', [x1 + 0.3, 9, -2.3], [mid, 12, -2.3], [mid, 12, 22.3], [x1 + 0.3, 9, 22.3], [0.6, 0.8, 0], 2, 1);
     }
@@ -552,12 +639,25 @@ export class World {
         leaf.position.set(0, h / 2, half);
       }
       pivot.add(leaf);
-      // A knob, so it reads as a door.
-      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), material('records'));
-      if (d.axis === 'x') knob.position.set(d.w - 0.12, 1, 0.05);
-      else knob.position.set(0.05, 1, d.w - 0.12);
-      this.disposables.push(knob.geometry);
-      pivot.add(knob);
+      // Four raised panels on each face of the white panel doors, and a brass knob both sides.
+      const along = (a: number, y: number, out: number, sa: number, sy: number, so: number, m: THREE.Mesh) => {
+        if (d.axis === 'x') {
+          m.position.set(a, y, out);
+          m.scale.set(sa, sy, so);
+        } else {
+          m.position.set(out, y, a);
+          m.scale.set(so, sy, sa);
+        }
+        pivot.add(m);
+      };
+      if (!d.hatch)
+        for (const side of [-1, 1])
+          for (const col of [-1, 1])
+            for (const [y, hgt] of [[0.62, 0.78], [1.5, 0.78]])
+              along(half + col * d.w * 0.21, y, side * 0.027, d.w * 0.3, hgt, 0.012, new THREE.Mesh(leafGeo, material('doorPanel')));
+      const knobGeo = new THREE.SphereGeometry(0.035, 10, 8);
+      this.disposables.push(knobGeo);
+      for (const side of [-1, 1]) along(d.w - 0.12, 1, side * 0.055, 1, 1, 1, new THREE.Mesh(knobGeo, material('brass')));
       this.scene.add(pivot);
       this.doorViews.set(d.id, { door: d, pivot, open: 0, target: 0 });
     }

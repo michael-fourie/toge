@@ -103,6 +103,16 @@ const boxes: HBox[] = [];
 const doors: Door[] = [];
 const spots: Spot[] = [];
 const prisms: Prism[] = [];
+/** Every window: where its middle is, which way its wall runs, how wide, how thick the wall (for frames, curtains). */
+export interface Window {
+  floor: number;
+  x: number;
+  z: number;
+  axis: 'x' | 'z';
+  w: number;
+  t: number;
+}
+const windows: Window[] = [];
 
 const box = (floor: number, mat: Mat, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, extra: Partial<HBox> = {}) => {
   const kind = mat === 'wall' || mat === 'brick' ? 'wall' : mat === 'wood' || mat === 'tile' || mat === 'lino' || mat === 'grass' ? 'floor' : 'cover';
@@ -146,6 +156,8 @@ function wall(floor: number, x0: number, z0: number, x1: number, z1: number, gap
     const g1 = a + g.at + w / 2;
     seg(cur, g0, y0, y1);
     if (g.kind === 'window') {
+      const mid = a + g.at;
+      windows.push({ floor, x: axis === 'x' ? mid : c, z: axis === 'x' ? c : mid, axis, w, t });
       seg(g0, g1, y0, fy + SILL);
       seg(g0, g1, fy + SILL, fy + HEAD, 'glass');
       seg(g0, g1, fy + HEAD, y1);
@@ -564,6 +576,9 @@ export const SOLIDS: readonly HBox[] = boxes.filter((b) => !b.ghost);
 export const DOORS: readonly Door[] = doors;
 export const SPOTS: readonly Spot[] = spots;
 export const PRISMS: readonly Prism[] = prisms;
+export const WINDOWS: readonly Window[] = windows;
+/** A window's sill and head heights above its floor. */
+export const WINDOW_SPAN = { sill: SILL, head: HEAD };
 export const CHORE_KINDS: ChoreKind[] = ['pan', 'plunge', 'socks', 'recycling', 'remote', 'mould', 'binbag'];
 /** How many chores each player gets (different kinds). */
 export const TASKS_EACH = 4;

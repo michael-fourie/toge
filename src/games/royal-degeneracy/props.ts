@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CAST, type CharId } from './cast.ts';
-import { BOXES, DEPTH, FLOOR_Y, SPOTS, WIDTH, roomAt, type HBox, type Mat } from './house.ts';
+import { BOXES, DEPTH, DOORS, DOOR_H, FLOOR_Y, SPOTS, WIDTH, WINDOWS, WINDOW_SPAN, roomAt, type HBox, type Mat, type Window } from './house.ts';
 import { ramp } from './people.ts';
 
 /** The furniture kinds props.ts draws (world.ts skips their plain boxes). */
@@ -50,6 +50,8 @@ const COLOURS: Record<string, string> = {
   label: '#d94b4b',
   screen: '#20304a',
   beanbag: '#8a3a6a',
+  casing: '#f6f2e8',
+  frost: '#e8eef0',
 };
 
 /** Collects geometry per colour, merged at the end. */
@@ -339,6 +341,28 @@ function clutter(k: Kit) {
   k.box('cone', 3.6, 0, 13.2, 4, 0.04, 13.6);
   // Dev's room: a shag runner, a plant in a pot.
   k.box('rug', 5, f(1) + 0.002, 2.6, 5.7, f(1) + 0.02, 5.6);
+  // Rugs, each with a border: the hall runner, under the coffee table, and one in most bedrooms.
+  const rug = (floor: number, x0: number, z0: number, x1: number, z1: number, c1: string, c2: string) => {
+    const y = f(floor);
+    k.box(c1, x0, y + 0.002, z0, x1, y + 0.012, z1);
+    k.box(c2, x0 + 0.08, y + 0.012, z0 + 0.08, x1 - 0.08, y + 0.014, z1 - 0.08);
+    k.box(c1, x0 + 0.16, y + 0.014, z0 + 0.16, x1 - 0.16, y + 0.016, z1 - 0.16);
+  };
+  rug(0, 1.2, 14.2, 2.6, 19.2, '#6a2f2a', '#c8a060');
+  rug(0, 5, 8.3, 7.3, 10.6, '#7a2e3a', '#d8b878');
+  rug(0, 5, 15.5, 6.8, 18, '#3e5a6a', '#8aa4b0');
+  rug(1, 1.6, 1.8, 3, 4.4, '#4a3a6a', '#a08ac8');
+  rug(1, 1, 15, 2.8, 18.5, '#5a4a3a', '#b89a70');
+  rug(1, 5.9, 15.5, 7.9, 18.8, '#5f6a3c', '#c0c890');
+  rug(2, 4.5, 15.6, 7.2, 18.6, '#7a4a2a', '#e0b070');
+  rug(2, 3.4, 2, 5.8, 5, '#2f4f4a', '#90b8a8');
+  // Coats on hooks by the front door.
+  k.box('darkwood', 0.12, f(0) + 1.62, 14.2, 0.16, f(0) + 1.72, 15.7);
+  ['#2a3a5a', '#7a2a2a', '#3a3a3a', '#8a7a4a'].forEach((c, i) => {
+    const z = 14.4 + i * 0.36;
+    k.box('metal', 0.16, f(0) + 1.6, z - 0.01, 0.2, f(0) + 1.66, z + 0.01);
+    k.box(c, 0.14, f(0) + 0.85 + (i % 2) * 0.1, z - 0.15, 0.3, f(0) + 1.62, z + 0.15);
+  });
   k.cyl('pot', 4.5, f(1), 5.6, 0.16, 0.3, 10, 0.2);
   for (let i = 0; i < 7; i++) {
     const a = (i / 7) * Math.PI * 2;
@@ -351,6 +375,79 @@ function clutter(k: Kit) {
   // The wheelie bin's lid and the porch mailbox.
   k.box('black', WIDTH - 0.02, 1.3, DEPTH + 0.12, WIDTH - 0.01, 1.31, DEPTH + 0.13);
   k.box('black', 2.6, 1.15, DEPTH + 0.12, 2.9, 1.4, DEPTH + 0.2);
+}
+
+/** Curtains by room: everyone picked their own (bathrooms get a frosted blind instead). */
+const CURTAINS: Record<string, [string, string]> = {
+  dev: ['#3e4f6e', '#4c5f80'],
+  selby: ['#5e4280', '#6e5292'],
+  will: ['#7e3434', '#924040'],
+  xang: ['#56653a', '#667846'],
+  jung: ['#2f5f5a', '#3a706a'],
+  wags: ['#8a5a2a', '#9c6a36'],
+  mikol: ['#45454e', '#55555f'],
+  kitchen: ['#e2c86a', '#ecd682'],
+  dining: ['#6e2a2a', '#7e3434'],
+  living: ['#26263a', '#32324a'],
+};
+
+/**
+ * Windows and doors, finished: white casings round every opening, a cross of mullions in the glass, a sill inside,
+ * and on the room side a rod with pleated curtains (or a frosted blind). Doors get thick casings on both faces.
+ */
+function dressing(k: Kit) {
+  const { sill, head } = WINDOW_SPAN;
+  /** A box on one face of a window's wall: `a` along the wall from the middle, `d` out from the face. */
+  const onWall = (w: Window, side: number, c: string, a0: number, a1: number, y0: number, y1: number, d0: number, d1: number) => {
+    const p0 = side * (w.t / 2 + d0);
+    const p1 = side * (w.t / 2 + d1);
+    if (w.axis === 'x') k.box(c, w.x + a0, y0, w.z + Math.min(p0, p1), w.x + a1, y1, w.z + Math.max(p0, p1));
+    else k.box(c, w.x + Math.min(p0, p1), y0, w.z + a0, w.x + Math.max(p0, p1), y1, w.z + a1);
+  };
+  for (const w of WINDOWS) {
+    const fy = FLOOR_Y[w.floor];
+    const hw = w.w / 2;
+    for (const side of [-1, 1]) {
+      const probe = w.axis === 'x' ? { x: w.x, y: fy + 1, z: w.z + side * (w.t / 2 + 0.4) } : { x: w.x + side * (w.t / 2 + 0.4), y: fy + 1, z: w.z };
+      const room = roomAt(probe);
+      const inside = !!room && !room.outside && probe.x > 0 && probe.x < WIDTH && probe.z > 0 && probe.z < DEPTH;
+      // Casing and mullions (both faces).
+      onWall(w, side, 'casing', -hw - 0.07, -hw, fy + sill - 0.02, fy + head + 0.07, 0, 0.02);
+      onWall(w, side, 'casing', hw, hw + 0.07, fy + sill - 0.02, fy + head + 0.07, 0, 0.02);
+      onWall(w, side, 'casing', -hw - 0.07, hw + 0.07, fy + head, fy + head + 0.07, 0, 0.02);
+      onWall(w, side, 'casing', -0.018, 0.018, fy + sill, fy + head, -0.01, 0.005);
+      onWall(w, side, 'casing', -hw, hw, fy + (sill + head) / 2 - 0.018, fy + (sill + head) / 2 + 0.018, -0.01, 0.005);
+      onWall(w, side, 'casing', -hw - 0.1, hw + 0.1, fy + sill - 0.04, fy + sill, 0, inside ? 0.08 : 0.05);
+      if (!inside || !room) continue;
+      if (room.id.startsWith('bath')) {
+        onWall(w, side, 'frost', -hw, hw, fy + head - 0.45, fy + head, 0.03, 0.045);
+        continue;
+      }
+      const [c1, c2] = CURTAINS[room.id] ?? ['#9a8a74', '#ab9b84'];
+      onWall(w, side, 'metal', -hw - 0.36, hw + 0.36, fy + head + 0.16, fy + head + 0.185, 0.07, 0.095);
+      // Two curtains drawn back to the sides, in pleats (alternating depth and tone).
+      for (const dir of [-1, 1]) {
+        for (let i = 0; i < 4; i++) {
+          const a0 = dir < 0 ? -hw - 0.3 + i * 0.09 : hw + 0.3 - (i + 1) * 0.09;
+          onWall(w, side, i % 2 ? c2 : c1, a0, a0 + 0.09, fy + sill - 0.28, fy + head + 0.16, i % 2 ? 0.06 : 0.085, i % 2 ? 0.09 : 0.11);
+        }
+      }
+    }
+  }
+  // Doors: a casing round both faces (exterior doors sit in thicker walls).
+  const thick = new Set(['front', 'back', 'balcony', 'frontbalcony']);
+  for (const d of DOORS) {
+    if (d.hatch) continue;
+    const fy = FLOOR_Y[d.floor];
+    const t = thick.has(d.id) ? 0.24 : 0.12;
+    const w: Window = { floor: d.floor, x: d.x, z: d.z, axis: d.axis, w: d.w, t };
+    const hw = d.w / 2;
+    for (const side of [-1, 1]) {
+      onWall(w, side, 'casing', -hw - 0.08, -hw, fy, fy + DOOR_H + 0.08, 0, 0.022);
+      onWall(w, side, 'casing', hw, hw + 0.08, fy, fy + DOOR_H + 0.08, 0, 0.022);
+      onWall(w, side, 'casing', -hw - 0.1, hw + 0.1, fy + DOOR_H + 0.03, fy + DOOR_H + 0.12, 0, 0.03);
+    }
+  }
 }
 
 /** The vices, where their spots are: bongs, rolling trays, the plate, the pill. */
@@ -442,6 +539,7 @@ export function buildProps(): { group: THREE.Group; owned: { dispose(): void }[]
   for (const b of BOXES) if (DRAWN.has(b.mat)) furniture(k, b);
   clutter(k);
   vices(k);
+  dressing(k);
   k.build(group, owned);
 
   const brick = (g: CanvasRenderingContext2D, w: number, h: number) => {

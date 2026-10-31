@@ -1,6 +1,6 @@
 # Royal Degeneracy: design and build plan
 
-Status: all eight steps of the build order are built (step 8: touch controls, eight cases, proximity voice). The cast is in [CAST.md](CAST.md), the floorplans are in
+Status: all eight steps of the build order are built (step 8: touch controls, eight cases, proximity voice). Since then: hands-on smoking (pick up a bong, pack, rip, clear; joints drag by drag), floor 2 re-traced with the stairs doubling back on a half landing, sitting anywhere, a herdable raccoon, and a second art pass (textures, trim, curtains, panelled doors, drawn stairs, rugs). The cast is in [CAST.md](CAST.md), the floorplans are in
 `floorplans/`, and the house is read off them in [CLAUDE.md](CLAUDE.md), which also says where to start. The guests
 come later.
 
