@@ -729,7 +729,7 @@ export class NightSession {
         for (const id of this.priv.mates) row.append(chip(portrait(this.o.renderer, this.chars.get(id)!, this.names.get(id)), this.names.get(id) ?? '?', 'also a Degenerate'));
         box.append(row);
       }
-    }, showRole && this.evil ? 'evil' : '');
+    }, showRole && this.evil ? 'evil low' : 'low');
   }
 
   /** The moment a meeting's called: a slam across the screen (who found whom, or who banged the pot), then the table. */
@@ -1097,6 +1097,15 @@ export class NightSession {
     if (ph === 'result') {
       this.camera.position.set(6.2, 1.1, 27.5);
       this.camera.lookAt(2.5, 0.6, 21);
+      return;
+    }
+    if (ph === 'intro' || !this.pub) {
+      // The cold open: a slow dolly from across the street, through the rain, up to the front door.
+      const t = Math.min(1, Math.max(0, 1 - this.left / TIMES.intro));
+      const e = t * t * (3 - 2 * t);
+      const lerp = (a: number, b: number) => a + (b - a) * e;
+      this.camera.position.set(lerp(9, 3.2), lerp(5.5, 1.6), lerp(42, 25));
+      this.camera.lookAt(lerp(4.2, 1.8), lerp(5, 1.4), lerp(12, 20));
       return;
     }
     if (ph === 'over') {
