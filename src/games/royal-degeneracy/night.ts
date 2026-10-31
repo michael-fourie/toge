@@ -12,7 +12,7 @@ import { CAST, eyeHeight, lookFor, tagFor, type CharId } from './cast.ts';
 import { caseById } from './cases.ts';
 import { ChoreView } from './chores.ts';
 import { ITEM, SEARCH_SECONDS, WIPE_SECONDS, fits, unlockTime, type Cat } from './clues.ts';
-import { DOORS, DUO_PAIRS, FLOOR_Y, MEETING_CENTRE, REACH, SEATS, SPOTS, doorBox, floorOf, roomAt, wakeSpot, type Door, type Spot } from './house.ts';
+import { BINBAG_DROP, DOORS, DUO_PAIRS, FLOOR_Y, MEETING_CENTRE, REACH, ROOMS, SEATS, SPOTS, doorBox, floorOf, roomAt, wakeSpot, type Door, type Spot } from './house.ts';
 import { Hud, KEYS, chip, loadPrefs, type Prefs } from './hud.ts';
 import { Input, type Frame } from './input.ts';
 import { portrait } from './lobby.ts';
@@ -20,13 +20,17 @@ import { Meeting } from './meeting.ts';
 import { Evidence, InspectView, Phone, PlantMenu, crimeName, type FeedItem, type Known, type PhoneTab } from './mystery.ts';
 import { POWERS, powerOf, type Power } from './abilities.ts';
 import { Glows, PowerUI } from './powers.ts';
+import { SAB, SABOTAGES, type SabKind } from './sabotage.ts';
 import { newWalker, nudgeApart, shove, stepWalker } from './move.ts';
 import { EMOTES, PF, type Msg } from './net.ts';
 import { Person } from './people.ts';
+import { saveNight } from './stats.ts';
 import { KILL_RANGE, TIMES, type Joiner, type PrivateView, type PublicView, type Status } from './rules.ts';
 import { World } from './world.ts';
 
 const POSE_HZ = 15;
+/** The doorbell camera hangs just outside the front door. */
+const DOOR_CAM_Z = 20.3;
 const INTERP_MS = 100;
 const STEP_EVERY = 0.75;
 const SHOVE_RANGE = 1.5;
@@ -80,7 +84,8 @@ type Target =
   | { kind: 'spot'; spot: Spot; t: number }
   | { kind: 'body'; id: number; t: number }
   | { kind: 'player'; id: number; t: number }
-  | { kind: 'clue'; id: number; t: number };
+  | { kind: 'clue'; id: number; t: number }
+  | { kind: 'coon'; t: number };
 
 const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
@@ -179,6 +184,21 @@ export class NightSession {
   /** Contradictions Jung's phone has already buzzed about. */
   private illogical = new Set<string>();
   private lastTarget: Target | null = null;
+  /** The bin bag you're carrying out (its chore spot), if any. */
+  private carrying: string | null = null;
+  /** Watching the Ring cam on the laptop. */
+  private watching = false;
+  private ringCam = new THREE.PerspectiveCamera(70, 16 / 10, 0.05, 60);
+  private raccoon: THREE.Group | null = null;
+  private coonAt: [number, number, number, number] | null = null;
+  private alarmBeep = 0;
+  /** The Unflushed: seconds in the top bathroom, and when you can go back in (roam). */
+  private gag = 0;
+  private gagUntil = 0;
+  private replays: { k: number; v: number; f: [number, number, number, number][][] }[] = [];
+  private statsSaved = false;
+  private replayCanvases: HTMLCanvasElement[] = [];
+  private replayT = 0;
   private eviction: { person: Person | null; rain: THREE.Points; t: number } | null = null;
   private shake = 0;
   private introStage = '';
@@ -350,6 +370,17 @@ export class NightSession {
         return;
       case 'npcs':
         return this.syncNpcs(m.p);
+      case 'warp':
+        this.walker.pos = { x: m.x, y: m.y, z: m.z };
+        this.walker.vel = { x: 0, y: 0, z: 0 };
+        this.hud.toast('…and out the other side.', 1800);
+        return;
+      case 'coon':
+        return this.syncCoon(m.p);
+      case 'replay':
+        this.replays.push({ k: m.k, v: m.v, f: m.f });
+        if (this.pub?.ph === 'over') this.showOver();
+        return;
       case 'greeted': {
         const kind = m.k === 'five' ? 'high-five' : 'hug';
         for (const id of [m.a, m.b]) {
@@ -662,6 +693,32 @@ export class NightSession {
         row.append(ch);
       }
       box.append(row);
+      // The night's awards.
+      if (w.awards.length) {
+        const aw = document.createElement('div');
+        aw.className = 'rd-awards';
+        for (const [title, id, why] of w.awards) {
+          const a = document.createElement('p');
+          a.append(Object.assign(document.createElement('b'), { textContent: `🏅 ${title}` }), document.createTextNode(` · ${this.names.get(id) ?? '?'}: ${why}`));
+          aw.append(a);
+        }
+        box.append(aw);
+      }
+      // Each takeout from above: the last 10 seconds before it (the killer red, the victim yellow).
+      if (this.replays.length) {
+        const rp = document.createElement('div');
+        rp.className = 'rd-replays';
+        this.replayCanvases = this.replays.map((r) => {
+          const fig = document.createElement('figure');
+          const cv = document.createElement('canvas');
+          cv.width = 200;
+          cv.height = 300;
+          fig.append(cv, Object.assign(document.createElement('figcaption'), { textContent: `${this.names.get(r.k) ?? '?'} → ${this.names.get(r.v) ?? '?'}` }));
+          rp.append(fig);
+          return cv;
+        });
+        box.append(rp);
+      }
       // The timeline: everything the Degenerates did, and when.
       if (w.log.length) {
         const tl = document.createElement('ol');
@@ -780,11 +837,16 @@ export class NightSession {
 
     this.updateRemotes(dt);
     this.updateNpcs(dt);
+    this.updateHouse(dt, ph);
     this.tells(dt);
     this.placeCamera(dt, sitting);
     this.updateHud(ph);
+    if (ph === 'over') {
+      this.saveStats();
+      this.drawReplays(dt);
+    }
     this.sendPose(dt, sitting);
-    this.world.update(dt, this.camera.position);
+    this.world.update(dt, this.camera.position, this.pub?.sab?.[0] !== 'power');
     this.world.torch.intensity = this.torch ? TORCH_POWER : 0;
     this.updateEviction(dt);
     this.glows.group.visible = this.roam < this.until.bongus;
@@ -856,7 +918,8 @@ export class NightSession {
       (sitting ? PF.sit : 0) |
       (this.chore ? PF.busy : 0) |
       (this.roam < this.until.bongus ? PF.bongus : 0) |
-      (this.roam < this.until.sled ? PF.sled : 0);
+      (this.roam < this.until.sled ? PF.sled : 0) |
+      (this.watching ? PF.watch : 0);
     const e = performance.now() < this.emote.until ? this.emote.id : 0;
     const m: Msg = { t: 'p', x: r2(w.pos.x), y: r2(w.pos.y), z: r2(w.pos.z), yaw: r2(wrapAngle(w.yaw)), pitch: r2(w.pitch), f, e };
     this.o.toAll(m);
@@ -918,9 +981,9 @@ export class NightSession {
         r.walked += moved;
         if (r.walked > STEP_EVERY) {
           r.walked = 0;
-          // Nash on the sofa hears every step in the house, walls or not.
+          // Nash on the sofa hears every step in the house, walls or not; the fire alarm drowns them all (Mikol's unbothered).
           const couch = this.char === 'nash' && this.onCouch();
-          this.audio.step(r.pos, this.surfaceAt(r.pos), couch ? 0 : this.muffle({ x: nx, y: ny + 0.2, z: nz }), couch ? 0.9 : 0.6);
+          if (this.pub?.sab?.[0] !== 'alarm' || this.char === 'mikol') this.audio.step(r.pos, this.surfaceAt(r.pos), couch ? 0 : this.muffle({ x: nx, y: ny + 0.2, z: nz }), couch ? 0.9 : 0.6);
         }
       }
     }
@@ -958,8 +1021,12 @@ export class NightSession {
       }
     }
     if (!this.ghost && this.evidence) for (const [id, p] of this.evidence.spots) consider({ kind: 'clue', id, t: raySphere(o, d, p, 0.35, REACH) });
+    if (!this.ghost && this.raccoon?.visible) consider({ kind: 'coon', t: raySphere(o, d, { x: this.raccoon.position.x, y: this.raccoon.position.y + 0.3, z: this.raccoon.position.z }, 0.45, REACH) });
+    const sab = this.pub?.sab;
     for (const s of SPOTS) {
       if (s.kind !== 'chore' && this.ghost) continue;
+      if (s.kind === 'fix' && (!sab || !SABOTAGES[sab[0] as SabKind].fix.includes(s.id) || sab[3].includes(s.id) || (sab[0] === 'wifi' && sab[1] >= 0))) continue;
+      if (s.kind === 'sneak' && !this.evil) continue;
       if (s.kind === 'duo' && this.pub?.duo.includes(DUO_PAIRS.find((p) => p[0] === s.id || p[1] === s.id)![0])) continue;
       if (s.kind === 'chore' && !this.priv?.tasks.some(([id, done]) => id === s.id && !done)) continue;
       consider({ kind: 'spot', spot: s, t: raySphere(o, d, s.pos, 0.5, REACH) });
@@ -973,6 +1040,7 @@ export class NightSession {
     this.evidence?.highlight(t?.kind === 'clue' ? t.id : null);
     let prompt = '';
     if (this.ghost) {
+      if (f.alt && this.evil) this.openPlant();
       const ready = this.priv && this.roam - this.priv.rattleAt >= TIMES.rattle;
       if (t?.kind === 'spot') prompt = `E  ${t.spot.name}`;
       else prompt = ready ? 'E  Rattle something (the living will hear it)' : '';
@@ -991,7 +1059,13 @@ export class NightSession {
           ? `Hold E  Search ${t.spot.name}`
           : t.spot.kind === 'duo'
             ? `Hold E  ${t.spot.name} (someone needs the other end)`
-            : t.spot.kind === 'router'
+            : t.spot.kind === 'fix'
+              ? `Hold E  ${t.spot.name}`
+              : t.spot.kind === 'sneak'
+                ? `E  ${t.spot.name} (sneak route)`
+                : t.spot.kind === 'laptop'
+                  ? `E  ${this.watching ? 'Stop watching' : 'Watch'} the Ring cam`
+                  : t.spot.kind === 'router'
               ? this.power === 'router'
                 ? 'Q  Read the router logs'
                 : 'The house router. Mikol set it up.'
@@ -1003,7 +1077,8 @@ export class NightSession {
       prompt = lock
         ? `Hold E  Open the locked ${lock === 'phone' ? 'phone' : 'bin bag'} (${unlockTime(this.char, lock)} s)`
         : `E  Pick up: ${cat ? ITEM[cat].toLowerCase() : 'something'}${this.evil ? ' · hold R wipe it' : ''}`;
-    } else if (t?.kind === 'player') {
+    } else if (t?.kind === 'coon') prompt = 'E  Shoo the raccoon!';
+    else if (t?.kind === 'player') {
       const near = t.t <= SHOVE_RANGE;
       const parts = [this.names.get(t.id) ?? ''];
       if (near) parts.push('V shove');
@@ -1013,7 +1088,7 @@ export class NightSession {
     // Holding: E digs through a search spot, R (Degenerates) wipes a clue away.
     const lockOf = (id: number) => this.pub?.clues.find((x) => x[0] === id)?.[6] ?? 0;
     const holdKey =
-      t?.kind === 'spot' && t.spot.kind === 'search' && f.useHeld
+      t?.kind === 'spot' && (t.spot.kind === 'search' || t.spot.kind === 'fix') && f.useHeld
         ? t.spot.id
         : t?.kind === 'clue' && lockOf(t.id) && f.useHeld
           ? `lock:${t.id}`
@@ -1034,10 +1109,18 @@ export class NightSession {
       if (this.hold.t >= 0) {
         this.hold.t += dt;
         const lock = holdKey.startsWith('lock:') ? lockOf(Number(holdKey.slice(5))) : 0;
-        const need = lock ? unlockTime(this.char, lock === 1 ? 'phone' : 'bag') : holdKey.startsWith('clue:') ? WIPE_SECONDS : SEARCH_SECONDS / (this.char === 'xang' ? 2 : 1);
-        prompt = `${lock ? 'Fiddling with it' : holdKey.startsWith('clue:') ? 'Wiping' : 'Searching'}… ${Math.min(100, Math.round((100 * this.hold.t) / need))}%`;
+        const fix = holdKey.startsWith('fix-');
+        const need = lock
+          ? unlockTime(this.char, lock === 1 ? 'phone' : 'bag')
+          : fix
+            ? (SAB.hold[holdKey] ?? 3) / (this.char === 'dev' ? 2 : 1)
+            : holdKey.startsWith('clue:')
+              ? WIPE_SECONDS
+              : (holdKey === 's-sink' ? 5 : SEARCH_SECONDS) / (this.char === 'xang' ? 2 : 1);
+        prompt = `${lock ? 'Fiddling with it' : fix ? 'Fixing' : holdKey.startsWith('clue:') ? 'Wiping' : holdKey === 's-sink' ? 'Washing up' : 'Searching'}… ${Math.min(100, Math.round((100 * this.hold.t) / need))}%`;
         if (this.hold.t >= need) {
           if (holdKey.startsWith('clue:')) this.o.toHost({ t: 'wipe', id: Number(holdKey.slice(5)) });
+          else if (fix) this.o.toHost({ t: 'fix', spot: holdKey });
           else if (lock) {
             this.o.toHost({ t: 'unlock', id: Number(holdKey.slice(5)) });
             this.wantClue = true;
@@ -1052,6 +1135,21 @@ export class NightSession {
     }
     this.hud.setPrompt(prompt);
     if (f.alt && this.evil && t?.kind !== 'clue') this.openPlant();
+    // The bin bag: once it's tied, carry it out to the wheelie bin.
+    if (this.carrying) {
+      const d = Math.hypot(this.walker.pos.x - BINBAG_DROP.x, this.walker.pos.z - BINBAG_DROP.z);
+      if (d < 2 && this.walker.pos.y < 0) {
+        prompt = 'E  Drop the bin bag in the wheelie bin';
+        if (f.use) {
+          this.o.toHost({ t: 'chore', spot: this.carrying });
+          this.carrying = null;
+          this.audio.play('ding');
+          this.hud.toast('Bin bag: out. Chore done!');
+          return this.hud.setPrompt('');
+        }
+      } else if (!prompt) prompt = 'Carrying the bin bag out to the wheelie bin (out the back door, round the side)';
+      this.hud.setPrompt(prompt);
+    }
     if (f.use && t) {
       if (t.kind === 'door') this.o.toHost({ t: 'door', id: t.door.id });
       else if (t.kind === 'clue') {
@@ -1059,7 +1157,10 @@ export class NightSession {
           this.wantClue = true;
           this.o.toHost({ t: 'inspect', id: t.id });
         }
-      } else if (t.kind === 'spot' && (t.spot.kind === 'search' || t.spot.kind === 'duo' || t.spot.kind === 'router')) return;
+      } else if (t.kind === 'coon') this.o.toHost({ t: 'shoo' });
+      else if (t.kind === 'spot' && t.spot.kind === 'sneak') this.o.toHost({ t: 'sneak', spot: t.spot.id });
+      else if (t.kind === 'spot' && t.spot.kind === 'laptop') this.watching = !this.watching;
+      else if (t.kind === 'spot' && (t.spot.kind === 'search' || t.spot.kind === 'duo' || t.spot.kind === 'router' || t.spot.kind === 'fix')) return;
       else if (t.kind === 'spot' && t.spot.kind === 'fridge') this.togglePhone('board');
       else if (t.kind === 'body') this.o.toHost({ t: 'report', body: t.id });
       else if (t.kind === 'spot' && t.spot.kind === 'bell') {
@@ -1149,16 +1250,22 @@ export class NightSession {
     });
   }
 
+  /** The Degenerates' menu (R): sabotages, and plants while you're alive. */
   private openPlant() {
-    if (!this.priv || this.priv.plants <= 0) return this.hud.toast('No plants left tonight.');
-    if (!this.pub?.crimes.length) return this.hud.toast('Nothing to frame anyone for yet.');
+    if (!this.priv || !this.pub) return;
     this.input.unlock();
     this.o.api.setMenuNav(true);
     const belongings = [...new Set(this.o.people.map((p) => p.char).filter((c) => c !== 'guest'))];
-    this.plantMenu = new PlantMenu(this.wrap, this.priv.plants, belongings, {
+    const canPlant = !this.ghost && this.pub.crimes.length > 0;
+    const sabWait = this.pub.sab ? -1 : Math.max(0, this.priv.sabAt - this.roam);
+    this.plantMenu = new PlantMenu(this.wrap, canPlant ? this.priv.plants : -1, belongings, sabWait, {
       plant: (cat, value) => {
         this.o.toHost({ t: 'plant', cat, value });
         this.hud.toast('Planted. Act natural.');
+        this.closePlant();
+      },
+      sabotage: (kind) => {
+        this.o.toHost({ t: 'sabotage', kind });
         this.closePlant();
       },
       close: () => this.closePlant(),
@@ -1319,6 +1426,111 @@ export class NightSession {
     for (const r of this.remotes.values()) if (r.char === 'shota') r.person.setShirtless(true);
   }
 
+  /** The raccoon: a little grey bandit with a striped tail. */
+  private syncCoon(p: [number, number, number, number] | null) {
+    this.coonAt = p;
+    if (!this.raccoon) {
+      const g = new THREE.Group();
+      const grey = new THREE.MeshToonMaterial({ color: 0x7a7672 });
+      const dark = new THREE.MeshToonMaterial({ color: 0x2a2826 });
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), grey);
+      body.scale.set(1, 0.8, 1.5);
+      body.position.y = 0.22;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 8), grey);
+      head.position.set(0, 0.3, -0.32);
+      const mask = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.05, 0.04), dark);
+      mask.position.set(0, 0.32, -0.44);
+      g.add(body, head, mask);
+      for (let i = 0; i < 4; i++) {
+        const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.09, 8), i % 2 ? dark : grey);
+        ring.rotation.x = 1.2;
+        ring.position.set(0, 0.28 + i * 0.03, 0.34 + i * 0.08);
+        g.add(ring);
+      }
+      this.raccoon = g;
+      this.world.scene.add(g);
+    }
+    this.raccoon.visible = !!p;
+  }
+
+  /** The house's moving parts on this screen: sabotage effects, the raccoon, the Ring cam, the Unflushed's gag. */
+  private updateHouse(dt: number, ph: PublicView['ph']) {
+    const sab = this.pub?.sab ?? null;
+    const kind = sab?.[0] as SabKind | undefined;
+    this.world.setPower(kind !== 'power');
+    this.world.setFlood(kind === 'flood' && sab ? Math.min(1, (this.roam - (sab[1] - SAB.crisis)) / SAB.crisis) : 0);
+    if (kind === 'alarm' && this.char !== 'mikol' && ph === 'night') {
+      this.alarmBeep -= dt;
+      if (this.alarmBeep < 0) {
+        this.alarmBeep = 0.45;
+        this.audio.play('alarm');
+      }
+    }
+    if (this.raccoon && this.coonAt) {
+      const [x, y, z, yaw] = this.coonAt;
+      this.raccoon.position.lerp(new THREE.Vector3(x, y, z), Math.min(1, dt * 6));
+      this.raccoon.rotation.y = yaw;
+    }
+    // The Ring cam: someone watching lights the doorbell red (for everyone).
+    if (this.watching && Math.hypot(this.walker.pos.x - 6.25, this.walker.pos.z - 9.35) > 2.5) this.watching = false;
+    const watched = this.watching || [...this.remotes.values()].some((r) => r.f & PF.watch && this.statusOf(r.id) === 'in');
+    this.world.setDoorbell(watched);
+    // The Unflushed: nobody can stand the top bathroom for more than 8 s (Mikol's unbothered).
+    const inBath = this.pub?.caseId === 'unflushed' && !this.ghost && this.char !== 'mikol' && roomAt({ ...this.walker.pos, y: this.walker.pos.y + 0.1 })?.id === 'bath3';
+    if (inBath && this.roam < this.gagUntil) this.pushOutOfBath();
+    else if (inBath) {
+      this.gag += dt;
+      if (this.gag > 8) {
+        this.pushOutOfBath();
+        this.gagUntil = this.roam + 4;
+        this.audio.play('gag');
+        this.hud.toast('*gag* You can’t take any more. Out. (Back in 4 s.)', 2500);
+      }
+    } else this.gag = Math.max(0, this.gag - dt * 2);
+    this.wrap.classList.toggle('gag', inBath && this.gag > 4);
+  }
+
+  private pushOutOfBath() {
+    this.walker.pos = { x: 5.9, y: FLOOR_Y[2], z: 10.5 };
+    this.walker.vel = { x: 0, y: 0, z: 0 };
+    this.gag = 0;
+  }
+
+  /** Your night goes into this browser's stats, once. */
+  private saveStats() {
+    const w = this.pub?.win;
+    if (this.statsSaved || !w) return;
+    this.statsSaved = true;
+    const degenerate = this.evil;
+    saveNight({ char: this.char, won: (w.side === 'degenerates') === degenerate, degenerate, evicted: this.status === 'out', takenOut: this.status === 'dead' });
+  }
+
+  /** Plays the takeout replays on the case-closed card, looping. */
+  private drawReplays(dt: number) {
+    this.replayT = (this.replayT + dt * 2) % 24;
+    this.replays.forEach((r, i) => {
+      const cv = this.replayCanvases[i];
+      if (!cv?.isConnected || !r.f.length) return;
+      const g = cv.getContext('2d')!;
+      const last = r.f[r.f.length - 1];
+      const floor = last.find((e) => e[0] === r.v)?.[3] ?? 0;
+      const sx = (x: number) => 10 + ((x + 1) / 10.6) * 180;
+      const sz = (z: number) => 10 + ((z + 1.5) / 23) * 280;
+      g.fillStyle = '#16102a';
+      g.fillRect(0, 0, 200, 300);
+      g.strokeStyle = '#5a4a8a';
+      for (const room of ROOMS) if (room.floor === floor && !room.outside) g.strokeRect(sx(room.min.x), sz(room.min.z), sx(room.max.x) - sx(room.min.x), sz(room.max.z) - sz(room.min.z));
+      const frame = r.f[Math.min(r.f.length - 1, Math.floor(this.replayT))];
+      for (const [id, x, z, fl] of frame) {
+        if (fl !== floor) continue;
+        g.fillStyle = id === r.k ? '#ff3d5a' : id === r.v ? '#ffd21a' : '#e8e4ff';
+        g.beginPath();
+        g.arc(sx(x), sz(z), id === r.k || id === r.v ? 5 : 3.5, 0, Math.PI * 2);
+        g.fill();
+      }
+    });
+  }
+
   /** Nash's sofas: the navy couch and the leather one. */
   private onCouch() {
     const p = this.walker.pos;
@@ -1377,6 +1589,11 @@ export class NightSession {
     const will = [...this.remotes.values()].some((r) => r.char === 'will' && this.statusOf(r.id) === 'in' && Math.hypot(r.pos.x - this.walker.pos.x, r.pos.y - this.walker.pos.y, r.pos.z - this.walker.pos.z) < 3);
     const speed = this.char === 'will' ? 0.67 : will ? 1.5 : 1;
     if (c.view.frame(dt, f, speed)) {
+      if (c.spot.chore === 'binbag') {
+        this.carrying = c.spot.id;
+        this.hud.toast('Tied off. Now carry it out to the wheelie bin.');
+        return this.endChore();
+      }
       this.o.toHost({ t: 'chore', spot: c.spot.id });
       this.audio.play('ding');
       this.hud.toast(this.evil ? 'Chore “done”. Very convincing.' : 'Chore done!');
@@ -1396,8 +1613,9 @@ export class NightSession {
     const v = this.pub;
     if (!v) return;
     const c = caseById(v.caseId);
-    const label = ph === 'night' ? 'Last Meeting in' : ph === 'meeting' ? 'Discussion' : ph === 'vote' ? 'Vote' : '';
-    const left = ph === 'night' ? v.len - this.roam : this.left;
+    const flood = ph === 'night' && v.sab?.[0] === 'flood';
+    const label = flood ? '🚽 FLOOD! Stop it in' : ph === 'night' ? 'Last Meeting in' : ph === 'meeting' ? 'Discussion' : ph === 'vote' ? 'Vote' : '';
+    const left = flood ? v.sab![1] - this.roam : ph === 'night' ? v.len - this.roam : this.left;
     this.hud.setClock(left, label, v.prog, c.title);
     if (this.inMeeting()) this.meeting.setTime(`${ph === 'vote' ? 'Vote' : 'Discuss'} · ${Math.max(0, Math.ceil(this.left))} s`);
     this.hud.showCross(ph === 'night' && !this.chore);
@@ -1455,6 +1673,19 @@ export class NightSession {
     this.camera.updateProjectionMatrix();
     r.setClearColor(0x120e24, 1);
     r.render(this.world.scene, this.camera);
+    // The Ring cam, picture in picture: the porch and the street, live (no WiFi, no picture).
+    if (this.watching && this.pub?.sab?.[0] !== 'wifi') {
+      const pw = Math.round(w * 0.36);
+      const ph = Math.round((pw * 10) / 16);
+      this.ringCam.position.set(2.35, 2.2, DOOR_CAM_Z);
+      this.ringCam.lookAt(2.2, 0, 27);
+      r.setScissorTest(true);
+      r.setScissor(w - pw - 16, 16, pw, ph);
+      r.setViewport(w - pw - 16, 16, pw, ph);
+      r.render(this.world.scene, this.ringCam);
+      r.setScissorTest(false);
+      r.setViewport(0, 0, w, h);
+    }
   }
 
   destroy() {

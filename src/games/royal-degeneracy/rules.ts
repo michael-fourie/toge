@@ -4,9 +4,10 @@
 
 import { CHAR_IDS, tagFor, type CharId } from './cast.ts';
 import { CASES, caseById } from './cases.ts';
+import { alarmOn, newSabotages, stepSabotage, type Sabotages } from './sabotage.ts';
 import { newPowers, powerOf, powerView, guarded, spend, powerProblem, type Powers } from './abilities.ts';
 import { PLANTS_PER_NIGHT, caseTexts, commitCrime, log, newMystery, nextRand, type Mystery } from './clues.ts';
-import { CHORE_KINDS, DUO_PAIRS, FLOOR_Y, ROOMS, SEATS, SPOTS, roomAt } from './house.ts';
+import { CHORE_KINDS, DUO_PAIRS, TASKS_EACH, FLOOR_Y, ROOMS, SEATS, SPOTS, roomAt } from './house.ts';
 import type { Vec3 } from '../../shared/math.ts';
 
 // ---------------------------------------------------------------------------------------------
@@ -25,9 +26,11 @@ export interface Settings {
   reveal: boolean;
   /** Hide who voted for whom. */
   anon: boolean;
+  /** Cosy mode: no takeouts; the Degenerates only sabotage, plant and lie. */
+  cosy: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { caseId: 'random', degenerates: 0, nightMin: 10, killCd: 30, discuss: 60, vote: 30, reveal: true, anon: false };
+export const DEFAULT_SETTINGS: Settings = { caseId: 'random', degenerates: 0, nightMin: 10, killCd: 30, discuss: 60, vote: 30, reveal: true, anon: false, cosy: false };
 
 /** What each numeric setting can be (the lobby cycles through them). */
 export const CHOICES = {
@@ -49,8 +52,8 @@ export function cleanSettings(v: unknown): Settings | null {
   const disc = pick('discuss');
   const vote = pick('vote');
   if (!caseOk || deg === null || night === null || cd === null || disc === null || vote === null) return null;
-  if (typeof s.reveal !== 'boolean' || typeof s.anon !== 'boolean') return null;
-  return { caseId: s.caseId as string, degenerates: deg, nightMin: night, killCd: cd, discuss: disc, vote, reveal: s.reveal, anon: s.anon };
+  if (typeof s.reveal !== 'boolean' || typeof s.anon !== 'boolean' || typeof s.cosy !== 'boolean') return null;
+  return { caseId: s.caseId as string, degenerates: deg, nightMin: night, killCd: cd, discuss: disc, vote, reveal: s.reveal, anon: s.anon, cosy: s.cosy };
 }
 
 /** Degenerates for a night: 1 for 4–6 players, 2 for 7–10, 3 for 11–12, never so many the night starts won. */
@@ -159,6 +162,15 @@ interface Result {
 interface Win {
   side: Side;
   why: string;
+  /** The night's awards: [title, who, why]. */
+  awards: [string, number, string][];
+}
+
+/** What the awards are counted from. */
+interface Tally {
+  votesAgainst: Map<number, number>;
+  chores: Map<number, number>;
+  firstOut: number | null;
 }
 
 export interface Night {
@@ -188,6 +200,9 @@ export interface Night {
   duoDone: string[];
   /** Shota overheats once a night: when (roam), and where his shirt landed. */
   shirt: { at: number; pos: Vec3 | null };
+  /** The Degenerates' sabotages (sabotage.ts). */
+  sab: Sabotages;
+  tally: Tally;
 }
 
 export interface Joiner {
@@ -219,6 +234,8 @@ export function newNight(people: readonly Joiner[], settings: Settings, seed: nu
     powers: newPowers(),
     duoDone: [],
     shirt: { at: Infinity, pos: null },
+    sab: newSabotages(),
+    tally: { votesAgainst: new Map(), chores: new Map(), firstOut: null },
   };
   const r = () => nextRand(n);
   n.caseId = settings.caseId === 'random' ? CASES[Math.floor(r() * CASES.length)].id : settings.caseId;
@@ -233,10 +250,12 @@ export function newNight(people: readonly Joiner[], settings: Settings, seed: nu
     rang: false,
     killAt: TIMES.firstKill,
     rattleAt: -Infinity,
-    tasks: CHORE_KINDS.map((kind) => {
-      const options = SPOTS.filter((s) => s.chore === kind);
-      return { spot: options[Math.floor(r() * options.length)].id, done: false };
-    }),
+    tasks: shuffle([...CHORE_KINDS], r)
+      .slice(0, TASKS_EACH)
+      .map((kind) => {
+        const options = SPOTS.filter((s) => s.chore === kind);
+        return { spot: options[Math.floor(r() * options.length)].id, done: false };
+      }),
   }));
   // The case's crime happened before the night began: one of the Degenerates did it, and it left clues.
   const c = caseById(n.caseId);
@@ -244,7 +263,7 @@ export function newNight(people: readonly Joiner[], settings: Settings, seed: nu
   if (culprits.length) {
     const by = culprits[Math.floor(r() * culprits.length)];
     const room = ROOMS.find((x) => x.id === c.scene.room)!;
-    commitCrime(n, 'case', by.id, { x: c.scene.x, y: FLOOR_Y[room.floor], z: c.scene.z }, room.id, 2, 1);
+    commitCrime(n, 'case', by.id, { x: c.scene.x, y: FLOOR_Y[room.floor], z: c.scene.z }, room.id, c.scene.view ?? 2, c.scene.hidden ?? 1, null, c.scene.hide);
     log(n, `Before the night began: ${tagFor(by.char, by.name)} ${c.scene.did}.`);
   }
   n.mystery.texts = caseTexts(n, c.texts);
@@ -274,7 +293,7 @@ function progress(n: Night): number {
 }
 
 /** Who has won, if anyone (the Last Meeting is settled where the vote ends). */
-function winner(n: Night): Win | null {
+function winner(n: Night): Omit<Win, 'awards'> | null {
   const degs = n.players.filter((p) => p.role === 'degenerate');
   const inDegs = degs.filter(living).length;
   const inHouse = n.players.filter((p) => p.role === 'housemate' && living(p)).length;
@@ -284,8 +303,26 @@ function winner(n: Night): Win | null {
   return null;
 }
 
-function finish(n: Night, win: Win) {
-  n.win = win;
+/** The night's awards, from the tally and the mystery. */
+function awards(n: Night): [string, number, string][] {
+  const out: [string, number, string][] = [];
+  const top = (m: Map<number, number>) => [...m].sort((a, b) => b[1] - a[1])[0];
+  const posts = new Map<number, number>();
+  for (const [id, by] of n.mystery.posted) if (!n.mystery.clues[id].planted) posts.set(by, (posts.get(by) ?? 0) + 1);
+  const sherlock = top(posts);
+  if (sherlock) out.push(['Sherlock', sherlock[0], `${sherlock[1]} real clue${sherlock[1] > 1 ? 's' : ''} posted`]);
+  for (const p of n.players) if (p.evicted && p.role === 'housemate') out.push(['Framed', p.id, 'evicted, innocent']);
+  const sus = top(n.tally.votesAgainst);
+  if (sus && sus[1] > 1) out.push(['Sus Magnet', sus[0], `${sus[1]} votes against, all night`]);
+  if (n.tally.firstOut !== null) out.push(['First Blood', n.tally.firstOut, 'taken out first (again)']);
+  const chores = top(n.tally.chores);
+  if (chores) out.push(['Chore Champion', chores[0], `${chores[1]} chore${chores[1] > 1 ? 's' : ''} done`]);
+  for (const p of n.players) if (p.role === 'degenerate' && !n.tally.votesAgainst.get(p.id)) out.push(['Untouchable', p.id, 'a Degenerate nobody voted for']);
+  return out;
+}
+
+function finish(n: Night, win: Omit<Win, 'awards'>) {
+  n.win = { ...win, awards: awards(n) };
   n.phase = 'over';
   n.left = TIMES.over;
   n.meet = null;
@@ -302,7 +339,12 @@ export function settle(n: Night): boolean {
 export function step(n: Night, dt: number): boolean {
   if (n.phase === 'night') {
     n.roam += dt;
-    if (n.roam < n.length) return false;
+    const sab = stepSabotage(n);
+    if (sab === 'over') {
+      finish(n, { side: 'degenerates', why: 'Nobody stopped the toilet flood in time. The house is a lake.' });
+      return true;
+    }
+    if (n.roam < n.length) return sab === 'changed';
     startMeeting(n, 'last', -1);
     return true;
   }
@@ -329,6 +371,7 @@ export function killProblem(n: Night, killerId: number, victimId: number, dist: 
   const k = playerOf(n, killerId);
   const v = playerOf(n, victimId);
   if (n.phase !== 'night') return 'not now';
+  if (n.settings.cosy) return 'cosy mode';
   if (!k || !v || k === v) return 'nobody';
   if (k.role !== 'degenerate' || !living(k)) return 'not a Degenerate';
   if (!living(v) || v.role === 'degenerate') return 'not a target';
@@ -342,6 +385,7 @@ export function takeOut(n: Night, killerId: number, victimId: number, at: Vec3) 
   const k = playerOf(n, killerId)!;
   const v = playerOf(n, victimId)!;
   v.alive = false;
+  n.tally.firstOut ??= v.id;
   n.bodies.push({ id: v.id, pos: { ...at } });
   k.killAt = n.roam + n.settings.killCd;
   // A takeout is a crime: a clue by the body, and sometimes one stashed nearby.
@@ -355,6 +399,7 @@ export function meetingProblem(n: Night, who: number, body: number): string | nu
   const p = playerOf(n, who);
   if (n.phase !== 'night') return 'not now';
   if (!p || !living(p)) return 'ghosts can’t call meetings';
+  if (alarmOn(n)) return 'the fire alarm is going off';
   if (body >= 0) return n.bodies.some((b) => b.id === body) ? null : 'no body';
   return p.rang ? 'you’ve rung the bell tonight' : null;
 }
@@ -432,6 +477,7 @@ function endVote(n: Night) {
   const { out, counts } = tally(n.votes, n.powers.doubled);
   const p = out === null ? undefined : playerOf(n, out);
   if (p) p.evicted = true;
+  for (const [id, c] of counts) if (id >= 0) n.tally.votesAgainst.set(id, (n.tally.votesAgainst.get(id) ?? 0) + c);
   log(n, p ? `The house evicted ${tagFor(p.char, p.name)}${p.role === 'degenerate' ? ' (a Degenerate!)' : ' (innocent)'}.` : 'The vote evicted nobody.');
   n.result = {
     out: p ? p.id : null,
@@ -465,7 +511,10 @@ export function doChore(n: Night, who: number, spot: string): boolean {
   const t = p.tasks.find((x) => x.spot === spot && !x.done);
   if (!t) return false;
   t.done = true;
-  if (p.role === 'housemate') settle(n);
+  if (p.role === 'housemate') {
+    n.tally.chores.set(who, (n.tally.chores.get(who) ?? 0) + 1);
+    settle(n);
+  }
   return true;
 }
 
@@ -518,6 +567,8 @@ export interface PublicView {
   duo: string[];
   /** Shota's shirt, once it's off: [x, y, z]. */
   shirt: [number, number, number] | null;
+  /** The sabotage going on: [kind, until (roam; -1 waits for a fix), floor, halves done]. */
+  sab: [string, number, number, string[]] | null;
 }
 
 export interface PrivateView {
@@ -533,6 +584,8 @@ export interface PrivateView {
   seen: [number, string, string, number][];
   /** Your ability: [uses left (-1: unlimited), ready at (roam)]. */
   power: [number, number];
+  /** Degenerates: when the next sabotage is ready (roam); -1 for housemates. */
+  sabAt: number;
 }
 
 const status = (p: Player): Status => (p.gone ? 'gone' : p.evicted ? 'out' : p.alive ? 'in' : 'dead');
@@ -562,6 +615,7 @@ export function publicView(n: Night): PublicView {
     doubled: n.powers.doubled ?? -1,
     duo: n.duoDone,
     shirt: n.shirt.pos && [r2(n.shirt.pos.x), r2(n.shirt.pos.y), r2(n.shirt.pos.z)],
+    sab: n.sab.now && [n.sab.now.kind, Number.isFinite(n.sab.now.until) ? r2(n.sab.now.until) : -1, n.sab.now.floor, Object.keys(n.sab.now.done)],
   };
 }
 
@@ -581,5 +635,6 @@ export function privateView(n: Night, id: number): PrivateView | null {
       return [cid, c.cat, c.value, c.crime];
     }),
     power: ((v) => [v.uses, v.readyAt] as [number, number])(powerView(n, id)),
+    sabAt: p.role === 'degenerate' ? n.sab.readyAt : -1,
   };
 }

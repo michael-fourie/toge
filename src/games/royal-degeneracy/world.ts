@@ -235,13 +235,21 @@ export class World {
   colliders: HBox[] = [];
   /** Party lights in the living room cycle red and purple. */
   private t = 0;
+  private hemi = new THREE.HemisphereLight('#8f86c0', '#2a1a20', 0.9);
+  private ambient = new THREE.AmbientLight('#ffffff', 0.25);
+  /** The Ring doorbell's light (red while someone's watching the laptop). */
+  private doorbell = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), new THREE.MeshBasicMaterial({ color: 0x3355ff }));
+  /** The flood: water spreading over the floor-2 landing and bathroom. */
+  readonly water = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ color: 0x4f8fd0, transparent: true, opacity: 0.55, depthWrite: false }),
+  );
 
   constructor() {
     const s = this.scene;
     s.background = new THREE.Color('#120e24');
     s.fog = new THREE.Fog('#120e24', 30, 80);
-    s.add(new THREE.HemisphereLight('#8f86c0', '#2a1a20', 0.9));
-    s.add(new THREE.AmbientLight('#ffffff', 0.25));
+    s.add(this.hemi, this.ambient);
     const moon = new THREE.DirectionalLight('#9fb0ff', 0.5);
     moon.position.set(-20, 30, 25);
     s.add(moon);
@@ -268,6 +276,11 @@ export class World {
       this.disposables.push(m.geometry);
     }
     this.addLampFixtures();
+    this.doorbell.position.set(2.35, 1.3, DEPTH + 0.14);
+    this.water.rotation.x = -Math.PI / 2;
+    this.water.visible = false;
+    s.add(this.doorbell, this.water);
+    this.disposables.push(this.doorbell.geometry, this.doorbell.material as THREE.Material, this.water.geometry, this.water.material as THREE.Material);
     this.addDoors();
     this.addTree();
     this.addPrisms();
@@ -445,6 +458,25 @@ export class World {
   }
 
   /** Swings doors, flickers the party lights and moves the light pool to the lamps nearest `eye`. */
+  /** A power cut: the house lights go, and the night gets darker (the moon still shines). */
+  setPower(on: boolean) {
+    this.hemi.intensity = on ? 0.9 : 0.18;
+    this.ambient.intensity = on ? 0.25 : 0.02;
+    (material('lamp') as THREE.MeshToonMaterial).emissive.set(on ? (LOOKS.lamp.glow as string) : '#000000');
+  }
+
+  setDoorbell(watched: boolean) {
+    (this.doorbell.material as THREE.MeshBasicMaterial).color.setHex(watched ? 0xff2020 : 0x3355ff);
+  }
+
+  /** The flood's water: 0 (none) to 1 (everywhere it'll go). */
+  setFlood(k: number) {
+    this.water.visible = k > 0;
+    const w = 2 + 5 * k;
+    this.water.scale.set(w, 3 + 6 * k, 1);
+    this.water.position.set(8.4 - w / 2, FLOOR_Y[1] + 0.02 + k * 0.06, 11);
+  }
+
   update(dt: number, eye: Vec3, power = true) {
     this.t += dt;
     for (const v of this.doorViews.values()) {

@@ -1150,3 +1150,48 @@
   background: #e9dfc8;
   color: #4a3a4a;
 }
+
+/* ---------------------------------------------------------------- step 6: the gag, the reveal's awards and replays */
+
+.royal-degeneracy .rd-night.gag .rd-canvas {
+  filter: hue-rotate(60deg) saturate(1.5) blur(0.8px);
+  animation: rd-woozy 1.2s ease-in-out infinite alternate;
+}
+@keyframes rd-woozy {
+  to {
+    transform: rotate(1.2deg) scale(1.02);
+  }
+}
+.royal-degeneracy .rd-awards {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  font-size: 14px;
+}
+.royal-degeneracy .rd-awards b {
+  color: var(--rd-amber);
+}
+.royal-degeneracy .rd-replays {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  overflow-x: auto;
+}
+.royal-degeneracy .rd-replays figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--rd-dim);
+}
+.royal-degeneracy .rd-replays canvas {
+  width: 120px;
+  height: 180px;
+  border-radius: 8px;
+}
+.royal-degeneracy .rd-bigcard {
+  max-height: 92vh;
+  overflow-y: auto;
+}

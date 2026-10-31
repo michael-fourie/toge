@@ -22,7 +22,8 @@ const hitKey = (f: Frame) => f.click || f.keys.has('Space') || f.keys.has('KeyE'
 
 // ---------------------------------------------------------------------------------------------
 
-function pan(): Game {
+/** Scrubbing: the crusty pan, or (`mould`) the bathroom ceiling. */
+function pan(mould = false): Game {
   const N = 16;
   const dirt = Array.from({ length: N * N }, (_, i) => {
     const x = (i % N) / (N - 1) - 0.5;
@@ -33,8 +34,8 @@ function pan(): Game {
   let left = total;
   const R = 140;
   return {
-    title: 'Scrub the pan',
-    hint: 'Scrub in circles: move the sponge over the crusty bits',
+    title: mould ? 'Wipe the mould' : 'Scrub the pan',
+    hint: mould ? 'Wipe in circles: get every green spot off the ceiling' : 'Scrub in circles: move the sponge over the crusty bits',
     update(_dt, f, c) {
       const moved = Math.hypot(f.mx, f.my);
       if (moved < 0.5) return;
@@ -50,21 +51,26 @@ function pan(): Game {
       }
     },
     draw(g, c) {
-      g.fillStyle = '#3a3a40';
-      g.fillRect(W / 2 + R - 10, H / 2 - 14, 170, 28);
-      g.fillStyle = '#56565e';
-      g.beginPath();
-      g.arc(W / 2, H / 2, R + 12, 0, Math.PI * 2);
-      g.fill();
-      g.fillStyle = '#76767e';
-      g.beginPath();
-      g.arc(W / 2, H / 2, R, 0, Math.PI * 2);
-      g.fill();
+      if (mould) {
+        g.fillStyle = '#e8eef0';
+        g.fillRect(0, 0, W, H);
+      } else {
+        g.fillStyle = '#3a3a40';
+        g.fillRect(W / 2 + R - 10, H / 2 - 14, 170, 28);
+        g.fillStyle = '#56565e';
+        g.beginPath();
+        g.arc(W / 2, H / 2, R + 12, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = '#76767e';
+        g.beginPath();
+        g.arc(W / 2, H / 2, R, 0, Math.PI * 2);
+        g.fill();
+      }
       for (let i = 0; i < dirt.length; i++) {
         if (dirt[i] < 0.02) continue;
         const x = W / 2 + ((i % N) / (N - 1) - 0.5) * 2 * R;
         const y = H / 2 + (Math.floor(i / N) / (N - 1) - 0.5) * 2 * R;
-        g.fillStyle = `rgba(96, 62, 24, ${dirt[i]})`;
+        g.fillStyle = mould ? `rgba(40, 70, 40, ${dirt[i]})` : `rgba(96, 62, 24, ${dirt[i]})`;
         g.beginPath();
         g.arc(x, y, 13, 0, Math.PI * 2);
         g.fill();
@@ -282,7 +288,76 @@ function recycling(): Game {
   return g0;
 }
 
-const MAKERS: Record<ChoreKind, () => Game> = { pan, plunge, socks, recycling };
+/** Find the remote: lift the cushions until it turns up (everything else does first). */
+function remote(): Game {
+  const finds = ['a single Dorito', '$1.35 in coins', 'a hair tie', 'a bottle cap', 'Nash’s other controller', 'a sock', 'crumbs. so many crumbs'];
+  const n = 6;
+  const at = Math.floor(Math.random() * n);
+  const lifted: string[] = Array(n).fill('');
+  let found = false;
+  const cushion = (i: number) => ({ x: 40 + (i % 3) * 150, y: 70 + Math.floor(i / 3) * 140 });
+  const g0: Game = {
+    title: 'Find the remote',
+    hint: 'Click the cushions to lift them',
+    update(_dt, f, c) {
+      if (!f.click && !f.pad[2]) return;
+      for (let i = 0; i < n; i++) {
+        const p = cushion(i);
+        if (lifted[i] || c.x < p.x || c.x > p.x + 140 || c.y < p.y || c.y > p.y + 120) continue;
+        lifted[i] = i === at ? 'THE REMOTE' : finds[(i * 3 + at) % finds.length];
+        found ||= i === at;
+        g0.sound = i === at ? 'hit' : 'miss';
+      }
+    },
+    draw(g) {
+      g.fillStyle = '#2d3a5e';
+      g.fillRect(20, 50, 480, 300);
+      for (let i = 0; i < n; i++) {
+        const p = cushion(i);
+        g.fillStyle = lifted[i] ? '#1c2440' : '#41548a';
+        g.fillRect(p.x, p.y, 140, 120);
+        if (lifted[i]) {
+          g.fillStyle = lifted[i] === 'THE REMOTE' ? '#fff36b' : '#c9c2e8';
+          g.font = '700 15px system-ui';
+          g.textAlign = 'center';
+          g.fillText(lifted[i], p.x + 70, p.y + 64, 130);
+          g.textAlign = 'left';
+        }
+      }
+    },
+    done: () => found,
+  };
+  return g0;
+}
+
+/** The bin bag: tie it off (then carry it out to the wheelie bin, which happens in the house). */
+function binbag(): Game {
+  let knots = 0;
+  const g0: Game = {
+    title: 'Tie off the bin bag',
+    hint: 'Click / E / Ⓧ to knot it (it’s full of pizza boxes). Then carry it out to the wheelie bin.',
+    update(_dt, f) {
+      if (!f.click && !f.keys.has('KeyE') && !f.keys.has('Space') && !f.pad[2]) return;
+      knots++;
+      g0.sound = 'hit';
+    },
+    draw(g) {
+      g.fillStyle = '#111114';
+      g.beginPath();
+      g.ellipse(W / 2, H / 2 + 40, 130 - knots * 6, 110, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#2a2a30';
+      g.fillRect(W / 2 - 20, H / 2 - 100 + knots * 8, 40, 60);
+      g.fillStyle = '#fff';
+      g.font = '700 22px system-ui';
+      g.fillText(`${Math.min(knots, 5)}/5 knots`, W / 2 - 50, 40);
+    },
+    done: () => knots >= 5,
+  };
+  return g0;
+}
+
+const MAKERS: Record<ChoreKind, () => Game> = { pan: () => pan(), plunge, socks, recycling, remote, mould: () => pan(true), binbag };
 
 /** One chore in progress: draws itself over the view and reports when it's finished. */
 export class ChoreView {

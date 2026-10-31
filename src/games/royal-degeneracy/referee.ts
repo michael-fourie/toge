@@ -7,7 +7,8 @@ import { BONGUS_RANGE, LOOKOUT_RANGE, NPC_SIGHT, POWERS, hiddenNear, plantedIn, 
 import { CATS, ITEM, hint, inspect, label, nextRand, plant, post, search, traceable, unlock, valueOf, wipe } from './clues.ts';
 import { WALK, newWalker, stepWalker, type Walker } from './move.ts';
 import { rayWorld } from '../../shared/collision.ts';
-import { DOORS, DUO_PAIRS, FLOOR_Y, REACH, ROOMS, SOLIDS, SPOTS, doorBox, floorOf, roomAt, type Door } from './house.ts';
+import { BINBAG_DROP, DOORS, DUO_PAIRS, FLOOR_Y, REACH, ROOMS, SOLIDS, SPOTS, doorBox, floorOf, roomAt, type Door } from './house.ts';
+import { SABOTAGES, fixSabotage, lockedDoors, startSabotage, wifiDown } from './sabotage.ts';
 import type { Msg } from './net.ts';
 import {
   REPORT_RANGE,
@@ -72,6 +73,14 @@ export class Referee {
   /** Bike Stu's randoms, wandering from door to door. */
   private npcs: { w: Walker; goal: { x: number; z: number }; stuck: number; last: number }[] = [];
   private sinceNpcs = 0;
+  /** The raccoon: when it next gets in (roam), and its visit while it's inside. */
+  private coonAt = 100;
+  private coon: { w: Walker; goal: { x: number; z: number }; until: number; stuck: number; rattle: number; took: boolean } | null = null;
+  /** Everyone's position every half second, for the reveal's replays: [roam, [id, x, z, floor][]]. */
+  private frames: [number, [number, number, number, number][]][] = [];
+  private sinceFrame = 0;
+  private replays: { k: number; v: number; f: [number, number, number, number][][] }[] = [];
+  private replaysSent = false;
   /** True once the night is over and its end card has had its time. */
   done = false;
 
@@ -118,6 +127,20 @@ export class Referee {
       this.out({ t: 'feed', from, text, clue: -1 });
     }
     if (this.night.phase === 'over' && this.night.left <= 0) this.done = true;
+    if (this.night.phase === 'over' && !this.replaysSent) {
+      this.replaysSent = true;
+      for (const r of this.replays) this.out({ t: 'replay', ...r });
+    }
+    if (this.night.phase === 'night') {
+      this.tickCoon(dt);
+      this.sinceFrame += dt;
+      if (this.sinceFrame > 0.5) {
+        this.sinceFrame = 0;
+        const r1 = (v: number) => Math.round(v * 10) / 10;
+        this.frames.push([this.night.roam, [...this.poses].filter(([id]) => { const p = playerOf(this.night, id); return !!p && living(p); }).map(([id, p]) => [id, r1(p.x), r1(p.z), floorOf(p.y + 0.1)])]);
+        while (this.frames.length > 24) this.frames.shift();
+      }
+    }
     if (this.night.phase !== 'night') return;
     this.sinceRooms += dt;
     if (this.sinceRooms > 1) {
@@ -193,6 +216,7 @@ export class Referee {
       case 'router': {
         const r = SPOTS.find((s) => s.kind === 'router')!;
         if (dist(pose, r.pos) > REACH + 1) return this.pw(from, 'You need to be at the router (the shelf by the front door).');
+        if (wifiDown(n)) return this.pw(from, 'The WiFi’s down: no logs. Reboot the router first.');
         spend(n, from);
         this.pw(from, ['Router logs, last 90 s:', ...routerLog(n)].join('\n'));
         break;
@@ -317,6 +341,54 @@ export class Referee {
     }
   }
 
+  /**
+   * The raccoon lives on the covered balcony and now and then gets into the floor-2 rooms: it knocks things over
+   * (noises that sound a lot like a crime) and may run off with a clue lying on view, stashing it on its balcony.
+   */
+  private tickCoon(dt: number) {
+    const n = this.night;
+    if (!this.coon) {
+      if (n.roam < this.coonAt) return;
+      const w = newWalker({ x: 2, y: FLOOR_Y[1], z: 0.8 });
+      this.coon = { w, goal: this.npcGoal(w.pos), until: n.roam + 30, stuck: 0, rattle: 3, took: false };
+    }
+    const c = this.coon;
+    if (n.roam > c.until) {
+      this.coon = null;
+      this.coonAt = n.roam + 90 + nextRand(n) * 60;
+      this.out({ t: 'coon', p: null });
+      return;
+    }
+    const walls = [...SOLIDS, ...DOORS.filter((d) => !this.open.has(d.id) && d.id !== 'balcony').map(doorBox)];
+    const dx = c.goal.x - c.w.pos.x;
+    const dz = c.goal.z - c.w.pos.z;
+    c.w.yaw = Math.atan2(-dx, -dz);
+    const before = { ...c.w.pos };
+    stepWalker(c.w, { fwd: 0.7, side: 0, jump: false, crouch: false, up: false }, dt, walls);
+    c.stuck = Math.hypot(c.w.pos.x - before.x, c.w.pos.z - before.z) < dt * 0.5 ? c.stuck + dt : 0;
+    if (Math.hypot(dx, dz) < 0.5 || c.stuck > 1) {
+      c.goal = this.npcGoal(c.w.pos);
+      c.stuck = 0;
+    }
+    c.rattle -= dt;
+    if (c.rattle < 0) {
+      c.rattle = 6 + nextRand(n) * 6;
+      this.out({ t: 'fx', k: 'rattle', x: c.w.pos.x, y: c.w.pos.y, z: c.w.pos.z });
+    }
+    if (!c.took) {
+      const clue = n.mystery.clues.find((x) => x.state === 'view' && !x.lock && Math.hypot(x.pos.x - c.w.pos.x, x.pos.z - c.w.pos.z) < 1.2 && Math.abs(x.pos.y - c.w.pos.y) < 1);
+      if (clue && nextRand(n) < 0.02) {
+        c.took = true;
+        clue.state = 'hidden';
+        clue.spot = 's-balcony';
+        clue.pos = { ...SPOTS.find((s) => s.id === 's-balcony')!.pos };
+        this.broadcast(false);
+      }
+    }
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    if (Math.floor(n.roam * 5) !== Math.floor((n.roam - dt) * 5)) this.out({ t: 'coon', p: [r2(c.w.pos.x), r2(c.w.pos.y), r2(c.w.pos.z), r2(c.w.yaw)] });
+  }
+
   /** Two-person chores: both ends held for 4 s (or Shota at either end, alone). */
   private tickDuo() {
     const n = this.night;
@@ -363,6 +435,8 @@ export class Referee {
       case 'door': {
         const d = DOORS.find((x) => x.id === m.id);
         if (!d || !pose || !living(me) || dist(pose, { x: d.x, y: pose.y, z: d.z }) > REACH + 0.6) return;
+        // Locked by a sabotage: only JJ's spare keys or Shota's shoulder get through.
+        if (lockedDoors(n).includes(d.id) && me.char !== 'jj' && me.char !== 'shota') return this.pw(from, 'Locked. JJ has the spare keys. Or wait it out.');
         if (this.open.has(d.id)) {
           const people = [...this.poses].filter(([id]) => (playerOf(n, id) ? living(playerOf(n, id)!) : false)).map(([, p]) => p);
           if (doorBlocked(d, people)) return;
@@ -399,6 +473,8 @@ export class Referee {
         }
         if (why) return;
         takeOut(n, from, m.v, them);
+        // The last 10 s before it, for the reveal.
+        this.replays.push({ k: from, v: m.v, f: this.frames.slice(-20).map(([, f]) => f) });
         this.afterCrime(from, them);
         this.out({ t: 'fx', k: 'bonk', x: them.x, y: them.y, z: them.z });
         this.broadcast(false);
@@ -434,6 +510,46 @@ export class Referee {
       }
       case 'power':
         return this.power(from, m.target, m.crime);
+      case 'sabotage': {
+        if (!pose || !startSabotage(n, from, m.kind, floorOf(pose.y + 0.1))) return;
+        if (m.kind === 'lock') {
+          for (const id of lockedDoors(n)) this.open.delete(id);
+          this.out({ t: 'doors', open: [...this.open] });
+        }
+        this.out({ t: 'feed', from: 'House', text: `⚠ ${SABOTAGES[m.kind].name}! ${SABOTAGES[m.kind].text}`, clue: -1 });
+        this.broadcast(true);
+        return;
+      }
+      case 'fix': {
+        const s = SPOTS.find((x) => x.id === m.spot);
+        if (!pose || !s || dist(pose, s.pos) > REACH + 1.5) return;
+        const r = fixSabotage(n, from, m.spot);
+        if (!r) return;
+        if (r === 'half') return this.pw(from, 'Half done! Someone has to do the other half (the stopcock under the kitchen sink / the toilet) right now.');
+        this.out({ t: 'feed', from: 'House', text: r === 'rebooting' ? `${tagFor(me.char, me.name)} rebooted the router. WiFi back in 10 s…` : `${tagFor(me.char, me.name)} fixed it.`, clue: -1 });
+        this.broadcast(true);
+        return;
+      }
+      case 'sneak': {
+        const s = SPOTS.find((x) => x.id === m.spot && x.kind === 'sneak');
+        const to = s?.pair && SPOTS.find((x) => x.id === s.pair);
+        if (!pose || !s || !to || me.role !== 'degenerate' || !living(me) || n.phase !== 'night' || dist(pose, s.pos) > REACH + 1.5) return;
+        const r = roomAt(to.pos);
+        const y = r?.outside && r.surface !== 'porch' ? -0.75 : FLOOR_Y[floorOf(to.pos.y)];
+        this.out({ t: 'warp', x: to.pos.x, y, z: to.pos.z }, from);
+        // A curtain twitches at both ends.
+        for (const e of [s.pos, to.pos]) this.out({ t: 'fx', k: 'rattle', x: e.x, y: e.y - 1, z: e.z });
+        return;
+      }
+      case 'shoo': {
+        const c = this.coon;
+        if (!c || !pose || !living(me) || dist(pose, c.w.pos) > REACH + 1) return;
+        this.coon = null;
+        this.coonAt = n.roam + 90 + nextRand(n) * 60;
+        this.out({ t: 'coon', p: null });
+        this.out({ t: 'feed', from: 'House', text: `${tagFor(me.char, me.name)} shooed the raccoon back out onto its balcony.`, clue: -1 });
+        return;
+      }
       case 'duo': {
         const s = SPOTS.find((x) => x.id === m.spot && x.kind === 'duo');
         if (!s) return;
@@ -459,7 +575,9 @@ export class Referee {
       }
       case 'chore': {
         const s = SPOTS.find((x) => x.id === m.spot);
-        if (!pose || !s || dist(pose, s.pos) > REACH + 1.5 || !doChore(n, from, m.spot)) return;
+        // The bin bag is done at the wheelie bin, not where it was picked up.
+        const at = s?.chore === 'binbag' ? BINBAG_DROP : s?.pos;
+        if (!pose || !at || dist(pose, at) > REACH + 1.5 || !doChore(n, from, m.spot)) return;
         this.privateTo(from);
         this.broadcast(false);
         return;
@@ -481,6 +599,7 @@ export class Referee {
         return;
       }
       case 'post': {
+        if (wifiDown(n)) return this.pw(from, 'No WiFi. The photo won’t send. (Someone reboot the router.)');
         const c = post(n, from, m.id);
         if (!c) return;
         const crime = n.mystery.crimes[c.crime];

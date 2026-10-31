@@ -4,11 +4,12 @@
 
 import { isCharId, type CharId } from './cast.ts';
 import { CATS, type Cat } from './clues.ts';
+import { SAB_KINDS, type SabKind } from './sabotage.ts';
 import { DOORS, ROOMS, SPOTS } from './house.ts';
 import { cleanSettings, type Phase, type PrivateView, type PublicView, type Role, type Settings, type Status } from './rules.ts';
 
 /** Pose flag bits. */
-export const PF = { crouch: 1, torch: 2, ghost: 4, sit: 8, point: 16, busy: 32, phone: 64, bongus: 128, sled: 256 } as const;
+export const PF = { crouch: 1, torch: 2, ghost: 4, sit: 8, point: 16, busy: 32, phone: 64, bongus: 128, sled: 256, watch: 512 } as const;
 
 /** Emotes, sent with your pose (0: none). */
 export const EMOTES = ['', 'wave', 'point', 'shrug', 'facepalm', 'dance', 'five', 'hug'] as const;
@@ -42,6 +43,10 @@ export type Msg =
   | { t: 'duo'; spot: string; on: boolean }
   | { t: 'ping' }
   | { t: 'greet'; to: number; k: 'five' | 'hug' }
+  | { t: 'sabotage'; kind: SabKind }
+  | { t: 'fix'; spot: string }
+  | { t: 'sneak'; spot: string }
+  | { t: 'shoo' }
   // host → everyone (or one)
   | { t: 'lobby'; picks: [number, CharId][]; s: Settings; live: boolean }
   | { t: 'go' }
@@ -63,7 +68,13 @@ export type Msg =
   | { t: 'buzz'; x: number; y: number; z: number; text: string }
   /** Bike Stu's randoms: [x, y, z, yaw] each (empty: they've gone home). */
   | { t: 'npcs'; p: [number, number, number, number][] }
-  | { t: 'greeted'; a: number; b: number; k: 'five' | 'hug' };
+  | { t: 'greeted'; a: number; b: number; k: 'five' | 'hug' }
+  /** A sneak route: you come out here. */
+  | { t: 'warp'; x: number; y: number; z: number }
+  /** The raccoon: [x, y, z, yaw], or null when it's back on its balcony. */
+  | { t: 'coon'; p: [number, number, number, number] | null }
+  /** At the reveal, a takeout seen from above: who, whom, and frames of [id, x, z, floor]. */
+  | { t: 'replay'; k: number; v: number; f: [number, number, number, number][][] };
 
 const num = (v: unknown, lim = 1e6): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= lim;
 const int = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= -1 && v < 1e9;
@@ -101,12 +112,18 @@ function readPublic(v: unknown): PublicView | null {
     if (!w || !['housemates', 'degenerates'].includes(w.side as string) || !str(w.why, 200) || !arr(w.roles, 16) || !arr(w.log, 120)) return null;
     for (const r of w.roles) if (!arr(r, 2) || !int(r[0]) || !ROLES.includes(r[1] as Role)) return null;
     for (const l of w.log) if (!arr(l, 2) || !num(l[0]) || !str(l[1], 200)) return null;
+    if (!arr(w.awards, 30)) return null;
+    for (const a of w.awards) if (!arr(a, 3) || !str(a[0], 30) || !int(a[1]) || !str(a[2], 80)) return null;
   }
   if (!arr(s.crimes, 40) || !arr(s.clues, 120) || !arr(s.posted, 120)) return null;
   for (const c of s.crimes) if (!arr(c, 3) || !(c[0] === 0 || c[0] === 1) || !int(c[1]) || !ROOM_IDS.has(c[2] as string)) return null;
   for (const c of s.clues) if (!arr(c, 7) || !int(c[0]) || !int(c[1]) || !isCat(c[2]) || !num(c[3], 100) || !num(c[4], 100) || !num(c[5], 100) || ![0, 1, 2].includes(c[6] as number)) return null;
   if (!int(s.doubled) || !arr(s.duo, 4) || !s.duo.every((d) => SPOT_IDS.has(d as string))) return null;
   if (s.shirt !== null && (!arr(s.shirt, 3) || !s.shirt.every((v) => num(v, 100)))) return null;
+  if (s.sab !== null) {
+    const b = s.sab as unknown[];
+    if (!arr(b, 4) || !SAB_KINDS.includes(b[0] as SabKind) || !num(b[1]) || !int(b[2]) || !arr(b[3], 4) || !(b[3] as unknown[]).every((x) => SPOT_IDS.has(x as string))) return null;
+  }
   for (const c of s.posted) if (!arr(c, 5) || !int(c[0]) || !isCat(c[1]) || !str(c[2], 24) || !int(c[3]) || !int(c[4])) return null;
   return v as PublicView;
 }
@@ -117,7 +134,7 @@ function readPrivate(v: unknown): PrivateView | null {
   if (!ROLES.includes(s.role as Role) || !arr(s.mates, 16) || !s.mates.every(int) || !arr(s.tasks, 12)) return null;
   for (const t of s.tasks) if (!arr(t, 2) || !SPOT_IDS.has(t[0] as string) || typeof t[1] !== 'boolean') return null;
   if (!num(s.killAt) || typeof s.rang !== 'boolean' || !num(s.rattleAt) || !int(s.plants) || !arr(s.seen, 120)) return null;
-  if (!arr(s.power, 2) || !int(s.power[0]) || !num(s.power[1])) return null;
+  if (!arr(s.power, 2) || !int(s.power[0]) || !num(s.power[1]) || !num(s.sabAt)) return null;
   for (const c of s.seen) if (!arr(c, 4) || !int(c[0]) || !isCat(c[1]) || !str(c[2], 24) || !int(c[3])) return null;
   return v as PrivateView;
 }
@@ -138,6 +155,7 @@ export function readMsg(d: unknown): Msg | null {
     case 'rattle':
     case 'go':
     case 'ping':
+    case 'shoo':
       return { t: m.t };
     case 'pick':
       return isCharId(m.c) ? { t: 'pick', c: m.c } : null;
@@ -166,6 +184,24 @@ export function readMsg(d: unknown): Msg | null {
       return int(m.id) && isCat(m.cat) && str(m.value, 24) && int(m.crime) ? { t: 'clue', id: m.id, cat: m.cat, value: m.value, crime: m.crime } : null;
     case 'found':
       return typeof m.spot === 'string' && SPOT_IDS.has(m.spot) && int(m.id) ? { t: 'found', spot: m.spot, id: m.id } : null;
+    case 'sabotage':
+      return SAB_KINDS.includes(m.kind as SabKind) ? { t: 'sabotage', kind: m.kind as SabKind } : null;
+    case 'fix':
+    case 'sneak':
+      return typeof m.spot === 'string' && SPOT_IDS.has(m.spot) ? { t: m.t, spot: m.spot } : null;
+    case 'warp':
+      return num(m.x, 100) && num(m.y, 100) && num(m.z, 100) ? { t: 'warp', x: m.x, y: m.y, z: m.z } : null;
+    case 'coon':
+      if (m.p === null) return { t: 'coon', p: null };
+      return arr(m.p, 4) && m.p.length === 4 && m.p.every((v) => num(v, 100)) ? { t: 'coon', p: m.p as [number, number, number, number] } : null;
+    case 'replay': {
+      if (!int(m.k) || !int(m.v) || !arr(m.f, 40)) return null;
+      for (const fr of m.f) {
+        if (!arr(fr, 16)) return null;
+        for (const e of fr) if (!arr(e, 4) || e.length !== 4 || !e.every((v) => num(v, 100))) return null;
+      }
+      return { t: 'replay', k: m.k, v: m.v, f: m.f as [number, number, number, number][][] };
+    }
     case 'power':
       return int(m.target) && int(m.crime) ? { t: 'power', target: m.target, crime: m.crime } : null;
     case 'duo':

@@ -75,8 +75,8 @@ export interface Prism {
   tv?: boolean;
 }
 
-export type ChoreKind = 'pan' | 'plunge' | 'socks' | 'recycling';
-type SpotKind = 'bell' | 'chore' | 'search' | 'fridge' | 'router' | 'duo';
+export type ChoreKind = 'pan' | 'plunge' | 'socks' | 'recycling' | 'remote' | 'mould' | 'binbag';
+type SpotKind = 'bell' | 'chore' | 'search' | 'fridge' | 'router' | 'duo' | 'fix' | 'sneak' | 'laptop';
 
 export interface Spot {
   id: string;
@@ -85,6 +85,8 @@ export interface Spot {
   name: string;
   /** Where the thing is (use it from within REACH). */
   pos: Vec3;
+  /** A sneak route's other end. */
+  pair?: string;
 }
 
 export interface Seat {
@@ -169,8 +171,8 @@ const furn = (floor: number, mat: Mat, x0: number, z0: number, x1: number, z1: n
 const decor = (floor: number, mat: Mat, x0: number, z0: number, x1: number, z1: number, h: number, y = 0) =>
   box(floor, mat, x0, FLOOR_Y[floor] + y, z0, x1, FLOOR_Y[floor] + y + h, z1, { ghost: true });
 
-const spot = (id: string, kind: SpotKind, name: string, x: number, y: number, z: number, chore?: ChoreKind) =>
-  spots.push({ id, kind, name, pos: { x, y, z }, chore });
+const spot = (id: string, kind: SpotKind, name: string, x: number, y: number, z: number, chore?: ChoreKind, pair?: string) =>
+  spots.push({ id, kind, name, pos: { x, y, z }, chore, pair });
 
 /** A triangle (or any convex footprint) wall: drawn as a prism, collided as thin slices along z. */
 function prism(p: Prism) {
@@ -435,6 +437,27 @@ spot('recycle-kitchen', 'chore', 'Sort the kitchen recycling', 2.66, 0.7, 0.4, '
 spot('recycle-dining', 'chore', 'Sort the empties by the stairs', 1.68, 0.5, 11.5, 'recycling');
 spot('recycle-porch', 'chore', 'Sort the porch recycling', 3.85, 0.7, 21.65, 'recycling');
 spot('recycle-balcony', 'chore', 'Sort the balcony recycling', 3.4, 3.5, -2.7, 'recycling');
+spot('remote-sofa', 'chore', 'Find the remote in the sofa', 7.9, 0.5, 9.4, 'remote');
+spot('remote-leather', 'chore', 'Find the remote in the leather couch', 6.6, 0.5, 12, 'remote');
+spot('mould-2', 'chore', 'Wipe the mould off the bathroom ceiling', 7.6, 5.1, 7.4, 'mould');
+spot('mould-3', 'chore', 'Wipe the mould off the top bathroom ceiling', 7.2, 7.7, 11.4, 'mould');
+// The walking chore: pick the bag up here, drop it in the wheelie bin out back.
+spot('binbag', 'chore', 'Take the kitchen bin bag out to the wheelie bin', 2.66, 0.7, 0.4, 'binbag');
+// Sabotage fixes.
+spot('fix-fuse', 'fix', 'Flip the trip switch at the fuse box', 0.2, 1.5, 4.4);
+spot('fix-stopcock', 'fix', 'Shut the stopcock under the sink', 6.4, 0.3, 0.45);
+spot('fix-plunge', 'fix', 'Plunge the overflowing toilet', 8, 3.25, 12.85);
+spot('fix-alarm', 'fix', 'Wave a tea towel under the smoke alarm', 2.2, 2.3, 15.5);
+spot('fix-router', 'fix', 'Reboot the router', 3.62, 1.05, 19.63);
+// Sneak routes (Degenerates only): out a window, along a roof, in somewhere else.
+spot('sneak-bath3', 'sneak', 'Climb out the top bathroom window', 8, 6.4, 9.4, undefined, 'sneak-yard');
+spot('sneak-yard', 'sneak', 'Shin up the drainpipe to the top bathroom', 8.9, -0.2, -2.8, undefined, 'sneak-bath3');
+spot('sneak-eaves', 'sneak', 'Squeeze out the eaves vent', 0.6, 6.2, 19.2, undefined, 'sneak-balcony');
+spot('sneak-balcony', 'sneak', 'Climb up into the eaves vent', 0.8, 3.4, 21.6, undefined, 'sneak-eaves');
+spot('sneak-kitchen', 'sneak', 'Slip out the kitchen window', 0.7, 1.2, 3.4, undefined, 'sneak-gap');
+spot('sneak-gap', 'sneak', 'Climb in the kitchen window', -0.6, -0.2, 3.4, undefined, 'sneak-kitchen');
+// The Ring cam laptop on the coffee table.
+spot('laptop', 'laptop', 'Watch the Ring cam', 6.25, 0.5, 9.35);
 // Search spots: where hidden clues land (hold E to dig through them).
 spot('s-kitchen-bin', 'search', 'the kitchen bin', 2.66, 0.7, 0.4);
 spot('s-kitchen-drawer', 'search', 'the junk drawer', 0.45, 0.9, 2.5);
@@ -462,6 +485,9 @@ spot('s-eaves', 'search', 'the eaves boxes', 0.5, 6.2, 4.7);
 spot('s-eaves2', 'search', 'the front eaves boxes', 0.5, 6.2, 16);
 box(0, 'bin', 8.6, GROUND, -2, 9.3, GROUND + 1.1, -1.2);
 spot('s-wheelie', 'search', 'the wheelie bin', 8.95, -0.1, -1.6);
+spot('s-sink', 'search', 'the tower of dishes (wash up)', 5.6, 1.1, 0.45);
+/** Where the walking chore's bin bag goes. */
+export const BINBAG_DROP = { x: 8.95, y: -0.1, z: -1.6 };
 
 /** Where everyone sits for a house meeting: the two couches, then bean bags around the coffee table. */
 const TABLE = { x: 6.25, z: 9.35 };
@@ -482,7 +508,9 @@ export const SOLIDS: readonly HBox[] = boxes.filter((b) => !b.ghost);
 export const DOORS: readonly Door[] = doors;
 export const SPOTS: readonly Spot[] = spots;
 export const PRISMS: readonly Prism[] = prisms;
-export const CHORE_KINDS: ChoreKind[] = ['pan', 'plunge', 'socks', 'recycling'];
+export const CHORE_KINDS: ChoreKind[] = ['pan', 'plunge', 'socks', 'recycling', 'remote', 'mould', 'binbag'];
+/** How many chores each player gets (different kinds). */
+export const TASKS_EACH = 4;
 /** The two-person chores: [end A, end B, what it is]. Each counts as two chores on the bar. */
 export const DUO_PAIRS: [string, string, string][] = [
   ['duo-sofa-a', 'duo-sofa-b', 'carried the sofa'],

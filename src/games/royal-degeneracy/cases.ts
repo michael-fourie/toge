@@ -5,7 +5,7 @@ export interface Case {
   id: string;
   title: string;
   /** Where the opening crime happened (its clues are lying around there), and what the culprit did. */
-  scene: { room: string; x: number; z: number; did: string };
+  scene: { room: string; x: number; z: number; did: string; view?: number; hidden?: number; hide?: string };
   /** The cold-open card, a line or two. */
   open: string;
   /** What a takeout is done with (the bonk's name). */
@@ -38,8 +38,9 @@ export const CASES: Case[] = [
   {
     id: 'sink',
     title: 'The Sink of Shame',
-    scene: { room: 'kitchen', x: 5.6, z: 1.5, did: 'started the tower of dishes' },
-    open: 'The kitchen sink has become a tower. A frying pan is load-bearing. JJ has called it “a biohazard and a betrayal”. One of you started this.',
+    // The twist: two of its clues are in the tower of dishes, and washing up is how you dig.
+    scene: { room: 'kitchen', x: 5.6, z: 1.5, did: 'started the tower of dishes', view: 1, hidden: 2, hide: 's-sink' },
+    open: 'The kitchen sink has become a tower. A frying pan is load-bearing. JJ has called it “a biohazard and a betrayal”. One of you started this, and the evidence is in the pile: wash up to dig.',
     weapon: 'a frying pan',
     last: 'The landlord texts: “inspection in the morning, see you all at 9”. Emergency house meeting.',
     texts: [
@@ -54,7 +55,7 @@ export const CASES: Case[] = [
     id: 'unflushed',
     title: 'The Unflushed',
     scene: { room: 'bath3', x: 7.1, z: 8.4, did: 'didn’t flush (and the floor)' },
-    open: 'Someone didn’t flush the top toilet. Worse: the floor. Wags has been in there twice to check and come out a different man. One of you did this.',
+    open: 'Someone didn’t flush the top toilet. Worse: the floor. Nobody can stand it in there for more than 8 seconds, so search it in relays. One of you did this.',
     weapon: 'a plunger',
     last: 'Wags locks himself in his room and plays the saddest record he owns. The house has to settle this now.',
     texts: [

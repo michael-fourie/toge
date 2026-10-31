@@ -79,7 +79,7 @@ test('royal: a night deals the right roles and one chore of each kind, the same 
     assert.equal(degs(n).length, 2);
     for (const p of n.players) {
       const kinds = p.tasks.map((t) => SPOTS.find((s) => s.id === t.spot)!.chore);
-      assert.deepEqual([...kinds].sort(), ['pan', 'plunge', 'recycling', 'socks']);
+      assert.equal(new Set(kinds).size, 4, 'four different kinds of chore');
     }
     assert.deepEqual(newNight(people(9), DEFAULT_SETTINGS, seed), n);
   }

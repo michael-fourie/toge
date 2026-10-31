@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { tagFor, type CharId } from './cast.ts';
 import { ITEM, VALUES, detail, fits, label, type Cat } from './clues.ts';
 import { FLOOR_Y, SPOTS } from './house.ts';
+import { SABOTAGES, SAB_KINDS, type SabKind } from './sabotage.ts';
 import type { Frame } from './input.ts';
 import { ramp } from './people.ts';
 import type { PublicView } from './rules.ts';
@@ -404,18 +405,32 @@ const PLANT_CATS: Cat[] = ['notes', 'smoke', 'temper', 'room', 'drinking', 'foot
 export class PlantMenu {
   readonly root = el('div', 'rd-plant');
 
+  /** `left`: plants left (-1: you can't plant, e.g. as a ghost); `sabWait`: seconds until a sabotage (0: ready, -1: one's on). */
   constructor(
     parent: HTMLElement,
     left: number,
     belongings: CharId[],
-    h: { plant(cat: Cat, value: string): void; close(): void },
+    sabWait: number,
+    h: { plant(cat: Cat, value: string): void; sabotage(kind: SabKind): void; close(): void },
   ) {
     this.root.dataset.navScope = '';
     const box = el('div', 'rd-plantbox');
-    box.append(el('h2', '', 'Plant a fake clue'), el('p', 'rd-dim', `${left} left tonight. Pick what it says: frame someone.`));
-    const grid = el('div', 'rd-plantgrid');
+    box.append(el('h2', '', 'Sabotage'), el('p', 'rd-dim', sabWait < 0 ? 'One’s already going.' : sabWait > 0 ? `Ready in ${Math.ceil(sabWait)} s.` : 'One at a time. The flood wins the night if nobody stops it.'));
+    const sabs = el('div', 'rd-plantgrid');
     let first = true;
-    for (const cat of PLANT_CATS) {
+    for (const k of SAB_KINDS) {
+      const b = el('button', 'rd-btn small', SABOTAGES[k].name);
+      b.title = SABOTAGES[k].text;
+      b.disabled = sabWait !== 0;
+      if (first && !b.disabled) b.dataset.autofocus = '';
+      first &&= b.disabled;
+      b.addEventListener('click', () => h.sabotage(k));
+      sabs.append(b);
+    }
+    box.append(sabs);
+    if (left >= 0) box.append(el('h2', '', 'Plant a fake clue'), el('p', 'rd-dim', `${left} left tonight. Pick what it says: frame someone.`));
+    const grid = el('div', 'rd-plantgrid');
+    for (const cat of left > 0 ? PLANT_CATS : []) {
       const values = cat === 'belonging' ? belongings : VALUES[cat].filter((v) => v !== 'none' && v !== 'calm');
       for (const v of values) {
         const b = el('button', 'rd-btn small', label(cat, v));
@@ -430,7 +445,7 @@ export class PlantMenu {
     box.append(grid, close);
     this.root.append(box);
     parent.append(this.root);
-    grid.querySelector<HTMLButtonElement>('button')?.focus();
+    (box.querySelector<HTMLButtonElement>('button:not([disabled])') ?? close).focus();
   }
 
   dispose() {

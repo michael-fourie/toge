@@ -8,6 +8,7 @@ import { CASES } from './cases.ts';
 import { POWERS, powerOf } from './abilities.ts';
 import { CATS, label, valueOf } from './clues.ts';
 import { Person } from './people.ts';
+import { loadStats, statsLine } from './stats.ts';
 import { CHOICES, MIN_PLAYERS, degeneratesFor, type Settings } from './rules.ts';
 
 // ---------------------------------------------------------------------------------------------
@@ -134,6 +135,7 @@ export function renderMenu(root: HTMLElement, note: string, h: MenuHandlers) {
       <p class="rd-kicker">282 · a whodunit in the old house</p>
       <h1 class="rd-logo">ROYAL<br><span>DEGENERACY</span></h1>
       <p class="rd-lede">Chores, house meetings and a bin bag in the rain. One of you did this.</p>
+      <p class="rd-note" data-stats></p>
       <div class="rd-col">
         <button class="rd-btn hot" data-host data-autofocus>Host a night</button>
         <div class="rd-join">
@@ -147,6 +149,7 @@ export function renderMenu(root: HTMLElement, note: string, h: MenuHandlers) {
       <button class="rd-btn ghost" data-exit>◀ Menu</button>
     </div>`;
   root.querySelector('[data-note]')!.textContent = note;
+  root.querySelector('[data-stats]')!.textContent = statsLine(loadStats());
   const code = root.querySelector<HTMLInputElement>('[data-code]')!;
   const join = () => code.value.trim() && h.join(code.value.trim());
   code.addEventListener('keydown', (e) => e.key === 'Enter' && join());
@@ -206,6 +209,7 @@ const SETTING_ROWS: [keyof Settings, string][] = [
   ['vote', 'Voting'],
   ['reveal', 'Reveal on eviction'],
   ['anon', 'Anonymous votes'],
+  ['cosy', 'Cosy mode (no takeouts)'],
 ];
 
 function settingText(s: Settings, k: keyof Settings, players: number): string {
@@ -218,6 +222,7 @@ function settingText(s: Settings, k: keyof Settings, players: number): string {
       return `${s.nightMin} min`;
     case 'reveal':
     case 'anon':
+    case 'cosy':
       return s[k] ? 'On' : 'Off';
     default:
       return `${s[k]} s`;
@@ -230,7 +235,7 @@ export function nextSetting<K extends keyof Settings>(s: Settings, k: K): Settin
   if (k === 'caseId') {
     const ids = ['random', ...CASES.map((c) => c.id)];
     out.caseId = ids[(ids.indexOf(s.caseId) + 1) % ids.length];
-  } else if (k === 'reveal' || k === 'anon') out[k as 'reveal' | 'anon'] = !s[k as 'reveal' | 'anon'];
+  } else if (k === 'reveal' || k === 'anon' || k === 'cosy') out[k as 'reveal' | 'anon' | 'cosy'] = !s[k as 'reveal' | 'anon' | 'cosy'];
   else {
     const list = CHOICES[k as keyof typeof CHOICES] as readonly number[];
     (out[k] as number) = list[(list.indexOf(s[k] as number) + 1) % list.length];

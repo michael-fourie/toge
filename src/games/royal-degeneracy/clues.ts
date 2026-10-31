@@ -248,7 +248,7 @@ function hideSpot(room: string, p: Vec3, rand: () => number): string | null {
  * A crime happened: it's recorded, and it leaves clues showing true traits of whoever did it, `view` on the floor
  * near `pos` and `hidden` in a nearby search spot.
  */
-export function commitCrime(n: Night, kind: Crime['kind'], by: number, pos: Vec3, room: string, view: number, hidden: number, victim: number | null = null): Crime {
+export function commitCrime(n: Night, kind: Crime['kind'], by: number, pos: Vec3, room: string, view: number, hidden: number, victim: number | null = null, hideIn?: string): Crime {
   const m = n.mystery;
   const culprit = n.players.find((p) => p.id === by)!;
   const crime: Crime = { id: m.crimes.length, kind, by, victim, room, at: n.roam, pos: { ...pos } };
@@ -259,7 +259,7 @@ export function commitCrime(n: Night, kind: Crime['kind'], by: number, pos: Vec3
   const taken: Vec3[] = [];
   cats.forEach((cat, i) => {
     const isHidden = i >= view;
-    const spot = isHidden ? hideSpot(room, pos, rand) : null;
+    const spot = isHidden ? (hideIn ?? hideSpot(room, pos, rand)) : null;
     if (isHidden && !spot) return;
     const at = isHidden ? { ...SPOTS.find((s) => s.id === spot)!.pos } : kind === 'case' ? floorSpot(room, rand, taken) : near(pos, rand, taken);
     taken.push(at);
