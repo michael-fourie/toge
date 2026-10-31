@@ -11,6 +11,7 @@ import {
   DEPTH,
   DOORS,
   DOOR_H,
+  FIREPIT,
   FLOOR_Y,
   GROUND,
   LAMPS,
@@ -406,7 +407,8 @@ export class World {
   readonly scene = new THREE.Scene();
   readonly torch = new THREE.SpotLight(0xfff1d6, 0, 16, 0.42, 0.55, 1.4);
   private pool: THREE.PointLight[] = [];
-  private lamps: { pos: Vec3; color: number; power: number }[];
+  private lamps: { pos: Vec3; color: number; power: number; fire?: boolean }[];
+  private flames: THREE.Mesh[] = [];
   private doorViews = new Map<string, DoorView>();
   private shut = new Set<string>(DOORS.map((d) => d.id));
   private disposables: { dispose(): void }[] = [];
@@ -451,7 +453,20 @@ export class World {
       { pos: { x: 4.6, y: 2.3, z: 10.6 }, color: 0xff3366, power: 6 },
       { pos: { x: 7.4, y: 2.3, z: 7.2 }, color: 0x9b4dff, power: 6 },
       ...OUT_LAMPS.map((p) => ({ pos: p, color: 0xffc070, power: 9 })),
+      { pos: { x: FIREPIT.x, y: GROUND + 0.7, z: FIREPIT.z }, color: 0xff7a30, power: 7, fire: true },
     ];
+    // Flames in the fire pit: a few additive tongues that flicker (update), never dark in a power cut.
+    const flameGeo = new THREE.ConeGeometry(0.09, 0.42, 7).translate(0, 0.21, 0);
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.MeshBasicMaterial({ color: i % 2 ? 0xffb030 : 0xff5a10, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+      const f = new THREE.Mesh(flameGeo, m);
+      const a = (i / 6) * Math.PI * 2;
+      f.position.set(FIREPIT.x + Math.cos(a) * 0.13, GROUND + 0.3, FIREPIT.z + Math.sin(a) * 0.13);
+      this.flames.push(f);
+      s.add(f);
+      this.disposables.push(m);
+    }
+    this.disposables.push(flameGeo);
 
     const bld = new Builder();
     for (const b of BOXES) if (b.mat !== 'invisible' && !DRAWN.has(b.mat)) (isBalustrade(b) ? addBalustrade : addBox)(bld, b);
@@ -531,6 +546,17 @@ export class World {
         }
       // A front door each.
       bld.quad('fence', [mid - 0.5, g, 46.98], [mid + 0.5, g, 46.98], [mid + 0.5, g + 2.1, 46.98], [mid - 0.5, g + 2.1, 46.98], [0, 0, -1], 0, 1);
+    }
+    // Over the back fence, the backs of the next street's houses: a lit kitchen or two, everyone else asleep.
+    for (const [x0, x1, hgt] of [[-12, -3, 7.5], [-1.5, 9, 9], [10.5, 19, 8]] as [number, number, number][]) {
+      solid('neighbour', x0, g, -26, x1, g + hgt, -15);
+      const mid = (x0 + x1) / 2;
+      bld.quad('neighbourRoof', [x1 + 0.3, g + hgt, -14.7], [x0 - 0.3, g + hgt, -14.7], [mid - 0.3, g + hgt + 2.6, -20.5], [mid + 0.3, g + hgt + 2.6, -20.5], [0, 0.9, 0.4], 0, 2);
+      for (const y of [g + 1, g + 4])
+        for (let x = x0 + 1.2; x < x1 - 1.4; x += 2.4) {
+          const m = Math.abs(Math.sin(k++ * 7.31) * 43758.5) % 1 > 0.7 ? 'window' : 'darkWindow';
+          bld.quad(m, [x + 1.1, y, -14.98], [x, y, -14.98], [x, y + 1.4, -14.98], [x + 1.1, y + 1.4, -14.98], [0, 0, 1], 0, 1);
+        }
     }
     // The gable roof: two shingled slopes along the house, the green gable faces front and back.
     const eave = FLOOR_Y[2] + 2.6;
@@ -683,7 +709,7 @@ export class World {
 
   private addLampFixtures() {
     const g = new THREE.SphereGeometry(0.12, 12, 8);
-    const list = this.lamps.map((l) => {
+    const list = this.lamps.filter((l) => !l.fire).map((l) => {
       const m = new THREE.Matrix4().makeTranslation(l.pos.x, l.pos.y + 0.12, l.pos.z);
       return g.clone().applyMatrix4(m);
     });
@@ -820,7 +846,12 @@ export class World {
       light.position.set(l.pos.x, l.pos.y, l.pos.z);
       const party = PARTY.has(i - LAMPS.length);
       light.color.setHex(party ? (Math.sin(this.t * 1.7 + i) > 0 ? 0xff3366 : 0x9b4dff) : l.color);
-      light.intensity = power ? l.power : 0;
+      light.intensity = l.fire ? l.power * (0.75 + 0.25 * Math.sin(this.t * 13) * Math.sin(this.t * 7.3)) : power ? l.power : 0;
+    });
+    this.flames.forEach((f, i) => {
+      const k = Math.sin(this.t * (9 + i) + i * 2.1) * 0.5 + 0.5;
+      f.scale.set(0.8 + 0.3 * k, 0.6 + 0.8 * k * (0.7 + 0.3 * Math.sin(this.t * 3 + i)), 0.8 + 0.3 * k);
+      f.rotation.set(Math.sin(this.t * 5 + i) * 0.15, 0, Math.cos(this.t * 4 + i) * 0.15);
     });
   }
 

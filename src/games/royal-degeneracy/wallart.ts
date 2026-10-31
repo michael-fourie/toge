@@ -203,6 +203,54 @@ const lights: Piece = {
   },
 };
 
+/** A printed list taped to the wall, edited in pen by everyone since. */
+const list = (title: string, items: string[]): Piece => ({
+  w: 0.5,
+  h: 0.7,
+  paint(g, w, h) {
+    g.fillStyle = '#fbfaf4';
+    g.fillRect(0, 0, w, h);
+    text(g, title, w / 2, h * 0.08, h * 0.06, '#222');
+    g.textAlign = 'left';
+    items.forEach((s, i) => {
+      g.font = `${i % 3 === 2 ? '600 ' : '500 '}${h * 0.034}px ${i % 3 === 2 ? 'Comic Sans MS' : 'system-ui'}, sans-serif`;
+      g.fillStyle = i % 3 === 2 ? '#c02020' : '#333';
+      g.fillText(`${i + 1}. ${s}`, w * 0.08, h * (0.18 + i * 0.075), w * 0.86);
+    });
+    g.fillStyle = 'rgba(230,220,160,0.7)';
+    g.fillRect(w * 0.4, -4, w * 0.2, 18);
+  },
+});
+
+/** A dartboard, darts nowhere near the middle. */
+const dartboard: Piece = {
+  w: 0.45,
+  h: 0.45,
+  paint(g, w, h) {
+    g.clearRect(0, 0, w, h);
+    const c = w / 2;
+    g.fillStyle = '#111';
+    g.beginPath();
+    g.arc(c, c, c, 0, Math.PI * 2);
+    g.fill();
+    for (let i = 0; i < 20; i++) {
+      for (const [r0, r1, a, b] of [[0.9, 0.82, '#c02a2a', '#1a8a3a'], [0.82, 0.55, '#111', '#f0e6c8'], [0.55, 0.5, '#c02a2a', '#1a8a3a'], [0.5, 0.12, '#111', '#f0e6c8']] as const) {
+        g.fillStyle = i % 2 ? a : b;
+        g.beginPath();
+        g.arc(c, c, c * r0, (i / 20) * Math.PI * 2, ((i + 1) / 20) * Math.PI * 2);
+        g.arc(c, c, c * r1, ((i + 1) / 20) * Math.PI * 2, (i / 20) * Math.PI * 2, true);
+        g.fill();
+      }
+    }
+    g.fillStyle = '#c02a2a';
+    g.beginPath();
+    g.arc(c, c, c * 0.06, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#ffd84a';
+    for (const [x, y] of [[0.2, 0.3], [0.86, 0.66], [0.62, 0.14]]) g.fillRect(x * w - 3, y * h - 3, 7, 7);
+  },
+};
+
 /** Who hangs what, room by room (in the order it goes up, biggest first). */
 const ART: Record<string, Piece[]> = {
   dev: [cork(3, ['DEADLINE', 'tobog. wax', 'call mum']), poster('CONCRETE TOBOGGAN', 'Team 2019 · Sled Happens', '#3a5a8a', '#14243e')],
@@ -211,6 +259,11 @@ const ART: Record<string, Piece[]> = {
   selby: [tapestry('#1a4a5a', '#e86a8a'), poster('BIKE STU', 'open late · no one leaves', '#c2402a', '#4a1a12'), cork(9, ['who is Kev?', 'rent!!', 'studio 2am'])],
   will: [poster('CAMPUS LEGEND', 'est. frosh week', '#e8b02a', '#8a4a10', '#2a1a10'), pennant('DEAN’S LIST', '#1a2a5a', '#f4f0e4'), cork(5, ['interview', 'gym 6am', 'charity gala'])],
   jung: [whiteboard(['e^iπ + 1 = 0', '∫ beer dx = ?', 'STOP TOUCHING MY PAN']), poster('ANDREW 3–0', 'never forget', '#5a5a62', '#1a1a1e')],
+  landing: [
+    list('HOUSE RULES', ['Rinse your pan', 'Bins out Tuesday', 'the raccoon is NOT a pet', 'No bongs on the stairs', 'Quiet after 2am', 'who keeps doing this', 'Rent on the 1st', 'Lock the back door', 'WHO DRANK MY SPONSORSHIP']),
+    dartboard,
+  ],
+  hall3: [list('CHORE CHART', ['Bins: Jung', 'Bathroom: Wags', 'Kitchen: Dev', 'nobody did these', 'Recycling: Xang', 'Floors: Will?', 'Will has never', 'Sink: everyone', 'Raccoon: Selby']), poster('282 FOREVER', 'the best worst house', '#5a3a9a', '#1a1030')],
   wags: [records([['#e2c23a', '#c0302a', 'SIDE A'], ['#2a7ab0', '#f4f0e4', 'DISCO'], ['#d85a8a', '#1a1a1e', 'B-SIDES'], ['#1a1a1e', '#e8e0c8', 'LIVE ’79']]), poster('DON’T PANIC', 'it’s only a deadline', '#4aa86a', '#1a4a2a'), lights],
 };
 
