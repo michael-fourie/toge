@@ -1248,7 +1248,9 @@ export class NightSession {
       if (s.kind === 'vice' && (this.ghost || s.id === this.vibe.bong)) continue;
       if (s.kind === 'duo' && this.pub?.duo.includes(DUO_PAIRS.find((p) => p[0] === s.id || p[1] === s.id)![0])) continue;
       if (s.kind === 'chore' && !this.priv?.tasks.some(([id, done]) => id === s.id && !done)) continue;
-      consider({ kind: 'spot', spot: s, t: raySphere(o, d, s.pos, s.r ?? 0.5, REACH) });
+      const t = raySphere(o, d, s.pos, s.r ?? 0.5, REACH);
+      // Your own chore wins over a search spot or a seat it overlaps (the remote is in the couch you'd search).
+      consider({ kind: 'spot', spot: s, t: s.kind === 'chore' && t >= 0 ? Math.max(0, t - 0.4) : t });
     }
     return best;
   }
