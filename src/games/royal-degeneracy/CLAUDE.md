@@ -1,8 +1,8 @@
 # Royal Degeneracy (agent instructions)
 
-A first-person 3D social-deduction party game set in 282, our old university house. Steps 1–4 of the build order
-are built (channel and lobby, the house, the Among Us core, the mystery, the cast, the house coming alive, the art
-pass); step 8 (touch controls, more cases, proximity voice) is what's left.
+A first-person 3D social-deduction party game set in 282, our old university house. All eight steps of the build
+order are built: channel and lobby, the house, the Among Us core, the mystery, the cast, the house coming alive,
+the art pass, and step 8 (touch controls, eight cases, proximity voice).
 
 Where things are: `game.ts` (screens, the party room, who referees), `lobby.ts`, `night.ts` (one night on this
 screen), `referee.ts` (the host's checks), `rules.ts` / `net.ts` (pure rules and wire checks), `house.ts` (the
@@ -13,12 +13,12 @@ your hands, the phone, the plant menu), `abilities.ts` (each character's ability
 it) and `powers.ts` (the ability chip, result cards, Proof menu, emote wheel, buzz arrow, Bongus glows). `vices.ts` (joints, bongs, the plate, the mystery
 pill: pure state and timings; effects and prompts in night.ts, only on your own screen), `props.ts` (procedural furniture, clutter,
 signs, flags and posters, merged per colour; world.ts skips the plain boxes it replaces), `sabotage.ts` (sabotages and fixes,
-pure), `stats.ts` (your nights, in this browser). The raccoon, Bike Stu's randoms and the reveal's replay frames run
+pure), `stats.ts` (your nights, in this browser), `touch.ts` (phone controls: they drive Input's touch methods), `voice.ts` (proximity voice: WebRTC signalled through party messages `{t:'vc'}`, checked by `readVoice`; game.ts routes them to `session.voice`). The raccoon, Bike Stu's randoms and the reveal's replay frames run
 in `referee.ts`. Quirks that
 only change your own screen (Rock Hound, Supervisor, Couch Lock, Illogical!, Will's cologne) live in `night.ts`. Tests: `tests/royal-degeneracy.test.ts` (rules, messages, cards),
 `tests/royal-degeneracy-clues.test.ts` (the mystery), `tests/royal-degeneracy-cast.test.ts` (abilities, locked
 clues, two-person chores), `tests/royal-degeneracy-house-alive.test.ts` (sabotages, sneak routes, Cosy mode, the
-Sink, awards, stats), `tests/royal-degeneracy-vices.test.ts` and `tests/royal-degeneracy-house.test.ts` (spawns, doorways,
+Sink, awards, stats), `tests/royal-degeneracy-vices.test.ts`, `tests/royal-degeneracy-step8.test.ts` (every case deals, voice gain and messages) and `tests/royal-degeneracy-house.test.ts` (spawns, doorways,
 the square-spiral stairs, a flood fill that reaches every room and spot, shoves, nudges, seats). In dev, `window.__royal` is the app (`__royal.session` the
 night, `__royal.referee` the host's referee).
 

@@ -20,6 +20,8 @@ import { Meeting } from './meeting.ts';
 import { Evidence, InspectView, Phone, PlantMenu, crimeName, type FeedItem, type Known, type PhoneTab } from './mystery.ts';
 import { POWERS, powerOf, type Power } from './abilities.ts';
 import { Glows, PowerUI } from './powers.ts';
+import { IS_TOUCH, TouchControls } from './touch.ts';
+import { Voice, voiceGain, type VoiceMsg } from './voice.ts';
 import { SAB, SABOTAGES, type SabKind } from './sabotage.ts';
 import { newWalker, nudgeApart, shove, stepWalker } from './move.ts';
 import { EMOTES, PF, type Msg } from './net.ts';
@@ -47,6 +49,8 @@ export interface SessionOpts {
   toHost(m: Msg): void;
   /** To every other player (poses, chat). */
   toAll(m: Msg): void;
+  /** Voice-chat signalling, to everyone or one player. */
+  voiceOut(m: VoiceMsg, to?: number): void;
   /** True when this browser is the referee (so poses also go to it locally). */
   hosting: boolean;
   leave(): void;
@@ -207,6 +211,11 @@ export class NightSession {
   private vibeChip: HTMLElement;
   /** Rolling a joint (a minigame, like a chore). */
   private rolling: ChoreView | null = null;
+  /** Phones and tablets: the on-screen stick and buttons. */
+  private touch: TouchControls | null = null;
+  /** Proximity voice chat (off until you switch it on in the pause menu). */
+  readonly voice: Voice;
+  private voiceLine: HTMLElement;
   private replayT = 0;
   private eviction: { person: Person | null; rain: THREE.Points; t: number } | null = null;
   private shake = 0;
@@ -249,7 +258,19 @@ export class NightSession {
     this.vibeChip = document.createElement('div');
     this.vibeChip.className = 'rd-vibe';
     this.hud.root.append(this.vibeChip);
-    this.input = new Input(o.renderer.domElement, o.api);
+    this.voice = new Voice(o.me, o.voiceOut);
+    this.voiceLine = document.createElement('div');
+    this.voiceLine.className = 'rd-voice';
+    this.hud.root.append(this.voiceLine);
+    this.input = new Input(o.renderer.domElement, o.api, IS_TOUCH);
+    if (IS_TOUCH) {
+      this.wrap.classList.add('rd-touch');
+      this.touch = new TouchControls(this.wrap, this.input, () => (this.closeOverlays() ? undefined : this.setPaused(!this.paused)));
+      const rotate = document.createElement('div');
+      rotate.className = 'rd-rotate';
+      rotate.textContent = '🔄 Turn your phone sideways to play';
+      this.wrap.append(rotate);
+    }
     this.self = new Person(lookFor(this.char, me.name), CAST[this.char].height);
     this.self.setLayer(1);
     this.world.scene.add(this.self.root);
@@ -762,6 +783,14 @@ export class NightSession {
       resume: () => this.resume(),
       leave: () => this.o.leave(),
       prefs: () => this.applyPrefs(),
+      voice: {
+        label: () => `Voice chat: ${this.voice.on ? 'on' : 'off'}`,
+        toggle: async () => {
+          if (this.voice.on) return this.voice.stop();
+          const err = await this.voice.start();
+          this.hud.toast(err ?? 'Voice on. People hear you from where you stand. M mutes.', 3500);
+        },
+      },
     });
     if (on) {
       const h = this.hud.root.querySelector('.rd-pausecard h2');
@@ -867,6 +896,16 @@ export class NightSession {
     this.placeCamera(dt, sitting);
     this.updateHud(ph);
     this.updateVibe(dt);
+    if (f.mute && this.voice.on) {
+      this.voice.setMuted(!this.voice.muted);
+      this.hud.toast(this.voice.muted ? '🔇 Mic muted' : '🎙 Mic on', 1200);
+    }
+    this.updateVoice(ph);
+    if (this.touch) {
+      this.touch.tapsClick = !!(this.chore || this.rolling);
+      this.touch.setEvil(this.evil);
+      this.touch.setVisible(!this.paused && !this.overlay() && !this.inMeeting() && (ph === 'night' || ph === 'intro'));
+    }
     if (ph === 'over') {
       this.saveStats();
       this.drawReplays(dt);
@@ -1603,6 +1642,33 @@ export class NightSession {
   }
 
   /** The house's moving parts on this screen: sabotage effects, the raccoon, the Ring cam, the Unflushed's gag. */
+  /**
+   * Who you hear and how loud: by distance and walls at night, everyone at full volume at a meeting or the end.
+   * The living never hear ghosts; ghosts hear everyone.
+   */
+  private updateVoice(ph: PublicView['ph']) {
+    if (!this.voice.on) {
+      this.voiceLine.textContent = '';
+      return;
+    }
+    const open = ph === 'over' || this.inMeeting() || ph === 'result' || ph === 'intro';
+    const peers = new Map<number, { at: Vec3; gain: number; muffle: 0 | 1 | 2 }>();
+    for (const r of this.remotes.values()) {
+      const st = this.statusOf(r.id);
+      if (st === 'gone' || (st !== 'in' && !this.ghost && ph !== 'over')) continue;
+      const at = { x: r.pos.x, y: r.pos.y + 1.5, z: r.pos.z };
+      if (open) peers.set(r.id, { at: { ...this.walker.pos, y: this.walker.pos.y + 1.5 }, gain: 1, muffle: 0 });
+      else {
+        const muffle = this.muffle(at);
+        const d = Math.hypot(at.x - this.walker.pos.x, at.y - this.walker.pos.y - 1.5, at.z - this.walker.pos.z);
+        peers.set(r.id, { at, gain: voiceGain(d, muffle), muffle });
+      }
+    }
+    const talking = this.voice.update({ ...this.walker.pos, y: this.walker.pos.y + 1.5 }, this.walker.yaw, peers);
+    const names = [...talking].map((id) => this.names.get(id) ?? '?');
+    this.voiceLine.textContent = `${this.voice.muted ? '🔇' : '🎙'}${names.length ? ' ' + names.join(', ') : ''}`;
+  }
+
   private updateHouse(dt: number, ph: PublicView['ph']) {
     const sab = this.pub?.sab ?? null;
     const kind = sab?.[0] as SabKind | undefined;
@@ -1844,6 +1910,8 @@ export class NightSession {
   }
 
   destroy() {
+    this.touch?.dispose();
+    this.voice.dispose();
     this.endRolling();
     if (this.duoHeld) this.o.toHost({ t: 'duo', spot: this.duoHeld, on: false });
     this.syncNpcs([]);

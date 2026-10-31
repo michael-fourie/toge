@@ -1,6 +1,6 @@
 # Royal Degeneracy: design and build plan
 
-Status: steps 1–7 of the build order are built; step 8 (later: touch controls, more cases, proximity voice) is left. The cast is in [CAST.md](CAST.md), the floorplans are in
+Status: all eight steps of the build order are built (step 8: touch controls, eight cases, proximity voice). The cast is in [CAST.md](CAST.md), the floorplans are in
 `floorplans/`, and the house is read off them in [CLAUDE.md](CLAUDE.md), which also says where to start. The guests
 come later.
 
@@ -349,10 +349,9 @@ house stories.
 3. **The Unflushed.** Someone didn't flush, and worse, the floor. Twist: the bathroom is so foul you can only stay in
    it for 8 s at a time (gagging, a swimming view), so searching it is a relay. The weapon is a plunger.
 
-More from the house's own stories (details in [CAST.md](CAST.md)): the Scratched Record (Wags's), the Sponsored
-Stash (Will's free liquor, drunk), Who Let the Raccoon In, the Indoor Cigarette (everyone suspects Wags), the
-Toboggan Job, the Missing Geode (Xang's), the Great Clean-Up (someone keeps undoing the chores) and the Rage Quit
-(Nash's controller, through the telly). Plus the classics: the fridge thief, the 4 am fire alarm, the stranger
+Also built: the Scratched Record (Wags's room), the Sponsored Stash (Will's free liquor, drunk), the Rage Quit
+(Nash's controller, through the telly), the Indoor Cigarette (one extra plant each: everyone suspects Wags) and Who
+Let the Raccoon In (the raccoon turns up far more often). Still ideas: the Toboggan Job, the Missing Geode (Xang's), the Great Clean-Up (someone keeps undoing the chores). Plus the classics: the fridge thief, the 4 am fire alarm, the stranger
 asleep on the couch.
 
 ## Making it a game you play for hours
@@ -408,6 +407,10 @@ asleep on the couch.
 | Torch | T | D-pad up |
 | Shove | V | right stick click |
 | Emotes, high-five, hug | G (a wheel) | D-pad down |
+| Mute your mic (voice chat) | M | |
+
+On a phone (`touch.ts`, also `?touch=1`): the left of the screen is a floating stick, the rest swipes to look,
+and buttons cover E, jump, crouch, Q, take out, R and the small keys. Voice chat is switched on in the pause menu.
 
 Esc frees the mouse and opens the pause menu (Resume, Settings, Leave the house). The game catches Esc while it's
 open, so a stray press never quits you out of a night; leaving is the Leave button.
@@ -518,9 +521,10 @@ Each step ends in something playable, so we find out early whether it's fun.
 6. **The house comes alive**: sabotages, sneak routes, the gadgets, the Sink of Shame and the Unflushed, the rest of
    the chores, awards, stats, Cosy mode, the reveal replays.
 7. **Art pass** from the photos: materials, clutter, baked lighting, the mirror, sound, the banner.
-8. **Later**: touch controls for phones (harder in first person; Gambol's touch controls are the model), more
-   cases, proximity voice chat (WebRTC signalled through party messages; it would suit first person brilliantly,
-   but without a TURN server some connections fail, so it comes last).
+8. **Phones, cases, voice** (built): touch controls (`touch.ts`: a floating stick on the left, swipe to look,
+   buttons for the keys; taps click in minigames; landscape only), five more cases (eight in all), and proximity
+   voice chat (`voice.ts`: WebRTC between every pair who switched it on, signalled through party messages, STUN
+   only, so some networks can't connect).
 
 ## Starting numbers
 
@@ -587,4 +591,6 @@ housemate their card before it ships.
 - **Lighting cost.** Interiors at night live or die by their lighting; the baked-plus-light-pool approach keeps it
   cheap, and the art pass has to be checked on a weak laptop.
 - **Host cheating and host leaving** are accepted for now (see Netcode).
-- **Voice**: the game assumes you're on a call or in the same room; the meeting chat covers everyone else.
+- **Voice**: proximity voice is opt-in (pause menu). At night you hear people by distance, muffled through walls
+  and floors; at meetings and the end everyone is at full volume; the living never hear ghosts. With STUN only,
+  some networks can't connect; a call or the meeting chat covers them.

@@ -7,6 +7,7 @@ import { CATS, type Cat } from './clues.ts';
 import { SAB_KINDS, type SabKind } from './sabotage.ts';
 import { DOORS, ROOMS, SPOTS } from './house.ts';
 import { cleanSettings, type Phase, type PrivateView, type PublicView, type Role, type Settings, type Status } from './rules.ts';
+import { VOICE_KINDS, type VoiceKind, type VoiceMsg } from './voice.ts';
 
 /** Pose flag bits. */
 export const PF = { crouch: 1, torch: 2, ghost: 4, sit: 8, point: 16, busy: 32, phone: 64, bongus: 128, sled: 256, watch: 512, smoke: 1024, high: 2048, wired: 4096 } as const;
@@ -137,6 +138,13 @@ function readPrivate(v: unknown): PrivateView | null {
   if (!arr(s.power, 2) || !int(s.power[0]) || !num(s.power[1]) || !num(s.sabAt)) return null;
   for (const c of s.seen) if (!arr(c, 4) || !int(c[0]) || !isCat(c[1]) || !str(c[2], 24) || !int(c[3])) return null;
   return v as PrivateView;
+}
+
+/** A voice-chat signalling message (voice.ts), or null. SDP and ICE are opaque strings to us. */
+export function readVoice(d: unknown): VoiceMsg | null {
+  if (!d || typeof d !== 'object') return null;
+  const m = d as Record<string, unknown>;
+  return m.t === 'vc' && VOICE_KINDS.includes(m.k as VoiceKind) && str(m.d, 7000) ? { t: 'vc', k: m.k as VoiceKind, d: m.d } : null;
 }
 
 /** Checks a message's shape; null if it's anything unexpected. */

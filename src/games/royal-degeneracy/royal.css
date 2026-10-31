@@ -1237,3 +1237,117 @@
     filter: hue-rotate(360deg) saturate(1.8);
   }
 }
+
+/* ---------------------------------------------------------------- touch: phones and tablets */
+
+.royal-degeneracy .rd-touchpad {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  touch-action: none;
+}
+.royal-degeneracy .rd-lookzone {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+.royal-degeneracy .rd-stick {
+  display: none;
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+.royal-degeneracy .rd-knob {
+  position: absolute;
+  left: 35px;
+  top: 35px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+}
+.royal-degeneracy .rd-tbuttons {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  display: grid;
+  grid-template-columns: repeat(3, 62px);
+  gap: 10px;
+  pointer-events: auto;
+}
+.royal-degeneracy .rd-tsmall {
+  position: absolute;
+  right: 14px;
+  top: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+.royal-degeneracy .rd-tbtn {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  background: rgba(30, 20, 50, 0.55);
+  color: #fff;
+  font: 800 22px system-ui, sans-serif;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.royal-degeneracy .rd-tbtn.small {
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+}
+.royal-degeneracy .rd-tbtn.down {
+  background: rgba(255, 77, 141, 0.7);
+}
+.royal-degeneracy .rd-tbtn.kill {
+  background: rgba(150, 20, 50, 0.7);
+}
+.royal-degeneracy .rd-touch .rd-hint {
+  display: none;
+}
+.royal-degeneracy .rd-touch .rd-topbar {
+  right: 70px;
+  width: 200px;
+}
+.royal-degeneracy .rd-touch .rd-power-chip {
+  bottom: 100px;
+}
+.royal-degeneracy .rd-rotate {
+  display: none;
+}
+@media (orientation: portrait) {
+  .royal-degeneracy .rd-touch .rd-rotate {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    background: var(--rd-night);
+    font: 800 22px system-ui, sans-serif;
+    padding: 24px;
+    text-align: center;
+  }
+}
+
+/* Voice chat: your mic and who is talking (bottom left, under the ability chip). */
+.royal-degeneracy .rd-voice {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  font: 600 13px/1.3 system-ui, sans-serif;
+  color: #e9fff0;
+  text-shadow: 0 1px 3px #000a;
+  pointer-events: none;
+}
+.royal-degeneracy .rd-voice:empty {
+  display: none;
+}

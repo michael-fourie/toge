@@ -27,6 +27,8 @@ export interface Frame {
   emote: boolean;
   /** L / RB: light a joint. */
   light: boolean;
+  /** M: mute your mic (voice chat). */
+  mute: boolean;
   /** Raw pointer movement (px) and clicks, for chore minigames' cursor. */
   mx: number;
   my: number;
@@ -55,6 +57,7 @@ const BIND = {
   ability: ['KeyQ'],
   emote: ['KeyG'],
   light: ['KeyL'],
+  mute: ['KeyM'],
 };
 
 export class Input {
@@ -69,10 +72,14 @@ export class Input {
   sens = 1;
   /** Without pointer lock (meetings), dragging on the view still looks around. */
   dragLook = false;
+  /** Phones: no pointer lock; "locked" means playing (touch.ts drives the rest). */
+  private touchActive = false;
+  private stick = { fwd: 0, side: 0 };
 
   constructor(
     private canvas: HTMLElement,
     private api: GameApi,
+    readonly touchMode = false,
   ) {
     const on = <K extends keyof WindowEventMap>(type: K, fn: (e: WindowEventMap[K]) => void, opts?: AddEventListenerOptions) => {
       addEventListener(type, fn as EventListener, opts);
@@ -100,10 +107,14 @@ export class Input {
   }
 
   get locked() {
-    return document.pointerLockElement === this.canvas;
+    return this.touchMode ? this.touchActive : document.pointerLockElement === this.canvas;
   }
 
   lock() {
+    if (this.touchMode) {
+      this.touchActive = true;
+      return;
+    }
     if (this.locked) return;
     try {
       const p = this.canvas.requestPointerLock() as unknown as Promise<void> | undefined;
@@ -114,7 +125,30 @@ export class Input {
   }
 
   unlock() {
-    if (this.locked) document.exitPointerLock();
+    if (this.touchMode) this.touchActive = false;
+    else if (this.locked) document.exitPointerLock();
+  }
+
+  /** The touch stick: forward and right, -1..1. */
+  touchStick(fwd: number, side: number) {
+    this.stick = { fwd, side };
+  }
+
+  /** A swipe on the view (px): looking around, or the minigame cursor. */
+  touchLook(dx: number, dy: number) {
+    this.dx += dx * 1.6;
+    this.dy += dy * 1.6;
+  }
+
+  /** A touch button: a key code, or 'click' (the mouse button). */
+  touchButton(code: string, down: boolean) {
+    if (code === 'click') {
+      if (down) this.click = true;
+      this.mouseDown = down;
+    } else if (down) {
+      this.pressed.add(code);
+      this.held.add(code);
+    } else this.held.delete(code);
   }
 
   private any(keys: string[], set = this.held) {
@@ -128,6 +162,10 @@ export class Input {
     const pd = pad?.down ?? [];
     let fwd = (this.any(BIND.fwd) ? 1 : 0) - (this.any(BIND.back) ? 1 : 0);
     let side = (this.any(BIND.right) ? 1 : 0) - (this.any(BIND.left) ? 1 : 0);
+    if (this.stick.fwd || this.stick.side) {
+      fwd = this.stick.fwd;
+      side = this.stick.side;
+    }
     if (pad && (Math.abs(pad.lx) > 0 || Math.abs(pad.ly) > 0)) {
       fwd = -pad.ly;
       side = pad.lx;
@@ -151,6 +189,7 @@ export class Input {
       ability: this.any(BIND.ability, this.pressed) || !!pp[3],
       emote: this.any(BIND.emote, this.pressed) || !!pp[13],
       light: this.any(BIND.light, this.pressed) || !!pp[5],
+      mute: this.any(BIND.mute, this.pressed),
       mx: this.dx + (pad?.lx ?? 0) * 600 * dt,
       my: this.dy + (pad?.ly ?? 0) * 600 * dt,
       click: this.click || !!pp[0],

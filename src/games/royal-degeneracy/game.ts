@@ -7,7 +7,7 @@ import type { Party } from '../party.ts';
 import type { GameApi } from '../types.ts';
 import { CAST, type CharId } from './cast.ts';
 import { Stand, nextSetting, renderLobby, renderMenu } from './lobby.ts';
-import { readMsg, type Msg } from './net.ts';
+import { readMsg, readVoice, type Msg } from './net.ts';
 import { NightSession } from './night.ts';
 import { Referee } from './referee.ts';
 import { DEFAULT_SETTINGS, MIN_PLAYERS, pickCharacter, settlePicks, type Settings } from './rules.ts';
@@ -158,6 +158,8 @@ class App {
     this.offs.push(
       p.onMembers(() => this.membersChanged()),
       p.onMessage((from, data) => {
+        const v = readVoice(data);
+        if (v) return void this.session?.voice.handle(from, v);
         const m = readMsg(data);
         if (m) this.onMsg(from, m);
       }),
@@ -298,6 +300,7 @@ class App {
       people,
       toHost: send,
       toAll: (m) => this.party?.send(m),
+      voiceOut: (m, to) => this.party?.send(m, to),
       hosting: this.isHost,
       leave: () => (this.party ? this.leaveRoom('') : this.endNight('')),
     });

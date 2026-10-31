@@ -4,6 +4,7 @@
 // log the reveal plays back. The referee (host) runs all of it; only it knows which clues are plants.
 
 import type { Vec3 } from '../../shared/math.ts';
+import { caseById } from './cases.ts';
 import { CAST, lookFor, tagFor, type CharId, type Traits } from './cast.ts';
 import { FLOOR_Y, GROUND, REACH, SPOTS, clearAt, floorOf, floorSpot, roomAt, searchesIn } from './house.ts';
 import type { Night, Player } from './rules.ts';
@@ -25,7 +26,7 @@ export const VALUES: Record<Exclude<Cat, 'belonging'>, string[]> = {
 /** Values that leave nothing behind: the referee never draws them, and nobody can plant them. */
 const SILENT = new Set(['none', 'calm']);
 
-export const PLANTS_PER_NIGHT = 3;
+const PLANTS_PER_NIGHT = 3;
 export const SEARCH_SECONDS = 2;
 export const WIPE_SECONDS = 3;
 
@@ -346,7 +347,8 @@ export function post(n: Night, who: number, clueId: number): Clue | null {
   return c;
 }
 
-const plantsLeft = (n: Night, who: number) => n.mystery.plants.get(who) ?? PLANTS_PER_NIGHT;
+/** Plants left: three a night, more in a case that gives Degenerates extra. */
+export const plantsLeft = (n: Night, who: number) => n.mystery.plants.get(who) ?? PLANTS_PER_NIGHT + (caseById(n.caseId).extraPlants ?? 0);
 
 /** Can this value be planted? Only things that leave a trace; belongings of someone in the house. */
 function plantable(n: Night, cat: Cat, value: string): boolean {

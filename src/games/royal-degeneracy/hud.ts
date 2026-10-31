@@ -44,6 +44,8 @@ export interface PauseHandlers {
   resume(): void;
   leave(): void;
   prefs(p: Prefs): void;
+  /** Proximity voice: the button's label, and switching it (async: it asks for the mic). */
+  voice: { label(): string; toggle(): Promise<void> };
 }
 
 export class Hud {
@@ -167,9 +169,11 @@ export class Hud {
       savePrefs(prefs);
       h.prefs(prefs);
     });
+    const voice = el('button', 'rd-btn small', h.voice.label());
+    voice.addEventListener('click', () => void h.voice.toggle().then(() => (voice.textContent = h.voice.label())));
     const leave = el('button', 'rd-btn ghost', 'Leave the house');
     leave.addEventListener('click', () => h.leave());
-    box.append(bob, leave, el('p', 'rd-keys', KEYS));
+    box.append(bob, voice, leave, el('p', 'rd-keys', KEYS));
     this.pauseBox.append(box);
     resume.focus();
   }
@@ -180,7 +184,7 @@ export class Hud {
 }
 
 export const KEYS =
-  'WASD move · C crouch (silent) · E use · hold E search · Q ability · G emotes · Tab phone · T torch · V shove · Click take out, R sabotage / plant, hold R wipe (Degenerates) · Esc pause';
+  'WASD move · C crouch (silent) · E use · hold E search · Q ability · G emotes · M mute voice · Tab phone · T torch · V shove · Click take out, R sabotage / plant, hold R wipe (Degenerates) · Esc pause';
 
 /** A portrait chip: image + name (for cards and the vote grid). */
 export function chip(img: string, name: string, sub = ''): HTMLElement {

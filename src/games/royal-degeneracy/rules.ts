@@ -6,7 +6,7 @@ import { CHAR_IDS, tagFor, type CharId } from './cast.ts';
 import { CASES, caseById } from './cases.ts';
 import { alarmOn, newSabotages, stepSabotage, type Sabotages } from './sabotage.ts';
 import { newPowers, powerOf, powerView, guarded, spend, powerProblem, type Powers } from './abilities.ts';
-import { PLANTS_PER_NIGHT, caseTexts, commitCrime, log, newMystery, nextRand, type Mystery } from './clues.ts';
+import { caseTexts, plantsLeft, commitCrime, log, newMystery, nextRand, type Mystery } from './clues.ts';
 import { CHORE_KINDS, DUO_PAIRS, TASKS_EACH, FLOOR_Y, ROOMS, SEATS, SPOTS, roomAt } from './house.ts';
 import type { Vec3 } from '../../shared/math.ts';
 
@@ -629,7 +629,7 @@ export function privateView(n: Night, id: number): PrivateView | null {
     killAt: p.killAt,
     rang: p.rang,
     rattleAt: Number.isFinite(p.rattleAt) ? p.rattleAt : -999,
-    plants: p.role === 'degenerate' ? (n.mystery.plants.get(id) ?? PLANTS_PER_NIGHT) : 0,
+    plants: p.role === 'degenerate' ? plantsLeft(n, id) : 0,
     seen: [...(n.mystery.seen.get(id) ?? [])].map((cid) => {
       const c = n.mystery.clues[cid];
       return [cid, c.cat, c.value, c.crime];

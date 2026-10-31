@@ -3,6 +3,7 @@
 // to one player. Secrets (roles, who's a Degenerate) only ever leave in private messages, or at the reveal.
 
 import { CAST, tagFor } from './cast.ts';
+import { caseById } from './cases.ts';
 import { BONGUS_RANGE, LOOKOUT_RANGE, NPC_SIGHT, POWERS, hiddenNear, plantedIn, powerOf, powerProblem, proof, recordRooms, routerLog, spend, teaFact } from './abilities.ts';
 import { CATS, ITEM, hint, inspect, label, nextRand, plant, post, search, traceable, unlock, valueOf, wipe } from './clues.ts';
 import { WALK, newWalker, stepWalker, type Walker } from './move.ts';
@@ -355,7 +356,7 @@ export class Referee {
     const c = this.coon;
     if (n.roam > c.until) {
       this.coon = null;
-      this.coonAt = n.roam + 90 + nextRand(n) * 60;
+      this.coonAt = n.roam + this.coonGap();
       this.out({ t: 'coon', p: null });
       return;
     }
@@ -387,6 +388,12 @@ export class Referee {
     }
     const r2 = (v: number) => Math.round(v * 100) / 100;
     if (Math.floor(n.roam * 5) !== Math.floor((n.roam - dt) * 5)) this.out({ t: 'coon', p: [r2(c.w.pos.x), r2(c.w.pos.y), r2(c.w.pos.z), r2(c.w.yaw)] });
+  }
+
+  /** Seconds until the raccoon's next visit (much sooner in Who Let the Raccoon In). */
+  private coonGap() {
+    const every = caseById(this.night.caseId).coonEvery;
+    return every ? every * (0.7 + nextRand(this.night) * 0.6) : 90 + nextRand(this.night) * 60;
   }
 
   /** Two-person chores: both ends held for 4 s (or Shota at either end, alone). */
@@ -545,7 +552,7 @@ export class Referee {
         const c = this.coon;
         if (!c || !pose || !living(me) || dist(pose, c.w.pos) > REACH + 1) return;
         this.coon = null;
-        this.coonAt = n.roam + 90 + nextRand(n) * 60;
+        this.coonAt = n.roam + this.coonGap();
         this.out({ t: 'coon', p: null });
         this.out({ t: 'feed', from: 'House', text: `${tagFor(me.char, me.name)} shooed the raccoon back out onto its balcony.`, clue: -1 });
         return;

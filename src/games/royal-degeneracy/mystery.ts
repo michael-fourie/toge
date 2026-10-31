@@ -174,10 +174,34 @@ export class Evidence {
     } else if (caseId === 'sink') {
       for (let i = 0; i < 14; i++) add(new THREE.CylinderGeometry(0.13, 0.11, 0.025, 16), i % 3 ? '#f2f0ea' : '#7aa0c8', 5.6 + Math.sin(i) * 0.04, 0.95 + i * 0.03, 0.45);
       add(new THREE.CylinderGeometry(0.14, 0.14, 0.04, 16), '#2a2a2e', 5.62, 0.95 + 14 * 0.03, 0.45, 0.2);
-    } else {
+    } else if (caseId === 'unflushed') {
       const y = FLOOR_Y[2];
       add(new THREE.CylinderGeometry(0.45, 0.45, 0.005, 24), '#7a5a1a', 7.6, y + 0.003, 7.4);
       add(new THREE.CylinderGeometry(0.3, 0.3, 0.005, 24), '#8a6a2a', 7.0, y + 0.004, 8.1);
+    } else if (caseId === 'record') {
+      // Side B, in two halves, and its sleeve.
+      const y = FLOOR_Y[2];
+      add(new THREE.CylinderGeometry(0.15, 0.15, 0.01, 24, 1, false, 0, Math.PI), '#111111', 4.7, y + 0.01, 18.6);
+      add(new THREE.CylinderGeometry(0.15, 0.15, 0.01, 24, 1, false, Math.PI, Math.PI), '#111111', 4.9, y + 0.01, 18.3);
+      add(new THREE.BoxGeometry(0.31, 0.005, 0.31), '#d94b4b', 5.3, y + 0.005, 18.5, 0, 0);
+    } else if (caseId === 'stash') {
+      // A crate and the empties, lying where they fell.
+      const y = FLOOR_Y[1];
+      add(new THREE.BoxGeometry(0.5, 0.3, 0.35), '#8a6a3a', 1.6, y + 0.15, 15.2);
+      for (let i = 0; i < 7; i++) add(new THREE.CylinderGeometry(0.04, 0.04, 0.3, 10), i % 2 ? '#2f7a4a' : '#7a4a1a', 1.9 + (i % 4) * 0.22, y + 0.04, 15.7 + Math.floor(i / 4) * 0.3, Math.PI / 2, i);
+    } else if (caseId === 'ragequit') {
+      // The controller in the rubble under the telly, glass everywhere.
+      add(new THREE.BoxGeometry(0.16, 0.05, 0.1), '#1a1a1e', 4.9, 0.03, 7.6, 0, 0.5);
+      for (let i = 0; i < 9; i++) add(new THREE.BoxGeometry(0.06, 0.004, 0.04), '#b8c8d8', 4.6 + Math.sin(i * 2.1) * 0.4, 0.004, 7.9 + Math.cos(i * 1.7) * 0.35, 0, i);
+    } else if (caseId === 'cigarette') {
+      // An overflowing ashtray on the dining table, and the smell (you'll have to imagine the smell).
+      add(new THREE.CylinderGeometry(0.08, 0.07, 0.03, 14), '#6a6a72', 2.4, 0.77, 7.6);
+      for (let i = 0; i < 6; i++) add(new THREE.CylinderGeometry(0.008, 0.008, 0.05, 6), '#f0e6d2', 2.4 + Math.sin(i) * 0.04, 0.8, 7.6 + Math.cos(i) * 0.04, Math.PI / 2, i);
+    } else if (caseId === 'raccoon') {
+      // The balcony door's open and the bin's on its side, rubbish across Selby's floor.
+      const y = FLOOR_Y[1];
+      add(new THREE.CylinderGeometry(0.2, 0.18, 0.5, 14), '#2f5a8a', 2.6, y + 0.2, 2.2, Math.PI / 2, 0.4);
+      for (let i = 0; i < 8; i++) add(new THREE.BoxGeometry(0.12, 0.03, 0.1), i % 2 ? '#d8b070' : '#e8e4da', 2 + Math.sin(i) * 0.6, y + 0.015, 2.6 + Math.cos(i * 1.3) * 0.5, 0, i);
     }
   }
 
