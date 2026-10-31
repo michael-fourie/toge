@@ -2,9 +2,10 @@
 // the bell, meetings and votes, evictions, chores and every win. The host's browser runs it (game.ts) and sends
 // everyone the public view, and each player their private one.
 
-import { CHAR_IDS, type CharId } from './cast.ts';
-import { CASES } from './cases.ts';
-import { CHORE_KINDS, SEATS, SPOTS } from './house.ts';
+import { CHAR_IDS, tagFor, type CharId } from './cast.ts';
+import { CASES, caseById } from './cases.ts';
+import { PLANTS_PER_NIGHT, caseTexts, commitCrime, log, newMystery, nextRand, type Mystery } from './clues.ts';
+import { CHORE_KINDS, FLOOR_Y, ROOMS, SEATS, SPOTS, roomAt } from './house.ts';
 import type { Vec3 } from '../../shared/math.ts';
 
 // ---------------------------------------------------------------------------------------------
@@ -86,18 +87,6 @@ export function settlePicks(picks: Map<number, CharId>, roster: readonly number[
 
 // ---------------------------------------------------------------------------------------------
 // Dice
-
-/** A small seeded generator (mulberry32), so tests can replay a night. */
-function rng(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function shuffle<T>(arr: T[], r: () => number): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -188,6 +177,10 @@ export interface Night {
   votes: Map<number, number>;
   result: Result | null;
   win: Win | null;
+  /** Crimes, clues, plants, the log (clues.ts). */
+  mystery: Mystery;
+  /** The referee's dice state (clues.ts `nextRand`). */
+  rs: number;
 }
 
 export interface Joiner {
@@ -200,11 +193,28 @@ const SKIP = -1;
 
 /** Deals roles and chores for a fresh night. */
 export function newNight(people: readonly Joiner[], settings: Settings, seed: number): Night {
-  const r = rng(seed);
-  const caseId = settings.caseId === 'random' ? CASES[Math.floor(r() * CASES.length)].id : settings.caseId;
+  const n: Night = {
+    settings,
+    caseId: CASES[0].id,
+    phase: 'intro',
+    left: TIMES.intro,
+    roam: 0,
+    length: settings.nightMin * 60,
+    players: [],
+    bodies: [],
+    meet: null,
+    seats: [],
+    votes: new Map(),
+    result: null,
+    win: null,
+    mystery: newMystery(),
+    rs: seed >>> 0,
+  };
+  const r = () => nextRand(n);
+  n.caseId = settings.caseId === 'random' ? CASES[Math.floor(r() * CASES.length)].id : settings.caseId;
   const degs = degeneratesFor(people.length, settings.degenerates);
   const order = shuffle(people.map((_, i) => i), r);
-  const players = people.map((p, i): Player => ({
+  n.players = people.map((p, i): Player => ({
     ...p,
     role: order.indexOf(i) < degs ? 'degenerate' : 'housemate',
     alive: true,
@@ -218,21 +228,17 @@ export function newNight(people: readonly Joiner[], settings: Settings, seed: nu
       return { spot: options[Math.floor(r() * options.length)].id, done: false };
     }),
   }));
-  return {
-    settings,
-    caseId,
-    phase: 'intro',
-    left: TIMES.intro,
-    roam: 0,
-    length: settings.nightMin * 60,
-    players,
-    bodies: [],
-    meet: null,
-    seats: [],
-    votes: new Map(),
-    result: null,
-    win: null,
-  };
+  // The case's crime happened before the night began: one of the Degenerates did it, and it left clues.
+  const c = caseById(n.caseId);
+  const culprits = n.players.filter((p) => p.role === 'degenerate');
+  if (culprits.length) {
+    const by = culprits[Math.floor(r() * culprits.length)];
+    const room = ROOMS.find((x) => x.id === c.scene.room)!;
+    commitCrime(n, 'case', by.id, { x: c.scene.x, y: FLOOR_Y[room.floor], z: c.scene.z }, room.id, 2, 1);
+    log(n, `Before the night began: ${tagFor(by.char, by.name)} ${c.scene.did}.`);
+  }
+  n.mystery.texts = caseTexts(n, c.texts);
+  return n;
 }
 
 export const playerOf = (n: Night, id: number) => n.players.find((p) => p.id === id);
@@ -321,6 +327,9 @@ export function takeOut(n: Night, killerId: number, victimId: number, at: Vec3) 
   v.alive = false;
   n.bodies.push({ id: v.id, pos: { ...at } });
   k.killAt = n.roam + n.settings.killCd;
+  // A takeout is a crime: a clue by the body, and sometimes one stashed nearby.
+  const room = roomAt({ ...at, y: at.y + 0.1 })?.id ?? 'living';
+  commitCrime(n, 'takeout', killerId, at, room, 1, nextRand(n) < 0.5 ? 1 : 0, victimId);
   settle(n);
 }
 
@@ -335,6 +344,11 @@ export function meetingProblem(n: Night, who: number, body: number): string | nu
 
 export function startMeeting(n: Night, kind: MeetKind, by: number, body?: number) {
   if (kind === 'bell') playerOf(n, by)!.rang = true;
+  const who = playerOf(n, by);
+  const dead = body === undefined ? undefined : playerOf(n, body);
+  if (kind === 'body' && who && dead) log(n, `${tagFor(who.char, who.name)} found ${tagFor(dead.char, dead.name)}’s body.`);
+  else if (kind === 'bell' && who) log(n, `${tagFor(who.char, who.name)} banged the pot for a meeting.`);
+  else if (kind === 'last') log(n, 'The Last Meeting.');
   n.phase = 'meeting';
   n.left = n.settings.discuss;
   n.meet = { kind, by, body };
@@ -379,6 +393,7 @@ function endVote(n: Night) {
   const { out, counts } = tally(n.votes);
   const p = out === null ? undefined : playerOf(n, out);
   if (p) p.evicted = true;
+  log(n, p ? `The house evicted ${tagFor(p.char, p.name)}${p.role === 'degenerate' ? ' (a Degenerate!)' : ' (innocent)'}.` : 'The vote evicted nobody.');
   n.result = {
     out: p ? p.id : null,
     counts,
@@ -450,7 +465,13 @@ export interface PublicView {
   seats: number[];
   voted: number[];
   result: Result | null;
-  win: (Win & { roles: [number, Role][] }) | null;
+  win: (Win & { roles: [number, Role][]; log: [number, string][] }) | null;
+  /** Crimes so far: [0 the case / 1 a takeout, the victim or -1, room id]. */
+  crimes: [number, number, string][];
+  /** Clues lying on view: [id, crime, category, x, y, z] (what they say is only learned by picking one up). */
+  clues: [number, number, string, number, number, number][];
+  /** Photos in the group chat: [clue id, category, value, crime, who posted]. */
+  posted: [number, string, string, number, number][];
 }
 
 export interface PrivateView {
@@ -460,6 +481,10 @@ export interface PrivateView {
   killAt: number;
   rang: boolean;
   rattleAt: number;
+  /** Plants left tonight (Degenerates). */
+  plants: number;
+  /** Your Case File: every clue you've picked up, [id, category, value, crime]. */
+  seen: [number, string, string, number][];
 }
 
 const status = (p: Player): Status => (p.gone ? 'gone' : p.evicted ? 'out' : p.alive ? 'in' : 'dead');
@@ -479,7 +504,13 @@ export function publicView(n: Night): PublicView {
     seats: n.seats,
     voted: [...n.votes.keys()],
     result: n.result,
-    win: n.win && { ...n.win, roles: n.players.map((p) => [p.id, p.role]) },
+    win: n.win && { ...n.win, roles: n.players.map((p) => [p.id, p.role]), log: n.mystery.log },
+    crimes: n.mystery.crimes.map((c) => [c.kind === 'case' ? 0 : 1, c.victim ?? -1, c.room]),
+    clues: n.mystery.clues.filter((c) => c.state === 'view').map((c) => [c.id, c.crime, c.cat, r2(c.pos.x), r2(c.pos.y), r2(c.pos.z)]),
+    posted: [...n.mystery.posted].map(([id, by]) => {
+      const c = n.mystery.clues[id];
+      return [id, c.cat, c.value, c.crime, by];
+    }),
   };
 }
 
@@ -493,5 +524,10 @@ export function privateView(n: Night, id: number): PrivateView | null {
     killAt: p.killAt,
     rang: p.rang,
     rattleAt: Number.isFinite(p.rattleAt) ? p.rattleAt : -999,
+    plants: p.role === 'degenerate' ? (n.mystery.plants.get(id) ?? PLANTS_PER_NIGHT) : 0,
+    seen: [...(n.mystery.seen.get(id) ?? [])].map((cid) => {
+      const c = n.mystery.clues[cid];
+      return [cid, c.cat, c.value, c.crime];
+    }),
   };
 }

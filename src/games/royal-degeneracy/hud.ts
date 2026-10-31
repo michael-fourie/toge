@@ -180,7 +180,7 @@ export class Hud {
 }
 
 export const KEYS =
-  'WASD move · Mouse look · Space jump · C crouch (silent) · E use / report / chores · T torch · V shove · Click take out (Degenerates) · Esc pause';
+  'WASD move · Space jump · C crouch (silent) · E use · hold E search · Tab phone · T torch · V shove · Click take out, R plant / hold R wipe (Degenerates) · Esc pause';
 
 /** A portrait chip: image + name (for cards and the vote grid). */
 export function chip(img: string, name: string, sub = ''): HTMLElement {

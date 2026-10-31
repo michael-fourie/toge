@@ -19,6 +19,9 @@ export interface Frame {
   shove: boolean;
   pause: boolean;
   phone: boolean;
+  /** R / LB: the Degenerates' key (tap: plant, hold on a clue: wipe). */
+  alt: boolean;
+  altHeld: boolean;
   /** Raw pointer movement (px) and clicks, for chore minigames' cursor. */
   mx: number;
   my: number;
@@ -43,6 +46,7 @@ const BIND = {
   torch: ['KeyT'],
   shove: ['KeyV'],
   phone: ['Tab'],
+  alt: ['KeyR'],
 };
 
 export class Input {
@@ -134,6 +138,8 @@ export class Input {
       shove: this.any(BIND.shove, this.pressed) || !!pp[11],
       pause: !!pp[9],
       phone: this.any(BIND.phone, this.pressed) || !!pp[8],
+      alt: this.any(BIND.alt, this.pressed) || !!pp[4],
+      altHeld: this.any(BIND.alt) || !!pd[4],
       mx: this.dx + (pad?.lx ?? 0) * 600 * dt,
       my: this.dy + (pad?.ly ?? 0) * 600 * dt,
       click: this.click || !!pp[0],

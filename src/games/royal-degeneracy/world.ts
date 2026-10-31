@@ -15,6 +15,8 @@ import {
   GROUND,
   LAMPS,
   SOLIDS,
+  PRISMS,
+  TREE,
   WIDTH,
   doorBox,
   roomAt,
@@ -99,7 +101,7 @@ const CREAM = '#eee4cf';
 const OUT_LAMPS: Vec3[] = [
   { x: 2.4, y: 2.4, z: 21.4 },
   { x: 2, y: 2.1, z: -0.7 },
-  { x: 11.4, y: 4.6, z: 29.4 },
+  { x: WIDTH + 1.8, y: 4.6, z: 29.4 },
 ];
 const PARTY = new Set([0, 1]);
 
@@ -178,7 +180,6 @@ function faceMat(b: HBox, n: V, c: V): string {
     const outside = probe.x < 0 || probe.x > WIDTH || probe.z < 0 || probe.z > DEPTH;
     if (outside) return b.mat === 'brick' ? 'brick' : 'trim';
     const r = roomAt(probe);
-    if (r?.id === 'living' && n[2] > 0 && Math.abs(b.min.z - 5.34) < 0.05) return 'feature';
     if (r?.outside) return 'brick';
     return `paint:${(r && PAINT[r.id]) ?? CREAM}`;
   }
@@ -254,8 +255,8 @@ export class World {
     // Indoor lamps are warm; two in the living room are the party lights.
     this.lamps = [
       ...LAMPS.map((p) => ({ pos: p, color: 0xffd39a, power: 5 })),
-      { pos: { x: 5, y: 2.3, z: 7 }, color: 0xff3366, power: 6 },
-      { pos: { x: 8.4, y: 2.3, z: 11 }, color: 0x9b4dff, power: 6 },
+      { pos: { x: 4.6, y: 2.3, z: 10.6 }, color: 0xff3366, power: 6 },
+      { pos: { x: 7.4, y: 2.3, z: 7.2 }, color: 0x9b4dff, power: 6 },
       ...OUT_LAMPS.map((p) => ({ pos: p, color: 0xffc070, power: 9 })),
     ];
 
@@ -269,6 +270,7 @@ export class World {
     this.addLampFixtures();
     this.addDoors();
     this.addTree();
+    this.addPrisms();
     this.rebuildColliders();
   }
 
@@ -302,7 +304,7 @@ export class World {
     // Lit windows on next door's facing walls, and a roof on each.
     for (const [x, n] of [
       [-1.21, -1],
-      [10.79, 1],
+      [WIDTH + 1.19, 1],
     ] as const)
       for (const [z, y] of [
         [3, 1],
@@ -313,6 +315,44 @@ export class World {
     // Power lines across the front.
     for (const y of [7.2, 7.5])
       bld.quad('wire', [-14, y, 29], [24, y, 29], [24, y + 0.03, 29], [-14, y + 0.03, 29], [0, 0, 1], 0, 1);
+  }
+
+  /** The triangle wall: cream sides, a faux-brick face with the TV on it (and the PA speaker above). */
+  private addPrisms() {
+    for (const p of PRISMS) {
+      const bld = new Builder();
+      const y0 = FLOOR_Y[p.floor];
+      const y1 = y0 + p.h;
+      const n = p.pts.length;
+      const cx = p.pts.reduce((a, q) => a + q[0], 0) / n;
+      const cz = p.pts.reduce((a, q) => a + q[1], 0) / n;
+      for (let k = 0; k < n; k++) {
+        const [ax, az] = p.pts[k];
+        const [bx, bz] = p.pts[(k + 1) % n];
+        // Outward normal: perpendicular to the edge, away from the middle.
+        let nx = bz - az;
+        let nz = -(bx - ax);
+        const l = Math.hypot(nx, nz);
+        nx /= l;
+        nz /= l;
+        if (nx * ((ax + bx) / 2 - cx) + nz * ((az + bz) / 2 - cz) < 0) {
+          nx = -nx;
+          nz = -nz;
+        }
+        const tvFace = p.tv && k === 1;
+        bld.quad(tvFace ? 'feature' : `paint:${CREAM}`, [ax, y0, az], [bx, y0, bz], [bx, y1, bz], [ax, y1, az], [nx, 0, nz], Math.abs(nx) > Math.abs(nz) ? 2 : 0, 1);
+        if (tvFace) {
+          // The TV and the PA speaker, a hair proud of the bricks.
+          const at = (t: number, up: number, out: number): V => [ax + (bx - ax) * t + nx * out, y0 + up, az + (bz - az) * t + nz * out];
+          bld.quad('tv', at(0.3, 0.95, 0.03), at(0.7, 0.95, 0.03), at(0.7, 1.75, 0.03), at(0.3, 1.75, 0.03), [nx, 0, nz], 0, 1);
+          bld.quad('records', at(0.44, 2, 0.05), at(0.56, 2, 0.05), at(0.56, 2.45, 0.05), at(0.44, 2.45, 0.05), [nx, 0, nz], 0, 1);
+        }
+      }
+      for (const m of bld.build()) {
+        this.scene.add(m);
+        this.disposables.push(m.geometry);
+      }
+    }
   }
 
   private addLampFixtures() {
@@ -339,8 +379,8 @@ export class World {
       c.translate(x, y, z);
       parts.push(c);
     };
-    const tx = 7.55;
-    const tz = 24.55;
+    const tx = TREE.x;
+    const tz = TREE.z;
     limb(tx, GROUND, tz, 6.5, 0, 0, 0.4);
     const r = (i: number) => Math.sin(i * 12.9898) * 0.5 + 0.5;
     for (let i = 0; i < 9; i++) {

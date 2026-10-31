@@ -137,6 +137,8 @@ export interface PoseIn {
   sit?: boolean;
   dead?: boolean;
   point?: boolean;
+  /** Looking down at their phone (others can see it). */
+  phone?: boolean;
 }
 
 export class Person {
@@ -340,7 +342,11 @@ export class Person {
       this.armR.rotation.x = s * 0.55;
     }
     if (p.point) this.armR.rotation.set(-Math.PI / 2 - p.pitch, 0, 0.05);
-    this.head.rotation.set(Math.max(-0.6, Math.min(0.6, p.pitch)) - this.chest.rotation.x, 0, 0);
+    if (p.phone) {
+      this.armR.rotation.set(-1.15, 0, 0.45);
+      this.armL.rotation.set(-1.05, 0, -0.35);
+    }
+    this.head.rotation.set(Math.max(-0.6, Math.min(0.6, p.phone ? -0.5 : p.pitch)) - this.chest.rotation.x, 0, 0);
   }
 
   dispose() {

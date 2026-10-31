@@ -4,7 +4,7 @@ import { type Box } from '../src/shared/collision.ts';
 import { PLAYER } from '../src/shared/constants.ts';
 import type { Vec3 } from '../src/shared/math.ts';
 import { CAST, CHAR_IDS } from '../src/games/royal-degeneracy/cast.ts';
-import { DOORS, FLOOR_Y, REACH, ROOMS, SEATS, SOLIDS, SPOTS, doorBox, floorOf, roomAt, wakeSpot } from '../src/games/royal-degeneracy/house.ts';
+import { DOORS, FLOOR_Y, MEETING_CENTRE, REACH, ROOMS, SEATS, SOLIDS, SPOTS, doorBox, floorOf, roomAt, wakeSpot } from '../src/games/royal-degeneracy/house.ts';
 import { WALK, newWalker, nudgeApart, shove, stepWalker, type Walker } from '../src/games/royal-degeneracy/move.ts';
 import { doorBlocked } from '../src/games/royal-degeneracy/referee.ts';
 
@@ -58,19 +58,41 @@ test('house: no furniture blocks a doorway (a player fits either side of every d
   }
 });
 
-test('house: the stairs change floors both ways', () => {
-  // Flight A: up from the hall toward the back.
-  const up1 = walk({ x: 0.65, y: 0, z: 14 }, 0, 3);
-  assert.equal(floorOf(up1.pos.y), 1, `flight A top at ${JSON.stringify(up1.pos)}`);
-  assert.ok(up1.pos.z < 9.4);
-  // Flight B: up from the landing toward the front.
-  const up2 = walk({ x: 1.8, y: FLOOR_Y[1], z: 8.7 }, Math.PI, 3);
-  assert.equal(floorOf(up2.pos.y), 2, `flight B top at ${JSON.stringify(up2.pos)}`);
-  // And back down flight B, then flight A.
-  const down2 = walk({ x: 1.8, y: FLOOR_Y[2], z: 13.6 }, 0, 3);
-  assert.equal(floorOf(down2.pos.y), 1, `down flight B ends at ${JSON.stringify(down2.pos)}`);
-  const down1 = walk({ x: 0.65, y: FLOOR_Y[1], z: 8.8 }, Math.PI, 3);
-  assert.equal(floorOf(down1.pos.y), 0, `down flight A ends at ${JSON.stringify(down1.pos)}`);
+/** Walks a route of [yaw, seconds] legs (the stairs turn 90° at each landing). */
+function route(from: Vec3, legs: [number, number][]) {
+  const w = newWalker(from);
+  for (const [yaw, secs] of legs) {
+    w.yaw = yaw;
+    for (let i = 0; i < secs / DT; i++) stepWalker(w, { ...still, fwd: 1 }, DT, SOLIDS);
+  }
+  return w;
+}
+const LEFT = Math.PI / 2;
+const RIGHT = -Math.PI / 2;
+const BACK = 0;
+const FRONT = Math.PI;
+
+test('house: the stairs spiral up with right-angle turns, and back down', () => {
+  // From the hall: a few steps left to the corner landing, then the long flight toward the back to floor 2.
+  const up1 = route({ x: 2.8, y: 0, z: 13.15 }, [[LEFT, 1], [BACK, 2.5]]);
+  assert.equal(floorOf(up1.pos.y), 1, `floor 1 → 2 ends at ${JSON.stringify(up1.pos)}`);
+  assert.equal(roomAt(up1.pos)?.id, 'stairs2', 'arrives on the landing at the back of the well');
+  // Turn right: flight B climbs toward the right into the top hall.
+  const up2 = route(up1.pos, [[RIGHT, 2.5]]);
+  assert.equal(floorOf(up2.pos.y), 2, `floor 2 → 3 ends at ${JSON.stringify(up2.pos)}`);
+  assert.equal(roomAt(up2.pos)?.id, 'hall3');
+  // And all the way back down: left down flight B, then toward the front, then right into the hall.
+  const down = route(up2.pos, [[LEFT, 3], [FRONT, 2.2], [RIGHT, 1.5]]);
+  assert.equal(floorOf(down.pos.y), 0, `back down ends at ${JSON.stringify(down.pos)}`);
+  assert.equal(roomAt(down.pos)?.id, 'hall');
+});
+
+test('house: the top-floor eaves are only reached through the bedrooms', () => {
+  const hall3 = ROOMS.find((r) => r.id === 'hall3')!;
+  for (const d of DOORS.filter((x) => x.hatch)) {
+    const inHall = d.x >= hall3.min.x - 0.2 && d.x <= hall3.max.x + 0.2 && d.z >= hall3.min.z - 0.2 && d.z <= hall3.max.z + 0.2;
+    assert.ok(!inHall, `hatch ${d.id} opens off the top hall`);
+  }
 });
 
 /** Doorways (both sides and the middle) and the stair ends: where a person lines up to go through. */
@@ -78,12 +100,15 @@ const MAGNETS: Vec3[] = [
   ...DOORS.flatMap((d) =>
     [-0.7, 0, 0.7].map((o) => ({ x: d.x + (d.axis === 'x' ? 0 : o), y: FLOOR_Y[d.floor], z: d.z + (d.axis === 'x' ? o : 0) })),
   ),
-  { x: 0.66, y: 0, z: 13.8 },
-  { x: 0.66, y: FLOOR_Y[1], z: 8.8 },
-  { x: 1.8, y: FLOOR_Y[1], z: 8.8 },
-  { x: 1.8, y: FLOOR_Y[2], z: 13.7 },
-  { x: 2.6, y: 0, z: 23.9 },
-  { x: 2, y: -0.75, z: -1.8 },
+  { x: 2.6, y: 0, z: 13.15 },
+  { x: 0.62, y: 0.7, z: 13.15 },
+  { x: 0.62, y: FLOOR_Y[1], z: 9.25 },
+  { x: 1.6, y: FLOOR_Y[1], z: 9.35 },
+  { x: 3, y: FLOOR_Y[1], z: 9.35 },
+  { x: 1.8, y: FLOOR_Y[1], z: 10.6 },
+  { x: 6, y: FLOOR_Y[2], z: 9.35 },
+  { x: 1.7, y: 0, z: 23.9 },
+  { x: 1.9, y: -0.75, z: -1.8 },
 ];
 
 test('house: every room reaches every other on foot, and every chore and the bell can be reached', () => {
@@ -147,28 +172,28 @@ test('house: a shut door is a wall, and a door never shuts on someone in the doo
 
 test('house: nobody walks through a wall, and a shove never pushes anyone through one', () => {
   // Hard against Mikol's wall from the hall, shoved into it.
-  const w = newWalker({ x: 3.6, y: 0, z: 15 }, -Math.PI / 2);
+  const w = newWalker({ x: 3.3, y: 0, z: 15 }, -Math.PI / 2);
   settle(w, SOLIDS, 0.1);
   for (let i = 0; i < 3; i++) {
     shove(w, { x: 1, z: 0 });
     settle(w, SOLIDS, 0.5);
   }
-  assert.ok(w.pos.x < 4.2 - PLAYER.halfWidth + 0.01, `shoved through the wall to ${w.pos.x}`);
+  assert.ok(w.pos.x < 3.9 - PLAYER.halfWidth + 0.01, `shoved through the wall to ${w.pos.x}`);
   // Walking straight at it for seconds doesn't get through either.
-  const v = walk({ x: 3, y: 0, z: 15 }, -Math.PI / 2, 4);
-  assert.ok(v.pos.x < 4.2, `walked through the wall to ${v.pos.x}`);
+  const v = walk({ x: 2.7, y: 0, z: 15 }, -Math.PI / 2, 4);
+  assert.ok(v.pos.x < 3.9, `walked through the wall to ${v.pos.x}`);
   // A shove in open floor staggers about half a metre.
-  const s = newWalker({ x: 6.6, y: 0, z: 9.8 });
+  const s = newWalker({ x: 6.2, y: 0, z: 10.4 });
   settle(s, SOLIDS, 0.1);
   shove(s, { x: 0, z: 1 });
   settle(s, SOLIDS, 1);
-  const moved = s.pos.z - 9.8;
+  const moved = s.pos.z - 10.4;
   assert.ok(moved > 0.35 && moved < 0.8, `stagger was ${moved.toFixed(2)} m`);
 });
 
 test('house: two overlapping players drift apart (gently, each moving only themselves)', () => {
-  const a = newWalker({ x: 6.6, y: 0, z: 9.8 });
-  const b = newWalker({ x: 6.65, y: 0, z: 9.8 });
+  const a = newWalker({ x: 6.2, y: 0, z: 10.4 });
+  const b = newWalker({ x: 6.25, y: 0, z: 10.4 });
   for (let i = 0; i < 120; i++) {
     nudgeApart(a, [b.pos], DT, SOLIDS);
     nudgeApart(b, [a.pos], DT, SOLIDS);
@@ -176,9 +201,9 @@ test('house: two overlapping players drift apart (gently, each moving only thems
   const d = Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z);
   assert.ok(d >= WALK.personal - 0.05, `still ${d.toFixed(2)} m apart`);
   // Exactly on top of someone still splits.
-  const c = newWalker({ x: 6.6, y: 0, z: 9.8 });
-  for (let i = 0; i < 120; i++) nudgeApart(c, [{ x: 6.6, y: 0, z: 9.8 }], DT, SOLIDS);
-  assert.ok(Math.hypot(c.pos.x - 6.6, c.pos.z - 9.8) > 0.5);
+  const c = newWalker({ x: 6.2, y: 0, z: 10.4 });
+  for (let i = 0; i < 120; i++) nudgeApart(c, [{ x: 6.2, y: 0, z: 10.4 }], DT, SOLIDS);
+  assert.ok(Math.hypot(c.pos.x - 6.2, c.pos.z - 10.4) > 0.5);
 });
 
 test('house: meeting seats sit around the coffee table, all facing it', () => {
@@ -187,8 +212,8 @@ test('house: meeting seats sit around the coffee table, all facing it', () => {
     assert.equal(roomAt({ ...s.pos, y: 0.1 })?.id, 'living');
     const fx = -Math.sin(s.yaw);
     const fz = -Math.cos(s.yaw);
-    const tx = 6.65 - s.pos.x;
-    const tz = 8.85 - s.pos.z;
+    const tx = MEETING_CENTRE.x - s.pos.x;
+    const tz = MEETING_CENTRE.z - s.pos.z;
     assert.ok((fx * tx + fz * tz) / Math.hypot(tx, tz) > 0.99, 'a seat faces away from the table');
   }
 });

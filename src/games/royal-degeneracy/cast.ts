@@ -35,7 +35,7 @@ export interface Stats {
 export const STAT_NAMES: (keyof Stats)[] = ['brains', 'chill', 'bro', 'green', 'booze', 'tidy'];
 
 /** The facts clues are made of (DESIGN.md "Trait cards"). */
-interface Traits {
+export interface Traits {
   notes: 'engineering' | 'computing' | 'teaching' | 'commerce' | 'science';
   smoke: 'weed' | 'cigarettes' | 'none';
   temper: 'short fuse' | 'calm';

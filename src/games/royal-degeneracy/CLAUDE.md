@@ -1,17 +1,21 @@
 # Royal Degeneracy (agent instructions)
 
-A first-person 3D social-deduction party game set in 282, our old university house. Steps 1–3 of the build order
-are built (channel and lobby, the house, the Among Us core) and waiting on a group playtest before step 4.
+A first-person 3D social-deduction party game set in 282, our old university house. Steps 1–4 of the build order
+are built (channel and lobby, the house, the Among Us core, the mystery); step 5 (the cast's abilities) is next.
 
 Where things are: `game.ts` (screens, the party room, who referees), `lobby.ts`, `night.ts` (one night on this
 screen), `referee.ts` (the host's checks), `rules.ts` / `net.ts` (pure rules and wire checks), `house.ts` (the
 house as data), `move.ts` (the walker), `world.ts` / `people.ts` / `textures.ts` (three.js), `hud.ts`,
-`meeting.ts`, `chores.ts`, `audio.ts`, `input.ts`, `cases.ts`, `cast.ts`. Tests: `tests/royal-degeneracy.test.ts`
-(rules, messages, cards) and `tests/royal-degeneracy-house.test.ts` (spawns, doorways, stairs, a flood fill that
-reaches every room and spot, shoves, nudges, seats). In dev, `window.__royal` is the app (`__royal.session` the
+`meeting.ts`, `chores.ts`, `audio.ts`, `input.ts`, `cases.ts`, `cast.ts`, `clues.ts` (the mystery's rules: trait
+cards, picking clues per crime, search, post, plant, wipe, the reveal log) and `mystery.ts` (clue props, the clue in
+your hands, the phone, the plant menu). Tests: `tests/royal-degeneracy.test.ts` (rules, messages, cards),
+`tests/royal-degeneracy-clues.test.ts` (the mystery) and `tests/royal-degeneracy-house.test.ts` (spawns, doorways,
+the square-spiral stairs, a flood fill that reaches every room and spot, shoves, nudges, seats). In dev, `window.__royal` is the app (`__royal.session` the
 night, `__royal.referee` the host's referee).
 
 Doorways are 1 m wide, not 0.85 m: Gambol's collider is 0.8 m wide and has no step-up, so a real-width door snags.
+The house is 8.4 m wide. The stairs are a square spiral (straight flights, flat 90° landings); a stair well has to
+reach about 0.66 m past where a flight starts rising, or the collider's head catches the floor above.
 
 Read these first, in this order:
 

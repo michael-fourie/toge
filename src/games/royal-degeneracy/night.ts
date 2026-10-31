@@ -11,11 +11,13 @@ import { Audio, type Muffle } from './audio.ts';
 import { CAST, eyeHeight, lookFor, tagFor, type CharId } from './cast.ts';
 import { caseById } from './cases.ts';
 import { ChoreView } from './chores.ts';
+import { ITEM, SEARCH_SECONDS, WIPE_SECONDS, type Cat } from './clues.ts';
 import { DOORS, FLOOR_Y, MEETING_CENTRE, REACH, SEATS, SPOTS, doorBox, floorOf, roomAt, wakeSpot, type Door, type Spot } from './house.ts';
 import { Hud, KEYS, chip, loadPrefs, type Prefs } from './hud.ts';
 import { Input, type Frame } from './input.ts';
 import { portrait } from './lobby.ts';
 import { Meeting } from './meeting.ts';
+import { Evidence, InspectView, Phone, PlantMenu, crimeName, type FeedItem, type Known, type PhoneTab } from './mystery.ts';
 import { newWalker, nudgeApart, shove, stepWalker } from './move.ts';
 import { PF, type Msg } from './net.ts';
 import { Person } from './people.ts';
@@ -72,7 +74,8 @@ type Target =
   | { kind: 'door'; door: Door; t: number }
   | { kind: 'spot'; spot: Spot; t: number }
   | { kind: 'body'; id: number; t: number }
-  | { kind: 'player'; id: number; t: number };
+  | { kind: 'player'; id: number; t: number }
+  | { kind: 'clue'; id: number; t: number };
 
 const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
@@ -135,7 +138,18 @@ export class NightSession {
   private bob = 0;
   private chore: { view: ChoreView; spot: Spot } | null = null;
   private myVote: number | null = null;
-  private texts = new Set<number>();
+  private evidence: Evidence | null = null;
+  private inspecting: InspectView | null = null;
+  private phone: Phone;
+  private plantMenu: PlantMenu | null = null;
+  private feed: FeedItem[] = [];
+  private seen = new Map<number, Known>();
+  /** People you've crossed off your Suspect Board. */
+  private crossed = new Set<number>();
+  /** Holding E on a search spot or R on a clue: which and for how long (negative: done, waiting for release). */
+  private hold: { key: string; t: number } | null = null;
+  /** Open the next clue that arrives (we asked to pick one up, or a search found one). */
+  private wantClue = false;
   private eviction: { person: Person | null; rain: THREE.Points; t: number } | null = null;
   private shake = 0;
   private introStage = '';
@@ -171,6 +185,7 @@ export class NightSession {
         this.showChat(o.me, text);
       },
     });
+    this.phone = new Phone(this.wrap);
     this.input = new Input(o.renderer.domElement, o.api);
     this.camera.rotation.order = 'YXZ';
     this.world.scene.add(this.camera);
@@ -186,7 +201,7 @@ export class NightSession {
     canvas.addEventListener('click', onClick);
     this.offs.push(() => canvas.removeEventListener('click', onClick));
     const onLock = () => {
-      if (!this.input.locked && !this.inMeeting() && !this.chore && !this.paused) this.setPaused(true);
+      if (!this.input.locked && !this.inMeeting() && !this.chore && !this.paused && !this.overlay()) this.setPaused(true);
     };
     document.addEventListener('pointerlockchange', onLock);
     this.offs.push(() => document.removeEventListener('pointerlockchange', onLock));
@@ -195,6 +210,7 @@ export class NightSession {
       if (e.key !== 'Escape') return;
       e.stopImmediatePropagation();
       e.preventDefault();
+      if (this.closeOverlays()) return;
       if (this.chore) return this.endChore();
       if (this.meeting.typing) return (document.activeElement as HTMLElement).blur();
       if (!this.inMeeting()) this.setPaused(!this.paused);
@@ -280,6 +296,27 @@ export class NightSession {
           if (this.chore) this.endChore();
         }
         return;
+      case 'clue': {
+        const k: Known = { id: m.id, cat: m.cat, value: m.value, crime: m.crime };
+        this.seen.set(k.id, k);
+        if (this.wantClue && !this.ghost) this.openInspect(k);
+        this.wantClue = false;
+        this.renderPhone();
+        return;
+      }
+      case 'found': {
+        const name = SPOTS.find((s) => s.id === m.spot)?.name ?? 'there';
+        this.hud.toast(m.id < 0 ? `Nothing in ${name}. Just crumbs.` : `Found something in ${name}!`);
+        if (m.id < 0) this.wantClue = false;
+        return;
+      }
+      case 'feed':
+        this.feed.push({ from: m.from, text: m.text });
+        if (this.feed.length > 80) this.feed.shift();
+        this.hud.toast(`📱 ${m.from}: ${m.text}`, 6000);
+        this.audio.play('click');
+        this.renderPhone();
+        return;
       case 'fx': {
         const at = { x: m.x, y: m.y + 1, z: m.z };
         const sound = m.k === 'chore' ? 'ding' : m.k === 'evict' ? 'evict' : m.k;
@@ -303,6 +340,7 @@ export class NightSession {
     const was = this.priv;
     this.priv = v;
     if (!was) this.audio.play('horn');
+    for (const [id, cat, value, crime] of v.seen) if (!this.seen.has(id)) this.seen.set(id, { id, cat: cat as Cat, value, crime });
     if (!was || was.mates.join() !== v.mates.join())
       for (const r of this.remotes.values()) r.person.setTag(tagFor(r.char, r.name), v.mates.includes(r.id) ? '#ff6b8a' : '#ffffff');
     this.refreshTasks();
@@ -327,6 +365,12 @@ export class NightSession {
     if (was === 'in' && this.status !== 'in') this.becomeGhost(this.status);
     for (const [id, , st] of v.people) if (st === 'gone') this.removeRemote(id);
     this.syncBodies(v.bodies);
+    if (!this.evidence) {
+      this.evidence = new Evidence(v.caseId);
+      this.world.scene.add(this.evidence.group);
+    }
+    this.evidence.sync(v);
+    this.renderPhone();
     if (!prev || prev.ph !== v.ph) this.enterPhase(v.ph, prev?.ph);
     if (v.ph === 'meeting' || v.ph === 'vote') this.drawMeeting();
     if (was !== this.status) this.refreshTasks();
@@ -565,6 +609,17 @@ export class NightSession {
         row.append(ch);
       }
       box.append(row);
+      // The timeline: everything the Degenerates did, and when.
+      if (w.log.length) {
+        const tl = document.createElement('ol');
+        tl.className = 'rd-timeline';
+        for (const [t, text] of w.log) {
+          const li = document.createElement('li');
+          li.append(Object.assign(document.createElement('b'), { textContent: `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}` }), document.createTextNode(` ${text}`));
+          tl.append(li);
+        }
+        box.append(tl);
+      }
       box.append(Object.assign(document.createElement('p'), { className: 'rd-quote', textContent: c.ending[w.side === 'degenerates' ? 0 : 1] }));
       box.append(Object.assign(document.createElement('p'), { className: 'rd-dim', textContent: 'Back to the lobby in a moment…' }));
     }, w.side === 'degenerates' ? 'evil' : '');
@@ -633,8 +688,8 @@ export class NightSession {
     } else if (ph === 'night') this.roam += dt;
     else this.left -= dt;
 
-    const canMove = (ph === 'night' || (this.ghost && ph !== 'over')) && !this.paused && !this.chore && !(this.inMeeting() && !this.ghost);
-    const canLook = !this.chore && (!this.paused || this.inMeeting()) && ph !== 'result' && ph !== 'over';
+    const canMove = (ph === 'night' || (this.ghost && ph !== 'over')) && !this.paused && !this.chore && !this.overlay() && !(this.inMeeting() && !this.ghost);
+    const canLook = !this.chore && !this.overlay() && (!this.paused || this.inMeeting()) && ph !== 'result' && ph !== 'over';
     if (canLook) {
       this.walker.yaw += f.yaw;
       this.walker.pitch = Math.max(-1.45, Math.min(1.45, this.walker.pitch + f.pitch));
@@ -656,8 +711,11 @@ export class NightSession {
       this.torch = !this.torch;
       this.audio.play('click');
     }
+    if (f.phone && !this.inMeeting() && ph !== 'over' && ph !== 'intro' && !this.chore && !this.inspecting && !this.plantMenu) this.togglePhone();
     if (this.chore) this.runChore(dt, f);
-    else if (ph === 'night' && !this.paused) this.interact(f);
+    else if (this.inspecting) this.inspecting.frame(f);
+    else if (this.overlay()) this.hud.setPrompt('');
+    else if (ph === 'night' && !this.paused) this.interact(f, dt);
     else this.hud.setPrompt('');
 
     this.updateRemotes(dt);
@@ -723,7 +781,8 @@ export class NightSession {
     const w = this.walker;
     const r2 = (v: number) => Math.round(v * 100) / 100;
     const f =
-      (w.crouch ? PF.crouch : 0) |
+      (w.crouch || (this.hold && this.hold.t > 0) ? PF.crouch : 0) |
+      (this.phone.open ? PF.phone : 0) |
       (this.torch ? PF.torch : 0) |
       (w.ghost ? PF.ghost : 0) |
       (sitting ? PF.sit : 0) |
@@ -763,7 +822,7 @@ export class NightSession {
       r.person.setOpacity(ghost ? 0.35 : 1);
       r.person.root.position.set(nx, ny + (ghost ? Math.sin(performance.now() / 400 + r.id) * 0.08 : 0), nz);
       r.person.root.rotation.y = r.yaw;
-      r.person.pose({ speed: ghost ? 0 : r.speed, crouch: !!(r.f & PF.crouch), pitch: r.pitch, sit: !!(r.f & PF.sit) }, dt);
+      r.person.pose({ speed: ghost ? 0 : r.speed, crouch: !!(r.f & PF.crouch), pitch: r.pitch, sit: !!(r.f & PF.sit), phone: !!(r.f & PF.phone) }, dt);
       r.person.setFace(r.f & PF.busy ? 'worried' : 'smile');
       // Their torch: a soft cone, not a real light.
       r.cone.visible = visible && !!(r.f & PF.torch);
@@ -811,16 +870,18 @@ export class NightSession {
         consider({ kind: 'door', door, t });
       }
     }
+    if (!this.ghost && this.evidence) for (const [id, p] of this.evidence.spots) consider({ kind: 'clue', id, t: raySphere(o, d, p, 0.35, REACH) });
     for (const s of SPOTS) {
-      if (s.kind === 'bell' && this.ghost) continue;
+      if (s.kind !== 'chore' && this.ghost) continue;
       if (s.kind === 'chore' && !this.priv?.tasks.some(([id, done]) => id === s.id && !done)) continue;
       consider({ kind: 'spot', spot: s, t: raySphere(o, d, s.pos, 0.5, REACH) });
     }
     return best;
   }
 
-  private interact(f: Frame) {
+  private interact(f: Frame, dt: number) {
     const t = this.findTarget();
+    this.evidence?.highlight(t?.kind === 'clue' ? t.id : null);
     let prompt = '';
     if (this.ghost) {
       const ready = this.priv && this.roam - this.priv.rattleAt >= TIMES.rattle;
@@ -835,17 +896,46 @@ export class NightSession {
     }
     if (t?.kind === 'door') prompt = `E  ${this.world.isOpen(t.door.id) ? 'Close' : 'Open'} the ${t.door.hatch ? 'hatch' : 'door'}`;
     else if (t?.kind === 'body') prompt = `E  Report ${this.names.get(t.id) ?? 'the'}’s body`;
-    else if (t?.kind === 'spot') prompt = `E  ${t.spot.name}`;
-    else if (t?.kind === 'player') {
+    else if (t?.kind === 'spot') prompt = t.spot.kind === 'search' ? `Hold E  Search ${t.spot.name}` : `E  ${t.spot.name}`;
+    else if (t?.kind === 'clue') {
+      const cat = this.pub?.clues.find((c) => c[0] === t.id)?.[2] as Cat | undefined;
+      prompt = `E  Pick up: ${cat ? ITEM[cat].toLowerCase() : 'something'}${this.evil ? ' · hold R wipe it' : ''}`;
+    } else if (t?.kind === 'player') {
       const near = t.t <= SHOVE_RANGE;
       const parts = [this.names.get(t.id) ?? ''];
       if (near) parts.push('V shove');
       if (this.evil && t.t <= KILL_RANGE && this.killReady() && !this.priv?.mates.includes(t.id)) parts.push('CLICK take out');
       prompt = parts.join(' · ');
     }
+    // Holding: E digs through a search spot, R (Degenerates) wipes a clue away.
+    const holdKey = t?.kind === 'spot' && t.spot.kind === 'search' && f.useHeld ? t.spot.id : t?.kind === 'clue' && this.evil && f.altHeld ? `clue:${t.id}` : null;
+    if (!holdKey) this.hold = null;
+    else {
+      if (this.hold?.key !== holdKey) this.hold = { key: holdKey, t: 0 };
+      if (this.hold.t >= 0) {
+        this.hold.t += dt;
+        const need = holdKey.startsWith('clue:') ? WIPE_SECONDS : SEARCH_SECONDS;
+        prompt = `${holdKey.startsWith('clue:') ? 'Wiping' : 'Searching'}… ${Math.min(100, Math.round((100 * this.hold.t) / need))}%`;
+        if (this.hold.t >= need) {
+          if (holdKey.startsWith('clue:')) this.o.toHost({ t: 'wipe', id: Number(holdKey.slice(5)) });
+          else {
+            this.o.toHost({ t: 'search', spot: holdKey });
+            this.wantClue = true;
+          }
+          this.audio.play('click');
+          this.hold.t = -1e9;
+        }
+      }
+    }
     this.hud.setPrompt(prompt);
+    if (f.alt && this.evil && t?.kind !== 'clue') this.openPlant();
     if (f.use && t) {
       if (t.kind === 'door') this.o.toHost({ t: 'door', id: t.door.id });
+      else if (t.kind === 'clue') {
+        this.wantClue = true;
+        this.o.toHost({ t: 'inspect', id: t.id });
+      } else if (t.kind === 'spot' && t.spot.kind === 'search') return;
+      else if (t.kind === 'spot' && t.spot.kind === 'fridge') this.togglePhone('board');
       else if (t.kind === 'body') this.o.toHost({ t: 'report', body: t.id });
       else if (t.kind === 'spot' && t.spot.kind === 'bell') {
         if (this.priv?.rang) this.hud.toast('You’ve already rung the bell tonight.');
@@ -859,6 +949,97 @@ export class NightSession {
 
   private killReady() {
     return !!this.priv && this.roam >= this.priv.killAt;
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Clues, the phone, plants
+
+  private overlay() {
+    return !!(this.inspecting || this.plantMenu || this.phone.open);
+  }
+
+  /** Esc closes whatever's open over the view; true if something was. */
+  private closeOverlays(): boolean {
+    if (this.inspecting) this.closeInspect();
+    else if (this.plantMenu) this.closePlant();
+    else if (this.phone.open) this.togglePhone();
+    else return false;
+    return true;
+  }
+
+  /** Back to looking around once an overlay closes. */
+  private afterOverlay() {
+    this.o.api.setMenuNav(this.paused || this.inMeeting());
+    if (!this.inMeeting() && !this.paused) this.input.lock();
+  }
+
+  private openInspect(k: Known) {
+    this.inspecting?.dispose();
+    const posted = !!this.pub?.posted.some((p) => p[0] === k.id);
+    this.inspecting = new InspectView(this.wrap, k, posted, this.pub ? crimeName(this.pub, this.names, k.crime) : '', {
+      post: () => {
+        if (!posted) {
+          this.o.toHost({ t: 'post', id: k.id });
+          this.hud.toast('📸 Posted to the group chat');
+        }
+        this.closeInspect();
+      },
+      close: () => this.closeInspect(),
+    });
+  }
+
+  private closeInspect() {
+    this.inspecting?.dispose();
+    this.inspecting = null;
+  }
+
+  private togglePhone(tab?: PhoneTab) {
+    const on = !this.phone.open;
+    this.phone.show(on, tab);
+    if (on) {
+      this.input.unlock();
+      this.o.api.setMenuNav(true);
+      this.renderPhone();
+    } else this.afterOverlay();
+  }
+
+  private renderPhone() {
+    if (!this.pub || !this.phone.open) return;
+    this.phone.render({
+      feed: this.feed,
+      seen: [...this.seen.values()],
+      pub: this.pub,
+      people: this.o.people.map((p) => ({ id: p.id, char: p.char, name: p.name, img: portrait(this.o.renderer, p.char, p.name) })),
+      names: this.names,
+      crossed: this.crossed,
+      post: (id) => this.o.toHost({ t: 'post', id }),
+      cross: (id) => {
+        if (!this.crossed.delete(id)) this.crossed.add(id);
+        this.renderPhone();
+      },
+    });
+  }
+
+  private openPlant() {
+    if (!this.priv || this.priv.plants <= 0) return this.hud.toast('No plants left tonight.');
+    if (!this.pub?.crimes.length) return this.hud.toast('Nothing to frame anyone for yet.');
+    this.input.unlock();
+    this.o.api.setMenuNav(true);
+    const belongings = [...new Set(this.o.people.map((p) => p.char).filter((c) => c !== 'guest'))];
+    this.plantMenu = new PlantMenu(this.wrap, this.priv.plants, belongings, {
+      plant: (cat, value) => {
+        this.o.toHost({ t: 'plant', cat, value });
+        this.hud.toast('Planted. Act natural.');
+        this.closePlant();
+      },
+      close: () => this.closePlant(),
+    });
+  }
+
+  private closePlant() {
+    this.plantMenu?.dispose();
+    this.plantMenu = null;
+    this.afterOverlay();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -909,14 +1090,6 @@ export class NightSession {
       this.hud.setKill(wait > 0 ? `Take out in ${Math.ceil(wait)} s` : `Take out ready (${c.weapon})`, wait <= 0);
     } else this.hud.setKill('', false);
     this.hud.setHint(ph === 'night' ? (this.ghost ? 'Ghost · Space up · C down · E chores / rattle' : KEYS) : '');
-    // The case's texts come in through the night.
-    if (ph === 'night')
-      c.texts.forEach(([at, from, text], i) => {
-        if (this.texts.has(i) || this.roam < at * v.len) return;
-        this.texts.add(i);
-        this.hud.toast(`📱 ${from}: ${text}`, 6000);
-        this.audio.play('click');
-      });
   }
 
   private updateEviction(dt: number) {
@@ -964,6 +1137,10 @@ export class NightSession {
 
   destroy() {
     this.endChore();
+    this.closeInspect();
+    this.plantMenu?.dispose();
+    this.phone.dispose();
+    this.evidence?.dispose();
     this.endEviction();
     this.offs.forEach((f) => f());
     this.input.dispose();

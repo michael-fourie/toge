@@ -826,3 +826,244 @@
   color: var(--rd-dim);
   font-size: 14px;
 }
+
+/* ---------------------------------------------------------------- clues in your hands */
+
+.royal-degeneracy .rd-inspect {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(10, 6, 20, 0.5);
+  perspective: 900px;
+}
+.royal-degeneracy .rd-clue3d {
+  position: relative;
+  width: min(360px, 80vw);
+  height: 240px;
+  transform-style: preserve-3d;
+  transition: transform 0.05s linear;
+}
+.royal-degeneracy .rd-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  backface-visibility: hidden;
+  background: var(--rd-cream);
+  color: #2a1d30;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+}
+.royal-degeneracy .rd-face.back {
+  transform: rotateY(180deg);
+  background: #fff8d8;
+}
+.royal-degeneracy .rd-face small {
+  color: #8a6a7a;
+}
+.royal-degeneracy .rd-face b {
+  font-size: 20px;
+}
+.royal-degeneracy .rd-swatch {
+  width: 90px;
+  height: 60px;
+  border-radius: 8px;
+  border: 3px solid #2a1d30;
+}
+.royal-degeneracy .rd-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ---------------------------------------------------------------- the phone */
+
+.royal-degeneracy .rd-phone {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: min(760px, 96vw);
+  height: min(560px, 82vh);
+  padding: 10px 14px 12px;
+  border-radius: 28px 28px 0 0;
+  border: 6px solid #0c0a12;
+  border-bottom: none;
+  background: #1b1628;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
+}
+.royal-degeneracy .rd-notch {
+  align-self: center;
+  width: 90px;
+  height: 6px;
+  border-radius: 3px;
+  background: #0c0a12;
+}
+.royal-degeneracy .rd-tabs {
+  display: flex;
+  gap: 6px;
+}
+.royal-degeneracy .rd-tab {
+  flex: 1;
+  font: 800 14px system-ui, sans-serif;
+  color: var(--rd-dim);
+  background: transparent;
+  border: 2px solid #3a2e5a;
+  border-radius: 10px;
+  padding: 8px;
+  cursor: pointer;
+}
+.royal-degeneracy .rd-tab.on,
+.royal-degeneracy .rd-tab:focus-visible {
+  color: var(--rd-text);
+  background: #3d3068;
+  outline: none;
+}
+.royal-degeneracy .rd-phonebody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  user-select: text;
+}
+.royal-degeneracy .rd-msg {
+  align-self: flex-start;
+  max-width: 88%;
+  padding: 7px 11px;
+  border-radius: 14px 14px 14px 4px;
+  background: #2e2450;
+  display: flex;
+  flex-direction: column;
+}
+.royal-degeneracy .rd-msg b {
+  color: var(--rd-amber);
+  font-size: 12px;
+}
+.royal-degeneracy .rd-filerow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: #241c3c;
+}
+.royal-degeneracy .rd-filerow small {
+  color: var(--rd-dim);
+}
+.royal-degeneracy .rd-board {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.royal-degeneracy .rd-board th,
+.royal-degeneracy .rd-board td {
+  padding: 4px 6px;
+  border-bottom: 1px solid #33285a;
+  text-align: center;
+}
+.royal-degeneracy .rd-board th {
+  vertical-align: bottom;
+  font-weight: 700;
+  min-width: 70px;
+}
+.royal-degeneracy .rd-board th small {
+  display: block;
+  color: var(--rd-dim);
+  font-weight: 500;
+}
+.royal-degeneracy .rd-board th.mine {
+  color: var(--rd-amber);
+}
+.royal-degeneracy .rd-board td {
+  font-size: 16px;
+  color: #7fd68f;
+}
+.royal-degeneracy .rd-board td.who {
+  text-align: left;
+}
+.royal-degeneracy .rd-board tr.crossed td {
+  opacity: 0.35;
+}
+.royal-degeneracy .rd-board tr.crossed .rd-whobtn span {
+  text-decoration: line-through;
+}
+.royal-degeneracy .rd-whobtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--rd-text);
+  font: 700 13px system-ui, sans-serif;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 8px;
+}
+.royal-degeneracy .rd-whobtn:focus-visible {
+  outline: 2px solid var(--rd-amber);
+}
+.royal-degeneracy .rd-whobtn img {
+  width: 28px;
+  height: 28px;
+}
+
+/* ---------------------------------------------------------------- planting */
+
+.royal-degeneracy .rd-plant {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(40, 6, 18, 0.55);
+}
+.royal-degeneracy .rd-plantbox {
+  width: min(720px, 94vw);
+  max-height: 86vh;
+  overflow: auto;
+  padding: 18px;
+  border-radius: 18px;
+  background: #2a1020;
+  border: 2px solid var(--rd-evil);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.royal-degeneracy .rd-plantbox h2 {
+  color: var(--rd-evil);
+}
+.royal-degeneracy .rd-plantgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+/* ---------------------------------------------------------------- the reveal */
+
+.royal-degeneracy .rd-timeline {
+  max-height: 30vh;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 12px 8px 30px;
+  text-align: left;
+  font-size: 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+}
+.royal-degeneracy .rd-timeline b {
+  color: var(--rd-amber);
+}

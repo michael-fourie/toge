@@ -2,6 +2,8 @@
 // request (phase, role, range, cooldown), updates the night and answers: public messages to everyone, private ones
 // to one player. Secrets (roles, who's a Degenerate) only ever leave in private messages, or at the reveal.
 
+import { CAST, tagFor } from './cast.ts';
+import { ITEM, inspect, label, plant, post, search, wipe } from './clues.ts';
 import { DOORS, REACH, SPOTS, doorBox, type Door } from './house.ts';
 import type { Msg } from './net.ts';
 import {
@@ -54,6 +56,8 @@ export class Referee {
   private shovedAt = new Map<number, number>();
   private clock = 0;
   private sinceSync = 0;
+  /** How many of the case's texts have gone out. */
+  private textsSent = 0;
   /** True once the night is over and its end card has had its time. */
   done = false;
 
@@ -94,7 +98,17 @@ export class Referee {
     this.sinceSync += dt;
     if (step(this.night, dt)) this.broadcast(true);
     else if (this.sinceSync > RESYNC) this.broadcast(false);
+    const texts = this.night.mystery.texts;
+    while (this.night.phase === 'night' && this.textsSent < texts.length && this.night.roam >= texts[this.textsSent][0]) {
+      const [, from, text] = texts[this.textsSent++];
+      this.out({ t: 'feed', from, text, clue: -1 });
+    }
     if (this.night.phase === 'over' && this.night.left <= 0) this.done = true;
+  }
+
+  private victim(id: number | null): [keyof typeof CAST, string] {
+    const p = id === null ? undefined : playerOf(this.night, id);
+    return p ? [p.char, p.name] : ['guest', 'someone'];
   }
 
   /** A player dropped out of the room. */
@@ -173,6 +187,40 @@ export class Referee {
         this.broadcast(false);
         return;
       }
+      case 'inspect': {
+        const c = pose && inspect(n, from, m.id, pose);
+        if (c) this.out({ t: 'clue', id: c.id, cat: c.cat, value: c.value, crime: c.crime }, from);
+        return;
+      }
+      case 'search': {
+        if (!pose) return;
+        const c = search(n, from, m.spot, pose);
+        if (c === false) return;
+        this.out({ t: 'found', spot: m.spot, id: c ? c.id : -1 }, from);
+        if (c) {
+          this.out({ t: 'clue', id: c.id, cat: c.cat, value: c.value, crime: c.crime }, from);
+          this.broadcast(false);
+        }
+        return;
+      }
+      case 'post': {
+        const c = post(n, from, m.id);
+        if (!c) return;
+        const crime = n.mystery.crimes[c.crime];
+        const about = crime.kind === 'case' ? 'the case' : `${tagFor(...this.victim(crime.victim))}’s takeout`;
+        this.out({ t: 'feed', from: tagFor(me.char, me.name), text: `📸 ${ITEM[c.cat]} from ${about}: ${label(c.cat, c.value)}`, clue: c.id });
+        this.broadcast(false);
+        return;
+      }
+      case 'plant':
+        if (pose && plant(n, from, m.cat, m.value, pose)) {
+          this.privateTo(from);
+          this.broadcast(false);
+        }
+        return;
+      case 'wipe':
+        if (pose && wipe(n, from, m.id, pose)) this.broadcast(false);
+        return;
       case 'rattle':
         if (pose && rattle(n, from)) {
           this.out({ t: 'fx', k: 'rattle', x: pose.x, y: pose.y, z: pose.z });
