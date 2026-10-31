@@ -5,7 +5,7 @@
 import type { Mat } from './house.ts';
 import type { Vec3 } from '../../shared/math.ts';
 
-export type Sound = 'door' | 'bonk' | 'bell' | 'oof' | 'rattle' | 'ding' | 'evict' | 'horn' | 'click' | 'fail' | 'toboggan' | 'slap' | 'buzz' | 'alarm' | 'gag';
+export type Sound = 'door' | 'bonk' | 'bell' | 'oof' | 'rattle' | 'ding' | 'evict' | 'horn' | 'click' | 'fail' | 'toboggan' | 'slap' | 'buzz' | 'alarm' | 'gag' | 'lighter' | 'inhale' | 'bubble' | 'cough' | 'sniff' | 'heart' | 'gulp';
 
 /** 0 = clear line, 1 = through a wall, 2 = through a floor too. */
 export type Muffle = 0 | 1 | 2;
@@ -248,6 +248,32 @@ export class Audio {
       case 'slap':
         this.burst(dst, t, 0.08, 'highpass', 1500, 0.8, 1);
         this.tone(dst, t + 0.05, 0.3, 'sine', 990, 1480, 0.15);
+        break;
+      case 'lighter':
+        this.burst(dst, t, 0.05, 'highpass', 3000, 1, 0.6);
+        this.burst(dst, t + 0.08, 0.4, 'bandpass', 900, 0.6, 0.15);
+        break;
+      case 'inhale':
+        this.burst(dst, t, 1.1, 'bandpass', 1400, 1.5, 0.12);
+        break;
+      case 'bubble':
+        for (let i = 0; i < 14; i++) this.tone(dst, t + i * 0.15 + Math.random() * 0.05, 0.08, 'sine', 300 + Math.random() * 300, 700, 0.12);
+        break;
+      case 'cough':
+        for (let i = 0; i < 4; i++) {
+          this.burst(dst, t + i * 0.32, 0.18, 'bandpass', 500, 1.2, 0.8);
+          this.tone(dst, t + i * 0.32, 0.15, 'sawtooth', 160, 100, 0.08);
+        }
+        break;
+      case 'sniff':
+        this.burst(dst, t, 0.45, 'highpass', 2500, 0.8, 0.5);
+        break;
+      case 'heart':
+        this.tone(dst, t, 0.12, 'sine', 60, 40, 0.5);
+        this.tone(dst, t + 0.16, 0.12, 'sine', 55, 38, 0.35);
+        break;
+      case 'gulp':
+        this.tone(dst, t, 0.15, 'sine', 420, 180, 0.25);
         break;
       case 'alarm':
         this.tone(dst, t, 0.22, 'square', 3100, 3100, 0.12);

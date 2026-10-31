@@ -1195,3 +1195,45 @@
   max-height: 92vh;
   overflow-y: auto;
 }
+
+/* ---------------------------------------------------------------- vices: what it does to your screen */
+
+.royal-degeneracy .rd-vibe {
+  position: absolute;
+  left: 18px;
+  bottom: 84px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(18, 12, 30, 0.7);
+  font-weight: 700;
+  font-size: 14px;
+}
+.royal-degeneracy .rd-night.vibe-high .rd-canvas {
+  filter: blur(0.8px) saturate(1.45) brightness(1.06);
+}
+.royal-degeneracy .rd-night.vibe-high2 .rd-canvas {
+  filter: blur(1.6px) saturate(1.8) brightness(1.1) hue-rotate(-12deg);
+  animation: rd-breathe 4s ease-in-out infinite alternate;
+}
+@keyframes rd-breathe {
+  to {
+    transform: scale(1.025);
+  }
+}
+.royal-degeneracy .rd-night.vibe-wired .rd-canvas {
+  filter: contrast(1.25) saturate(1.6) brightness(1.08);
+}
+.royal-degeneracy .rd-night.vibe-down .rd-canvas {
+  filter: saturate(0.5) brightness(0.85);
+}
+.royal-degeneracy .rd-night.vibe-rainbow .rd-canvas {
+  animation: rd-rainbow 3s linear infinite;
+}
+@keyframes rd-rainbow {
+  from {
+    filter: hue-rotate(0deg) saturate(1.8);
+  }
+  to {
+    filter: hue-rotate(360deg) saturate(1.8);
+  }
+}

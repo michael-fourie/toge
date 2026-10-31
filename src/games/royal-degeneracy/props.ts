@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CAST, type CharId } from './cast.ts';
-import { BOXES, DEPTH, FLOOR_Y, WIDTH, roomAt, type HBox, type Mat } from './house.ts';
+import { BOXES, DEPTH, FLOOR_Y, SPOTS, WIDTH, roomAt, type HBox, type Mat } from './house.ts';
 import { ramp } from './people.ts';
 
 /** The furniture kinds props.ts draws (world.ts skips their plain boxes). */
@@ -283,6 +283,41 @@ function clutter(k: Kit) {
   k.box('black', 2.6, 1.15, DEPTH + 0.12, 2.9, 1.4, DEPTH + 0.2);
 }
 
+/** The vices, where their spots are: bongs, rolling trays, the plate, the pill. */
+function vices(k: Kit) {
+  for (const s of SPOTS) {
+    if (s.kind === 'laptop') {
+      // The Ring cam laptop, open on the coffee table.
+      const { x, z } = s.pos;
+      const y = s.pos.y - 0.08;
+      k.box('black', x - 0.17, y, z - 0.12, x + 0.17, y + 0.02, z + 0.12);
+      k.box('black', x - 0.17, y + 0.02, z - 0.13, x + 0.17, y + 0.24, z - 0.11);
+      k.box('screen', x - 0.15, y + 0.04, z - 0.11, x + 0.15, y + 0.22, z - 0.105);
+    }
+    if (s.kind !== 'vice') continue;
+    const { x, z } = s.pos;
+    const y = s.pos.y - 0.04;
+    if (s.vice === 'bong') {
+      k.cyl('bottleClear', x, y, z, 0.07, 0.06, 12);
+      k.cyl('bottleClear', x, y + 0.06, z, 0.035, 0.32, 10);
+      k.cyl('water', x, y + 0.01, z, 0.06, 0.05, 12);
+      k.cyl('metal', x + 0.05, y + 0.08, z, 0.012, 0.08, 6);
+      k.cyl('metal', x + 0.08, y + 0.15, z, 0.02, 0.02, 8, 0.03);
+    } else if (s.vice === 'roll') {
+      k.box('black', x - 0.15, y, z - 0.1, x + 0.15, y + 0.015, z + 0.1);
+      k.box('white', x - 0.06, y + 0.015, z - 0.04, x + 0.06, y + 0.018, z + 0.04);
+      k.cyl('metal', x + 0.1, y + 0.015, z + 0.05, 0.03, 0.03, 10);
+    } else if (s.vice === 'coke') {
+      k.cyl('white', x, y, z, 0.14, 0.012, 18);
+      for (const dz of [-0.04, 0, 0.04]) k.box('porcelain', x - 0.07, y + 0.012, z + dz - 0.006, x + 0.07, y + 0.016, z + dz + 0.006);
+      k.box('green', x + 0.08, y + 0.012, z - 0.1, x + 0.16, y + 0.022, z + 0.02);
+    } else {
+      k.box('white', x - 0.04, y, z - 0.03, x + 0.04, y + 0.008, z + 0.03);
+      k.cyl('cone', x + 0.07, y, z, 0.012, 0.01, 8);
+    }
+  }
+}
+
 /** A wall sign or flag: a plane with a canvas texture, facing along `n`. */
 function sign(group: THREE.Group, owned: { dispose(): void }[], draw: (g: CanvasRenderingContext2D, w: number, h: number) => void, w: number, h: number, at: [number, number, number], yaw: number, glow = false) {
   const c = document.createElement('canvas');
@@ -340,6 +375,7 @@ export function buildProps(): { group: THREE.Group; owned: { dispose(): void }[]
   const k = new Kit();
   for (const b of BOXES) if (DRAWN.has(b.mat)) furniture(k, b);
   clutter(k);
+  vices(k);
   k.build(group, owned);
 
   const brick = (g: CanvasRenderingContext2D, w: number, h: number) => {

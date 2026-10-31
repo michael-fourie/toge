@@ -9,7 +9,7 @@ import { DOORS, ROOMS, SPOTS } from './house.ts';
 import { cleanSettings, type Phase, type PrivateView, type PublicView, type Role, type Settings, type Status } from './rules.ts';
 
 /** Pose flag bits. */
-export const PF = { crouch: 1, torch: 2, ghost: 4, sit: 8, point: 16, busy: 32, phone: 64, bongus: 128, sled: 256, watch: 512 } as const;
+export const PF = { crouch: 1, torch: 2, ghost: 4, sit: 8, point: 16, busy: 32, phone: 64, bongus: 128, sled: 256, watch: 512, smoke: 1024, high: 2048, wired: 4096 } as const;
 
 /** Emotes, sent with your pose (0: none). */
 export const EMOTES = ['', 'wave', 'point', 'shrug', 'facepalm', 'dance', 'five', 'hug'] as const;
@@ -145,7 +145,7 @@ export function readMsg(d: unknown): Msg | null {
   const m = d as Record<string, unknown>;
   switch (m.t) {
     case 'p':
-      return num(m.x, 100) && num(m.y, 100) && num(m.z, 100) && num(m.yaw, 100) && num(m.pitch, 2) && int(m.f) && m.f >= 0 && m.f < 1024
+      return num(m.x, 100) && num(m.y, 100) && num(m.z, 100) && num(m.yaw, 100) && num(m.pitch, 2) && int(m.f) && m.f >= 0 && m.f < 8192
         ? { t: 'p', x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, f: m.f, e: int(m.e) && m.e > 0 && m.e < EMOTES.length ? m.e : 0 }
         : null;
     case 'chat':

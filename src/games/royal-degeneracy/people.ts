@@ -46,7 +46,7 @@ function part(g: THREE.BufferGeometry, mat: THREE.Material, sx: number, sy: numb
   return m;
 }
 
-export type Face = 'smile' | 'talk' | 'dead' | 'worried';
+export type Face = 'smile' | 'talk' | 'dead' | 'worried' | 'high' | 'wired';
 
 function drawFace(c: HTMLCanvasElement, face: Face) {
   const g = c.getContext('2d')!;
@@ -67,6 +67,46 @@ function drawFace(c: HTMLCanvasElement, face: Face) {
     g.moveTo(44, 96);
     for (let i = 1; i <= 4; i++) g.lineTo(44 + i * 10, 96 + (i % 2 ? -6 : 0));
     g.stroke();
+    return;
+  }
+  if (face === 'high') {
+    // Half-closed eyes, red round the edges, a big lazy grin.
+    for (const x of [40, 88]) {
+      g.fillStyle = '#e88a8a';
+      g.beginPath();
+      g.ellipse(x, 60, 11, 7, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#2a1d1a';
+      g.beginPath();
+      g.ellipse(x, 62, 7, 4, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillRect(x - 12, 54, 24, 5);
+    }
+    g.lineWidth = 6;
+    g.beginPath();
+    g.moveTo(40, 88);
+    g.quadraticCurveTo(64, 112, 88, 88);
+    g.stroke();
+    return;
+  }
+  if (face === 'wired') {
+    // Huge eyes, tiny pupils, a clenched grin.
+    for (const x of [40, 88]) {
+      g.fillStyle = '#fff';
+      g.beginPath();
+      g.arc(x, 58, 13, 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = '#2a1d1a';
+      g.lineWidth = 3;
+      g.stroke();
+      g.fillStyle = '#2a1d1a';
+      g.beginPath();
+      g.arc(x, 58, 3, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.fillStyle = '#fff';
+    g.fillRect(44, 88, 40, 12);
+    g.strokeRect(44, 88, 40, 12);
     return;
   }
   // Eyes: dark ovals with a highlight, brows over them.
@@ -194,6 +234,8 @@ export class Person {
   private trimMat!: THREE.MeshToonMaterial;
   private skin: string;
   private sled: THREE.Mesh;
+  /** Smoke rising off a joint or a bong rip. */
+  private smoke = new THREE.Group();
   readonly height: number;
 
   constructor(look: Look, heightCm: number) {
@@ -222,6 +264,11 @@ export class Person {
     this.sled = part(geo.box, m('#9a9a96'), 0.62, 0.12, 1.2, 0, 0.06, 0, true);
     this.sled.visible = false;
     this.root.add(this.sled);
+    const puffMat = new THREE.MeshBasicMaterial({ color: 0xd8d8d0, transparent: true, opacity: 0.45, depthWrite: false });
+    this.mats.push(puffMat);
+    for (let i = 0; i < 5; i++) this.smoke.add(part(geo.ball, puffMat, 0.06 + i * 0.015, 0.06 + i * 0.015, 0.06 + i * 0.015, 0.05, BASE + i * 0.12, -0.1));
+    this.smoke.visible = false;
+    this.root.add(this.smoke);
     this.body.add(this.hips);
     this.hips.position.y = HIP;
     // Legs pivot at the hips and hang down; shoes at the bottom.
@@ -372,6 +419,10 @@ export class Person {
     this.sled.visible = on;
   }
 
+  setSmoking(on: boolean) {
+    this.smoke.visible = on;
+  }
+
   /** A name tag floating over their head (null removes it). Same text and colour: nothing to redraw. */
   setTag(text: string | null, colour?: string) {
     const key = `${text}|${colour}`;
@@ -469,6 +520,12 @@ export class Person {
         break;
     }
     if (this.said && performance.now() > this.saidUntil) this.clearSaid();
+    if (this.smoke.visible)
+      this.smoke.children.forEach((c, i) => {
+        const k = (t * 0.6 + i / 5) % 1;
+        c.position.set(0.05 + Math.sin(t * 2 + i) * 0.05, BASE - 0.1 + k * 0.7, -0.12);
+        c.scale.setScalar(0.05 + k * 0.12);
+      });
     this.head.rotation.set(Math.max(-0.6, Math.min(0.6, p.phone ? -0.5 : p.pitch)) - this.chest.rotation.x, 0, 0);
   }
 

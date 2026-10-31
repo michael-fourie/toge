@@ -25,6 +25,7 @@ import { newWalker, nudgeApart, shove, stepWalker } from './move.ts';
 import { EMOTES, PF, type Msg } from './net.ts';
 import { Person } from './people.ts';
 import { saveNight } from './stats.ts';
+import { VIBES, comingDown, eyeShift, high, light, line, newVibe, pack, pill, puff, rip, rolled, sober, speedOf, tripping, wired } from './vices.ts';
 import { KILL_RANGE, TIMES, type Joiner, type PrivateView, type PublicView, type Status } from './rules.ts';
 import { World } from './world.ts';
 
@@ -200,6 +201,12 @@ export class NightSession {
   private replayCanvases: HTMLCanvasElement[] = [];
   /** You, as only the bathroom mirror sees you. */
   private self: Person;
+  /** What you've smoked, snorted or swallowed tonight (vices.ts). */
+  private vibe = newVibe();
+  private heartbeat = 0;
+  private vibeChip: HTMLElement;
+  /** Rolling a joint (a minigame, like a chore). */
+  private rolling: ChoreView | null = null;
   private replayT = 0;
   private eviction: { person: Person | null; rain: THREE.Points; t: number } | null = null;
   private shake = 0;
@@ -239,6 +246,9 @@ export class NightSession {
     this.phone = new Phone(this.wrap);
     this.power = powerOf(this.char, me.name);
     this.powerUI = new PowerUI(this.wrap);
+    this.vibeChip = document.createElement('div');
+    this.vibeChip.className = 'rd-vibe';
+    this.hud.root.append(this.vibeChip);
     this.input = new Input(o.renderer.domElement, o.api);
     this.self = new Person(lookFor(this.char, me.name), CAST[this.char].height);
     this.self.setLayer(1);
@@ -268,6 +278,7 @@ export class NightSession {
       e.stopImmediatePropagation();
       e.preventDefault();
       if (this.closeOverlays()) return;
+      if (this.rolling) return this.endRolling();
       if (this.chore) return this.endChore();
       if (this.meeting.typing) return (document.activeElement as HTMLElement).blur();
       if (!this.inMeeting()) this.setPaused(!this.paused);
@@ -467,6 +478,7 @@ export class NightSession {
   }
 
   private becomeGhost(st: Status) {
+    sober(this.vibe);
     this.walker.ghost = true;
     this.walker.pos.y += 0.3;
     this.torch = false;
@@ -804,7 +816,7 @@ export class NightSession {
     } else if (ph === 'night') this.roam += dt;
     else this.left -= dt;
 
-    const canMove = (ph === 'night' || (this.ghost && ph !== 'over')) && !this.paused && !this.chore && !this.overlay() && !(this.inMeeting() && !this.ghost);
+    const canMove = (ph === 'night' || (this.ghost && ph !== 'over')) && !this.paused && !this.chore && !this.rolling && !this.overlay() && !(this.inMeeting() && !this.ghost);
     const canLook = !this.chore && !this.overlay() && (!this.paused || this.inMeeting()) && ph !== 'result' && ph !== 'over';
     if (canLook) {
       this.walker.yaw += f.yaw;
@@ -817,7 +829,7 @@ export class NightSession {
       const sled = this.roam < this.until.sled && !this.ghost;
       const look = this.walker.yaw;
       if (sled) this.walker.yaw = this.sledYaw;
-      const mult = sled ? 3 : this.roam < this.until.bongus ? 0.7 : 1;
+      const mult = (sled ? 3 : this.roam < this.until.bongus ? 0.7 : 1) * speedOf(this.vibe, this.roam);
       stepWalker(
         this.walker,
         { fwd: sled ? 1 : canMove ? f.fwd : 0, side: sled || !canMove ? 0 : f.side, jump: canMove && f.jump, crouch: canMove && f.crouch, up: canMove && f.jump, speedMult: mult },
@@ -835,7 +847,14 @@ export class NightSession {
     }
     if (f.phone && !this.inMeeting() && ph !== 'over' && ph !== 'intro' && !this.chore && !this.inspecting && !this.plantMenu) this.togglePhone();
     this.abilityInput(f, ph);
-    if (this.chore) this.runChore(dt, f);
+    if (this.rolling) {
+      if (f.pad[1] || this.pub?.ph !== 'night') this.endRolling();
+      else if (this.rolling.frame(dt, f)) {
+        this.endRolling();
+        rolled(this.vibe);
+        this.hud.toast('One joint, rolled. L to light it.', 3000);
+      }
+    } else if (this.chore) this.runChore(dt, f);
     else if (this.inspecting) this.inspecting.frame(f);
     else if (this.overlay()) this.hud.setPrompt('');
     else if (ph === 'night' && !this.paused) this.interact(f, dt);
@@ -847,6 +866,7 @@ export class NightSession {
     this.tells(dt);
     this.placeCamera(dt, sitting);
     this.updateHud(ph);
+    this.updateVibe(dt);
     if (ph === 'over') {
       this.saveStats();
       this.drawReplays(dt);
@@ -903,13 +923,23 @@ export class NightSession {
       return;
     }
     const k = this.eye / 1.8;
-    const eyeY = sitting ? 1.15 * k : w.ghost ? this.eye : w.crouch ? this.eye - 0.45 : this.eye;
+    const eyeY = (sitting ? 1.15 * k : w.ghost ? this.eye : w.crouch ? this.eye - 0.45 : this.eye) + (w.ghost ? 0 : eyeShift(this.vibe, this.roam));
     const sp = Math.hypot(w.vel.x, w.vel.z);
     const bob = this.prefs.bob && w.onGround && sp > 0.5 ? Math.sin(this.bob) * 0.035 : 0;
     this.shake = Math.max(0, this.shake - dt);
     const sh = this.shake * 0.08;
     this.camera.position.set(w.pos.x + (Math.random() - 0.5) * sh, w.pos.y + eyeY + bob + (Math.random() - 0.5) * sh, w.pos.z);
-    this.camera.rotation.set(w.pitch, w.yaw, 0);
+    // High: the room sways a little. The wobbly pill: a lot. Wired, or coughing: the shakes.
+    const now = performance.now() / 1000;
+    const trip = tripping(this.vibe, this.roam);
+    const sway = (high(this.vibe, this.roam) ? 0.025 * this.vibe.level : 0) + (trip === 'wobbly' ? 0.12 : 0);
+    const jitter = wired(this.vibe, this.roam) || this.roam < this.vibe.coughUntil ? 0.006 : 0;
+    this.camera.rotation.set(w.pitch + (Math.random() - 0.5) * jitter, w.yaw + Math.sin(now * 0.7) * sway * 0.4, Math.sin(now * 0.9) * sway);
+    const fov = this.prefs.fov + (wired(this.vibe, this.roam) ? 12 : 0) + (trip === 'tiny' ? 10 : 0);
+    if (this.camera.fov !== fov) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
     this.world.torch.position.copy(this.camera.position);
     const dir = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation);
     this.world.torch.target.position.copy(this.camera.position).add(dir);
@@ -931,7 +961,10 @@ export class NightSession {
       (this.chore ? PF.busy : 0) |
       (this.roam < this.until.bongus ? PF.bongus : 0) |
       (this.roam < this.until.sled ? PF.sled : 0) |
-      (this.watching ? PF.watch : 0);
+      (this.watching ? PF.watch : 0) |
+      (this.vibe.joint === 'lit' || (this.hold && this.hold.t > 0 && (this.hold.key === 'puff' || this.hold.key.startsWith('bong-'))) ? PF.smoke : 0) |
+      (high(this.vibe, this.roam) ? PF.high : 0) |
+      (wired(this.vibe, this.roam) ? PF.wired : 0);
     const e = performance.now() < this.emote.until ? this.emote.id : 0;
     const m: Msg = { t: 'p', x: r2(w.pos.x), y: r2(w.pos.y), z: r2(w.pos.z), yaw: r2(wrapAngle(w.yaw)), pitch: r2(w.pitch), f, e };
     this.o.toAll(m);
@@ -981,7 +1014,8 @@ export class NightSession {
       r.person.setTag(r.f & PF.bongus ? 'BONGUS' : tagFor(r.char, r.name), this.priv?.mates.includes(r.id) ? '#ff6b8a' : r.f & PF.bongus ? '#9cff6a' : '#ffffff');
       // Wallhack / Eavesdrop: everyone close enough shows through walls.
       r.person.setXray(visible && this.roam < this.until.xray && Math.hypot(nx - this.walker.pos.x, ny - this.walker.pos.y, nz - this.walker.pos.z) < this.xrayRange);
-      r.person.setFace(r.f & PF.busy ? 'worried' : 'smile');
+      r.person.setFace(r.f & PF.high ? 'high' : r.f & PF.wired ? 'wired' : r.f & PF.busy ? 'worried' : 'smile');
+      r.person.setSmoking(visible && !!(r.f & PF.smoke));
       // Their torch: a soft cone, not a real light.
       r.cone.visible = visible && !!(r.f & PF.torch);
       if (r.cone.visible) {
@@ -1039,9 +1073,10 @@ export class NightSession {
       if (s.kind !== 'chore' && this.ghost) continue;
       if (s.kind === 'fix' && (!sab || !SABOTAGES[sab[0] as SabKind].fix.includes(s.id) || sab[3].includes(s.id) || (sab[0] === 'wifi' && sab[1] >= 0))) continue;
       if (s.kind === 'sneak' && !this.evil) continue;
+      if (s.kind === 'vice' && this.ghost) continue;
       if (s.kind === 'duo' && this.pub?.duo.includes(DUO_PAIRS.find((p) => p[0] === s.id || p[1] === s.id)![0])) continue;
       if (s.kind === 'chore' && !this.priv?.tasks.some(([id, done]) => id === s.id && !done)) continue;
-      consider({ kind: 'spot', spot: s, t: raySphere(o, d, s.pos, 0.5, REACH) });
+      consider({ kind: 'spot', spot: s, t: raySphere(o, d, s.pos, s.r ?? 0.5, REACH) });
     }
     return best;
   }
@@ -1075,7 +1110,9 @@ export class NightSession {
               ? `Hold E  ${t.spot.name}`
               : t.spot.kind === 'sneak'
                 ? `E  ${t.spot.name} (sneak route)`
-                : t.spot.kind === 'laptop'
+                : t.spot.kind === 'vice'
+                  ? this.vicePrompt(t.spot)
+                  : t.spot.kind === 'laptop'
                   ? `E  ${this.watching ? 'Stop watching' : 'Watch'} the Ring cam`
                   : t.spot.kind === 'router'
               ? this.power === 'router'
@@ -1099,9 +1136,12 @@ export class NightSession {
     }
     // Holding: E digs through a search spot, R (Degenerates) wipes a clue away.
     const lockOf = (id: number) => this.pub?.clues.find((x) => x[0] === id)?.[6] ?? 0;
+    const viceHold = t?.kind === 'spot' && t.spot.kind === 'vice' && (t.spot.vice === 'bong' || t.spot.vice === 'coke');
     const holdKey =
-      t?.kind === 'spot' && (t.spot.kind === 'search' || t.spot.kind === 'fix') && f.useHeld
+      t?.kind === 'spot' && (t.spot.kind === 'search' || t.spot.kind === 'fix' || viceHold) && f.useHeld
         ? t.spot.id
+        : !t && this.vibe.joint === 'lit' && f.useHeld
+          ? 'puff'
         : t?.kind === 'clue' && lockOf(t.id) && f.useHeld
           ? `lock:${t.id}`
           : t?.kind === 'clue' && this.evil && f.altHeld
@@ -1122,6 +1162,19 @@ export class NightSession {
         this.hold.t += dt;
         const lock = holdKey.startsWith('lock:') ? lockOf(Number(holdKey.slice(5))) : 0;
         const fix = holdKey.startsWith('fix-');
+        const vice = holdKey === 'puff' || holdKey.startsWith('bong-') || holdKey === 'coke';
+        if (vice) {
+          const packing = holdKey.startsWith('bong-') && !this.vibe.packed.includes(holdKey);
+          const need = holdKey === 'puff' ? VIBES.puffHold : holdKey === 'coke' ? VIBES.lineHold : packing ? VIBES.packHold : VIBES.ripHold;
+          if (this.hold.t === dt) this.audio.play(holdKey === 'coke' ? 'sniff' : packing ? 'click' : holdKey === 'puff' ? 'inhale' : 'bubble');
+          prompt = `${holdKey === 'puff' ? 'Puffing' : holdKey === 'coke' ? 'Doing a line' : packing ? 'Packing the bowl' : 'Ripping it'}… ${Math.min(100, Math.round((100 * this.hold.t) / need))}%`;
+          if (this.hold.t >= need) {
+            this.hold.t = -1e9;
+            this.useVice(holdKey, packing);
+          }
+          this.hud.setPrompt(prompt);
+          return;
+        }
         const need = lock
           ? unlockTime(this.char, lock === 1 ? 'phone' : 'bag')
           : fix
@@ -1147,6 +1200,10 @@ export class NightSession {
     }
     this.hud.setPrompt(prompt);
     if (f.alt && this.evil && t?.kind !== 'clue') this.openPlant();
+    if (f.light && light(this.vibe)) {
+      this.audio.play('lighter');
+      this.hud.toast('It’s lit. Hold E (looking at nothing) to puff.', 2500);
+    }
     // The bin bag: once it's tied, carry it out to the wheelie bin.
     if (this.carrying) {
       const d = Math.hypot(this.walker.pos.x - BINBAG_DROP.x, this.walker.pos.z - BINBAG_DROP.z);
@@ -1172,6 +1229,8 @@ export class NightSession {
       } else if (t.kind === 'coon') this.o.toHost({ t: 'shoo' });
       else if (t.kind === 'spot' && t.spot.kind === 'sneak') this.o.toHost({ t: 'sneak', spot: t.spot.id });
       else if (t.kind === 'spot' && t.spot.kind === 'laptop') this.watching = !this.watching;
+      else if (t.kind === 'spot' && t.spot.vice === 'roll') this.startRolling();
+      else if (t.kind === 'spot' && t.spot.vice === 'pill') this.takePill();
       else if (t.kind === 'spot' && (t.spot.kind === 'search' || t.spot.kind === 'duo' || t.spot.kind === 'router' || t.spot.kind === 'fix')) return;
       else if (t.kind === 'spot' && t.spot.kind === 'fridge') this.togglePhone('board');
       else if (t.kind === 'body') this.o.toHost({ t: 'report', body: t.id });
@@ -1436,6 +1495,84 @@ export class NightSession {
     this.shirt.rotation.y = 0.7;
     this.world.scene.add(this.shirt);
     for (const r of this.remotes.values()) if (r.char === 'shota') r.person.setShirtless(true);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Vices
+
+  private vicePrompt(s: Spot): string {
+    if (s.vice === 'roll') return this.vibe.joint === 'none' ? 'E  Roll a joint' : 'You’ve already got one rolled';
+    if (s.vice === 'coke') return 'Hold E  Do a line off the plate';
+    if (s.vice === 'pill') return 'E  Take the mystery pill (who knows)';
+    return `Hold E  ${this.vibe.packed.includes(s.id) ? 'Take a rip off' : 'Pack a bowl in'} ${s.name}`;
+  }
+
+  private startRolling() {
+    if (this.vibe.joint !== 'none') return this.hud.toast('You’ve already got one. L to light it.');
+    this.rolling = new ChoreView(this.wrap, 'roll', (what) => what === 'hit' && this.audio.play('click'));
+  }
+
+  private endRolling() {
+    this.rolling?.dispose();
+    this.rolling = null;
+  }
+
+  /** Finished holding E at a bong, the plate, or a lit joint. */
+  private useVice(key: string, packing: boolean) {
+    if (key === 'puff') {
+      puff(this.vibe, this.roam);
+      if (this.vibe.joint === 'none') this.hud.toast('Cashed. Ohhh. Oh, that’s nice.', 2500);
+      else this.hud.toast(`Puff. ${this.vibe.puffsLeft} left.`, 1200);
+      if (Math.random() < 0.3) this.audio.play('cough');
+    } else if (key === 'coke') {
+      line(this.vibe, this.roam);
+      this.hud.toast('WOO. Okay. Okay okay okay. Everything is so clear.', 3000);
+    } else if (packing) {
+      pack(this.vibe, key);
+      this.hud.toast('Bowl packed. Hold E again to rip it.', 2000);
+    } else {
+      rip(this.vibe, key, this.roam);
+      this.audio.play('cough');
+      this.hud.toast('Yoooooooooooo. *coughing fit*', 3000);
+    }
+  }
+
+  private takePill() {
+    const trip = pill(this.vibe, this.roam, Math.random());
+    this.audio.play('gulp');
+    const said = { rainbow: 'Colours. So many colours.', tiny: 'Why is everything so big?', giant: 'Why is everything so small?', wobbly: 'The floor is… doing a thing.' }[trip];
+    this.hud.toast(`💊 ${said}`, 3500);
+  }
+
+  /** The screen effects, the heartbeat, and the chip saying how cooked you are. */
+  private updateVibe(dt: number) {
+    const v = this.vibe;
+    const r = this.roam;
+    const h = high(v, r);
+    const wd = wired(v, r);
+    const trip = tripping(v, r);
+    this.wrap.classList.toggle('vibe-high', h && v.level === 1);
+    this.wrap.classList.toggle('vibe-high2', h && v.level > 1);
+    this.wrap.classList.toggle('vibe-wired', wd);
+    this.wrap.classList.toggle('vibe-down', comingDown(v, r));
+    this.wrap.classList.toggle('vibe-rainbow', trip === 'rainbow');
+    if (wd) {
+      this.heartbeat -= dt;
+      if (this.heartbeat < 0) {
+        this.heartbeat = 0.55;
+        this.audio.play('heart');
+      }
+    }
+    const left = (until: number) => `${Math.floor((until - r) / 60)}:${String(Math.ceil((until - r) % 60)).padStart(2, '0')}`;
+    const bits: string[] = [];
+    if (v.joint === 'rolled') bits.push('🌿 Joint rolled · L to light');
+    if (v.joint === 'lit') bits.push(`🔥 Joint lit · hold E (at nothing) to puff, ${v.puffsLeft} left`);
+    if (h) bits.push(`${v.level > 1 ? '🌫️ Baked' : '🌿 High'} ${left(v.highUntil)}`);
+    if (wd) bits.push(`⚡ Wired ${left(v.wiredUntil)}`);
+    else if (comingDown(v, r)) bits.push(`😩 Coming down ${left(v.comedownUntil)}`);
+    if (trip) bits.push(`💊 ${trip} ${left(v.tripUntil)}`);
+    this.vibeChip.textContent = bits.join(' · ');
+    this.vibeChip.style.display = bits.length ? '' : 'none';
   }
 
   /** The raccoon: a little grey bandit with a striped tail. */
@@ -1707,6 +1844,7 @@ export class NightSession {
   }
 
   destroy() {
+    this.endRolling();
     if (this.duoHeld) this.o.toHost({ t: 'duo', spot: this.duoHeld, on: false });
     this.syncNpcs([]);
     this.self.dispose();

@@ -10,14 +10,15 @@ house as data), `move.ts` (the walker), `world.ts` / `people.ts` / `textures.ts`
 `meeting.ts`, `chores.ts`, `audio.ts`, `input.ts`, `cases.ts`, `cast.ts`, `clues.ts` (the mystery's rules: trait
 cards, picking clues per crime, search, post, plant, wipe, the reveal log) and `mystery.ts` (clue props, the clue in
 your hands, the phone, the plant menu), `abilities.ts` (each character's ability, pure, plus the referee's side of
-it) and `powers.ts` (the ability chip, result cards, Proof menu, emote wheel, buzz arrow, Bongus glows). `props.ts` (procedural furniture, clutter,
+it) and `powers.ts` (the ability chip, result cards, Proof menu, emote wheel, buzz arrow, Bongus glows). `vices.ts` (joints, bongs, the plate, the mystery
+pill: pure state and timings; effects and prompts in night.ts, only on your own screen), `props.ts` (procedural furniture, clutter,
 signs, flags and posters, merged per colour; world.ts skips the plain boxes it replaces), `sabotage.ts` (sabotages and fixes,
 pure), `stats.ts` (your nights, in this browser). The raccoon, Bike Stu's randoms and the reveal's replay frames run
 in `referee.ts`. Quirks that
 only change your own screen (Rock Hound, Supervisor, Couch Lock, Illogical!, Will's cologne) live in `night.ts`. Tests: `tests/royal-degeneracy.test.ts` (rules, messages, cards),
 `tests/royal-degeneracy-clues.test.ts` (the mystery), `tests/royal-degeneracy-cast.test.ts` (abilities, locked
 clues, two-person chores), `tests/royal-degeneracy-house-alive.test.ts` (sabotages, sneak routes, Cosy mode, the
-Sink, awards, stats) and `tests/royal-degeneracy-house.test.ts` (spawns, doorways,
+Sink, awards, stats), `tests/royal-degeneracy-vices.test.ts` and `tests/royal-degeneracy-house.test.ts` (spawns, doorways,
 the square-spiral stairs, a flood fill that reaches every room and spot, shoves, nudges, seats). In dev, `window.__royal` is the app (`__royal.session` the
 night, `__royal.referee` the host's referee).
 

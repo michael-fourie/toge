@@ -357,7 +357,54 @@ function binbag(): Game {
   return g0;
 }
 
-const MAKERS: Record<ChoreKind, () => Game> = { pan: () => pan(), plunge, socks, recycling, remote, mould: () => pan(true), binbag };
+/** Rolling a joint: grind it, sprinkle it along the paper, roll it up, lick and seal. */
+function roll(): Game {
+  let stage = 0;
+  let grinds = 0;
+  let sprinkled = 0;
+  let rolls = 0;
+  let lastY = 0;
+  const steps = ['Grind it (click ×4)', 'Sprinkle it along the paper (sweep across)', 'Roll it up (wiggle up and down)', 'Lick and seal (click)'];
+  const g0: Game = {
+    title: 'Roll a joint',
+    hint: 'Grind, sprinkle, roll, lick. Selby makes it look easy.',
+    update(_dt, f, c) {
+      const click = f.click || f.pad[2] || f.keys.has('KeyE');
+      if (stage === 0 && click && ++grinds >= 4) stage = 1;
+      else if (stage === 1 && c.y > 200 && c.y < 280 && c.x > 90 && c.x < 430) {
+        sprinkled = Math.max(sprinkled, (c.x - 90) / 340);
+        if (sprinkled > 0.95) stage = 2;
+      } else if (stage === 2) {
+        if (Math.abs(c.y - lastY) > 40) {
+          lastY = c.y;
+          if (++rolls >= 8) stage = 3;
+        }
+      } else if (stage === 3 && click) stage = 4;
+      if (click) g0.sound = 'hit';
+    },
+    draw(g) {
+      g.fillStyle = '#2a2230';
+      g.fillRect(40, 60, 440, 280);
+      // The grinder, the paper, the green.
+      g.fillStyle = '#9a9aa2';
+      g.beginPath();
+      g.arc(110, 130, 40 - (stage > 0 ? 0 : grinds * 3), 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#f4f1e6';
+      const paperH = stage >= 2 ? Math.max(14, 60 - rolls * 6) : 60;
+      g.fillRect(90, 240 - paperH / 2, 340, paperH);
+      g.fillStyle = '#4a8a3a';
+      g.fillRect(90, 232, 340 * (stage >= 2 ? 1 : sprinkled), 16);
+      g.fillStyle = '#fff';
+      g.font = '700 20px system-ui';
+      g.fillText(stage < 4 ? steps[stage] : 'Beautiful.', 60, 40);
+    },
+    done: () => stage >= 4,
+  };
+  return g0;
+}
+
+const MAKERS: Record<ChoreKind | 'roll', () => Game> = { pan: () => pan(), plunge, socks, recycling, remote, mould: () => pan(true), binbag, roll };
 
 /** One chore in progress: draws itself over the view and reports when it's finished. */
 export class ChoreView {
@@ -369,7 +416,7 @@ export class ChoreView {
 
   constructor(
     parent: HTMLElement,
-    kind: ChoreKind,
+    kind: ChoreKind | 'roll',
     /** Called with the game's sounds, and 'done'. */
     private on: (what: 'done' | 'hit' | 'miss') => void,
   ) {

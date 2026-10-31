@@ -76,7 +76,7 @@ export interface Prism {
 }
 
 export type ChoreKind = 'pan' | 'plunge' | 'socks' | 'recycling' | 'remote' | 'mould' | 'binbag';
-type SpotKind = 'bell' | 'chore' | 'search' | 'fridge' | 'router' | 'duo' | 'fix' | 'sneak' | 'laptop';
+type SpotKind = 'bell' | 'chore' | 'search' | 'fridge' | 'router' | 'duo' | 'fix' | 'sneak' | 'laptop' | 'vice';
 
 export interface Spot {
   id: string;
@@ -87,6 +87,10 @@ export interface Spot {
   pos: Vec3;
   /** A sneak route's other end. */
   pair?: string;
+  /** A vice: roll a joint here, rip a bong, a line, the pill (vices.ts). */
+  vice?: 'roll' | 'bong' | 'coke' | 'pill';
+  /** How big it is to look at (small things on a crowded table), default 0.5 m. */
+  r?: number;
 }
 
 export interface Seat {
@@ -458,6 +462,16 @@ spot('sneak-kitchen', 'sneak', 'Slip out the kitchen window', 0.7, 1.2, 3.4, und
 spot('sneak-gap', 'sneak', 'Climb in the kitchen window', -0.6, -0.2, 3.4, undefined, 'sneak-kitchen');
 // The Ring cam laptop on the coffee table.
 spot('laptop', 'laptop', 'Watch the Ring cam', 6.25, 0.5, 9.35);
+// The house's vices: rolling trays, bongs, the plate, the pill.
+const vice = (id: string, v: 'roll' | 'bong' | 'coke' | 'pill', name: string, x: number, y: number, z: number) => spots.push({ id, kind: 'vice', vice: v, name, pos: { x, y, z }, r: 0.28 });
+vice('roll-dining', 'roll', 'Roll a joint', 2.2, 0.82, 7.1);
+vice('roll-jung', 'roll', 'Roll a joint', 2.5, 6.4, 3.3);
+vice('bong-living', 'bong', 'the coffee-table bong', 6.8, 0.6, 9.05);
+vice('bong-xang', 'bong', 'Xang’s bong', 5.1, 3.75, 17.7);
+vice('bong-selby', 'bong', 'the Bike Stu bong', 3.65, 3.75, 3.4);
+vice('bong-mikol', 'bong', 'Mikol’s bong', 8.05, 0.95, 18.4);
+vice('coke', 'coke', 'Do a line off the plate', 5.75, 0.46, 9.6);
+vice('pill', 'pill', 'Take the mystery pill', 2.7, 0.8, 8.7);
 // Search spots: where hidden clues land (hold E to dig through them).
 spot('s-kitchen-bin', 'search', 'the kitchen bin', 2.66, 0.7, 0.4);
 spot('s-kitchen-drawer', 'search', 'the junk drawer', 0.45, 0.9, 2.5);

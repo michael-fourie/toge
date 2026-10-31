@@ -25,6 +25,8 @@ export interface Frame {
   /** Q / Ⓨ: your ability. G / D-pad down: emotes. */
   ability: boolean;
   emote: boolean;
+  /** L / RB: light a joint. */
+  light: boolean;
   /** Raw pointer movement (px) and clicks, for chore minigames' cursor. */
   mx: number;
   my: number;
@@ -52,6 +54,7 @@ const BIND = {
   alt: ['KeyR'],
   ability: ['KeyQ'],
   emote: ['KeyG'],
+  light: ['KeyL'],
 };
 
 export class Input {
@@ -147,6 +150,7 @@ export class Input {
       altHeld: this.any(BIND.alt) || !!pd[4],
       ability: this.any(BIND.ability, this.pressed) || !!pp[3],
       emote: this.any(BIND.emote, this.pressed) || !!pp[13],
+      light: this.any(BIND.light, this.pressed) || !!pp[5],
       mx: this.dx + (pad?.lx ?? 0) * 600 * dt,
       my: this.dy + (pad?.ly ?? 0) * 600 * dt,
       click: this.click || !!pp[0],
