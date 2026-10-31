@@ -260,7 +260,7 @@ export class NightSession {
   readonly voice: Voice;
   private voiceLine: HTMLElement;
   private replayT = 0;
-  private eviction: { person: Person | null; rain: THREE.Points; t: number } | null = null;
+  private eviction: { person: Person | null; t: number } | null = null;
   private shake = 0;
   private introStage = '';
   /** Where you sat at the last meeting (you stand up from it). */
@@ -753,19 +753,7 @@ export class NightSession {
       person.root.add(bag);
       this.world.scene.add(person.root);
     }
-    // Rain over the front yard.
-    const N = 1600;
-    const pos = new Float32Array(N * 3);
-    for (let i = 0; i < N; i++) {
-      pos[i * 3] = -1 + Math.random() * 10;
-      pos[i * 3 + 1] = Math.random() * 7 - 0.7;
-      pos[i * 3 + 2] = 21 + Math.random() * 8;
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const rain = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xaab8ff, size: 0.05, transparent: true, opacity: 0.7 }));
-    this.world.scene.add(rain);
-    this.eviction = { person, rain, t: 0 };
+    this.eviction = { person, t: 0 };
     this.audio.play('evict');
     const name = out !== null ? (this.names.get(out) ?? 'Someone') : '';
     const counts = new Map(r?.counts ?? []);
@@ -797,9 +785,6 @@ export class NightSession {
       });
       e.person.dispose();
     }
-    this.world.scene.remove(e.rain);
-    e.rain.geometry.dispose();
-    (e.rain.material as THREE.Material).dispose();
     this.eviction = null;
   }
 
@@ -1014,6 +999,12 @@ export class NightSession {
       this.body.root.position.set(this.walker.pos.x - bx * 0.2, this.walker.pos.y, this.walker.pos.z - bz * 0.2);
       this.body.root.rotation.y = this.walker.yaw;
       this.body.pose({ speed, crouch: this.walker.crouch, pitch: 0, sit: sitting, emote }, dt);
+      if (sitting) {
+        // Seats are lower than the pose's chair: sink the body until its eyes are at the camera, or you see your own
+        // shoulders from inside.
+        const eyes = this.body.mouth(this.tmpV).y + 0.1;
+        this.body.root.position.y += this.camera.position.y - eyes;
+      }
       const free = heldCode(this.vibe, BONGS) === 0 && !this.chore && !this.rolling && !(this.hold && this.hold.t > 0) && !this.duoHeld && this.reachT <= 0;
       this.body.setFirstPerson(free);
     }
@@ -2198,13 +2189,6 @@ export class NightSession {
     const e = this.eviction;
     if (!e) return;
     e.t += dt;
-    const pos = e.rain.geometry.getAttribute('position') as THREE.BufferAttribute;
-    for (let i = 0; i < pos.count; i++) {
-      let y = pos.getY(i) - dt * 9;
-      if (y < -0.75) y += 7;
-      pos.setY(i, y);
-    }
-    pos.needsUpdate = true;
     if (!e.person) return;
     // Out the front door, across the porch, down the steps, off up the street.
     const path: [number, number, number][] = [

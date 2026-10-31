@@ -8,6 +8,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { CAST, type CharId } from './cast.ts';
 import { BOXES, DEPTH, DOORS, DOOR_H, FIREPIT, FLOOR_Y, SPOTS, WIDTH, WINDOWS, WINDOW_SPAN, roomAt, type HBox, type Mat, type Window } from './house.ts';
 import { ramp } from './people.ts';
+import { buildArt } from './wallart.ts';
 
 /** The furniture kinds props.ts draws (world.ts skips their plain boxes). */
 export const DRAWN: ReadonlySet<Mat> = new Set<Mat>([
@@ -789,5 +790,8 @@ export function buildProps(): { group: THREE.Group; owned: { dispose(): void }[]
   ceil.position.set(3.6 + (WIDTH - 3.6) / 2, 2.55, 9.05);
   group.add(ceil);
   owned.push(tileTex, ceilMat, ceilGeo);
+  const art = buildArt();
+  group.add(art.mesh);
+  owned.push(...art.owned);
   return { group, owned };
 }

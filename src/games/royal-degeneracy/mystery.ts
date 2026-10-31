@@ -303,6 +303,25 @@ export function crimeName(pub: PublicView, names: Map<number, string>, crime: nu
   return c[0] === 0 ? 'the case' : `${names.get(c[1]) ?? 'someone'}’s takeout`;
 }
 
+/** A steady colour per sender, for their little round face in the chat. */
+function hue(name: string) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return h;
+}
+
+/** The top of the phone: the night's clock (11 pm till dawn), the house wifi (gone when it's cut), a dying battery. */
+function statusBar(pub: PublicView) {
+  const k = pub.len ? Math.min(1, pub.roam / pub.len) : 0;
+  const mins = 23 * 60 + Math.floor(k * 6 * 60);
+  const h = Math.floor(mins / 60) % 24;
+  const time = `${h % 12 || 12}:${String(mins % 60).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+  const bar = el('div', 'rd-status');
+  const battery = Math.round(41 - k * 37);
+  bar.append(el('b', '', time), el('i', 'rd-cam'), el('span', '', `${pub.sab?.[0] === 'wifi' ? 'No service' : '282 WiFi'} · ${battery}%${battery < 10 ? ' 🪫' : ' 🔋'}`));
+  return bar;
+}
+
 export class Phone {
   readonly root = el('div', 'rd-phone');
   tab: PhoneTab = 'chat';
@@ -342,7 +361,7 @@ export class Phone {
     if (this.tab === 'chat') this.chat(body, d);
     else if (this.tab === 'file') this.file(body, d);
     else this.board(body, d);
-    this.root.append(el('div', 'rd-notch'), tabs, body, el('p', 'rd-dim', 'Tab / View to put the phone away'));
+    this.root.append(statusBar(d.pub), tabs, body, el('p', 'rd-dim', 'Tab / View to put the phone away'));
     (focused ? this.root.querySelector<HTMLElement>(`[data-k="${focused}"]`) : this.root.querySelector<HTMLElement>('.rd-tab.on'))?.focus({ preventScroll: true });
     if (this.tab === 'chat') body.scrollTop = body.scrollHeight;
   }
@@ -356,9 +375,13 @@ export class Phone {
     }
     if (!d.feed.length) body.append(el('p', 'rd-dim', 'The house group chat. Photos of clues land here.'));
     for (const f of d.feed) {
+      const row = el('div', 'rd-msgrow');
+      const face = el('i', 'rd-chatface', [...f.from][0]?.toUpperCase() ?? '?');
+      face.style.background = `hsl(${hue(f.from)} 55% 42%)`;
       const m = el('div', 'rd-msg');
       m.append(el('b', '', f.from), el('span', '', f.text));
-      body.append(m);
+      row.append(face, m);
+      body.append(row);
     }
   }
 

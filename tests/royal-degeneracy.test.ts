@@ -104,6 +104,14 @@ test('royal: the phases run cold open → night → Last Meeting → vote → re
   assert.equal(n.win?.side, 'degenerates', 'a Degenerate survived the Last Meeting');
 });
 
+test('royal: a night with nobody evil (solo, dev) ends with the housemates winning at the Last Meeting', () => {
+  const n = newNight(people(1), { ...DEFAULT_SETTINGS, nightMin: 6 }, 3);
+  assert.equal(degs(n).length, 0);
+  run(n, TIMES.intro + 0.1 + 6 * 60 + DEFAULT_SETTINGS.discuss + 0.1 + DEFAULT_SETTINGS.vote + 0.1 + TIMES.result + 0.1);
+  assert.equal(n.phase, 'over');
+  assert.equal(n.win?.side, 'housemates');
+});
+
 test('royal: takeouts need a Degenerate, a living housemate, reach, and no cooldown', () => {
   const n = newNight(people(6), DEFAULT_SETTINGS, 5);
   const [d] = degs(n);

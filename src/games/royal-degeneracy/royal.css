@@ -903,27 +903,61 @@
 
 .royal-degeneracy .rd-phone {
   position: absolute;
+  z-index: 5;
   left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
+  bottom: 3vh;
+  transform: translateX(-50%) rotate(-0.6deg);
   width: min(760px, 96vw);
-  height: min(560px, 82vh);
-  padding: 10px 14px 12px;
-  border-radius: 28px 28px 0 0;
-  border: 6px solid #0c0a12;
-  border-bottom: none;
-  background: #1b1628;
+  height: min(540px, 80vh);
+  padding: 8px 14px 10px;
+  border-radius: 34px;
+  border: 10px solid #0c0a12;
+  outline: 2px solid #3a3448;
+  background: linear-gradient(180deg, #221a36, #17121f);
   display: flex;
   flex-direction: column;
   gap: 8px;
-  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  animation: rd-phone-up 0.18s ease-out;
 }
-.royal-degeneracy .rd-notch {
-  align-self: center;
-  width: 90px;
-  height: 6px;
-  border-radius: 3px;
+@keyframes rd-phone-up {
+  from {
+    transform: translateX(-50%) translateY(40px) rotate(-3deg);
+    opacity: 0;
+  }
+}
+.royal-degeneracy .rd-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font: 700 12px system-ui, sans-serif;
+  color: var(--rd-text);
+  padding: 0 6px;
+}
+.royal-degeneracy .rd-status span {
+  color: var(--rd-dim);
+}
+.royal-degeneracy .rd-cam {
+  width: 70px;
+  height: 18px;
+  border-radius: 9px;
   background: #0c0a12;
+}
+.royal-degeneracy .rd-msgrow {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+}
+.royal-degeneracy .rd-chatface {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 800 12px system-ui, sans-serif;
+  font-style: normal;
+  color: #fff;
 }
 .royal-degeneracy .rd-tabs {
   display: flex;

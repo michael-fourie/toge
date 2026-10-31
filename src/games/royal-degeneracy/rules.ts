@@ -495,6 +495,9 @@ function afterResult(n: Night) {
   n.seats = [];
   n.meet = null;
   if (settle(n)) return;
+  // (A solo or a dev night deals nobody evil: then the Last Meeting just ends it.)
+  if (last && !n.players.some((p) => p.role === 'degenerate'))
+    return finish(n, { side: 'housemates', why: 'There was never a Degenerate. Just a very messy house.' });
   if (last) return finish(n, { side: 'degenerates', why: 'A Degenerate survived the Last Meeting.' });
   n.phase = 'night';
   n.left = 0;
