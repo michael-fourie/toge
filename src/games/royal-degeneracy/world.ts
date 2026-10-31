@@ -112,7 +112,7 @@ const CREAM = '#eee4cf';
 /** The lamps outside: the porch light, the backyard light, the streetlight. */
 const OUT_LAMPS: Vec3[] = [
   { x: 2.4, y: 2.4, z: 21.4 },
-  { x: 2, y: 2.1, z: -0.7 },
+  { x: 2.6, y: 2.1, z: -0.7 },
   { x: WIDTH + 1.8, y: 4.6, z: 29.4 },
 ];
 const PARTY = new Set([0, 1]);

@@ -28,13 +28,15 @@ export const DOOR_H = 2.05;
 const SILL = 0.9;
 const HEAD = 2.05;
 const W = WIDTH;
+/** Where the kitchen's left wall stands (in from the dining room's outside wall). */
+const KITCHEN_X = 1.2;
 
 /** What a surface is made of (rendering and footstep sounds). */
 export type Mat =
   | 'wood' | 'tile' | 'lino' | 'grass' | 'path' | 'porch' | 'stair' | 'stone'
   | 'wall' | 'brick' | 'trim' | 'glass' | 'ceiling' | 'rail' | 'fence' | 'neighbour' | 'tv'
   | 'bed' | 'desk' | 'couch' | 'leather' | 'table' | 'counter' | 'fridge' | 'toilet' | 'tub' | 'sink'
-  | 'radiator' | 'hutch' | 'shelf' | 'records' | 'beanbag' | 'bin' | 'junk' | 'invisible' | 'banister' | 'wardrobe' | 'nightstand' | 'dresser' | 'chair' | 'firepit' | 'cooler';
+  | 'radiator' | 'hutch' | 'shelf' | 'records' | 'beanbag' | 'bin' | 'junk' | 'invisible' | 'banister' | 'wardrobe' | 'nightstand' | 'dresser' | 'chair' | 'firepit' | 'cooler' | 'stool';
 
 export interface HBox extends Box {
   mat: Mat;
@@ -251,7 +253,7 @@ box(0, 'invisible', TREE.x - 0.35, GROUND, TREE.z - 0.35, TREE.x + 0.35, 6, TREE
 
 room('stairs1', 'the stairs', 0, 0, 9.65, 1.2, 13.65, 'stair');
 room('stairs1', 'the stairs', 0, 1.1, 12.65, 2.1, 13.65, 'stair');
-room('kitchen', 'the kitchen', 0, 0, 0, W, 5.6, 'lino');
+room('kitchen', 'the kitchen', 0, KITCHEN_X, 0, W, 5.6, 'lino');
 room('dining', 'the dining room', 0, 0, 5.6, 3.5, 12);
 room('living', 'the living room', 0, 3.5, 5.6, W, 12.6);
 room('mikol', 'Mikol’s room', 0, 3.9, 12.6, W, DEPTH);
@@ -261,7 +263,7 @@ room('porch', 'the front porch', 0, 0, DEPTH, 4.4, 22.2, 'porch', true);
 box(0, 'wood', -0.12, -0.8, -0.12, W + 0.12, 0, DEPTH + 0.12);
 box(0, 'porch', 0, -0.8, DEPTH, 4.4, 0, 22.2);
 flight(0, 1.1, 22.2, 2.3, 23.4, GROUND, 0, 'z', -1, 'porch');
-flight(0, 1.4, -1.32, 2.4, -0.12, GROUND, 0, 'z', 1, 'porch');
+flight(0, 2.1, -1.32, 3.1, -0.12, GROUND, 0, 'z', 1, 'porch');
 // Porch columns and railings (a gap for the steps).
 for (const x of [0.05, 4.2]) box(0, 'trim', x, 0, 21.95, x + 0.15, 2.6, 22.15);
 box(0, 'rail', 0, 0, 22.1, 1.1, 0.9, 22.2);
@@ -269,10 +271,12 @@ box(0, 'rail', 2.3, 0, 22.1, 4.4, 0.9, 22.2);
 box(0, 'rail', -0.05, 0, DEPTH, 0.05, 0.9, 22.2);
 box(0, 'rail', 4.35, 0, DEPTH, 4.45, 0.9, 22.2);
 
-wall(0, 0, 0, W, 0, [{ at: 1.9, kind: 'door', id: 'back' }, { at: 4.6, kind: 'window' }, { at: 6.9, kind: 'window' }], EXT, 'brick');
+wall(0, 0, 0, W, 0, [{ at: 2.6, kind: 'door', id: 'back' }, { at: 4.9, kind: 'window' }, { at: 6.9, kind: 'window' }], EXT, 'brick');
 wall(0, 0, DEPTH, W, DEPTH, [{ at: 1.7, kind: 'door', id: 'front' }, { at: 6.1, kind: 'window' }], EXT, 'brick');
-wall(0, 0, 0, 0, DEPTH, [{ at: 2.6, kind: 'window' }, { at: 7, kind: 'window' }, { at: 16.5, kind: 'window', w: 0.8 }], EXT, 'brick');
-wall(0, W, 0, W, DEPTH, [{ at: 2.6, kind: 'window' }, { at: 16.3, kind: 'window' }], EXT, 'brick');
+wall(0, 0, 0, 0, DEPTH, [{ at: 7, kind: 'window' }, { at: 16.5, kind: 'window', w: 0.8 }], EXT, 'brick');
+wall(0, W, 0, W, DEPTH, [{ at: 4.1, kind: 'window' }, { at: 16.3, kind: 'window' }], EXT, 'brick');
+// The kitchen's left wall stands in from the dining room's (the space behind it is shut off).
+wall(0, KITCHEN_X, 0, KITCHEN_X, 5.6);
 // The kitchen opens to the dining and living rooms around the TV block.
 wall(0, 0, 5.6, 1.2, 5.6);
 box(0, 'wall', 3.5, -0.8, 5.3, 6.1, FLOOR_Y[1], 5.9);
@@ -297,13 +301,19 @@ box(0, 'banister', 0.12, 0.7, 13.65, 1.1, 1.65, 13.73);
 wall(0, 3.9, 12.6, 3.9, DEPTH, [{ at: 5, kind: 'door', id: 'mikol' }]);
 wall(0, 3.9, 12.6, W, 12.6);
 
-// Kitchen: the cabinets and sink run along the TV block's kitchen side (the back of the triangle wall), the fridge
-// and a short counter on the left, the table out in the middle of the room, the bins by the back door.
-furn(0, 'counter', 3.5, 4.62, 6.1, 5.3, 0.92);
-furn(0, 'fridge', 0.12, 0.4, 0.95, 1.2, 1.85);
-furn(0, 'counter', 0.12, 1.3, 0.75, 3.6, 0.92);
-furn(0, 'table', 5.9, 1.5, 7.3, 2.6, 0.76);
-furn(0, 'bin', 2.45, 0.15, 2.88, 0.65, 0.7);
+// Kitchen (traced from the kitchen sketch): the fridge, a short counter and the tall pantry along the left wall; the
+// back door beside the fridge; an L of counters along the back and right walls with the stove on the right; in the
+// middle an L of counter: the sink run on the TV block's kitchen side, and a peninsula back from its left end with
+// three stools along its outside. The bins by the back door.
+furn(0, 'fridge', KITCHEN_X + 0.06, 0.15, KITCHEN_X + 0.8, 1.05, 1.85);
+furn(0, 'counter', KITCHEN_X + 0.06, 1.05, KITCHEN_X + 0.72, 2.85, 0.92);
+furn(0, 'wardrobe', KITCHEN_X + 0.06, 2.95, KITCHEN_X + 0.72, 5.45, 2.1);
+furn(0, 'counter', 4.6, 0.12, W - 0.12, 0.76, 0.92);
+furn(0, 'counter', W - 0.76, 0.76, W - 0.12, 5.1, 0.92);
+furn(0, 'counter', 3.3, 4.62, 6.1, 5.3, 0.92);
+furn(0, 'counter', 3.3, 2.1, 3.96, 4.62, 0.92);
+for (const z of [2.6, 3.3, 4.0]) furn(0, 'stool', 2.88, z - 0.18, 3.24, z + 0.18, 0.7);
+furn(0, 'bin', 3.35, 0.15, 3.78, 0.65, 0.7);
 // Dining: the long table against the outside wall, the hutch with the bottles (and the bell) on the triangle wall
 // across from it, the empties by the kitchen opening.
 furn(0, 'table', 0.12, 6.6, 1.22, 9.2, 0.76);
@@ -479,7 +489,7 @@ for (const z of [0.6, 2.4, 4.3, 6.4, 13.2, 15.6, 17.8]) furn(2, 'junk', 0.12, z,
 // Spots
 
 spot('bell', 'bell', 'Bang the pot (call a house meeting)', 3.25, 1.3, 7.2);
-spot('fridge', 'fridge', 'Look at the fridge (the case board)', 0.95, 1.2, 0.8);
+spot('fridge', 'fridge', 'Look at the fridge (the case board)', KITCHEN_X + 0.82, 1.2, 0.6);
 spot('router', 'router', 'the router', 3.62, 1.05, 19.63);
 // Two-person chores: one person at each end, holding E together (or Shota alone).
 spot('duo-sofa-a', 'duo', 'Lift one end of the sofa', 7.9, 0.6, 7.2);
@@ -495,7 +505,7 @@ spot('socks-mikol', 'chore', 'Pair the socks on Mikol’s radiator', 6.1, 0.6, 1
 spot('socks-dev', 'chore', 'Pair the socks on Dev’s radiator', W - 0.21, 3.4, 3.8, 'socks');
 spot('socks-will', 'chore', 'Pair the socks on Will’s radiator', 0.21, 3.4, 16.4, 'socks');
 spot('socks-wags', 'chore', 'Pair the socks on Wags’s radiator', W - 0.21, 6.2, 18.1, 'socks');
-spot('recycle-kitchen', 'chore', 'Sort the kitchen recycling', 2.66, 0.7, 0.4, 'recycling');
+spot('recycle-kitchen', 'chore', 'Sort the kitchen recycling', 3.56, 0.7, 0.4, 'recycling');
 spot('recycle-dining', 'chore', 'Sort the empties in the dining room', 3.17, 0.5, 6.3, 'recycling');
 spot('recycle-porch', 'chore', 'Sort the porch recycling', 3.85, 0.7, 21.65, 'recycling');
 spot('recycle-balcony', 'chore', 'Sort the balcony recycling', 3.4, 3.5, -2.7, 'recycling');
@@ -504,9 +514,9 @@ spot('remote-leather', 'chore', 'Find the remote in the leather couch', 6.6, 0.5
 spot('mould-2', 'chore', 'Wipe the mould off the bathroom ceiling', 7.6, 5.1, 7.4, 'mould');
 spot('mould-3', 'chore', 'Wipe the mould off the top bathroom ceiling', 7.2, 7.7, 11.4, 'mould');
 // The walking chore: pick the bag up here, drop it in the wheelie bin out back.
-spot('binbag', 'chore', 'Take the kitchen bin bag out to the wheelie bin', 2.66, 0.7, 0.4, 'binbag');
+spot('binbag', 'chore', 'Take the kitchen bin bag out to the wheelie bin', 3.56, 0.7, 0.4, 'binbag');
 // Sabotage fixes.
-spot('fix-fuse', 'fix', 'Flip the trip switch at the fuse box', 0.2, 1.5, 4.4);
+spot('fix-fuse', 'fix', 'Flip the trip switch at the fuse box', 4.2, 1.5, 0.15);
 spot('fix-stopcock', 'fix', 'Shut the stopcock under the sink', 5.5, 0.3, 4.55);
 spot('fix-plunge', 'fix', 'Plunge the overflowing toilet', 8, 3.25, 12.85);
 spot('fix-alarm', 'fix', 'Wave a tea towel under the smoke alarm', 2.2, 2.3, 15.5);
@@ -516,8 +526,8 @@ spot('sneak-bath3', 'sneak', 'Climb out the top bathroom window', 8, 6.4, 9.4, u
 spot('sneak-yard', 'sneak', 'Shin up the drainpipe to the top bathroom', 8.9, -0.2, -2.8, undefined, 'sneak-bath3');
 spot('sneak-eaves', 'sneak', 'Squeeze out the eaves vent', 0.6, 6.2, 19.2, undefined, 'sneak-balcony');
 spot('sneak-balcony', 'sneak', 'Climb up into the eaves vent', 0.8, 3.4, 21.6, undefined, 'sneak-eaves');
-spot('sneak-kitchen', 'sneak', 'Slip out the kitchen window', 0.7, 1.2, 3.4, undefined, 'sneak-gap');
-spot('sneak-gap', 'sneak', 'Climb in the kitchen window', -0.6, -0.2, 3.4, undefined, 'sneak-kitchen');
+spot('sneak-kitchen', 'sneak', 'Slip out the kitchen window', W - 0.45, 1.3, 4.1, undefined, 'sneak-gap');
+spot('sneak-gap', 'sneak', 'Climb in the kitchen window', W + 0.6, -0.2, 4.1, undefined, 'sneak-kitchen');
 // The Ring cam laptop on the coffee table.
 spot('laptop', 'laptop', 'Watch the Ring cam', 6.25, 0.5, 9.35);
 // The house's vices: rolling trays, bongs, the plate, the pill.
@@ -531,8 +541,8 @@ vice('bong-mikol', 'bong', 'Mikol’s bong', 8.05, 0.95, 18.4);
 vice('coke', 'coke', 'Do a line off the plate', 5.75, 0.46, 9.6);
 vice('pill', 'pill', 'Take the mystery pill', 0.8, 0.8, 8.8);
 // Search spots: where hidden clues land (hold E to dig through them).
-spot('s-kitchen-bin', 'search', 'the kitchen bin', 2.66, 0.7, 0.4);
-spot('s-kitchen-drawer', 'search', 'the junk drawer', 0.45, 0.9, 2.5);
+spot('s-kitchen-bin', 'search', 'the kitchen bin', 3.56, 0.7, 0.4);
+spot('s-kitchen-drawer', 'search', 'the junk drawer', KITCHEN_X + 0.7, 0.9, 2.2);
 spot('s-hutch', 'search', 'the hutch cupboard', 3.1, 0.8, 7.9);
 spot('s-sofa', 'search', 'the sofa cushions', 7.9, 0.5, 8.8);
 spot('s-leather', 'search', 'the leather couch cushions', 5.8, 0.5, 12);
@@ -584,6 +594,10 @@ export const MEETING_CENTRE = { x: TABLE.x, y: 0.45, z: TABLE.z };
  */
 export const PERCHES: Seat[] = [];
 for (const b of boxes) {
+  if (b.mat === 'stool') {
+    PERCHES.push({ pos: { x: (b.min.x + b.max.x) / 2, y: FLOOR_Y[b.floor], z: (b.min.z + b.max.z) / 2 }, yaw: -Math.PI / 2 });
+    continue;
+  }
   if (!['couch', 'leather', 'bed', 'beanbag', 'toilet'].includes(b.mat)) continue;
   const c = { x: (b.min.x + b.max.x) / 2, y: FLOOR_Y[b.floor], z: (b.min.z + b.max.z) / 2 };
   const r = rooms.find((q) => q.floor === b.floor && c.x >= q.min.x && c.x <= q.max.x && c.z >= q.min.z && c.z <= q.max.z);
@@ -660,11 +674,11 @@ export function clearAt(p: Vec3): boolean {
   );
 }
 
-/** Where you end up getting off a seat: a step out in front of it, else beside it (whichever is clear). */
+/** Where you end up getting off a seat: a step out in front of it, else beside it, else back off it (a bar stool). */
 export function standFrom(p: Seat): Vec3 {
   const fx = -Math.sin(p.yaw);
   const fz = -Math.cos(p.yaw);
-  for (const [f, s] of [[0.75, 0], [0.95, 0], [1.2, 0], [0.5, 0.9], [0.5, -0.9], [0.95, 0.9], [0.95, -0.9], [0.95, 1.4], [0.95, -1.4], [0.2, 1.1], [0.2, -1.1]]) {
+  for (const [f, s] of [[0.75, 0], [0.95, 0], [1.2, 0], [0.5, 0.9], [0.5, -0.9], [0.95, 0.9], [0.95, -0.9], [0.95, 1.4], [0.95, -1.4], [0.2, 1.1], [0.2, -1.1], [-0.6, 0], [-0.75, 0]]) {
     const at = { x: p.pos.x + fx * f - fz * s, y: p.pos.y, z: p.pos.z + fz * f + fx * s };
     if (clearAt(at)) return at;
   }

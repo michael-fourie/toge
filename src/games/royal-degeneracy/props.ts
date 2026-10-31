@@ -12,7 +12,7 @@ import { ramp } from './people.ts';
 /** The furniture kinds props.ts draws (world.ts skips their plain boxes). */
 export const DRAWN: ReadonlySet<Mat> = new Set<Mat>([
   'bed', 'desk', 'couch', 'leather', 'table', 'counter', 'fridge', 'toilet', 'tub', 'sink', 'radiator', 'hutch', 'shelf', 'records', 'bin', 'junk', 'beanbag',
-  'wardrobe', 'nightstand', 'dresser', 'chair', 'firepit', 'cooler',
+  'wardrobe', 'nightstand', 'dresser', 'chair', 'firepit', 'cooler', 'stool',
 ]);
 
 const COLOURS: Record<string, string> = {
@@ -262,6 +262,16 @@ function furniture(k: Kit, b: HBox) {
       k.box('darkwood', cx - 0.05, y + 0.12, cz - 0.3, cx + 0.05, y + 0.2, cz + 0.3);
       break;
     }
+    case 'stool': {
+      // A bar stool: a round black seat on a chrome post and a foot ring.
+      const cx = (lo.x + hi.x) / 2;
+      const cz = (lo.z + hi.z) / 2;
+      k.cyl('metal', cx, y, cz, 0.15, 0.03, 12);
+      k.cyl('metal', cx, y + 0.03, cz, 0.025, h - 0.08, 8);
+      k.cyl('metal', cx, y + 0.28, cz, 0.13, 0.02, 12);
+      k.cyl('black', cx, y + h - 0.06, cz, 0.18, 0.06, 14);
+      break;
+    }
     case 'cooler':
       k.box('bluebin', lo.x, y, lo.z, hi.x, hi.y - 0.08, hi.z);
       k.box('white', lo.x - 0.01, hi.y - 0.08, lo.z - 0.01, hi.x + 0.01, hi.y, hi.z + 0.01);
@@ -299,7 +309,9 @@ function furniture(k: Kit, b: HBox) {
         face('steel', knob, knob + 0.02, y + h - 0.42, y + h - 0.3, 0.04);
       }
       face('counter', a0 - 0.01, a1 + 0.01, y + h - 0.04, y + h, -(hi[depth] - lo[depth]) - 0.03, f + out * 0.03);
-      face('splash', a0, a1, y + h, y + h + 0.45, 0.015, wallSide);
+      // On an outside wall the windows come down to the worktop: no splashback or wall cabinets there.
+      const outer = wallSide < 0.3 || wallSide > WIDTH - 0.3;
+      if (!outer) face('splash', a0, a1, y + h, y + h + 0.45, 0.015, wallSide);
       const sink = SPOTS.find((s) => s.id === 'pan-kitchen')!.pos;
       const inside = (p: { x: number; z: number }) => p.x > lo.x && p.x < hi.x && p.z > lo.z && p.z < hi.z;
       const cAt = (s: number, d: number): [number, number] => (longX ? [s, d] : [d, s]);
@@ -313,7 +325,7 @@ function furniture(k: Kit, b: HBox) {
         k.cyl('steel', tx, y + h, tz, 0.018, 0.3);
         const [sx, sz] = cAt(s, wallSide + out * 0.17);
         k.box('steel', sx - 0.02, y + h + 0.26, sz - 0.02, sx + 0.02, y + h + 0.3, sz + 0.02);
-      } else if (!longX) {
+      } else if (!longX && hi.x > WIDTH - 0.5) {
         // The hob: four rings on a black glass top.
         const s = (a0 + a1) / 2;
         const [x0, z0] = cAt(s - 0.3, mid - 0.26);
@@ -324,7 +336,7 @@ function furniture(k: Kit, b: HBox) {
           k.cyl('#5a2a22', rx, y + h + 0.012, rz, 0.08, 0.004, 16);
         }
       }
-      if (longX && a1 - a0 > 2) {
+      if (longX && a1 - a0 > 2 && !outer) {
         // Wall cabinets over the run.
         face('cabinet', a0, a1, y + 1.45, y + 2.15, 0.34, wallSide);
         for (let i = 0; i < n; i++) {
@@ -423,7 +435,7 @@ function clutter(k: Kit) {
     k.cyl(r() < 0.5 ? 'can' : 'canRed', x, y, z, 0.033, 0.12, 8);
   }
   // Pizza boxes.
-  for (const [x, y, z, n] of [[6.5, 0.42, 9.6, 2], [4.2, 0, 2.8, 3], [6.2, f(1), 17.6, 1], [0.6, 0.92, 2.6, 1]] as [number, number, number, number][])
+  for (const [x, y, z, n] of [[6.5, 0.42, 9.6, 2], [4.2, 0, 2.8, 3], [6.2, f(1), 17.6, 1], [1.6, 0.92, 2.2, 1]] as [number, number, number, number][])
     for (let i = 0; i < n; i++) k.box('pizza', x - 0.2, y + i * 0.045, z - 0.2, x + 0.2, y + i * 0.045 + 0.04, z + 0.2);
   // Laundry piles in Xang's and Selby's rooms (chaos).
   for (const [x, y, z] of [[6.4, f(1), 15.6], [7.2, f(1), 18.8], [1.8, f(1), 2.2], [2.3, f(1), 5.3], [5.9, f(1), 14.2]] as [number, number, number][]) {
