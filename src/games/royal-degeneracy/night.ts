@@ -1266,7 +1266,13 @@ export class NightSession {
       case 'wallhack':
       case 'eavesdrop':
         this.until.xray = until;
-        this.xrayRange = this.power === 'wallhack' ? 8 : 7;
+        this.xrayRange = this.power === 'wallhack' ? 12 : 9;
+        {
+          const seen = [...this.remotes.values()].filter(
+            (r) => this.statusOf(r.id) === 'in' && Math.hypot(r.pos.x - this.walker.pos.x, r.pos.y - this.walker.pos.y, r.pos.z - this.walker.pos.z) < this.xrayRange,
+          ).length;
+          this.hud.toast(seen ? `${POWERS[this.power].name}: ${seen} ${seen === 1 ? 'person' : 'people'} within ${this.xrayRange} m, glowing blue.` : `${POWERS[this.power].name}: nobody within ${this.xrayRange} m.`, 3500);
+        }
         break;
       case 'inspection':
         this.until.sparkle = until;

@@ -34,12 +34,12 @@ export const POWERS: Record<Power, PowerDef> = {
   lookout: { name: 'Look Out', cd: 45, dur: 30, text: 'Q at a friend: nobody can take them out for 30 s, and you hear if someone tries.' },
   legend: { name: 'Campus Legend', uses: 1, text: 'Once a night, at a vote: your vote counts double (everyone sees).' },
   inspection: { name: 'Inspection', cd: 40, text: 'Q, then stand still 3 s: anything planted in this room sparkles.' },
-  wallhack: { name: 'Wallhack', uses: 2, dur: 3, text: 'Q: for 3 s, everyone within 8 m shows through walls.' },
+  wallhack: { name: 'Wallhack', uses: 2, dur: 4, text: 'Q: for 4 s, everyone within 12 m glows through walls and floors.' },
   ruck: { name: 'Ruck', cd: 30, text: 'Q: burst through every door in front of you and bowl over whoever’s there.' },
   swab: { name: 'Swab', uses: 2, text: 'Q at a clue: real or planted. Twice a night.' },
   tea: { name: 'Spill the Tea', uses: 1, text: 'Q: one true thing from tonight (who was where, when).' },
   objection: { name: 'Objection!', uses: 1, text: 'Once a night, at a vote: void it and vote again.' },
-  eavesdrop: { name: 'Eavesdrop', cd: 40, dur: 5, text: 'Q: for 5 s, everyone within 7 m shows through walls.' },
+  eavesdrop: { name: 'Eavesdrop', cd: 40, dur: 5, text: 'Q: for 5 s, everyone within 9 m glows through walls.' },
 };
 
 const BY_CHAR: Record<Exclude<CharId, 'guest'>, Power> = {

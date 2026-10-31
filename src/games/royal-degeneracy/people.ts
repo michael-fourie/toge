@@ -187,6 +187,7 @@ export class Person {
   private phase = 0;
   private tag: THREE.Sprite | null = null;
   private tagText = '';
+  private xray = false;
   private said: THREE.Sprite | null = null;
   private saidUntil = 0;
   private shirtMat!: THREE.MeshToonMaterial;
@@ -345,7 +346,14 @@ export class Person {
 
   /** Seen through walls (Wallhack, Eavesdrop): drawn last, never hidden. */
   setXray(on: boolean) {
-    for (const mat of this.mats) mat.depthTest = !on;
+    if (on === this.xray) return;
+    this.xray = on;
+    // A bright glow drawn over everything (so it can't pass for someone standing in front of the wall), name and all.
+    for (const mat of this.mats) {
+      mat.depthTest = !on;
+      if (mat instanceof THREE.MeshToonMaterial) mat.emissive.setHex(on ? 0x2a9cff : 0x000000);
+    }
+    if (this.tag) this.tag.material.depthTest = !on;
     this.root.traverse((o) => (o.renderOrder = on ? 900 : 0));
   }
 
