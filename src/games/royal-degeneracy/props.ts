@@ -373,10 +373,22 @@ function furniture(k: Kit, b: HBox) {
       k.box('porcelain', hi.x - 0.18, y + 0.35, lo.z + 0.1, hi.x, y + 0.75, hi.z - 0.1);
       break;
     }
-    case 'tub':
-      k.box('porcelain', lo.x, y, lo.z, hi.x, hi.y, hi.z);
-      k.box('water', lo.x + 0.06, hi.y - 0.04, lo.z + 0.06, hi.x - 0.06, hi.y + 0.002, hi.z - 0.06);
+    case 'tub': {
+      // A hollow tub against the outside wall: rim, an empty basin with a scum line, the tap, and a shower curtain
+      // bunched at one end of its rail.
+      const t = 0.07;
+      k.box('porcelain', lo.x, y, lo.z, hi.x, y + 0.12, hi.z);
+      k.box('porcelain', lo.x, y, lo.z, lo.x + t, hi.y, hi.z);
+      k.box('porcelain', hi.x - t, y, lo.z, hi.x, hi.y, hi.z);
+      k.box('porcelain', lo.x, y, lo.z, hi.x, hi.y, lo.z + t);
+      k.box('porcelain', lo.x, y, hi.z - t, hi.x, hi.y, hi.z);
+      k.box('#b8a888', lo.x + t, y + 0.3, lo.z + t, lo.x + t + 0.004, y + 0.33, hi.z - t);
+      k.box('#b8a888', lo.x + t, y + 0.3, hi.z - t - 0.004, hi.x - t, y + 0.33, hi.z - t);
+      k.box('steel', hi.x - 0.2, hi.y + 0.12, (lo.z + hi.z) / 2 - 0.02, hi.x - t, hi.y + 0.16, (lo.z + hi.z) / 2 + 0.02);
+      k.box('steel', lo.x + 0.02, y + 2.0, lo.z, lo.x + 0.04, y + 2.02, hi.z);
+      for (let i = 0; i < 4; i++) k.box(i % 2 ? '#7ac0c8' : '#5aa0b0', lo.x - 0.03 + (i % 2) * 0.04, y + 0.5, lo.z + 0.05 + i * 0.09, lo.x + 0.03 + (i % 2) * 0.04, y + 2.0, lo.z + 0.14 + i * 0.09);
       break;
+    }
     case 'sink':
       k.box('porcelain', lo.x + 0.1, y, lo.z + 0.2, hi.x - 0.05, y + 0.75, hi.z - 0.2);
       k.box('porcelain', lo.x, y + 0.75, lo.z, hi.x, hi.y, hi.z);
@@ -490,6 +502,19 @@ function clutter(k: Kit) {
   k.box('wood', 7.6, 0, 12, 8.2, 0.55, 12.45);
   k.box('speaker', 7.65, 0.55, 12.05, 8.15, 1.2, 12.42);
   k.cyl('black', 7.9, 0.82, 12.03, 0.16, 0.01, 16);
+  // The bathrooms, lived in: a mat by the tub, a towel over its side, half-empty bottles on the rim, a tower of
+  // toilet rolls (and the empty tube nobody binned) and the plunger, on call.
+  for (const [fl, tub0, tub1, tubX, loo] of [[1, 6.6, 8.3, 7.5, 12.45], [2, 10.85, 12.08, 7.65, 9.45]] as [number, number, number, number, number][]) {
+    const y = f(fl);
+    k.box('#4f8f86', tubX - 0.6, y + 0.002, tub0 + 0.3, tubX - 0.05, y + 0.02, tub1 - 0.3);
+    k.box('#d85a6a', tubX - 0.04, y + 0.22, tub0 + 0.35, tubX + 0.07, y + 0.58, tub0 + 0.9);
+    ['#2f7ab0', '#f2c53d', '#e8e8e8', '#c84a8a'].forEach((c, i) => k.cyl(c, WIDTH - 0.2, y + 0.55, tub0 + 0.18 + i * 0.13, 0.035, 0.14 + (i % 2) * 0.06, 8));
+    const lz = fl === 1 ? loo - 0.25 : loo + 0.2;
+    for (let i = 0; i < 4; i++) k.cyl('white', WIDTH - 0.75, y + i * 0.1, lz, 0.055, 0.1, 10);
+    k.cyl('cardboard', WIDTH - 0.95, y + 0.02, lz + 0.15, 0.022, 0.1, 8);
+    k.cyl('darkwood', WIDTH - 0.35, y + 0.08, lz, 0.015, 0.7, 6);
+    k.cyl('#b82a2a', WIDTH - 0.35, y, lz, 0.075, 0.08, 10, 0.05);
+  }
   // The wheelie bin's lid and the porch mailbox.
   k.box('black', WIDTH - 0.02, 1.3, DEPTH + 0.12, WIDTH - 0.01, 1.31, DEPTH + 0.13);
   k.box('black', 2.6, 1.15, DEPTH + 0.12, 2.9, 1.4, DEPTH + 0.2);
