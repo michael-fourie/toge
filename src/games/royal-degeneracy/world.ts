@@ -222,12 +222,17 @@ function material(key: string, baked = false): THREE.Material {
   return m;
 }
 
-/** The boxes stairs are drawn as: wooden treads, white-painted risers and sides. */
+/** The boxes stairs are drawn as (treads, risers, sides). */
 const STEPS = new WeakSet<HBox>();
 
 /** Which material a box's face gets (paint follows the room the face looks into). */
 function faceMat(b: HBox, n: V, c: V): string {
-  if (STEPS.has(b)) return n[1] > 0.5 ? b.mat : 'trim';
+  // Drawn stairs: wooden treads; indoors their risers and sides take the wall paint (so a flight's end flush with a
+  // wall matches it), outdoors (the porch steps) they're white trim.
+  if (STEPS.has(b)) {
+    if (n[1] > 0.5) return b.mat;
+    if (b.mat !== 'stair') return 'trim';
+  }
   const floors = new Set(['wood', 'tile', 'lino', 'grass', 'porch', 'path']);
   if (floors.has(b.mat)) {
     if (n[1] > 0.5) return b.mat;
@@ -292,6 +297,8 @@ function addBox(bld: Builder, b: HBox) {
       const m = mid(a, c);
       const room = roomAt({ x: m[0] + n[0] * 0.3, y: fy + 1.2, z: m[2] + n[2] * 0.3 });
       const bath = !!room?.id.startsWith('bath');
+      // No skirting where there's no floor in front (a stair well's walls, a flight's sides).
+      if (!room || room.id.startsWith('stairs')) return;
       const o = bath ? 0.01 : 0.016;
       const h = bath ? 1.2 : 0.11;
       const p = (q: V, y: number, out: number): V => [q[0] + n[0] * out, y, q[2] + n[2] * out];
@@ -328,7 +335,9 @@ function addBox(bld: Builder, b: HBox) {
     const l = Math.hypot(k, 1);
     tn = b.ramp.axis === 'x' ? [(-b.ramp.rise * k) / l, 1 / l, 0] : [0, 1 / l, (-b.ramp.rise * k) / l];
   }
-  face([x0, t00, z0], [x1, t10, z0], [x1, t11, z1], [x0, t01, z1], tn, 0, 2);
+  // A wall's top flush with the floor above is never seen (and would flicker through the boards): skip it.
+  const flush = (b.mat === 'wall' || b.mat === 'brick') && FLOOR_Y.some((f) => Math.abs(b.max.y - f) < 0.01);
+  if (!flush) face([x0, t00, z0], [x1, t10, z0], [x1, t11, z1], [x0, t01, z1], tn, 0, 2);
   face([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], 0, 2);
   if (b.ramp) {
     face([x0, y0, z0], [x1, y0, z0], [x1, t10, z0], [x0, t00, z0], [0, 0, -1], 0, 1);

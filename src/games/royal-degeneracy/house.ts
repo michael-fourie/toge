@@ -141,7 +141,7 @@ interface Gap {
  */
 function wall(floor: number, x0: number, z0: number, x1: number, z1: number, gaps: Gap[] = [], t = INT, mat: Mat = 'wall') {
   const y0 = floor === 0 ? -0.8 : FLOOR_Y[floor];
-  const y1 = floor === 2 ? FLOOR_Y[2] + CEILING[2] : FLOOR_Y[floor + 1] - SLAB;
+  const y1 = floor === 2 ? FLOOR_Y[2] + CEILING[2] : FLOOR_Y[floor + 1];
   const axis: 'x' | 'z' = z0 === z1 ? 'x' : 'z';
   const a = axis === 'x' ? Math.min(x0, x1) : Math.min(z0, z1);
   const b = axis === 'x' ? Math.max(x0, x1) : Math.max(z0, z1);
@@ -296,6 +296,8 @@ box(0, 'stair', 0.12, 0, 9.65, 1.3, 2.1, 10.65);
 box(0, 'stair', 1.3, 0, 9.65, 2.1, 2.1, 10.65);
 flight(0, 1.3, 9.65, 3.2, 10.65, 2.1, FLOOR_Y[1], 'x', 1);
 box(0, 'wall', 1.1, -0.8, 10.65, 2.1, FLOOR_Y[1] - SLAB, 12.65);
+// The stairs' back wall above the second landing and alongside A3, up to the ceiling (else a slot shows the dining room).
+box(0, 'wall', 0.12, 2.1, 9.6, 3.2, FLOOR_Y[1] - SLAB, 9.65);
 box(0, 'banister', 1.1, 0, 13.65, 2.1, 1.25, 13.73);
 box(0, 'banister', 0.12, 0.7, 13.65, 1.1, 1.65, 13.73);
 wall(0, 3.9, 12.6, 3.9, DEPTH, [{ at: 5, kind: 'door', id: 'mikol' }]);
