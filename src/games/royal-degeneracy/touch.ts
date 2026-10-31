@@ -28,6 +28,7 @@ const SMALL: [string, string][] = [
   ['🫸', 'KeyV'],
   ['😀', 'KeyG'],
   ['🔥', 'KeyL'],
+  ['⬇', 'KeyX'],
   ['R', 'KeyR'],
   ['⏸', 'Escape'],
 ];
@@ -62,7 +63,7 @@ export class TouchControls {
     for (const [label, code] of SMALL) {
       const b = el('button', 'rd-tbtn small', label);
       if (code === 'Escape') b.addEventListener('touchstart', (e) => (e.preventDefault(), this.onPause()), { passive: false });
-      else this.bind(b, code, code === 'KeyR');
+      else this.bind(b, code, code === 'KeyR' || code === 'KeyL');
       small.append(b);
     }
     this.killBtn = pads.querySelector('.kill')!;

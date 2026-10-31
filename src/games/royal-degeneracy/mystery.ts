@@ -172,7 +172,7 @@ export class Evidence {
       add(new THREE.CylinderGeometry(0.012, 0.012, 0.4, 6), '#e8c890', 6.8, y + 0.02, 17.2, 0, Math.PI / 2);
       add(new THREE.CylinderGeometry(0.012, 0.012, 0.4, 6), '#e8c890', 6.95, y + 0.02, 17.35, 0, 1.2);
     } else if (caseId === 'sink') {
-      for (let i = 0; i < 14; i++) add(new THREE.CylinderGeometry(0.13, 0.11, 0.025, 16), i % 3 ? '#f2f0ea' : '#7aa0c8', 5.6 + Math.sin(i) * 0.04, 0.95 + i * 0.03, 0.45);
+      for (let i = 0; i < 14; i++) add(new THREE.CylinderGeometry(0.13, 0.11, 0.025, 16), i % 3 ? '#f2f0ea' : '#7aa0c8', 4.8 + Math.sin(i) * 0.04, 0.95 + i * 0.03, 4.85);
       add(new THREE.CylinderGeometry(0.14, 0.14, 0.04, 16), '#2a2a2e', 5.62, 0.95 + 14 * 0.03, 0.45, 0.2);
     } else if (caseId === 'unflushed') {
       const y = FLOOR_Y[2];

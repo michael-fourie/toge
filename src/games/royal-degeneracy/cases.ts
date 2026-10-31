@@ -42,7 +42,7 @@ export const CASES: Case[] = [
     id: 'sink',
     title: 'The Sink of Shame',
     // The twist: two of its clues are in the tower of dishes, and washing up is how you dig.
-    scene: { room: 'kitchen', x: 5.6, z: 1.5, did: 'started the tower of dishes', view: 1, hidden: 2, hide: 's-sink' },
+    scene: { room: 'kitchen', x: 4.8, z: 3.7, did: 'started the tower of dishes', view: 1, hidden: 2, hide: 's-sink' },
     open: 'The kitchen sink has become a tower. A frying pan is load-bearing. JJ has called it “a biohazard and a betrayal”. One of you started this, and the evidence is in the pile: wash up to dig.',
     weapon: 'a frying pan',
     last: 'The landlord texts: “inspection in the morning, see you all at 9”. Emergency house meeting.',

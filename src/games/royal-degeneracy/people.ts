@@ -2,6 +2,7 @@
 // outlines on the head and body, canvas faces (X_X when taken out). One Person per player; `pose()` every frame.
 
 import * as THREE from 'three';
+import { BongModel, JointModel } from './smoke.ts';
 import type { Look } from './cast.ts';
 
 /** Model space is built for a 1.80 m person and scaled to the real height. */
@@ -234,8 +235,9 @@ export class Person {
   private trimMat!: THREE.MeshToonMaterial;
   private skin: string;
   private sled: THREE.Mesh;
-  /** Smoke rising off a joint or a bong rip. */
-  private smoke = new THREE.Group();
+  /** What's in their hands (made when first needed). */
+  private joint: JointModel | null = null;
+  private bong: BongModel | null = null;
   readonly height: number;
 
   constructor(look: Look, heightCm: number) {
@@ -264,11 +266,6 @@ export class Person {
     this.sled = part(geo.box, m('#9a9a96'), 0.62, 0.12, 1.2, 0, 0.06, 0, true);
     this.sled.visible = false;
     this.root.add(this.sled);
-    const puffMat = new THREE.MeshBasicMaterial({ color: 0xd8d8d0, transparent: true, opacity: 0.45, depthWrite: false });
-    this.mats.push(puffMat);
-    for (let i = 0; i < 5; i++) this.smoke.add(part(geo.ball, puffMat, 0.06 + i * 0.015, 0.06 + i * 0.015, 0.06 + i * 0.015, 0.05, BASE + i * 0.12, -0.1));
-    this.smoke.visible = false;
-    this.root.add(this.smoke);
     this.body.add(this.hips);
     this.hips.position.y = HIP;
     // Legs pivot at the hips and hang down; shoes at the bottom.
@@ -419,8 +416,58 @@ export class Person {
     this.sled.visible = on;
   }
 
-  setSmoking(on: boolean) {
-    this.smoke.visible = on;
+  /**
+   * What's in their hands (vices.ts heldCode), after pose(): a joint in the right hand (at the lips mid-drag), or a
+   * bong held in front with both hands (raised to the face mid-rip).
+   */
+  hold(code: number, hit: boolean, dt: number) {
+    const joint = code === 1 || code === 2;
+    const bong = code >= 3;
+    if (joint && !this.joint) {
+      this.joint = new JointModel();
+      this.joint.root.scale.setScalar(1.5);
+    }
+    if (bong && !this.bong) this.bong = new BongModel();
+    if (this.joint) {
+      this.joint.root.visible = joint;
+      if (joint) {
+        const at = hit ? this.head : this.armR;
+        if (this.joint.root.parent !== at) at.add(this.joint.root);
+        if (hit) {
+          this.joint.root.position.set(0.02, -0.06, -0.17);
+          this.joint.root.rotation.set(0.15, -0.2, 0);
+          this.armR.rotation.set(-2.2, 0, 0.6);
+        } else {
+          this.joint.root.position.set(0, -0.47, -0.02);
+          this.joint.root.rotation.set(0.4, 0, 0);
+        }
+        this.joint.set(0.8, code === 2, hit ? 0.8 : 0.1);
+      }
+    }
+    if (this.bong) {
+      this.bong.root.visible = bong;
+      if (bong) {
+        if (this.bong.root.parent !== this.chest) this.chest.add(this.bong.root);
+        this.bong.root.position.set(0.03, hit ? 0.02 : -0.12, -0.2);
+        this.bong.root.rotation.set(hit ? 0.25 : 0, 0, 0);
+        this.armL.rotation.set(hit ? -1.25 : -0.9, 0, 0.25);
+        this.armR.rotation.set(hit ? -1.45 : -0.8, 0, -0.35);
+        this.bong.set(1, hit ? 0.7 : 0, hit, dt);
+      }
+    }
+  }
+
+  /** Where smoke comes off what they're holding (a joint's tip, a bong's bowl), or null. */
+  smokeFrom(out: THREE.Vector3): THREE.Vector3 | null {
+    if (this.joint?.root.visible) return this.joint.tip(out);
+    if (this.bong?.root.visible) return this.bong.bowl(out);
+    return null;
+  }
+
+  /** Their mouth, in the world (where the cloud comes out). */
+  mouth(out: THREE.Vector3): THREE.Vector3 {
+    this.head.updateWorldMatrix(true, false);
+    return this.head.localToWorld(out.set(0, -0.06, -0.2));
   }
 
   /** A name tag floating over their head (null removes it). Same text and colour: nothing to redraw. */
@@ -520,16 +567,12 @@ export class Person {
         break;
     }
     if (this.said && performance.now() > this.saidUntil) this.clearSaid();
-    if (this.smoke.visible)
-      this.smoke.children.forEach((c, i) => {
-        const k = (t * 0.6 + i / 5) % 1;
-        c.position.set(0.05 + Math.sin(t * 2 + i) * 0.05, BASE - 0.1 + k * 0.7, -0.12);
-        c.scale.setScalar(0.05 + k * 0.12);
-      });
     this.head.rotation.set(Math.max(-0.6, Math.min(0.6, p.phone ? -0.5 : p.pitch)) - this.chest.rotation.x, 0, 0);
   }
 
   dispose() {
+    this.joint?.dispose();
+    this.bong?.dispose();
     this.clearSaid();
     this.setTag(null);
     for (const mat of this.mats) mat.dispose();

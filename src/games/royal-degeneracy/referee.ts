@@ -11,6 +11,7 @@ import { rayWorld } from '../../shared/collision.ts';
 import { BINBAG_DROP, DOORS, DUO_PAIRS, FLOOR_Y, REACH, ROOMS, SOLIDS, SPOTS, doorBox, floorOf, roomAt, type Door } from './house.ts';
 import { SABOTAGES, fixSabotage, lockedDoors, startSabotage, wifiDown } from './sabotage.ts';
 import type { Msg } from './net.ts';
+import { COON, coonOut, newCoon, stepCoon, type Coon } from './coon.ts';
 import {
   REPORT_RANGE,
   castVote,
@@ -76,7 +77,7 @@ export class Referee {
   private sinceNpcs = 0;
   /** The raccoon: when it next gets in (roam), and its visit while it's inside. */
   private coonAt = 100;
-  private coon: { w: Walker; goal: { x: number; z: number }; until: number; stuck: number; rattle: number; took: boolean } | null = null;
+  private coon: { c: Coon; until: number; rattle: number; took: boolean } | null = null;
   /** Everyone's position every half second, for the reveal's replays: [roam, [id, x, z, floor][]]. */
   private frames: [number, [number, number, number, number][]][] = [];
   private sinceFrame = 0;
@@ -345,41 +346,42 @@ export class Referee {
   /**
    * The raccoon lives on the covered balcony and now and then gets into the floor-2 rooms: it knocks things over
    * (noises that sound a lot like a crime) and may run off with a clue lying on view, stashing it on its balcony.
+   * Nobody can just make it vanish: it has to be herded outside (coon.ts). Left alone, it wanders home after a while.
    */
   private tickCoon(dt: number) {
     const n = this.night;
     if (!this.coon) {
       if (n.roam < this.coonAt) return;
-      const w = newWalker({ x: 2, y: FLOOR_Y[1], z: 0.8 });
-      this.coon = { w, goal: this.npcGoal(w.pos), until: n.roam + 30, stuck: 0, rattle: 3, took: false };
+      const at = { x: 2, y: FLOOR_Y[1], z: 0.8 };
+      this.coon = { c: newCoon(at, this.npcGoal(at)), until: n.roam + 45, rattle: 3, took: false };
     }
-    const c = this.coon;
-    if (n.roam > c.until) {
+    const k = this.coon;
+    const c = k.c;
+    const scared = n.roam < c.scaredUntil;
+    if (coonOut(c) || (n.roam > k.until && !scared)) {
+      const who = c.by >= 0 && scared ? playerOf(n, c.by) : null;
+      const where = roomAt({ ...c.w.pos, y: c.w.pos.y + 0.1 });
       this.coon = null;
       this.coonAt = n.roam + this.coonGap();
       this.out({ t: 'coon', p: null });
+      if (who && where?.outside) this.out({ t: 'feed', from: 'House', text: `${tagFor(who.char, who.name)} chased the raccoon out onto ${where.name}.`, clue: -1 });
       return;
     }
     const walls = [...SOLIDS, ...DOORS.filter((d) => !this.open.has(d.id) && d.id !== 'balcony').map(doorBox)];
-    const dx = c.goal.x - c.w.pos.x;
-    const dz = c.goal.z - c.w.pos.z;
-    c.w.yaw = Math.atan2(-dx, -dz);
-    const before = { ...c.w.pos };
-    stepWalker(c.w, { fwd: 0.7, side: 0, jump: false, crouch: false, up: false }, dt, walls);
-    c.stuck = Math.hypot(c.w.pos.x - before.x, c.w.pos.z - before.z) < dt * 0.5 ? c.stuck + dt : 0;
-    if (Math.hypot(dx, dz) < 0.5 || c.stuck > 1) {
-      c.goal = this.npcGoal(c.w.pos);
-      c.stuck = 0;
-    }
-    c.rattle -= dt;
-    if (c.rattle < 0) {
-      c.rattle = 6 + nextRand(n) * 6;
+    const people = [...this.poses].filter(([id]) => {
+      const p = playerOf(n, id);
+      return !!p && living(p);
+    }).map(([id, p]) => ({ id, pos: { x: p.x, y: p.y, z: p.z } }));
+    if (stepCoon(c, people, n.roam, dt, walls)) c.goal = this.npcGoal(c.w.pos);
+    k.rattle -= dt;
+    if (k.rattle < 0) {
+      k.rattle = 6 + nextRand(n) * 6;
       this.out({ t: 'fx', k: 'rattle', x: c.w.pos.x, y: c.w.pos.y, z: c.w.pos.z });
     }
-    if (!c.took) {
+    if (!k.took && !scared) {
       const clue = n.mystery.clues.find((x) => x.state === 'view' && !x.lock && Math.hypot(x.pos.x - c.w.pos.x, x.pos.z - c.w.pos.z) < 1.2 && Math.abs(x.pos.y - c.w.pos.y) < 1);
       if (clue && nextRand(n) < 0.02) {
-        c.took = true;
+        k.took = true;
         clue.state = 'hidden';
         clue.spot = 's-balcony';
         clue.pos = { ...SPOTS.find((s) => s.id === 's-balcony')!.pos };
@@ -387,7 +389,7 @@ export class Referee {
       }
     }
     const r2 = (v: number) => Math.round(v * 100) / 100;
-    if (Math.floor(n.roam * 5) !== Math.floor((n.roam - dt) * 5)) this.out({ t: 'coon', p: [r2(c.w.pos.x), r2(c.w.pos.y), r2(c.w.pos.z), r2(c.w.yaw)] });
+    if (Math.floor(n.roam * 10) !== Math.floor((n.roam - dt) * 10)) this.out({ t: 'coon', p: [r2(c.w.pos.x), r2(c.w.pos.y), r2(c.w.pos.z), r2(c.w.yaw)] });
   }
 
   /** Seconds until the raccoon's next visit (much sooner in Who Let the Raccoon In). */
@@ -549,12 +551,12 @@ export class Referee {
         return;
       }
       case 'shoo': {
-        const c = this.coon;
+        // A shout and a stamp: it bolts for the nearest way out (if you're not standing in it).
+        const c = this.coon?.c;
         if (!c || !pose || !living(me) || dist(pose, c.w.pos) > REACH + 1) return;
-        this.coon = null;
-        this.coonAt = n.roam + this.coonGap();
-        this.out({ t: 'coon', p: null });
-        this.out({ t: 'feed', from: 'House', text: `${tagFor(me.char, me.name)} shooed the raccoon back out onto its balcony.`, clue: -1 });
+        c.scaredUntil = n.roam + COON.shout;
+        c.by = from;
+        this.out({ t: 'fx', k: 'rattle', x: c.w.pos.x, y: c.w.pos.y, z: c.w.pos.z });
         return;
       }
       case 'duo': {

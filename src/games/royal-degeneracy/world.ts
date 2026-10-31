@@ -16,6 +16,7 @@ import {
   LAMPS,
   SOLIDS,
   PRISMS,
+  SPOTS,
   TREE,
   WIDTH,
   doorBox,
@@ -27,6 +28,7 @@ import {
 import { ramp } from './people.ts';
 import { disposeTextures, texture } from './textures.ts';
 import { DRAWN, buildProps } from './props.ts';
+import { BongModel } from './smoke.ts';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import type { Vec3 } from '../../shared/math.ts';
 
@@ -288,6 +290,10 @@ export class World {
   private doorbell = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), new THREE.MeshBasicMaterial({ color: 0x3355ff }));
   /** The mirror over the floor-2 bathroom sink: the one place you see yourself (people.ts draws you on layer 1). */
   readonly mirror = new Reflector(new THREE.PlaneGeometry(0.6, 0.8), { textureWidth: 384, textureHeight: 512, color: 0xb8c4cc });
+  /** The house's bongs, on their tables (hidden while someone's holding one). */
+  readonly bongs = new Map<string, BongModel>();
+  /** The living-room TV's screen (dark in a power cut). */
+  private tvScreen = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
   /** The flood: water spreading over the floor-2 landing and bathroom. */
   readonly water = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),
@@ -335,9 +341,16 @@ export class World {
     this.addPrisms();
     const props = buildProps();
     s.add(props.group);
+    for (const sp of SPOTS) {
+      if (sp.vice !== 'bong') continue;
+      const b = new BongModel();
+      b.root.position.set(sp.pos.x, sp.pos.y - 0.04, sp.pos.z);
+      s.add(b.root);
+      this.bongs.set(sp.id, b);
+    }
     this.disposables.push(...props.owned);
     // The bathroom mirror (it only renders while you're close enough to see it).
-    this.mirror.position.set(WIDTH - 0.135, FLOOR_Y[1] + 1.55, 11.15);
+    this.mirror.position.set(WIDTH - 0.135, FLOOR_Y[1] + 1.55, 10.25);
     this.mirror.rotation.y = -Math.PI / 2;
     this.mirror.visible = false;
     s.add(this.mirror);
@@ -437,7 +450,7 @@ export class World {
         if (tvFace) {
           // The TV and the PA speaker, a hair proud of the bricks.
           const at = (t: number, up: number, out: number): V => [ax + (bx - ax) * t + nx * out, y0 + up, az + (bz - az) * t + nz * out];
-          bld.quad('tv', at(0.3, 0.95, 0.03), at(0.7, 0.95, 0.03), at(0.7, 1.75, 0.03), at(0.3, 1.75, 0.03), [nx, 0, nz], 0, 1);
+          this.addTv(at(0.5, 1.4, 0), Math.atan2(nx, nz));
           bld.quad('records', at(0.44, 2, 0.05), at(0.56, 2, 0.05), at(0.56, 2.45, 0.05), at(0.44, 2.45, 0.05), [nx, 0, nz], 0, 1);
         }
       }
@@ -446,6 +459,40 @@ export class World {
         this.disposables.push(m.geometry);
       }
     }
+  }
+
+  /**
+   * The TV, wall-mounted on the triangle's long face: a thin black panel with a bezel and a glowing screen (a paused
+   * game: someone rage-quit mid-match), a soundbar under it, and a low media unit on the floor with the console.
+   */
+  private addTv(c: V, yaw: number) {
+    const g = new THREE.Group();
+    g.position.set(c[0], c[1], c[2]);
+    g.rotation.y = yaw;
+    const black = new THREE.MeshToonMaterial({ color: '#0d0d10', gradientMap: ramp() });
+    const grey = new THREE.MeshToonMaterial({ color: '#2a2a30', gradientMap: ramp() });
+    const white = new THREE.MeshToonMaterial({ color: '#e8e8ec', gradientMap: ramp() });
+    const wood = new THREE.MeshToonMaterial({ color: '#4a3424', gradientMap: ramp() });
+    const part = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.position.set(x, y, z);
+      g.add(mesh);
+      this.disposables.push(geo);
+      return mesh;
+    };
+    part(new THREE.BoxGeometry(1.42, 0.82, 0.05), black, 0, 0, 0.045);
+    part(new THREE.BoxGeometry(0.5, 0.3, 0.02), grey, 0, 0, 0.01);
+    this.tvScreen.map = tvPicture();
+    part(new THREE.PlaneGeometry(1.34, 0.75), this.tvScreen, 0, 0.01, 0.072);
+    part(new THREE.BoxGeometry(0.012, 0.012, 0.01), new THREE.MeshBasicMaterial({ color: 0xff2a2a }), 0.6, -0.39, 0.072);
+    // Soundbar, then the media unit on the floor (its top at 0.45 m), the console and a controller on it.
+    part(new THREE.BoxGeometry(0.9, 0.07, 0.08), grey, 0, -0.5, 0.06);
+    part(new THREE.BoxGeometry(1.5, 0.42, 0.3), wood, 0, -1.19, 0.16);
+    part(new THREE.BoxGeometry(1.44, 0.015, 0.005), black, 0, -1.19, 0.312);
+    part(new THREE.BoxGeometry(0.34, 0.07, 0.24), white, -0.42, -0.94, 0.16);
+    part(new THREE.BoxGeometry(0.16, 0.035, 0.1), black, 0.35, -0.96, 0.18).rotation.y = 0.4;
+    this.disposables.push(black, grey, white, wood, this.tvScreen, this.tvScreen.map);
+    this.scene.add(g);
   }
 
   private addLampFixtures() {
@@ -543,6 +590,7 @@ export class World {
     this.hemi.intensity = on ? 0.9 : 0.18;
     this.ambient.intensity = on ? 0.25 : 0.02;
     (material('lamp') as THREE.MeshToonMaterial).emissive.set(on ? (LOOKS.lamp.glow as string) : '#000000');
+    this.tvScreen.color.set(on ? 0xffffff : 0x050507);
   }
 
   setDoorbell(watched: boolean) {
@@ -578,9 +626,79 @@ export class World {
   }
 
   dispose() {
-    for (const d of this.disposables) d.dispose();
+    for (const b of this.bongs.values()) b.dispose();
+    for (const d of this.disposables) d?.dispose();
     for (const m of mats.values()) m.dispose();
     mats.clear();
     disposeTextures();
   }
+}
+
+/** The TV's picture: a football game paused mid-match, the scoreline that caused it, and the dreaded pop-up. */
+function tvPicture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 288;
+  const x = c.getContext('2d')!;
+  const sky = x.createLinearGradient(0, 0, 0, 288);
+  sky.addColorStop(0, '#2b4a7a');
+  sky.addColorStop(0.35, '#3c8a4a');
+  sky.addColorStop(1, '#2f7a3c');
+  x.fillStyle = sky;
+  x.fillRect(0, 0, 512, 288);
+  // Mown stripes and the pitch lines in perspective.
+  for (let i = 0; i < 8; i++) {
+    x.fillStyle = i % 2 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+    x.beginPath();
+    x.moveTo(140 + i * 29, 100);
+    x.lineTo(169 + i * 29, 100);
+    x.lineTo(i * 70 - 20 + 70, 288);
+    x.lineTo(i * 70 - 20, 288);
+    x.fill();
+  }
+  x.strokeStyle = 'rgba(255,255,255,0.7)';
+  x.lineWidth = 2;
+  x.beginPath();
+  x.moveTo(110, 100);
+  x.lineTo(402, 100);
+  x.lineTo(500, 288);
+  x.moveTo(110, 100);
+  x.lineTo(12, 288);
+  x.moveTo(256, 100);
+  x.lineTo(256, 288);
+  x.stroke();
+  x.beginPath();
+  x.ellipse(256, 190, 70, 26, 0, 0, Math.PI * 2);
+  x.stroke();
+  // The crowd stand along the top.
+  x.fillStyle = '#1c2438';
+  x.fillRect(0, 60, 512, 40);
+  for (let i = 0; i < 140; i++) {
+    x.fillStyle = ['#c84a4a', '#e8e0d0', '#4a6ac8', '#e8c84a'][i % 4];
+    x.fillRect((i * 37) % 512, 64 + ((i * 13) % 30), 3, 3);
+  }
+  // The score bug, the pause card.
+  x.fillStyle = 'rgba(10,10,20,0.85)';
+  x.fillRect(16, 14, 210, 30);
+  x.fillStyle = '#fff';
+  x.font = 'bold 18px system-ui, sans-serif';
+  x.fillText('NASH  0 - 7  JUNG', 26, 36);
+  x.fillStyle = '#e8c84a';
+  x.fillText('88:12', 232, 36);
+  x.fillStyle = 'rgba(8,8,16,0.82)';
+  x.fillRect(136, 112, 240, 108);
+  x.strokeStyle = '#e8c84a';
+  x.strokeRect(136, 112, 240, 108);
+  x.fillStyle = '#fff';
+  x.font = 'bold 30px system-ui, sans-serif';
+  x.textAlign = 'center';
+  x.fillText('PAUSED', 256, 150);
+  x.font = '15px system-ui, sans-serif';
+  x.fillStyle = '#ffb0b0';
+  x.fillText('Controller 1 disconnected', 256, 178);
+  x.fillStyle = '#c8c8d0';
+  x.fillText('(it went through the window)', 256, 200);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }

@@ -12,7 +12,7 @@ import { CAST, eyeHeight, lookFor, tagFor, type CharId } from './cast.ts';
 import { caseById } from './cases.ts';
 import { ChoreView } from './chores.ts';
 import { ITEM, SEARCH_SECONDS, WIPE_SECONDS, fits, unlockTime, type Cat } from './clues.ts';
-import { BINBAG_DROP, DOORS, DUO_PAIRS, FLOOR_Y, MEETING_CENTRE, REACH, ROOMS, SEATS, SPOTS, doorBox, floorOf, roomAt, wakeSpot, type Door, type Spot } from './house.ts';
+import { BINBAG_DROP, DOORS, DUO_PAIRS, FLOOR_Y, MEETING_CENTRE, PERCHES, REACH, ROOMS, SEATS, SPOTS, standFrom, doorBox, floorOf, roomAt, wakeSpot, type Door, type Spot } from './house.ts';
 import { Hud, KEYS, chip, loadPrefs, type Prefs } from './hud.ts';
 import { Input, type Frame } from './input.ts';
 import { portrait } from './lobby.ts';
@@ -27,7 +27,8 @@ import { newWalker, nudgeApart, shove, stepWalker } from './move.ts';
 import { EMOTES, PF, type Msg } from './net.ts';
 import { Person } from './people.ts';
 import { saveNight } from './stats.ts';
-import { VIBES, comingDown, eyeShift, high, light, line, newVibe, pack, pill, puff, rip, rolled, sober, speedOf, tripping, wired } from './vices.ts';
+import { VIBES, clearRip, comingDown, drag, exhaleJoint, eyeShift, heldCode, high, light, line, newVibe, pack, packed, pickUp, pill, putDown, ripDraw, rolled, sober, speedOf, tripping, wired, type Exhale } from './vices.ts';
+import { HeldView, SmokeFx } from './smoke.ts';
 import { KILL_RANGE, TIMES, type Joiner, type PrivateView, type PublicView, type Status } from './rules.ts';
 import { World } from './world.ts';
 
@@ -65,6 +66,7 @@ interface Snap {
   pitch: number;
   f: number;
   e: number;
+  h: number;
 }
 
 interface Remote {
@@ -82,7 +84,14 @@ interface Remote {
   walked: number;
   /** Their emote (net.ts EMOTES index), so a new wave pops a speech bubble. */
   e: number;
+  /** What's in their hands (vices.ts heldCode), and when their next wisp and puff of smoke are due. */
+  h: number;
+  wispIn: number;
+  puffIn: number;
 }
+
+/** The house's bongs, in order (a pose's held code 3 + n is the n-th). */
+const BONGS = SPOTS.filter((s) => s.vice === 'bong').map((s) => s.id);
 
 type Target =
   | { kind: 'door'; door: Door; t: number }
@@ -90,7 +99,8 @@ type Target =
   | { kind: 'body'; id: number; t: number }
   | { kind: 'player'; id: number; t: number }
   | { kind: 'clue'; id: number; t: number }
-  | { kind: 'coon'; t: number };
+  | { kind: 'coon'; t: number }
+  | { kind: 'perch'; i: number; t: number };
 
 const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
@@ -213,6 +223,18 @@ export class NightSession {
   private rolling: ChoreView | null = null;
   /** Phones and tablets: the on-screen stick and buttons. */
   private touch: TouchControls | null = null;
+  /** Your hands in first person (a joint, a bong), and the house's smoke. */
+  private held: HeldView;
+  private smokeFx: SmokeFx;
+  /** Mid-drag on the joint or mid-rip on the bong (L held). */
+  private smoking = false;
+  /** Flicking the lighter at a rolled joint (seconds left), packing the bowl (seconds held). */
+  private lighting = 0;
+  private packing = 0;
+  /** Breathing out: a beat's delay, then seconds of cloud, how big, and a cough after. */
+  private exhale = { delay: 0, left: 0, size: 0, cough: false, every: 0 };
+  private soundIn = 0;
+  private tmpV = new THREE.Vector3();
   /** Proximity voice chat (off until you switch it on in the pause menu). */
   readonly voice: Voice;
   private voiceLine: HTMLElement;
@@ -222,6 +244,8 @@ export class NightSession {
   private introStage = '';
   /** Where you sat at the last meeting (you stand up from it). */
   private seat = -1;
+  /** Where you sat down by choice (PERCHES), or -1. */
+  private perch = -1;
   private offs: (() => void)[] = [];
 
   constructor(private o: SessionOpts) {
@@ -272,6 +296,8 @@ export class NightSession {
       this.wrap.append(rotate);
     }
     this.self = new Person(lookFor(this.char, me.name), CAST[this.char].height);
+    this.held = new HeldView(lookFor(this.char, me.name).skin, lookFor(this.char, me.name).shirt);
+    this.smokeFx = new SmokeFx(this.world.scene, 220);
     this.self.setLayer(1);
     this.world.scene.add(this.self.root);
     this.world.mirror.getReflectionCamera(this.camera).layers.enable(1);
@@ -324,7 +350,7 @@ export class NightSession {
     cone.visible = false;
     this.world.scene.add(person.root, cone);
     const start = wakeSpot(CAST[p.char].wake, 0);
-    this.remotes.set(p.id, { id: p.id, name: p.name, char: p.char, person, cone, buf: [], pos: { ...start }, yaw: 0, pitch: 0, f: 0, speed: 0, walked: 0, e: 0 });
+    this.remotes.set(p.id, { id: p.id, name: p.name, char: p.char, person, cone, buf: [], pos: { ...start }, yaw: 0, pitch: 0, f: 0, speed: 0, walked: 0, e: 0, h: 0, wispIn: 0, puffIn: 0 });
     person.root.visible = false;
   }
 
@@ -362,7 +388,7 @@ export class NightSession {
       case 'p': {
         const r = this.remotes.get(from);
         if (!r) return;
-        r.buf.push({ t: performance.now(), x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, f: m.f, e: m.e });
+        r.buf.push({ t: performance.now(), x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, f: m.f, e: m.e, h: m.h });
         if (r.buf.length > 12) r.buf.shift();
         return;
       }
@@ -556,6 +582,7 @@ export class NightSession {
       this.input.unlock();
       this.input.dragLook = true;
       this.myVote = null;
+      this.perch = -1;
       const seat = this.pub!.seats.indexOf(this.o.me);
       this.seat = this.ghost ? -1 : seat;
       if (seat >= 0 && !this.ghost) {
@@ -577,6 +604,23 @@ export class NightSession {
       this.setPaused(true, 'Click to look around again');
     }
     if (ph === 'night' && from === 'intro') this.hud.toast(c.title, 3000);
+  }
+
+  /** Sit down somewhere (a couch, a bed, a bean bag): placed on it, facing out. */
+  private sitDown(i: number) {
+    const p = PERCHES[i];
+    this.perch = i;
+    this.walker.pos = { ...p.pos };
+    this.walker.vel = { x: 0, y: 0, z: 0 };
+    this.walker.yaw = p.yaw;
+    this.walker.pitch = -0.05;
+  }
+
+  /** Up off wherever you sat: a step out in front of it, clear of the cushions. */
+  private getUp() {
+    this.walker.pos = standFrom(PERCHES[this.perch]);
+    this.walker.vel = { x: 0, y: 0, z: 0 };
+    this.perch = -1;
   }
 
   /** Off the sofa and a step toward the coffee table, clear of the cushions. */
@@ -851,8 +895,10 @@ export class NightSession {
       this.walker.yaw += f.yaw;
       this.walker.pitch = Math.max(-1.45, Math.min(1.45, this.walker.pitch + f.pitch));
     }
+    // Sat down by choice (a couch, a bed, a bean bag): moving or jumping gets you up.
+    if (this.perch >= 0 && (this.ghost || ph !== 'night' || f.fwd || f.side || f.jump || f.crouch)) this.getUp();
     // Seated players sit inside the sofa's box: they're placed, not walked (collision would lift them out).
-    const sitting = !this.ghost && this.seat >= 0 && (this.inMeeting() || ph === 'result');
+    const sitting = !this.ghost && ((this.seat >= 0 && (this.inMeeting() || ph === 'result')) || this.perch >= 0);
     if (!sitting) {
       // Dev's toboggan runs straight ahead at 3×; Bongus Mode is slower going.
       const sled = this.roam < this.until.sled && !this.ghost;
@@ -888,6 +934,7 @@ export class NightSession {
     else if (this.overlay()) this.hud.setPrompt('');
     else if (ph === 'night' && !this.paused) this.interact(f, dt);
     else this.hud.setPrompt('');
+    this.updateSmoking(f, dt, ph);
 
     this.updateRemotes(dt);
     this.updateNpcs(dt);
@@ -917,6 +964,7 @@ export class NightSession {
       this.self.root.position.set(this.walker.pos.x, this.walker.pos.y, this.walker.pos.z);
       this.self.root.rotation.y = this.walker.yaw;
       this.self.pose({ speed: Math.hypot(this.walker.vel.x, this.walker.vel.z), crouch: this.walker.crouch, pitch: this.walker.pitch, phone: this.phone.open, emote: EMOTES[performance.now() < this.emote.until ? this.emote.id : 0] }, dt);
+      this.self.hold(heldCode(this.vibe, BONGS), this.smoking, dt);
     } else this.self.root.visible = false;
     this.world.torch.intensity = this.torch ? TORCH_POWER : 0;
     this.updateEviction(dt);
@@ -1001,11 +1049,13 @@ export class NightSession {
       (this.roam < this.until.bongus ? PF.bongus : 0) |
       (this.roam < this.until.sled ? PF.sled : 0) |
       (this.watching ? PF.watch : 0) |
-      (this.vibe.joint === 'lit' || (this.hold && this.hold.t > 0 && (this.hold.key === 'puff' || this.hold.key.startsWith('bong-'))) ? PF.smoke : 0) |
+      (this.vibe.joint === 'lit' ? PF.smoke : 0) |
+      (this.smoking ? PF.hit : 0) |
+      (this.exhale.left > 0 && this.exhale.delay <= 0 ? PF.exhale : 0) |
       (high(this.vibe, this.roam) ? PF.high : 0) |
       (wired(this.vibe, this.roam) ? PF.wired : 0);
     const e = performance.now() < this.emote.until ? this.emote.id : 0;
-    const m: Msg = { t: 'p', x: r2(w.pos.x), y: r2(w.pos.y), z: r2(w.pos.z), yaw: r2(wrapAngle(w.yaw)), pitch: r2(w.pitch), f, e };
+    const m: Msg = { t: 'p', x: r2(w.pos.x), y: r2(w.pos.y), z: r2(w.pos.z), yaw: r2(wrapAngle(w.yaw)), pitch: r2(w.pitch), f, e, h: this.ghost ? 0 : heldCode(this.vibe, BONGS) };
     this.o.toAll(m);
     if (this.o.hosting) this.o.toHost(m);
   }
@@ -1034,6 +1084,7 @@ export class NightSession {
       r.yaw = a.yaw + wrapAngle(c.yaw - a.yaw) * k;
       r.pitch = lerp(a.pitch, c.pitch, k);
       r.f = c.f;
+      r.h = c.h;
       if (c.e !== r.e) {
         if (EMOTES[c.e] === 'wave' && st === 'in') r.person.say(CAST[r.char].catchphrase);
         r.e = c.e;
@@ -1054,7 +1105,8 @@ export class NightSession {
       // Wallhack / Eavesdrop: everyone close enough shows through walls.
       r.person.setXray(visible && this.roam < this.until.xray && Math.hypot(nx - this.walker.pos.x, ny - this.walker.pos.y, nz - this.walker.pos.z) < this.xrayRange);
       r.person.setFace(r.f & PF.high ? 'high' : r.f & PF.wired ? 'wired' : r.f & PF.busy ? 'worried' : 'smile');
-      r.person.setSmoking(visible && !!(r.f & PF.smoke));
+      r.person.hold(visible && !ghost ? r.h : 0, !!(r.f & PF.hit), dt);
+      if (visible && !ghost) this.remoteSmoke(r, dt);
       // Their torch: a soft cone, not a real light.
       r.cone.visible = visible && !!(r.f & PF.torch);
       if (r.cone.visible) {
@@ -1106,13 +1158,18 @@ export class NightSession {
       }
     }
     if (!this.ghost && this.evidence) for (const [id, p] of this.evidence.spots) consider({ kind: 'clue', id, t: raySphere(o, d, p, 0.35, REACH) });
+    if (!this.ghost && this.perch < 0)
+      PERCHES.forEach((p, i) => {
+        if (Math.abs(p.pos.y - this.walker.pos.y) < 1 && Math.hypot(p.pos.x - o.x, p.pos.z - o.z) < REACH + 1)
+          consider({ kind: 'perch', i, t: raySphere(o, d, { x: p.pos.x, y: p.pos.y + 0.45, z: p.pos.z }, 0.36, REACH) });
+      });
     if (!this.ghost && this.raccoon?.visible) consider({ kind: 'coon', t: raySphere(o, d, { x: this.raccoon.position.x, y: this.raccoon.position.y + 0.3, z: this.raccoon.position.z }, 0.45, REACH) });
     const sab = this.pub?.sab;
     for (const s of SPOTS) {
       if (s.kind !== 'chore' && this.ghost) continue;
       if (s.kind === 'fix' && (!sab || !SABOTAGES[sab[0] as SabKind].fix.includes(s.id) || sab[3].includes(s.id) || (sab[0] === 'wifi' && sab[1] >= 0))) continue;
       if (s.kind === 'sneak' && !this.evil) continue;
-      if (s.kind === 'vice' && this.ghost) continue;
+      if (s.kind === 'vice' && (this.ghost || s.id === this.vibe.bong)) continue;
       if (s.kind === 'duo' && this.pub?.duo.includes(DUO_PAIRS.find((p) => p[0] === s.id || p[1] === s.id)![0])) continue;
       if (s.kind === 'chore' && !this.priv?.tasks.some(([id, done]) => id === s.id && !done)) continue;
       consider({ kind: 'spot', spot: s, t: raySphere(o, d, s.pos, s.r ?? 0.5, REACH) });
@@ -1165,7 +1222,9 @@ export class NightSession {
       prompt = lock
         ? `Hold E  Open the locked ${lock === 'phone' ? 'phone' : 'bin bag'} (${unlockTime(this.char, lock)} s)`
         : `E  Pick up: ${cat ? ITEM[cat].toLowerCase() : 'something'}${this.evil ? ' · hold R wipe it' : ''}`;
-    } else if (t?.kind === 'coon') prompt = 'E  Shoo the raccoon!';
+    } else if (t?.kind === 'coon') prompt = 'E  Shoo the raccoon! (herd it outside)';
+    else if (t?.kind === 'perch') prompt = 'E  Sit down';
+    else if (!t && this.perch >= 0) prompt = 'Move to get up';
     else if (t?.kind === 'player') {
       const near = t.t <= SHOVE_RANGE;
       const parts = [this.names.get(t.id) ?? ''];
@@ -1175,12 +1234,10 @@ export class NightSession {
     }
     // Holding: E digs through a search spot, R (Degenerates) wipes a clue away.
     const lockOf = (id: number) => this.pub?.clues.find((x) => x[0] === id)?.[6] ?? 0;
-    const viceHold = t?.kind === 'spot' && t.spot.kind === 'vice' && (t.spot.vice === 'bong' || t.spot.vice === 'coke');
+    const viceHold = t?.kind === 'spot' && t.spot.kind === 'vice' && t.spot.vice === 'coke';
     const holdKey =
       t?.kind === 'spot' && (t.spot.kind === 'search' || t.spot.kind === 'fix' || viceHold) && f.useHeld
         ? t.spot.id
-        : !t && this.vibe.joint === 'lit' && f.useHeld
-          ? 'puff'
         : t?.kind === 'clue' && lockOf(t.id) && f.useHeld
           ? `lock:${t.id}`
           : t?.kind === 'clue' && this.evil && f.altHeld
@@ -1201,15 +1258,13 @@ export class NightSession {
         this.hold.t += dt;
         const lock = holdKey.startsWith('lock:') ? lockOf(Number(holdKey.slice(5))) : 0;
         const fix = holdKey.startsWith('fix-');
-        const vice = holdKey === 'puff' || holdKey.startsWith('bong-') || holdKey === 'coke';
-        if (vice) {
-          const packing = holdKey.startsWith('bong-') && !this.vibe.packed.includes(holdKey);
-          const need = holdKey === 'puff' ? VIBES.puffHold : holdKey === 'coke' ? VIBES.lineHold : packing ? VIBES.packHold : VIBES.ripHold;
-          if (this.hold.t === dt) this.audio.play(holdKey === 'coke' ? 'sniff' : packing ? 'click' : holdKey === 'puff' ? 'inhale' : 'bubble');
-          prompt = `${holdKey === 'puff' ? 'Puffing' : holdKey === 'coke' ? 'Doing a line' : packing ? 'Packing the bowl' : 'Ripping it'}… ${Math.min(100, Math.round((100 * this.hold.t) / need))}%`;
-          if (this.hold.t >= need) {
+        if (holdKey === 'coke') {
+          if (this.hold.t === dt) this.audio.play('sniff');
+          prompt = `Doing a line… ${Math.min(100, Math.round((100 * this.hold.t) / VIBES.lineHold))}%`;
+          if (this.hold.t >= VIBES.lineHold) {
             this.hold.t = -1e9;
-            this.useVice(holdKey, packing);
+            line(this.vibe, this.roam);
+            this.hud.toast('WOO. Okay. Okay okay okay. Everything is so clear.', 3000);
           }
           this.hud.setPrompt(prompt);
           return;
@@ -1237,12 +1292,9 @@ export class NightSession {
         }
       }
     }
+    if (!prompt) prompt = this.smokePrompt();
     this.hud.setPrompt(prompt);
     if (f.alt && this.evil && t?.kind !== 'clue') this.openPlant();
-    if (f.light && light(this.vibe)) {
-      this.audio.play('lighter');
-      this.hud.toast('It’s lit. Hold E (looking at nothing) to puff.', 2500);
-    }
     // The bin bag: once it's tied, carry it out to the wheelie bin.
     if (this.carrying) {
       const d = Math.hypot(this.walker.pos.x - BINBAG_DROP.x, this.walker.pos.z - BINBAG_DROP.z);
@@ -1266,10 +1318,12 @@ export class NightSession {
           this.o.toHost({ t: 'inspect', id: t.id });
         }
       } else if (t.kind === 'coon') this.o.toHost({ t: 'shoo' });
+      else if (t.kind === 'perch') this.sitDown(t.i);
       else if (t.kind === 'spot' && t.spot.kind === 'sneak') this.o.toHost({ t: 'sneak', spot: t.spot.id });
       else if (t.kind === 'spot' && t.spot.kind === 'laptop') this.watching = !this.watching;
       else if (t.kind === 'spot' && t.spot.vice === 'roll') this.startRolling();
       else if (t.kind === 'spot' && t.spot.vice === 'pill') this.takePill();
+      else if (t.kind === 'spot' && t.spot.vice === 'bong') this.grabBong(t.spot);
       else if (t.kind === 'spot' && (t.spot.kind === 'search' || t.spot.kind === 'duo' || t.spot.kind === 'router' || t.spot.kind === 'fix')) return;
       else if (t.kind === 'spot' && t.spot.kind === 'fridge') this.togglePhone('board');
       else if (t.kind === 'body') this.o.toHost({ t: 'report', body: t.id });
@@ -1543,7 +1597,9 @@ export class NightSession {
     if (s.vice === 'roll') return this.vibe.joint === 'none' ? 'E  Roll a joint' : 'You’ve already got one rolled';
     if (s.vice === 'coke') return 'Hold E  Do a line off the plate';
     if (s.vice === 'pill') return 'E  Take the mystery pill (who knows)';
-    return `Hold E  ${this.vibe.packed.includes(s.id) ? 'Take a rip off' : 'Pack a bowl in'} ${s.name}`;
+    if (this.vibe.bong) return 'Your hands are full (X puts yours down)';
+    if (this.vibe.joint === 'lit') return 'Finish your joint first';
+    return `E  Pick up ${s.name}`;
   }
 
   private startRolling() {
@@ -1556,23 +1612,153 @@ export class NightSession {
     this.rolling = null;
   }
 
-  /** Finished holding E at a bong, the plate, or a lit joint. */
-  private useVice(key: string, packing: boolean) {
-    if (key === 'puff') {
-      puff(this.vibe, this.roam);
-      if (this.vibe.joint === 'none') this.hud.toast('Cashed. Ohhh. Oh, that’s nice.', 2500);
-      else this.hud.toast(`Puff. ${this.vibe.puffsLeft} left.`, 1200);
-      if (Math.random() < 0.3) this.audio.play('cough');
-    } else if (key === 'coke') {
-      line(this.vibe, this.roam);
-      this.hud.toast('WOO. Okay. Okay okay okay. Everything is so clear.', 3000);
-    } else if (packing) {
-      pack(this.vibe, key);
-      this.hud.toast('Bowl packed. Hold E again to rip it.', 2000);
+  /** Picking up a bong off its table (if nobody else has it). */
+  private grabBong(s: Spot) {
+    if (this.vibe.joint === 'lit') return this.hud.toast('Finish your joint first: one hand for the bong, one for the lighter.');
+    const i = BONGS.indexOf(s.id);
+    if ([...this.remotes.values()].some((r) => r.h === 3 + i && this.statusOf(r.id) === 'in')) return this.hud.toast('Someone’s already got that one.');
+    if (pickUp(this.vibe, s.id)) this.hud.toast(packed(this.vibe) ? 'Still packed. Hold L to light it and pull.' : 'Got it. Hold E to pack the bowl.', 2500);
+  }
+
+  /** What to do with what's in your hands, when nothing else wants the prompt. */
+  private smokePrompt(): string {
+    const v = this.vibe;
+    if (v.bong) return packed(v) ? 'Hold L  Light it and pull · let go to clear it · X put it down' : 'Hold E  Pack the bowl · X put it down';
+    if (v.joint === 'rolled') return 'L  Light the joint';
+    if (v.joint === 'lit') return 'Hold L  Take a drag (let go to breathe out)';
+    return '';
+  }
+
+  /**
+   * Smoking, hands on. A joint: L flicks the lighter till it catches, then holding L is a drag (the cherry glows, it
+   * burns down) and letting go breathes it out. A bong: E picks it up, hold E to pack the bowl, hold L to light it and
+   * pull (bubbles, the chamber going milky), let go to clear it; X puts it back. The cloud comes out a beat after you
+   * let go, as big as the hit; a big one ends in a cough.
+   */
+  private updateSmoking(f: Frame, dt: number, ph: PublicView['ph']) {
+    const v = this.vibe;
+    const can = ph === 'night' && !this.ghost && !this.paused && !this.chore && !this.rolling && !this.overlay();
+    if ((ph !== 'night' || this.ghost) && v.bong) putDown(v);
+    const was = this.smoking;
+    this.smoking = false;
+    if (can) {
+      if (v.bong) {
+        if (f.drop) {
+          putDown(v);
+          this.packing = 0;
+          this.hud.toast('Put it back where it lives.', 1500);
+        } else if (!packed(v) && f.useHeld && !this.lastTarget) {
+          this.packing += dt;
+          this.soundIn -= dt;
+          if (this.soundIn < 0) {
+            this.soundIn = 0.4;
+            this.audio.play('click');
+          }
+          if (this.packing >= VIBES.packHold) {
+            pack(v);
+            this.packing = 0;
+            this.hud.toast('Packed. Hold L to light it and pull; let go to clear it.', 3000);
+          }
+        } else if (!f.useHeld) this.packing = 0;
+        if (packed(v) && f.lightHeld) {
+          this.smoking = true;
+          if (!was) {
+            this.audio.play('lighter');
+            this.soundIn = 0.3;
+          }
+          this.soundIn -= dt;
+          if (this.soundIn < 0) {
+            this.soundIn = 2;
+            this.audio.play('bubble');
+          }
+          // Overfull: you can't hold any more, it comes out whether you like it or not.
+          if (!ripDraw(v, dt)) this.smoking = false;
+        }
+        if (was && !this.smoking) this.breatheOut(clearRip(v, this.roam));
+      } else if (v.joint === 'rolled') {
+        if (this.lighting > 0) {
+          this.lighting -= dt;
+          if (this.lighting <= 0 && light(v)) this.hud.toast('It’s lit. Hold L to take a drag, let go to breathe out.', 3000);
+        } else if (f.light) {
+          this.lighting = VIBES.lightTime;
+          this.audio.play('lighter');
+        }
+      } else if (v.joint === 'lit') {
+        if (f.lightHeld && drag(v, dt)) {
+          this.smoking = true;
+          if (!was) this.audio.play('inhale');
+        }
+        if (was && !this.smoking) this.breatheOut(exhaleJoint(v, this.roam));
+      }
     } else {
-      rip(this.vibe, key, this.roam);
-      this.audio.play('cough');
-      this.hud.toast('Yoooooooooooo. *coughing fit*', 3000);
+      this.packing = 0;
+      this.lighting = 0;
+      if (was) this.breatheOut(v.bong ? clearRip(v, this.roam) : exhaleJoint(v, this.roam));
+    }
+    // The cloud: a beat after you let go, pushed out ahead of you, then (maybe) the coughing.
+    const e = this.exhale;
+    if (e.delay > 0) e.delay -= dt;
+    else if (e.left > 0) {
+      e.left -= dt;
+      e.every -= dt;
+      if (e.every < 0) {
+        e.every = 0.05;
+        const fwd = this.tmpV.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+        const c = this.camera.position;
+        this.smokeFx.exhale({ x: c.x + fwd.x * 0.35, y: c.y - 0.1 + fwd.y * 0.35, z: c.z + fwd.z * 0.35 }, { x: fwd.x, y: fwd.y - 0.1, z: fwd.z }, e.size, 3);
+      }
+      if (e.left <= 0 && e.cough) {
+        this.audio.play('cough');
+        this.shake = 0.6;
+        this.hud.toast(e.size > 0.8 ? '*HACK* *HACK* *wheeze*' : '*cough cough*', 1500);
+      }
+    }
+    const inHand = !this.ghost && ph === 'night';
+    this.held.update(dt, {
+      item: v.bong ? 'bong' : v.joint !== 'none' && inHand ? 'joint' : 'none',
+      burn: v.burn,
+      lit: v.joint === 'lit',
+      lighting: this.lighting > 0,
+      packed: packed(v) ? 1 : Math.min(1, this.packing / VIBES.packHold),
+      packing: this.packing > 0,
+      fill: v.fill,
+      ripping: this.smoking && !!v.bong,
+      toMouth: this.smoking,
+      walk: Math.min(1, Math.hypot(this.walker.vel.x, this.walker.vel.z) / 3),
+    });
+    this.smokeFx.update(dt);
+    // A bong in someone's hands isn't on its table; yours show your packed bowls.
+    const held = new Set([...this.remotes.values()].filter((r) => r.h >= 3 && this.statusOf(r.id) === 'in').map((r) => BONGS[r.h - 3]));
+    if (v.bong) held.add(v.bong);
+    for (const [id, b] of this.world.bongs) {
+      b.root.visible = !held.has(id);
+      b.set(v.packed.includes(id) ? 1 : 0, 0, false, dt);
+    }
+  }
+
+  /** Breathing out what you just pulled: the cloud's queued up (after a beat), and a word on how it went. */
+  private breatheOut(x: Exhale) {
+    if (x.size <= 0) return;
+    this.exhale = { delay: 0.35, left: 0.5 + x.size * 1.1, size: x.size, cough: x.cough, every: 0 };
+    if (x.cashed && !this.vibe.bong) this.hud.toast('Cashed. Ohhh. Oh, that’s nice.', 2500);
+    else if (this.vibe.bong) this.hud.toast(x.size > 0.8 ? 'Yoooooooooooo.' : x.size > 0.4 ? 'Nice rip.' : 'A little sip.', 2000);
+  }
+
+  /** Smoke off someone else: wisps off a lit joint or a bong mid-rip, and the clouds they blow out. */
+  private remoteSmoke(r: Remote, dt: number) {
+    r.wispIn -= dt;
+    if (r.wispIn < 0) {
+      r.wispIn = r.f & PF.hit ? 0.1 : 0.3;
+      const at = r.person.smokeFrom(this.tmpV);
+      if (at && (r.h === 2 || (r.h >= 3 && r.f & PF.hit))) this.smokeFx.wisp(at);
+    }
+    if (r.f & PF.exhale) {
+      r.puffIn -= dt;
+      if (r.puffIn < 0) {
+        r.puffIn = 0.06;
+        const m = r.person.mouth(this.tmpV);
+        this.smokeFx.exhale(m, { x: -Math.sin(r.yaw), y: -0.1, z: -Math.cos(r.yaw) }, 0.7, 1);
+      }
     }
   }
 
@@ -1604,8 +1790,9 @@ export class NightSession {
     }
     const left = (until: number) => `${Math.floor((until - r) / 60)}:${String(Math.ceil((until - r) % 60)).padStart(2, '0')}`;
     const bits: string[] = [];
-    if (v.joint === 'rolled') bits.push('🌿 Joint rolled · L to light');
-    if (v.joint === 'lit') bits.push(`🔥 Joint lit · hold E (at nothing) to puff, ${v.puffsLeft} left`);
+    if (v.joint === 'rolled' && !v.bong) bits.push('🌿 Joint rolled · L to light');
+    if (v.joint === 'lit') bits.push(`🔥 Joint lit · hold L for a drag (${Math.round(v.burn * 100)}% left)`);
+    if (v.bong) bits.push(packed(v) ? '🫧 Packed · hold L to rip, let go to clear · X put down' : '🫧 Bong in hand · hold E to pack · X put down');
     if (h) bits.push(`${v.level > 1 ? '🌫️ Baked' : '🌿 High'} ${left(v.highUntil)}`);
     if (wd) bits.push(`⚡ Wired ${left(v.wiredUntil)}`);
     else if (comingDown(v, r)) bits.push(`😩 Coming down ${left(v.comedownUntil)}`);
@@ -1894,6 +2081,7 @@ export class NightSession {
     this.camera.updateProjectionMatrix();
     r.setClearColor(0x120e24, 1);
     r.render(this.world.scene, this.camera);
+    this.held.render(r, w / h);
     // The Ring cam, picture in picture: the porch and the street, live (no WiFi, no picture).
     if (this.watching && this.pub?.sab?.[0] !== 'wifi') {
       const pw = Math.round(w * 0.36);
@@ -1910,6 +2098,8 @@ export class NightSession {
   }
 
   destroy() {
+    this.held.dispose();
+    this.smokeFx.dispose();
     this.touch?.dispose();
     this.voice.dispose();
     this.endRolling();

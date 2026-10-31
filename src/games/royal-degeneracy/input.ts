@@ -25,8 +25,11 @@ export interface Frame {
   /** Q / Ⓨ: your ability. G / D-pad down: emotes. */
   ability: boolean;
   emote: boolean;
-  /** L / RB: light a joint. */
+  /** L / RB: light a joint; held, a drag on it or a rip off the bong. */
   light: boolean;
+  lightHeld: boolean;
+  /** X / D-pad left: put the bong back. */
+  drop: boolean;
   /** M: mute your mic (voice chat). */
   mute: boolean;
   /** Raw pointer movement (px) and clicks, for chore minigames' cursor. */
@@ -57,6 +60,7 @@ const BIND = {
   ability: ['KeyQ'],
   emote: ['KeyG'],
   light: ['KeyL'],
+  drop: ['KeyX'],
   mute: ['KeyM'],
 };
 
@@ -189,6 +193,8 @@ export class Input {
       ability: this.any(BIND.ability, this.pressed) || !!pp[3],
       emote: this.any(BIND.emote, this.pressed) || !!pp[13],
       light: this.any(BIND.light, this.pressed) || !!pp[5],
+      lightHeld: this.any(BIND.light) || !!pd[5],
+      drop: this.any(BIND.drop, this.pressed) || !!pp[14],
       mute: this.any(BIND.mute, this.pressed),
       mx: this.dx + (pad?.lx ?? 0) * 600 * dt,
       my: this.dy + (pad?.ly ?? 0) * 600 * dt,

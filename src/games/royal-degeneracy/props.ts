@@ -26,6 +26,9 @@ const COLOURS: Record<string, string> = {
   leather: '#1c1a1c',
   counter: '#d8d0c0',
   cabinet: '#c9b48e',
+  cabinetDoor: '#d6c29c',
+  splash: '#e6e0d2',
+  steel: '#b4b8bf',
   white: '#f4f2ec',
   porcelain: '#fbfbf8',
   water: '#7aa8c8',
@@ -170,10 +173,77 @@ function furniture(k: Kit, b: HBox) {
       for (const [x, z] of [[lo.x + 0.03, lo.z + 0.03], [hi.x - 0.08, lo.z + 0.03], [lo.x + 0.03, hi.z - 0.08], [hi.x - 0.08, hi.z - 0.08]]) k.box(low ? 'black' : 'darkwood', x, y, z, x + 0.05, y + h - 0.05, z + 0.05);
       break;
     }
-    case 'counter':
-      k.box('cabinet', lo.x, y, lo.z, hi.x, y + h - 0.04, hi.z);
-      k.box('counter', lo.x - 0.01, y + h - 0.04, lo.z - 0.01, hi.x + 0.01, y + h, hi.z + 0.01);
+    case 'counter': {
+      // Base cabinets: a dark toe kick, a door and a drawer every 60 cm with handles, an overhanging worktop. The
+      // kitchen sink (with its tap) or the hob sits in the run that has one; a long run gets wall cabinets too.
+      const depth = longX ? 'z' : 'x';
+      const along = longX ? 'x' : 'z';
+      const back = wallEnd(b, depth);
+      const f = back < 0 ? hi[depth] : lo[depth];
+      const wallSide = back < 0 ? lo[depth] : hi[depth];
+      const out = back < 0 ? 1 : -1;
+      /** A box on the front face: from s0 to s1 along the run, ya to yb up, sticking out d (from `from`). */
+      const face = (c: string, s0: number, s1: number, ya: number, yb: number, d: number, from = f) => {
+        const p0 = Math.min(from, from + out * d);
+        const p1 = Math.max(from, from + out * d);
+        if (longX) k.box(c, s0, ya, p0, s1, yb, p1);
+        else k.box(c, p0, ya, s0, p1, yb, s1);
+      };
+      const a0 = lo[along];
+      const a1 = hi[along];
+      face('darkwood', a0, a1, y, y + 0.1, -0.06);
+      face('cabinet', a0, a1, y + 0.1, y + h - 0.04, -(hi[depth] - lo[depth]) + 0.0, f);
+      const n = Math.max(1, Math.round((a1 - a0) / 0.6));
+      const wd = (a1 - a0) / n;
+      for (let i = 0; i < n; i++) {
+        const s0 = a0 + i * wd + 0.015;
+        const s1 = a0 + (i + 1) * wd - 0.015;
+        face('cabinetDoor', s0, s1, y + 0.12, y + h - 0.24, 0.02);
+        face('cabinetDoor', s0, s1, y + h - 0.21, y + h - 0.07, 0.02);
+        const mid = (s0 + s1) / 2;
+        face('steel', mid - 0.07, mid + 0.07, y + h - 0.15, y + h - 0.13, 0.04);
+        const knob = i % 2 ? s0 + 0.05 : s1 - 0.07;
+        face('steel', knob, knob + 0.02, y + h - 0.42, y + h - 0.3, 0.04);
+      }
+      face('counter', a0 - 0.01, a1 + 0.01, y + h - 0.04, y + h, -(hi[depth] - lo[depth]) - 0.03, f + out * 0.03);
+      face('splash', a0, a1, y + h, y + h + 0.45, 0.015, wallSide);
+      const sink = SPOTS.find((s) => s.id === 'pan-kitchen')!.pos;
+      const inside = (p: { x: number; z: number }) => p.x > lo.x && p.x < hi.x && p.z > lo.z && p.z < hi.z;
+      const cAt = (s: number, d: number): [number, number] => (longX ? [s, d] : [d, s]);
+      const mid = (lo[depth] + hi[depth]) / 2;
+      if (inside(sink)) {
+        const s = longX ? sink.x : sink.z;
+        const [x0, z0] = cAt(s - 0.32, mid - 0.2);
+        const [x1, z1] = cAt(s + 0.32, mid + 0.2);
+        k.box('steel', Math.min(x0, x1), y + h - 0.005, Math.min(z0, z1), Math.max(x0, x1), y + h + 0.004, Math.max(z0, z1));
+        const [tx, tz] = cAt(s, wallSide + out * 0.08);
+        k.cyl('steel', tx, y + h, tz, 0.018, 0.3);
+        const [sx, sz] = cAt(s, wallSide + out * 0.17);
+        k.box('steel', sx - 0.02, y + h + 0.26, sz - 0.02, sx + 0.02, y + h + 0.3, sz + 0.02);
+      } else if (!longX) {
+        // The hob: four rings on a black glass top.
+        const s = (a0 + a1) / 2;
+        const [x0, z0] = cAt(s - 0.3, mid - 0.26);
+        const [x1, z1] = cAt(s + 0.3, mid + 0.26);
+        k.box('black', Math.min(x0, x1), y + h, Math.min(z0, z1), Math.max(x0, x1), y + h + 0.012, Math.max(z0, z1));
+        for (const [ds, dd] of [[-0.14, -0.12], [0.14, -0.12], [-0.14, 0.12], [0.14, 0.12]]) {
+          const [rx, rz] = cAt(s + ds, mid + dd);
+          k.cyl('#5a2a22', rx, y + h + 0.012, rz, 0.08, 0.004, 16);
+        }
+      }
+      if (longX && a1 - a0 > 2) {
+        // Wall cabinets over the run.
+        face('cabinet', a0, a1, y + 1.45, y + 2.15, 0.34, wallSide);
+        for (let i = 0; i < n; i++) {
+          const s0 = a0 + i * wd + 0.015;
+          const s1 = a0 + (i + 1) * wd - 0.015;
+          face('cabinetDoor', s0, s1, y + 1.47, y + 2.13, 0.36, wallSide);
+          const knob = i % 2 ? s0 + 0.05 : s1 - 0.07;
+          face('steel', knob, knob + 0.02, y + 1.5, y + 1.62, 0.39, wallSide);
+        }
+      }
       break;
+    }
     case 'fridge':
       k.box('white', lo.x, y, lo.z, hi.x, hi.y, hi.z);
       k.box('metal', hi.x, y + 1.1, lo.z + 0.08, hi.x + 0.03, y + 1.6, lo.z + 0.12);
@@ -297,13 +367,9 @@ function vices(k: Kit) {
     if (s.kind !== 'vice') continue;
     const { x, z } = s.pos;
     const y = s.pos.y - 0.04;
-    if (s.vice === 'bong') {
-      k.cyl('bottleClear', x, y, z, 0.07, 0.06, 12);
-      k.cyl('bottleClear', x, y + 0.06, z, 0.035, 0.32, 10);
-      k.cyl('water', x, y + 0.01, z, 0.06, 0.05, 12);
-      k.cyl('metal', x + 0.05, y + 0.08, z, 0.012, 0.08, 6);
-      k.cyl('metal', x + 0.08, y + 0.15, z, 0.02, 0.02, 8, 0.03);
-    } else if (s.vice === 'roll') {
+    // (The bongs are world.ts's own models: people pick them up.)
+    if (s.vice === 'bong') continue;
+    if (s.vice === 'roll') {
       k.box('black', x - 0.15, y, z - 0.1, x + 0.15, y + 0.015, z + 0.1);
       k.box('white', x - 0.06, y + 0.015, z - 0.04, x + 0.06, y + 0.018, z + 0.04);
       k.cyl('metal', x + 0.1, y + 0.015, z + 0.05, 0.03, 0.03, 10);

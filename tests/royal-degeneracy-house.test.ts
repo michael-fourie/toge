@@ -4,7 +4,7 @@ import { type Box } from '../src/shared/collision.ts';
 import { PLAYER } from '../src/shared/constants.ts';
 import type { Vec3 } from '../src/shared/math.ts';
 import { CAST, CHAR_IDS } from '../src/games/royal-degeneracy/cast.ts';
-import { DOORS, FLOOR_Y, MEETING_CENTRE, REACH, ROOMS, SEATS, SOLIDS, SPOTS, doorBox, floorOf, roomAt, wakeSpot } from '../src/games/royal-degeneracy/house.ts';
+import { DOORS, FLOOR_Y, MEETING_CENTRE, PERCHES, REACH, ROOMS, SEATS, SOLIDS, SPOTS, clearAt, doorBox, floorOf, roomAt, standFrom, wakeSpot } from '../src/games/royal-degeneracy/house.ts';
 import { WALK, newWalker, nudgeApart, shove, stepWalker, type Walker } from '../src/games/royal-degeneracy/move.ts';
 import { doorBlocked } from '../src/games/royal-degeneracy/referee.ts';
 
@@ -72,17 +72,22 @@ const RIGHT = -Math.PI / 2;
 const BACK = 0;
 const FRONT = Math.PI;
 
-test('house: the stairs spiral up with right-angle turns, and back down', () => {
+test('house: the stairs spiral up with right-angle turns, double back on floor 2, and come back down', () => {
   // From the hall: a few steps left to the corner landing, then the long flight toward the back to floor 2.
   const up1 = route({ x: 2.8, y: 0, z: 13.15 }, [[LEFT, 1], [BACK, 2.5]]);
   assert.equal(floorOf(up1.pos.y), 1, `floor 1 → 2 ends at ${JSON.stringify(up1.pos)}`);
-  assert.equal(roomAt(up1.pos)?.id, 'stairs2', 'arrives on the landing at the back of the well');
-  // Turn right: flight B climbs toward the right into the top hall.
-  const up2 = route(up1.pos, [[RIGHT, 2.5]]);
+  assert.equal(roomAt(up1.pos)?.id, 'landing', 'arrives at the back of the well, by Selby’s door');
+  // Across the landing to the foot of flight C, up it (climbing left) to the half landing, then double back up
+  // flight D (climbing right) into the top hall.
+  const half = route(up1.pos, [[RIGHT, 1.4], [FRONT, 1.25], [LEFT, 1.5]]);
+  assert.ok(Math.abs(half.pos.y - (FLOOR_Y[1] + FLOOR_Y[2]) / 2) < 0.05, `the half landing is halfway up: ${JSON.stringify(half.pos)}`);
+  const up2 = route(half.pos, [[BACK, 1], [RIGHT, 1.5]]);
   assert.equal(floorOf(up2.pos.y), 2, `floor 2 → 3 ends at ${JSON.stringify(up2.pos)}`);
   assert.equal(roomAt(up2.pos)?.id, 'hall3');
-  // And all the way back down: left down flight B, then toward the front, then right into the hall.
-  const down = route(up2.pos, [[LEFT, 3], [FRONT, 2.2], [RIGHT, 1.5]]);
+  // And all the way back down: down D, round the half landing, down C, across the landing, down to the hall.
+  const down2 = route(up2.pos, [[LEFT, 1.6], [FRONT, 0.8], [RIGHT, 1.4]]);
+  assert.equal(floorOf(down2.pos.y), 1, `down to floor 2 ends at ${JSON.stringify(down2.pos)}`);
+  const down = route(down2.pos, [[BACK, 1.2], [LEFT, 2], [FRONT, 2.2], [RIGHT, 1.5]]);
   assert.equal(floorOf(down.pos.y), 0, `back down ends at ${JSON.stringify(down.pos)}`);
   assert.equal(roomAt(down.pos)?.id, 'hall');
 });
@@ -103,10 +108,11 @@ const MAGNETS: Vec3[] = [
   { x: 2.6, y: 0, z: 13.15 },
   { x: 0.62, y: 0.7, z: 13.15 },
   { x: 0.62, y: FLOOR_Y[1], z: 9.25 },
-  { x: 1.6, y: FLOOR_Y[1], z: 9.35 },
-  { x: 3, y: FLOOR_Y[1], z: 9.35 },
-  { x: 1.8, y: FLOOR_Y[1], z: 10.6 },
-  { x: 6, y: FLOOR_Y[2], z: 9.35 },
+  { x: 0.62, y: FLOOR_Y[1], z: 7.6 },
+  { x: 4.9, y: FLOOR_Y[1], z: 11.3 },
+  { x: 1.8, y: (FLOOR_Y[1] + FLOOR_Y[2]) / 2, z: 11.3 },
+  { x: 1.8, y: (FLOOR_Y[1] + FLOOR_Y[2]) / 2, z: 9.55 },
+  { x: 4.9, y: FLOOR_Y[2], z: 9.55 },
   { x: 1.7, y: 0, z: 23.9 },
   { x: 1.9, y: -0.75, z: -1.8 },
 ];
@@ -215,5 +221,13 @@ test('house: meeting seats sit around the coffee table, all facing it', () => {
     const tx = MEETING_CENTRE.x - s.pos.x;
     const tz = MEETING_CENTRE.z - s.pos.z;
     assert.ok((fx * tx + fz * tz) / Math.hypot(tx, tz) > 0.99, 'a seat faces away from the table');
+  }
+});
+
+test('house: you can sit on every couch, bed and bean bag, and always get up again', () => {
+  assert.ok(PERCHES.length >= 20, `only ${PERCHES.length} places to sit`);
+  for (const p of PERCHES) {
+    const up = standFrom(p);
+    assert.ok(clearAt(up) && up.y === p.pos.y, `stuck on the seat at ${JSON.stringify(p.pos)}`);
   }
 });

@@ -184,7 +184,7 @@ export class Hud {
 }
 
 export const KEYS =
-  'WASD move · C crouch (silent) · E use · hold E search · Q ability · G emotes · M mute voice · Tab phone · T torch · V shove · Click take out, R sabotage / plant, hold R wipe (Degenerates) · Esc pause';
+  'WASD move · C crouch (silent) · E use · hold E search · Q ability · G emotes · L light / hold L smoke · X put the bong down · M mute voice · Tab phone · T torch · V shove · Click take out, R sabotage / plant, hold R wipe (Degenerates) · Esc pause';
 
 /** A portrait chip: image + name (for cards and the vote grid). */
 export function chip(img: string, name: string, sub = ''): HTMLElement {
