@@ -16,6 +16,7 @@ import {
   LAMPS,
   SOLIDS,
   PRISMS,
+  ROOMS,
   SPOTS,
   TREE,
   WIDTH,
@@ -211,7 +212,7 @@ function material(key: string, baked = false): THREE.Material {
       gradientMap: ramp(),
       emissive: l.glow ?? '#000000',
       transparent: !!l.clear,
-      opacity: l.clear ? 0.45 : 1,
+      opacity: l.clear ? 0.72 : 1,
       side: THREE.FrontSide,
       vertexColors: baked,
     });
@@ -247,6 +248,15 @@ function faceMat(b: HBox, n: V, c: V): string {
   if (b.mat === 'stair' && n[1] > 0.5) return 'stair';
   if (b.mat === 'wall' || b.mat === 'brick' || b.mat === 'stair') {
     if (n[1] !== 0) return 'trim';
+    // The end of an outside wall (a window or door reveal) is painted like the room it opens from.
+    const alongX = b.max.x - b.min.x >= b.max.z - b.min.z;
+    if (b.mat === 'brick' && (alongX ? n[0] !== 0 : n[2] !== 0)) {
+      for (const s of [1, -1]) {
+        const p = alongX ? { x: c[0] + n[0] * 0.05, y: FLOOR_Y[b.floor] + 1.2, z: c[2] + s * 0.5 } : { x: c[0] + s * 0.5, y: FLOOR_Y[b.floor] + 1.2, z: c[2] + n[2] * 0.05 };
+        const r = p.x > 0 && p.x < WIDTH && p.z > 0 && p.z < DEPTH ? roomAt(p) : null;
+        if (r && !r.outside) return `paint:${PAINT[r.id] ?? CREAM}`;
+      }
+    }
     // Probe at the face's own floor (a strip above a window is still that room, not the floor above).
     const probe = { x: c[0] + n[0] * 0.3, y: FLOOR_Y[b.floor] + 1.2, z: c[2] + n[2] * 0.3 };
     const outside = probe.x < 0 || probe.x > WIDTH || probe.z < 0 || probe.z > DEPTH;
@@ -275,13 +285,18 @@ function addBox(bld: Builder, b: HBox) {
   const face = (a: V, bb: V, c: V, d: V, n: V, u: 0 | 1 | 2, v: 0 | 1 | 2) => {
     const mat = faceMat(b, n, mid(a, c));
     bld.quad(mat, a, bb, c, d, n, u, v);
-    // A skirting board along the foot of every painted wall that reaches the floor.
+    // A skirting board along the foot of every painted wall that reaches the floor; in the bathrooms, tiles to 1.2 m
+    // with a trim on top.
     if (mat.startsWith('paint:') && n[1] === 0 && b.min.y <= fy + 0.01) {
-      const o = 0.016;
-      const h = 0.11;
+      const m = mid(a, c);
+      const room = roomAt({ x: m[0] + n[0] * 0.3, y: fy + 1.2, z: m[2] + n[2] * 0.3 });
+      const bath = !!room?.id.startsWith('bath');
+      const o = bath ? 0.01 : 0.016;
+      const h = bath ? 1.2 : 0.11;
       const p = (q: V, y: number, out: number): V => [q[0] + n[0] * out, y, q[2] + n[2] * out];
-      bld.quad('skirting', p(a, fy, o), p(bb, fy, o), p(bb, fy + h, o), p(a, fy + h, o), n, u, 1);
-      bld.quad('skirting', p(a, fy + h, 0), p(bb, fy + h, 0), p(bb, fy + h, o), p(a, fy + h, o), [0, 1, 0], u, 1);
+      bld.quad(bath ? 'tile' : 'skirting', p(a, fy, o), p(bb, fy, o), p(bb, fy + h, o), p(a, fy + h, o), n, u, 1);
+      bld.quad(bath ? 'trim' : 'skirting', p(a, fy + h, 0), p(bb, fy + h, 0), p(bb, fy + h, o + 0.012), p(a, fy + h, o + 0.012), [0, 1, 0], u, 1);
+      if (bath) bld.quad('trim', p(a, fy + h - 0.03, o + 0.012), p(bb, fy + h - 0.03, o + 0.012), p(bb, fy + h, o + 0.012), p(a, fy + h, o + 0.012), n, u, 1);
     }
   };
   // Stairs: drawn as real treads and risers (the collision stays a smooth slope; feet are never more than half a
@@ -405,6 +420,12 @@ export class World {
     const bld = new Builder();
     for (const b of BOXES) if (b.mat !== 'invisible' && !DRAWN.has(b.mat)) (isBalustrade(b) ? addBalustrade : addBox)(bld, b);
     this.addOutside(bld);
+    // Kitchen lino and bathroom tile, laid over the floorboards.
+    for (const r of ROOMS) {
+      if (r.outside || (r.surface !== 'lino' && r.surface !== 'tile')) continue;
+      const y = FLOOR_Y[r.floor] + 0.004;
+      bld.quad(r.surface, [r.min.x, y, r.min.z], [r.max.x, y, r.min.z], [r.max.x, y, r.max.z], [r.min.x, y, r.max.z], [0, 1, 0], 0, 2);
+    }
     for (const m of bld.build()) {
       s.add(m);
       this.disposables.push(m.geometry);

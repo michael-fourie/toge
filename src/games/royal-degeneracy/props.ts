@@ -6,11 +6,14 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CAST, type CharId } from './cast.ts';
-import { BOXES, DEPTH, DOORS, DOOR_H, FLOOR_Y, SPOTS, WIDTH, WINDOWS, WINDOW_SPAN, roomAt, type HBox, type Mat, type Window } from './house.ts';
+import { BOXES, DEPTH, DOORS, DOOR_H, FIREPIT, FLOOR_Y, SPOTS, WIDTH, WINDOWS, WINDOW_SPAN, roomAt, type HBox, type Mat, type Window } from './house.ts';
 import { ramp } from './people.ts';
 
 /** The furniture kinds props.ts draws (world.ts skips their plain boxes). */
-export const DRAWN: ReadonlySet<Mat> = new Set<Mat>(['bed', 'desk', 'couch', 'leather', 'table', 'counter', 'fridge', 'toilet', 'tub', 'sink', 'radiator', 'hutch', 'shelf', 'records', 'bin', 'junk', 'beanbag']);
+export const DRAWN: ReadonlySet<Mat> = new Set<Mat>([
+  'bed', 'desk', 'couch', 'leather', 'table', 'counter', 'fridge', 'toilet', 'tub', 'sink', 'radiator', 'hutch', 'shelf', 'records', 'bin', 'junk', 'beanbag',
+  'wardrobe', 'nightstand', 'dresser', 'chair', 'firepit', 'cooler',
+]);
 
 const COLOURS: Record<string, string> = {
   frame: '#3a3a40',
@@ -51,6 +54,10 @@ const COLOURS: Record<string, string> = {
   screen: '#20304a',
   beanbag: '#8a3a6a',
   casing: '#f6f2e8',
+  shade: '#f6e6bc',
+  stone: '#6e6a64',
+  ember: '#ff7a2a',
+  plastic: '#ecebe6',
   frost: '#e8eef0',
 };
 
@@ -90,6 +97,9 @@ class Kit {
       if (c === 'leather') {
         mat.emissive.set('#0c0c10');
       }
+      // Things that give off light: the fire pit's embers, the bedside lampshades.
+      if (c === 'ember') mat.emissive.set('#ff4a10');
+      if (c === 'shade') mat.emissive.set('#8a6a30');
       group.add(new THREE.Mesh(merged, mat));
       owned.push(merged, mat);
     }
@@ -175,6 +185,87 @@ function furniture(k: Kit, b: HBox) {
       for (const [x, z] of [[lo.x + 0.03, lo.z + 0.03], [hi.x - 0.08, lo.z + 0.03], [lo.x + 0.03, hi.z - 0.08], [hi.x - 0.08, hi.z - 0.08]]) k.box(low ? 'black' : 'darkwood', x, y, z, x + 0.05, y + h - 0.05, z + 0.05);
       break;
     }
+    case 'wardrobe':
+    case 'dresser':
+    case 'nightstand': {
+      // Facing out from the wall it stands against: two doors (wardrobe) or drawers, small handles; a lamp on the
+      // bedside table, odds and ends on the chest of drawers.
+      const depth = longX ? 'z' : 'x';
+      const along = longX ? 'x' : 'z';
+      const out = wallEnd(b, depth) < 0 ? 1 : -1;
+      const f = out > 0 ? hi[depth] : lo[depth];
+      const face = (c: string, s0: number, s1: number, y0: number, y1: number, d: number) => {
+        const p0 = Math.min(f, f + out * d);
+        const p1 = Math.max(f, f + out * d);
+        if (longX) k.box(c, s0, y0, p0, s1, y1, p1);
+        else k.box(c, p0, y0, s0, p1, y1, s1);
+      };
+      k.box(b.mat === 'dresser' ? 'darkwood' : 'wood', lo.x, y + 0.06, lo.z, hi.x, y + h, hi.z);
+      k.box('darkwood', lo.x + 0.03, y, lo.z + 0.03, hi.x - 0.03, y + 0.06, hi.z - 0.03);
+      const a0 = lo[along];
+      const a1 = hi[along];
+      const m = (a0 + a1) / 2;
+      if (b.mat === 'wardrobe') {
+        face('cabinet', a0 + 0.03, m - 0.01, y + 0.1, y + h - 0.06, 0.015);
+        face('cabinet', m + 0.01, a1 - 0.03, y + 0.1, y + h - 0.06, 0.015);
+        face('metal', m - 0.06, m - 0.04, y + 1, y + 1.2, 0.035);
+        face('metal', m + 0.04, m + 0.06, y + 1, y + 1.2, 0.035);
+      } else {
+        const rows = b.mat === 'dresser' ? 3 : 2;
+        const top = y + h - 0.04;
+        for (let i = 0; i < rows; i++) {
+          const y0 = y + 0.09 + (i * (top - y - 0.09)) / rows;
+          const y1 = y + 0.09 + ((i + 1) * (top - y - 0.09)) / rows - 0.02;
+          face('cabinet', a0 + 0.03, a1 - 0.03, y0, y1, 0.015);
+          face('metal', m - 0.05, m + 0.05, (y0 + y1) / 2 - 0.01, (y0 + y1) / 2 + 0.01, 0.035);
+        }
+      }
+      const cx = (lo.x + hi.x) / 2;
+      const cz = (lo.z + hi.z) / 2;
+      if (b.mat === 'nightstand') {
+        k.cyl('black', cx, y + h, cz, 0.06, 0.03, 12);
+        k.cyl('metal', cx, y + h + 0.03, cz, 0.012, 0.22, 6);
+        k.cyl('shade', cx, y + h + 0.2, cz, 0.12, 0.17, 14, 0.08);
+      } else if (b.mat === 'dresser') {
+        k.box('laundry', cx - 0.15, y + h, cz - 0.2, cx + 0.12, y + h + 0.08, cz + 0.15);
+        k.cyl('canRed', cx + (longX ? 0.25 : 0), y + h, cz + (longX ? 0 : 0.25), 0.033, 0.12, 8);
+      }
+      break;
+    }
+    case 'chair': {
+      // A white plastic lawn chair, facing the fire pit.
+      const dx = FIREPIT.x - (lo.x + hi.x) / 2;
+      const dz = FIREPIT.z - (lo.z + hi.z) / 2;
+      k.box('plastic', lo.x, y + 0.4, lo.z, hi.x, y + 0.45, hi.z);
+      for (const [x, z] of [[lo.x, lo.z], [hi.x - 0.04, lo.z], [lo.x, hi.z - 0.04], [hi.x - 0.04, hi.z - 0.04]]) k.box('plastic', x, y, z, x + 0.04, y + 0.4, z + 0.04);
+      if (Math.abs(dx) > Math.abs(dz)) {
+        const bx = dx > 0 ? lo.x : hi.x - 0.05;
+        k.box('plastic', bx, y + 0.45, lo.z, bx + 0.05, hi.y, hi.z);
+      } else {
+        const bz = dz > 0 ? lo.z : hi.z - 0.05;
+        k.box('plastic', lo.x, y + 0.45, bz, hi.x, hi.y, bz + 0.05);
+      }
+      break;
+    }
+    case 'firepit': {
+      // A ring of stones, two logs across, embers glowing in the middle.
+      const cx = (lo.x + hi.x) / 2;
+      const cz = (lo.z + hi.z) / 2;
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        const sx = cx + Math.cos(a) * 0.42;
+        const sz = cz + Math.sin(a) * 0.42;
+        k.box('stone', sx - 0.09, y, sz - 0.09, sx + 0.09, y + 0.22 + (i % 3) * 0.04, sz + 0.09);
+      }
+      k.box('ember', cx - 0.25, y, cz - 0.25, cx + 0.25, y + 0.06, cz + 0.25);
+      k.box('darkwood', cx - 0.3, y + 0.06, cz - 0.05, cx + 0.3, y + 0.14, cz + 0.05);
+      k.box('darkwood', cx - 0.05, y + 0.12, cz - 0.3, cx + 0.05, y + 0.2, cz + 0.3);
+      break;
+    }
+    case 'cooler':
+      k.box('bluebin', lo.x, y, lo.z, hi.x, hi.y - 0.08, hi.z);
+      k.box('white', lo.x - 0.01, hi.y - 0.08, lo.z - 0.01, hi.x + 0.01, hi.y, hi.z + 0.01);
+      break;
     case 'counter': {
       // Base cabinets: a dark toe kick, a door and a drawer every 60 cm with handles, an overhanging worktop. The
       // kitchen sink (with its tap) or the hob sits in the run that has one; a long run gets wall cabinets too.
@@ -437,6 +528,14 @@ function dressing(k: Kit) {
       }
     }
   }
+  // A frame and a little shelf round the bathroom mirror (world.ts's Reflector sits inside it).
+  const mx = WIDTH - 0.12;
+  const my = FLOOR_Y[1] + 1.55;
+  const mz = 10.75;
+  k.box('casing', mx - 0.04, my - 0.44, mz - 0.34, mx, my + 0.44, mz - 0.3);
+  k.box('casing', mx - 0.04, my - 0.44, mz + 0.3, mx, my + 0.44, mz + 0.34);
+  k.box('casing', mx - 0.04, my + 0.4, mz - 0.34, mx, my + 0.44, mz + 0.34);
+  k.box('casing', mx - 0.1, my - 0.46, mz - 0.34, mx, my - 0.4, mz + 0.34);
   // Doors: a casing round both faces (exterior doors sit in thicker walls).
   const thick = new Set(['front', 'back', 'balcony', 'frontbalcony']);
   for (const d of DOORS) {

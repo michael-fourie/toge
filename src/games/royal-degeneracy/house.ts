@@ -34,7 +34,7 @@ export type Mat =
   | 'wood' | 'tile' | 'lino' | 'grass' | 'path' | 'porch' | 'stair' | 'stone'
   | 'wall' | 'brick' | 'trim' | 'glass' | 'ceiling' | 'rail' | 'fence' | 'neighbour' | 'tv'
   | 'bed' | 'desk' | 'couch' | 'leather' | 'table' | 'counter' | 'fridge' | 'toilet' | 'tub' | 'sink'
-  | 'radiator' | 'hutch' | 'shelf' | 'records' | 'beanbag' | 'bin' | 'junk' | 'invisible' | 'banister';
+  | 'radiator' | 'hutch' | 'shelf' | 'records' | 'beanbag' | 'bin' | 'junk' | 'invisible' | 'banister' | 'wardrobe' | 'nightstand' | 'dresser' | 'chair' | 'firepit' | 'cooler';
 
 export interface HBox extends Box {
   mat: Mat;
@@ -317,6 +317,9 @@ furn(0, 'table', 5.6, 8.9, 6.9, 9.8, 0.42);
 furn(0, 'bed', 6.9, 12.72, W - 0.12, 14.9, 0.55);
 furn(0, 'desk', 7.5, 17.9, W - 0.12, 19.4, 0.75);
 furn(0, 'radiator', 5.6, 19.66, 6.6, 19.86, 0.6);
+furn(0, 'wardrobe', 4.0, 12.72, 4.62, 14.2, 2);
+furn(0, 'nightstand', 6.4, 12.72, 6.85, 13.15, 0.55);
+furn(0, 'dresser', 4.0, 15, 4.48, 16.4, 0.85);
 // The porch recycling, and the router on a little shelf by the front door.
 furn(0, 'bin', 3.5, 21.3, 4.2, 22, 0.7);
 furn(0, 'shelf', 3.4, 19.4, 3.84, 19.86, 0.9);
@@ -402,7 +405,11 @@ wall(1, L2.x0, SB.z1, L2.x0, L2.z1);
 furn(1, 'bed', 0.12, 4.3, 1.2, 6.44, 0.5);
 furn(1, 'desk', 4.25, 2, 4.84, 4.6, 0.75);
 furn(1, 'radiator', 0.12, 1.6, 0.3, 2.8, 0.6);
+furn(1, 'wardrobe', 3.2, 0.12, 4.84, 0.72, 2);
+furn(1, 'nightstand', 0.12, 3.8, 0.55, 4.25, 0.55);
 furn(1, 'bed', 6.3, 0.12, W - 0.12, 2.1, 0.55);
+furn(1, 'nightstand', 5.8, 0.12, 6.25, 0.55, 0.55);
+furn(1, 'dresser', 4.96, 3.3, 5.45, 4.8, 0.85);
 furn(1, 'desk', 6.9, 5.8, 8.1, 6.44, 0.75);
 furn(1, 'shelf', 4.96, 0.8, 5.3, 2.2, 1.8);
 furn(1, 'radiator', W - 0.3, 3.2, W - 0.12, 4.4, 0.6);
@@ -414,6 +421,10 @@ furn(1, 'desk', 4.96, 16.8, 5.55, 19.86, 0.75);
 furn(1, 'bed', 3.2, 15.4, 4.88, 19.86, 0.5);
 furn(1, 'desk', 0.12, 13.5, 2.4, 14.1, 0.75);
 furn(1, 'radiator', 0.12, 15.8, 0.3, 17, 0.6);
+furn(1, 'wardrobe', 0.12, 18.2, 0.72, 19.86, 2);
+furn(1, 'nightstand', 2.7, 19.4, 3.15, 19.86, 0.55);
+furn(1, 'wardrobe', 7.7, 17.4, W - 0.12, 19.0, 2);
+furn(1, 'nightstand', 6.6, 15.65, 7.05, 16.1, 0.55);
 furn(1, 'bin', 3, -3.05, 3.8, -2.4, 0.7);
 
 // ---------------------------------------------------------------------------------------------
@@ -450,12 +461,16 @@ wall(2, 2.1, 12.15, 2.1, DEPTH, [{ at: 3.8, kind: 'hatch', id: 'hatch-front', w:
 
 furn(2, 'desk', 2.2, 0.8, 2.8, 3.8, 0.75);
 furn(2, 'bed', 6.7, 3.4, W - 0.12, 6.4, 0.5);
+furn(2, 'wardrobe', 2.2, 6.2, 2.78, 7.8, 2);
+furn(2, 'nightstand', 6.25, 6.0, 6.65, 6.4, 0.55);
 furn(2, 'toilet', 7.75, 8.57, W - 0.12, 9.45, 0.45);
 furn(2, 'sink', 7.8, 10, W - 0.12, 10.7, 0.85);
 furn(2, 'tub', 7.65, 10.85, W - 0.12, 12.08, 0.55);
 furn(2, 'bed', 6.9, 12.3, W - 0.12, 15, 0.5);
 furn(2, 'records', 3.8, 19.4, 5.9, 19.88, 0.8);
 furn(2, 'radiator', W - 0.3, 17.5, W - 0.12, 18.7, 0.6);
+furn(2, 'nightstand', 6.45, 12.3, 6.85, 12.7, 0.55);
+furn(2, 'wardrobe', 6.6, 19.3, 8.2, 19.88, 2);
 decor(2, 'beanbag', 4.2, 16.4, 5, 17.2, 0.45);
 // Eaves junk: boxes against the outer wall, a path left along the inside.
 for (const z of [0.6, 2.4, 4.3, 6.4, 13.2, 15.6, 17.8]) furn(2, 'junk', 0.12, z, 0.9, z + 0.9, 0.7 + (z % 1) * 0.4);
@@ -541,6 +556,11 @@ spot('s-wags-bed', 'search', 'under Wags’s bed', 7.6, 5.9, 13.6);
 spot('s-eaves', 'search', 'the eaves boxes', 0.5, 6.2, 4.7);
 spot('s-eaves2', 'search', 'the front eaves boxes', 0.5, 6.2, 16);
 box(0, 'bin', 8.6, GROUND, -2, 9.3, GROUND + 1.1, -1.2);
+/** The backyard: a fire pit ringed with lawn chairs, and a cooler. */
+export const FIREPIT = { x: 4.5, z: -6 };
+box(0, 'firepit', FIREPIT.x - 0.5, GROUND, FIREPIT.z - 0.5, FIREPIT.x + 0.5, GROUND + 0.35, FIREPIT.z + 0.5);
+for (const [x, z] of [[3.1, -6.6], [5.9, -5.4], [4.2, -7.5], [5.2, -7.3]]) box(0, 'chair', x - 0.28, GROUND, z - 0.28, x + 0.28, GROUND + 0.85, z + 0.28);
+box(0, 'cooler', 6.3, GROUND, -7.4, 6.9, GROUND + 0.45, -7.0);
 spot('s-wheelie', 'search', 'the wheelie bin', 8.95, -0.1, -1.6);
 spot('s-sink', 'search', 'the tower of dishes (wash up)', 4.8, 1.1, 4.85);
 /** Where the walking chore's bin bag goes. */
