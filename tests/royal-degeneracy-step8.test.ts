@@ -68,3 +68,30 @@ test('royal: the raccoon has to be herded out, from any floor-2 room, and leaves
   for (let t = 0; t < 5; t += 1 / 60) stepCoon(c, [], t, 1 / 60, SOLIDS);
   assert.ok(!coonOut(c));
 });
+
+test('royal: a friend holding E on someone who greened out gets them up (the referee counts it)', async () => {
+  const { Referee } = await import('../src/games/royal-degeneracy/referee.ts');
+  const { PF } = await import('../src/games/royal-degeneracy/net.ts');
+  const out: { m: { t: string; by?: number }; to?: number }[] = [];
+  const people = (['dev', 'xang', 'selby', 'will'] as const).map((char, i) => ({ id: i + 1, name: `p${i + 1}`, char }));
+  const ref = new Referee(people, { ...DEFAULT_SETTINGS, cosy: true }, 5, (m, to) => out.push({ m, to }));
+  const pose = (id: number, x: number, f: number) => ref.handle(id, { t: 'p', x, y: 2.8, z: 9, yaw: 0, pitch: 0, f, e: 0, h: 0 });
+  pose(1, 5, 0);
+  pose(2, 5.6, 0);
+  ref.night.phase = 'night';
+  // Not crashed: nothing happens however long you hold.
+  for (let i = 0; i < 20; i++) {
+    ref.night.roam += 0.25;
+    ref.handle(1, { t: 'aid', to: 2 });
+  }
+  assert.ok(!out.some((o) => o.m.t === 'aided'));
+  // Greened out: three seconds of help and they're up, and the house hears about it.
+  pose(2, 5.6, PF.green);
+  for (let i = 0; i < 16 && !out.some((o) => o.m.t === 'aided'); i++) {
+    ref.night.roam += 0.25;
+    ref.handle(1, { t: 'aid', to: 2 });
+  }
+  const got = out.find((o) => o.m.t === 'aided');
+  assert.ok(got && got.to === 2 && got.m.by === 1);
+  assert.ok(out.some((o) => o.m.t === 'feed'));
+});

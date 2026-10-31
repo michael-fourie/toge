@@ -11,7 +11,7 @@ house as data), `move.ts` (the walker), `world.ts` / `people.ts` / `textures.ts`
 cards, picking clues per crime, search, post, plant, wipe, the reveal log) and `mystery.ts` (clue props, the clue in
 your hands, the phone, the plant menu), `abilities.ts` (each character's ability, pure, plus the referee's side of
 it) and `powers.ts` (the ability chip, result cards, Proof menu, emote wheel, buzz arrow, Bongus glows). `vices.ts` (joints, bongs, the plate, the mystery
-pill: pure state and timings; effects and prompts in night.ts, only on your own screen), `props.ts` (procedural furniture, clutter,
+pill: pure state and timings, plus the dose (weed) and load (stimulants) that build with every hit and fade with time: the screen effects scale with them, and past the limit you green out or overdo it, flat on the floor until it wears off or a friend holds E on you (`aid`, counted by the referee; `doodle` draws a moustache on someone who's down); effects and prompts in night.ts), `props.ts` (procedural furniture, clutter,
 signs, flags and posters, merged per colour; world.ts skips the plain boxes it replaces), `sabotage.ts` (sabotages and fixes,
 pure), `stats.ts` (your nights, in this browser), `touch.ts` (phone controls: they drive Input's touch methods), `voice.ts` (proximity voice: WebRTC signalled through party messages `{t:'vc'}`, checked by `readVoice`; game.ts routes them to `session.voice`). `smoke.ts` (the bong and joint models, the smoke particles, and HeldView: your hands in first person, drawn over the world after a depth clear), `coon.ts` (the raccoon as a herding game: a doorway graph with escape routes, pure; referee.ts runs it). The raccoon, Bike Stu's randoms and the reveal's replay frames run
 in `referee.ts`. Quirks that

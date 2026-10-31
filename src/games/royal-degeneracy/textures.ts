@@ -124,27 +124,65 @@ const PAINTERS: Record<string, [Painter, number, number?]> = {
     },
     0.9,
   ],
-  // Kitchen lino: a scuffed check, with scratches and a yellowed cast.
+  // The kitchen floor: bone-coloured 30 cm tiles that never quite get clean: grubby grout, coffee and beer stains,
+  // crumbs, a sticky ring where a can stood, scuffed footprints from the back door.
   lino: [
     (g, s) => {
       const r = noise(19);
-      for (let i = 0; i < 4; i++)
-        for (let j = 0; j < 4; j++) {
-          g.fillStyle = (i + j) % 2 ? '#d6cbb0' : '#9fae94';
-          g.fillRect((i * s) / 4, (j * s) / 4, s / 4, s / 4);
+      const n = 8;
+      const ts = s / n;
+      g.fillStyle = '#8a7f6a';
+      g.fillRect(0, 0, s, s);
+      for (let i = 0; i < n; i++)
+        for (let j = 0; j < n; j++) {
+          const t = 0.95 + r() * 0.06;
+          g.fillStyle = `rgb(${226 * t}, ${214 * t}, ${190 * t})`;
+          g.fillRect(i * ts + 2, j * ts + 2, ts - 4, ts - 4);
+          // Grime collects at the edges of each tile.
+          const edge = g.createLinearGradient(i * ts, j * ts, i * ts + ts, j * ts + ts);
+          edge.addColorStop(0, 'rgba(110,90,60,0.12)');
+          edge.addColorStop(0.5, 'rgba(110,90,60,0)');
+          edge.addColorStop(1, 'rgba(110,90,60,0.14)');
+          g.fillStyle = edge;
+          g.fillRect(i * ts + 2, j * ts + 2, ts - 4, ts - 4);
         }
-      speckle(g, s, r, 700, (k) => `rgba(${90 + k * 60},${80 + k * 50},${60 + k * 40},0.25)`);
-      g.strokeStyle = 'rgba(80,70,50,0.18)';
-      for (let i = 0; i < 25; i++) {
+      // Stains: coffee, beer, something nobody will admit to.
+      for (let i = 0; i < 14; i++) {
+        g.fillStyle = `rgba(${90 + r() * 50},${60 + r() * 30},${25 + r() * 20},${0.12 + r() * 0.16})`;
+        g.beginPath();
+        g.ellipse(r() * s, r() * s, 8 + r() * 30, 6 + r() * 20, r() * 3, 0, Math.PI * 2);
+        g.fill();
+      }
+      // A sticky ring where a can stood, and a couple of drips.
+      g.strokeStyle = 'rgba(120,80,30,0.35)';
+      g.lineWidth = 3;
+      g.beginPath();
+      g.arc(s * 0.62, s * 0.3, 14, 0, Math.PI * 2);
+      g.stroke();
+      // Footprints, heel and toe, wandering across.
+      g.fillStyle = 'rgba(70,55,35,0.16)';
+      for (let i = 0; i < 6; i++) {
+        const x = s * 0.15 + i * s * 0.13;
+        const y = s * 0.8 - i * s * 0.11 + (i % 2) * 14;
+        g.beginPath();
+        g.ellipse(x, y, 7, 11, -0.6, 0, Math.PI * 2);
+        g.ellipse(x + 6, y - 15, 6, 6, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+      speckle(g, s, r, 900, (k) => `rgba(${60 + k * 60},${45 + k * 40},${25 + k * 30},0.35)`, 1.6);
+      g.strokeStyle = 'rgba(80,65,45,0.15)';
+      g.lineWidth = 1;
+      for (let i = 0; i < 30; i++) {
         g.beginPath();
         const x = r() * s;
         const y = r() * s;
         g.moveTo(x, y);
-        g.lineTo(x + (r() - 0.5) * 60, y + (r() - 0.5) * 20);
+        g.lineTo(x + (r() - 0.5) * 50, y + (r() - 0.5) * 16);
         g.stroke();
       }
     },
-    1.2,
+    2.4,
+    512,
   ],
   grass: [
     (g, s) => {
@@ -216,6 +254,28 @@ const PAINTERS: Record<string, [Painter, number, number?]> = {
       for (let i = 0; i < 4; i++) g.fillRect(0, (i * s) / 4, s, s / 26);
     },
     1,
+  ],
+  // The eaves' floor: rough plywood sheets, knots and staples, years of dust.
+  ply: [
+    (g, s) => {
+      const r = noise(37);
+      g.fillStyle = '#c9a774';
+      g.fillRect(0, 0, s, s);
+      for (let i = 0; i < 70; i++) {
+        g.strokeStyle = `rgba(${130 + r() * 40},${90 + r() * 30},${50 + r() * 20},${0.2 + r() * 0.2})`;
+        g.lineWidth = 1 + r() * 2;
+        g.beginPath();
+        const y = r() * s;
+        g.moveTo(0, y);
+        g.bezierCurveTo(s * 0.3, y + (r() - 0.5) * 20, s * 0.7, y + (r() - 0.5) * 20, s, y + (r() - 0.5) * 8);
+        g.stroke();
+      }
+      g.fillStyle = 'rgba(80,55,30,0.5)';
+      g.fillRect(0, s / 2 - 1, s, 2);
+      g.fillRect(s / 2 - 1, 0, 2, s / 2);
+      speckle(g, s, r, 500, () => 'rgba(150,140,120,0.3)', 2);
+    },
+    2.4,
   ],
   // The grain under every painted wall: soft blotches and a faint roller texture, mid-grey around white so it only
   // shifts the paint a little.

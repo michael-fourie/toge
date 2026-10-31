@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { SPOTS } from '../src/games/royal-degeneracy/house.ts';
-import { VIBES, clearRip, comingDown, drag, exhaleJoint, eyeShift, heldCode, high, light, line, newVibe, pack, packed, pickUp, pill, putDown, ripDraw, rolled, sober, speedOf, tripping, wired } from '../src/games/royal-degeneracy/vices.ts';
+import { VIBES, aided, buzz, clearRip, crashed, haze, munch, settle, splash, comingDown, drag, exhaleJoint, eyeShift, heldCode, high, light, line, newVibe, pack, packed, pickUp, pill, putDown, ripDraw, rolled, sober, speedOf, tripping, wired } from '../src/games/royal-degeneracy/vices.ts';
 
 const DT = 1 / 60;
 const hold = (secs: number, f: (dt: number) => boolean) => {
@@ -94,4 +94,58 @@ test('royal vices: the house has bongs, rolling trays, the plate and the pill', 
   const kinds = SPOTS.filter((s) => s.kind === 'vice').map((s) => s.vice);
   assert.equal(kinds.filter((k) => k === 'bong').length, 4);
   for (const k of ['roll', 'coke', 'pill']) assert.ok(kinds.includes(k as never), k);
+});
+
+test('royal vices: the effects build with every hit until you green out; a friend gets you up, or it wears off', () => {
+  const v = newVibe();
+  rolled(v);
+  light(v);
+  hold(1.5, (dt) => drag(v, dt));
+  exhaleJoint(v, 0);
+  const one = haze(v);
+  assert.ok(one > 0 && one < 0.5);
+  v.joint = 'none';
+  pickUp(v, 'bong-xang');
+  pack(v);
+  hold(VIBES.ripFill * 0.9, (dt) => ripDraw(v, dt));
+  clearRip(v, 1);
+  assert.ok(haze(v) > one, 'more weed, more haze');
+  assert.equal(crashed(v, 1), null);
+  // Keep going: rip after rip until it's too much.
+  for (let i = 0; i < 4 && !crashed(v, 2); i++) {
+    pack(v);
+    hold(VIBES.ripFill, (dt) => ripDraw(v, dt));
+    clearRip(v, 2);
+  }
+  assert.equal(crashed(v, 2), 'green');
+  assert.ok(speedOf(v, 2) < 1);
+  // A friend helps: up, still high.
+  assert.ok(aided(v));
+  assert.equal(crashed(v, 3), null);
+  assert.ok(haze(v) > 0.3 && haze(v) < 0.5);
+  // Or it wears off by itself.
+  v.dose = VIBES.greenAt;
+  line(v, 10);
+  for (let i = 0; i < 3; i++) line(v, 10);
+  assert.ok(crashed(v, 10));
+  assert.equal(settle(v, 10 + VIBES.crash - 1, 1), null, 'still down');
+  assert.ok(settle(v, 10 + VIBES.crash + 1, 1), 'comes round');
+  assert.equal(crashed(v, 10 + VIBES.crash + 2), null);
+});
+
+test('royal vices: lines and pills build a load that ends in overdoing it; it all fades; snacks and water help', () => {
+  const v = newVibe();
+  line(v, 0);
+  line(v, 0);
+  assert.ok(buzz(v) > 0.5 && !crashed(v, 0));
+  pill(v, 0, 0.1);
+  assert.equal(crashed(v, 0), 'od');
+  const f = newVibe();
+  f.dose = 5;
+  f.load = 2;
+  settle(f, 0, 60);
+  assert.ok(f.dose < 5 && f.load < 2, 'it fades');
+  assert.ok(munch(f) && f.dose < 3);
+  assert.ok(splash(f));
+  assert.ok(!munch(newVibe()), 'not hungry sober');
 });

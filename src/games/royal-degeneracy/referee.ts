@@ -12,6 +12,7 @@ import { BINBAG_DROP, DOORS, DUO_PAIRS, FLOOR_Y, REACH, ROOMS, SOLIDS, SPOTS, do
 import { SABOTAGES, fixSabotage, lockedDoors, startSabotage, wifiDown } from './sabotage.ts';
 import type { Msg } from './net.ts';
 import { COON, coonOut, newCoon, stepCoon, type Coon } from './coon.ts';
+import { VIBES } from './vices.ts';
 import {
   REPORT_RANGE,
   castVote,
@@ -77,6 +78,8 @@ export class Referee {
   private sinceNpcs = 0;
   /** The raccoon: when it next gets in (roam), and its visit while it's inside. */
   private coonAt = 100;
+  /** Friends helping someone up: per crashed player, who's helping, for how long, when we last heard. */
+  private aids = new Map<number, { by: number; t: number; last: number }>();
   private coon: { c: Coon; until: number; rattle: number; took: boolean } | null = null;
   /** Everyone's position every half second, for the reveal's replays: [roam, [id, x, z, floor][]]. */
   private frames: [number, [number, number, number, number][]][] = [];
@@ -548,6 +551,35 @@ export class Referee {
         this.out({ t: 'warp', x: to.pos.x, y, z: to.pos.z }, from);
         // A curtain twitches at both ends.
         for (const e of [s.pos, to.pos]) this.out({ t: 'fx', k: 'rattle', x: e.x, y: e.y - 1, z: e.z });
+        return;
+      }
+      case 'aid': {
+        // Holding E on someone who's greened out or overdone it: after a few seconds of it, they're up.
+        const them = playerOf(n, m.to);
+        const there = this.poses.get(m.to);
+        if (!them || !there || !pose || !living(me) || !living(them) || m.to === from || dist(pose, there) > REACH + 1) return;
+        if (!(there.f & (PF.green | PF.od))) return;
+        const a = this.aids.get(m.to);
+        const cur = a && a.by === from && n.roam - a.last < 0.6 ? a : { by: from, t: 0, last: n.roam };
+        cur.t += Math.min(0.3, n.roam - cur.last);
+        cur.last = n.roam;
+        this.aids.set(m.to, cur);
+        if (cur.t < VIBES.aidNeed) return;
+        this.aids.delete(m.to);
+        this.out({ t: 'aided', by: from }, m.to);
+        const what = there.f & PF.green ? 'got some water into' : 'walked round the block with';
+        this.out({ t: 'feed', from: 'House', text: `${tagFor(me.char, me.name)} ${what} ${tagFor(them.char, them.name)}. Crisis averted.`, clue: -1 });
+        return;
+      }
+      case 'doodle': {
+        // A felt-tip moustache on someone who's down (once each): they find out in the mirror, everyone else now.
+        const them = playerOf(n, m.to);
+        const there = this.poses.get(m.to);
+        if (!them || !there || !pose || !living(me) || !living(them) || m.to === from || dist(pose, there) > REACH + 1) return;
+        if (!(there.f & (PF.green | PF.od)) || there.f & PF.doodle) return;
+        there.f |= PF.doodle;
+        this.out({ t: 'doodled', by: from }, m.to);
+        this.out({ t: 'feed', from: 'House', text: `${tagFor(me.char, me.name)} drew a moustache on ${tagFor(them.char, them.name)}. Nobody tell them.`, clue: -1 });
         return;
       }
       case 'shoo': {

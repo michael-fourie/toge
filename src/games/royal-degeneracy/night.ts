@@ -27,7 +27,7 @@ import { newWalker, nudgeApart, shove, stepWalker } from './move.ts';
 import { EMOTES, PF, type Msg } from './net.ts';
 import { Person } from './people.ts';
 import { saveNight } from './stats.ts';
-import { VIBES, clearRip, comingDown, drag, exhaleJoint, eyeShift, heldCode, high, light, line, newVibe, pack, packed, pickUp, pill, putDown, ripDraw, rolled, sober, speedOf, tripping, wired, type Exhale } from './vices.ts';
+import { VIBES, aided, buzz, clearRip, comingDown, crashed, drag, haze, munch, settle, splash, exhaleJoint, eyeShift, heldCode, high, light, line, newVibe, pack, packed, pickUp, pill, putDown, ripDraw, rolled, sober, speedOf, tripping, wired, type Exhale } from './vices.ts';
 import { HeldView, SmokeFx } from './smoke.ts';
 import { KILL_RANGE, TIMES, type Joiner, type PrivateView, type PublicView, type Status } from './rules.ts';
 import { World } from './world.ts';
@@ -235,6 +235,18 @@ export class NightSession {
   private exhale = { delay: 0, left: 0, size: 0, cough: false, every: 0 };
   private soundIn = 0;
   private tmpV = new THREE.Vector3();
+  /** How far up you are (warnings once per stage), whether you're down, and helping someone else up. */
+  private hazeStage = 0;
+  private buzzStage = 0;
+  private wasDown: string | null = null;
+  private aidT = 0;
+  /** Someone drew a moustache on you while you were down (it stays all night). */
+  private doodled = false;
+  private aidIn = 0;
+  /** The screen when you've crashed: black and pulsing green, or a pounding red. */
+  private crashBox = document.createElement('div');
+  private crashText = document.createElement('b');
+  private crashSub = document.createElement('p');
   /** Proximity voice chat (off until you switch it on in the pause menu). */
   readonly voice: Voice;
   private voiceLine: HTMLElement;
@@ -282,6 +294,14 @@ export class NightSession {
     this.vibeChip = document.createElement('div');
     this.vibeChip.className = 'rd-vibe';
     this.hud.root.append(this.vibeChip);
+    this.crashBox.className = 'rd-crash';
+    this.crashBox.append(this.crashText, this.crashSub);
+    for (const cls of ['rd-haze', 'rd-buzz']) {
+      const d = document.createElement('div');
+      d.className = cls;
+      this.hud.root.prepend(d);
+    }
+    this.hud.root.prepend(this.crashBox);
     this.voice = new Voice(o.me, o.voiceOut);
     this.voiceLine = document.createElement('div');
     this.voiceLine.className = 'rd-voice';
@@ -434,6 +454,16 @@ export class NightSession {
         return;
       case 'npcs':
         return this.syncNpcs(m.p);
+      case 'doodled':
+        this.doodled = true;
+        this.hud.toast('You feel a felt-tip on your face. Something’s different. (The bathroom mirror knows.)', 4500);
+        return;
+      case 'aided':
+        if (aided(this.vibe)) {
+          this.audio.play('ding');
+          this.hud.toast(`${this.names.get(m.by) ?? 'Someone'} got you through it. You'll live. (Still very much high.)`, 4000);
+        }
+        return;
       case 'warp':
         this.walker.pos = { x: m.x, y: m.y, z: m.z };
         this.walker.vel = { x: 0, y: 0, z: 0 };
@@ -889,7 +919,7 @@ export class NightSession {
     } else if (ph === 'night') this.roam += dt;
     else this.left -= dt;
 
-    const canMove = (ph === 'night' || (this.ghost && ph !== 'over')) && !this.paused && !this.chore && !this.rolling && !this.overlay() && !(this.inMeeting() && !this.ghost);
+    const canMove = (ph === 'night' || (this.ghost && ph !== 'over')) && !this.paused && !this.down() && !this.chore && !this.rolling && !this.overlay() && !(this.inMeeting() && !this.ghost);
     const canLook = !this.chore && !this.overlay() && (!this.paused || this.inMeeting()) && ph !== 'result' && ph !== 'over';
     if (canLook) {
       this.walker.yaw += f.yaw;
@@ -932,6 +962,7 @@ export class NightSession {
     } else if (this.chore) this.runChore(dt, f);
     else if (this.inspecting) this.inspecting.frame(f);
     else if (this.overlay()) this.hud.setPrompt('');
+    else if (this.down()) this.hud.setPrompt('');
     else if (ph === 'night' && !this.paused) this.interact(f, dt);
     else this.hud.setPrompt('');
     this.updateSmoking(f, dt, ph);
@@ -965,6 +996,7 @@ export class NightSession {
       this.self.root.rotation.y = this.walker.yaw;
       this.self.pose({ speed: Math.hypot(this.walker.vel.x, this.walker.vel.z), crouch: this.walker.crouch, pitch: this.walker.pitch, phone: this.phone.open, emote: EMOTES[performance.now() < this.emote.until ? this.emote.id : 0] }, dt);
       this.self.hold(heldCode(this.vibe, BONGS), this.smoking, dt);
+      this.self.setDoodle(this.doodled);
     } else this.self.root.visible = false;
     this.world.torch.intensity = this.torch ? TORCH_POWER : 0;
     this.updateEviction(dt);
@@ -1019,10 +1051,17 @@ export class NightSession {
     // High: the room sways a little. The wobbly pill: a lot. Wired, or coughing: the shakes.
     const now = performance.now() / 1000;
     const trip = tripping(this.vibe, this.roam);
-    const sway = (high(this.vibe, this.roam) ? 0.025 * this.vibe.level : 0) + (trip === 'wobbly' ? 0.12 : 0);
-    const jitter = wired(this.vibe, this.roam) || this.roam < this.vibe.coughUntil ? 0.006 : 0;
+    const hz = haze(this.vibe);
+    const bz = buzz(this.vibe);
+    const sway = (high(this.vibe, this.roam) ? 0.02 * this.vibe.level : 0) + hz * 0.09 + (trip === 'wobbly' ? 0.12 : 0);
+    const jitter = (wired(this.vibe, this.roam) || this.roam < this.vibe.coughUntil ? 0.006 : 0) + bz * 0.014;
     this.camera.rotation.set(w.pitch + (Math.random() - 0.5) * jitter, w.yaw + Math.sin(now * 0.7) * sway * 0.4, Math.sin(now * 0.9) * sway);
-    const fov = this.prefs.fov + (wired(this.vibe, this.roam) ? 12 : 0) + (trip === 'tiny' ? 10 : 0);
+    if (this.down()) {
+      // Flat on your back on the floor, the ceiling swimming.
+      this.camera.position.set(w.pos.x, w.pos.y + 0.28, w.pos.z);
+      this.camera.rotation.set(0.9 + Math.sin(now * 0.6) * 0.06, w.yaw, 1.25 + Math.sin(now * 0.4) * 0.05);
+    }
+    const fov = this.prefs.fov + (wired(this.vibe, this.roam) ? 12 : 0) + (trip === 'tiny' ? 10 : 0) + hz * 6 * (1 + Math.sin(now * 1.3)) + bz * 8;
     if (this.camera.fov !== fov) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -1050,6 +1089,9 @@ export class NightSession {
       (this.roam < this.until.sled ? PF.sled : 0) |
       (this.watching ? PF.watch : 0) |
       (this.vibe.joint === 'lit' ? PF.smoke : 0) |
+      (this.doodled ? PF.doodle : 0) |
+      (crashed(this.vibe, this.roam) === 'green' ? PF.green : 0) |
+      (crashed(this.vibe, this.roam) === 'od' ? PF.od : 0) |
       (this.smoking ? PF.hit : 0) |
       (this.exhale.left > 0 && this.exhale.delay <= 0 ? PF.exhale : 0) |
       (high(this.vibe, this.roam) ? PF.high : 0) |
@@ -1099,9 +1141,13 @@ export class NightSession {
       r.person.setOpacity(ghost ? 0.35 : 1);
       r.person.root.position.set(nx, ny + (ghost ? Math.sin(performance.now() / 400 + r.id) * 0.08 : 0), nz);
       r.person.root.rotation.y = r.yaw;
-      r.person.pose({ speed: ghost ? 0 : r.speed, crouch: !!(r.f & PF.crouch), pitch: r.pitch, sit: !!(r.f & PF.sit), phone: !!(r.f & PF.phone), emote: EMOTES[r.e] }, dt);
+      const flat = !ghost && !!(r.f & (PF.green | PF.od));
+      r.person.pose({ speed: ghost || flat ? 0 : r.speed, crouch: !!(r.f & PF.crouch), pitch: r.pitch, sit: !!(r.f & PF.sit), phone: !!(r.f & PF.phone), emote: EMOTES[r.e], lying: flat }, dt);
       r.person.setSled(!!(r.f & PF.sled));
-      r.person.setTag(r.f & PF.bongus ? 'BONGUS' : tagFor(r.char, r.name), this.priv?.mates.includes(r.id) ? '#ff6b8a' : r.f & PF.bongus ? '#9cff6a' : '#ffffff');
+      r.person.setDoodle(!!(r.f & PF.doodle));
+      if (r.f & PF.green) r.person.setTag(`${tagFor(r.char, r.name)} · GREENED OUT 🤢`, '#7dff8a');
+      else if (r.f & PF.od) r.person.setTag(`${tagFor(r.char, r.name)} · OVERDID IT 💀`, '#ff8a7a');
+      else r.person.setTag(r.f & PF.bongus ? 'BONGUS' : tagFor(r.char, r.name), this.priv?.mates.includes(r.id) ? '#ff6b8a' : r.f & PF.bongus ? '#9cff6a' : '#ffffff');
       // Wallhack / Eavesdrop: everyone close enough shows through walls.
       r.person.setXray(visible && this.roam < this.until.xray && Math.hypot(nx - this.walker.pos.x, ny - this.walker.pos.y, nz - this.walker.pos.z) < this.xrayRange);
       r.person.setFace(r.f & PF.high ? 'high' : r.f & PF.wired ? 'wired' : r.f & PF.busy ? 'worried' : 'smile');
@@ -1143,7 +1189,10 @@ export class NightSession {
         if (!r.person.root.visible || this.statusOf(r.id) !== 'in') continue;
         // Their body and their head, so you can target someone much taller or shorter than you.
         const h = CAST[r.char].height / 100;
-        const hits = [raySphere(o, d, { x: r.pos.x, y: r.pos.y + h * 0.55, z: r.pos.z }, 0.42, REACH), raySphere(o, d, { x: r.pos.x, y: r.pos.y + h - 0.15, z: r.pos.z }, 0.3, REACH)].filter((t) => t >= 0);
+        // Someone flat on the floor: aim at them lying there.
+        const flat = r.f & (PF.green | PF.od);
+        const lie = { x: r.pos.x - Math.sin(r.yaw) * 0.6, y: r.pos.y + 0.25, z: r.pos.z - Math.cos(r.yaw) * 0.6 };
+        const hits = (flat ? [raySphere(o, d, lie, 0.6, REACH)] : [raySphere(o, d, { x: r.pos.x, y: r.pos.y + h * 0.55, z: r.pos.z }, 0.42, REACH), raySphere(o, d, { x: r.pos.x, y: r.pos.y + h - 0.15, z: r.pos.z }, 0.3, REACH)]).filter((t) => t >= 0);
         consider({ kind: 'player', id: r.id, t: hits.length ? Math.min(...hits) : -1 });
       }
       for (const [id, objs] of this.bodies) {
@@ -1225,7 +1274,25 @@ export class NightSession {
     } else if (t?.kind === 'coon') prompt = 'E  Shoo the raccoon! (herd it outside)';
     else if (t?.kind === 'perch') prompt = 'E  Sit down';
     else if (!t && this.perch >= 0) prompt = 'Move to get up';
-    else if (t?.kind === 'player') {
+    else if (t?.kind === 'player' && this.remotes.get(t.id)!.f & (PF.green | PF.od)) {
+      // Helping someone up: hold E a few seconds (the referee counts it).
+      const green = this.remotes.get(t.id)!.f & PF.green;
+      const name = this.names.get(t.id) ?? 'them';
+      if (f.useHeld) {
+        this.aidT += dt;
+        this.aidIn -= dt;
+        if (this.aidIn < 0) {
+          this.aidIn = 0.25;
+          this.o.toHost({ t: 'aid', to: t.id });
+        }
+        prompt = `${green ? 'Getting water into' : 'Walking round the block with'} ${name}… ${Math.min(100, Math.round((100 * this.aidT) / VIBES.aidNeed))}%`;
+      } else {
+        this.aidT = 0;
+        prompt = green ? `Hold E  Get ${name} some water` : `Hold E  Walk ${name} round the block`;
+      }
+      if (!(this.remotes.get(t.id)!.f & PF.doodle)) prompt += ' · V draw a moustache on them';
+      if (this.evil && t.t <= KILL_RANGE && this.killReady() && !this.priv?.mates.includes(t.id)) prompt += ' · CLICK take out (they can’t fight back)';
+    } else if (t?.kind === 'player') {
       const near = t.t <= SHOVE_RANGE;
       const parts = [this.names.get(t.id) ?? ''];
       if (near) parts.push('V shove');
@@ -1323,6 +1390,10 @@ export class NightSession {
       else if (t.kind === 'spot' && t.spot.kind === 'laptop') this.watching = !this.watching;
       else if (t.kind === 'spot' && t.spot.vice === 'roll') this.startRolling();
       else if (t.kind === 'spot' && t.spot.vice === 'pill') this.takePill();
+      else if (t.kind === 'spot' && t.spot.vice === 'snack')
+        this.hud.toast(munch(this.vibe) ? 'You inhale half a box of crackers and a spoon of peanut butter. A little less high.' : 'Stale crackers and regret. You’re not even hungry.', 3000);
+      else if (t.kind === 'spot' && t.spot.vice === 'water')
+        this.hud.toast(splash(this.vibe) ? 'Cold water. Your heart comes down off the ceiling a bit.' : 'Refreshing. Pointless, but refreshing.', 2500);
       else if (t.kind === 'spot' && t.spot.vice === 'bong') this.grabBong(t.spot);
       else if (t.kind === 'spot' && (t.spot.kind === 'search' || t.spot.kind === 'duo' || t.spot.kind === 'router' || t.spot.kind === 'fix')) return;
       else if (t.kind === 'spot' && t.spot.kind === 'fridge') this.togglePhone('board');
@@ -1332,7 +1403,9 @@ export class NightSession {
         else this.o.toHost({ t: 'bell' });
       } else if (t.kind === 'spot') this.startChore(t.spot);
     }
-    if (f.shove && t?.kind === 'player' && t.t <= SHOVE_RANGE) this.o.toHost({ t: 'shove', to: t.id });
+    const flatOut = t?.kind === 'player' && !!(this.remotes.get(t.id)!.f & (PF.green | PF.od));
+    if (f.shove && t?.kind === 'player' && flatOut) this.o.toHost({ t: 'doodle', to: t.id });
+    else if (f.shove && t?.kind === 'player' && t.t <= SHOVE_RANGE) this.o.toHost({ t: 'shove', to: t.id });
     if (f.kill && this.evil && t?.kind === 'player' && t.t <= KILL_RANGE && this.killReady() && !this.priv?.mates.includes(t.id))
       this.o.toHost({ t: 'kill', v: t.id });
   }
@@ -1597,6 +1670,8 @@ export class NightSession {
     if (s.vice === 'roll') return this.vibe.joint === 'none' ? 'E  Roll a joint' : 'You’ve already got one rolled';
     if (s.vice === 'coke') return 'Hold E  Do a line off the plate';
     if (s.vice === 'pill') return 'E  Take the mystery pill (who knows)';
+    if (s.vice === 'snack') return haze(this.vibe) > 0.05 ? 'E  Raid the pantry (the munchies)' : 'E  Raid the pantry';
+    if (s.vice === 'water') return 'E  Splash cold water on your face';
     if (this.vibe.bong) return 'Your hands are full (X puts yours down)';
     if (this.vibe.joint === 'lit') return 'Finish your joint first';
     return `E  Pick up ${s.name}`;
@@ -1610,6 +1685,11 @@ export class NightSession {
   private endRolling() {
     this.rolling?.dispose();
     this.rolling = null;
+  }
+
+  /** Greened out or overdone it: flat on the floor, can't do a thing. */
+  private down() {
+    return !this.ghost && !!crashed(this.vibe, this.roam);
   }
 
   /** Picking up a bong off its table (if nobody else has it). */
@@ -1637,7 +1717,8 @@ export class NightSession {
    */
   private updateSmoking(f: Frame, dt: number, ph: PublicView['ph']) {
     const v = this.vibe;
-    const can = ph === 'night' && !this.ghost && !this.paused && !this.chore && !this.rolling && !this.overlay();
+    const can = ph === 'night' && !this.ghost && !this.paused && !this.chore && !this.rolling && !this.overlay() && !this.down();
+    if (this.down() && v.bong) putDown(v);
     if ((ph !== 'night' || this.ghost) && v.bong) putDown(v);
     const was = this.smoking;
     this.smoking = false;
@@ -1776,15 +1857,39 @@ export class NightSession {
     const h = high(v, r);
     const wd = wired(v, r);
     const trip = tripping(v, r);
-    this.wrap.classList.toggle('vibe-high', h && v.level === 1);
-    this.wrap.classList.toggle('vibe-high2', h && v.level > 1);
-    this.wrap.classList.toggle('vibe-wired', wd);
+    const back = settle(v, r, dt);
+    if (back) this.hud.toast(back === 'green' ? 'You come round on the floor. Ugh. Water. Water would be good.' : 'Your heart finds its rhythm again. Mostly.', 4000);
+    const hz = haze(v);
+    const bz = buzz(v);
+    this.wrap.style.setProperty('--haze', hz.toFixed(3));
+    this.wrap.style.setProperty('--buzz', bz.toFixed(3));
+    this.wrap.classList.toggle('vibe-breathe', hz > 0.45 || (h && v.level > 1));
+    // Warnings on the way up, so it's your own fault.
+    const stage = (k: number) => (k >= 0.85 ? 3 : k >= 0.6 ? 2 : k >= 0.3 ? 1 : 0);
+    const hs = stage(hz);
+    const bs = stage(bz);
+    if (hs > this.hazeStage) this.hud.toast(['', 'Ooh. Okay. Okay okay.', 'This is… a lot. Your hands are very interesting.', '⚠️ You are SO high. Any more and you’ll green out.'][hs], 3500);
+    if (bs > this.buzzStage) this.hud.toast(['', 'Your teeth are buzzing.', 'You could run through a wall. Please don’t.', '⚠️ Your heart is doing a drum solo. Ease off.'][bs], 3500);
+    this.hazeStage = hs;
+    this.buzzStage = bs;
+    const down = crashed(v, r);
+    if (down && down !== this.wasDown) {
+      this.audio.play('oof');
+      this.hud.toast(down === 'green' ? '🤢 You greened out. Lie here. Someone needs to get you some water.' : '💀 You overdid it. Someone needs to walk you round the block.', 5000);
+    }
+    this.wasDown = down;
+    this.crashBox.className = `rd-crash ${down ?? ''}`;
+    if (down) {
+      const secs = Math.ceil(v.crashUntil - r);
+      this.crashText.textContent = down === 'green' ? 'You greened out.' : 'You overdid it.';
+      this.crashSub.textContent = `${down === 'green' ? 'The ceiling is breathing. Someone get you some water.' : 'Your heart is a drum machine. Someone walk you round the block.'}  Back in ${secs} s, or sooner if a friend helps (hold E on you).`;
+    }
     this.wrap.classList.toggle('vibe-down', comingDown(v, r));
     this.wrap.classList.toggle('vibe-rainbow', trip === 'rainbow');
-    if (wd) {
+    if (wd || bz > 0.3) {
       this.heartbeat -= dt;
       if (this.heartbeat < 0) {
-        this.heartbeat = 0.55;
+        this.heartbeat = 0.6 - bz * 0.3;
         this.audio.play('heart');
       }
     }
@@ -1793,7 +1898,9 @@ export class NightSession {
     if (v.joint === 'rolled' && !v.bong) bits.push('🌿 Joint rolled · L to light');
     if (v.joint === 'lit') bits.push(`🔥 Joint lit · hold L for a drag (${Math.round(v.burn * 100)}% left)`);
     if (v.bong) bits.push(packed(v) ? '🫧 Packed · hold L to rip, let go to clear · X put down' : '🫧 Bong in hand · hold E to pack · X put down');
-    if (h) bits.push(`${v.level > 1 ? '🌫️ Baked' : '🌿 High'} ${left(v.highUntil)}`);
+    const bar = (k: number) => '▮'.repeat(Math.round(k * 8)) + '▯'.repeat(8 - Math.round(k * 8));
+    if (h || hz > 0.05) bits.push(`${hz > 0.6 || v.level > 1 ? '🌫️ Baked' : '🌿 High'} ${bar(hz)}`);
+    if (bz > 0.05) bits.push(`💓 ${bar(bz)}`);
     if (wd) bits.push(`⚡ Wired ${left(v.wiredUntil)}`);
     else if (comingDown(v, r)) bits.push(`😩 Coming down ${left(v.comedownUntil)}`);
     if (trip) bits.push(`💊 ${trip} ${left(v.tripUntil)}`);

@@ -58,6 +58,8 @@ const COLOURS: Record<string, string> = {
   stone: '#6e6a64',
   ember: '#ff7a2a',
   plastic: '#ecebe6',
+  insulation: '#e8a2b4',
+  rafter: '#7a5a38',
   frost: '#e8eef0',
 };
 
@@ -80,6 +82,15 @@ class Kit {
   cone(c: string, x: number, y: number, z: number, r: number, h: number) {
     const g = new THREE.ConeGeometry(r, h, 12);
     g.translate(x, y + h / 2, z);
+    this.add(c, g);
+  }
+
+  /** A flat board tilted in the x–y plane, from (x0, y0) to (x1, y1), running z0..z1 (a roof slope). */
+  slope(c: string, x0: number, y0: number, x1: number, y1: number, z0: number, z1: number) {
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    const g = new THREE.BoxGeometry(len, 0.04, z1 - z0);
+    g.rotateZ(Math.atan2(y1 - y0, x1 - x0));
+    g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
     this.add(c, g);
   }
 
@@ -539,6 +550,15 @@ function dressing(k: Kit) {
         }
       }
     }
+  }
+  // The eaves: under the roof slope, with rafters overhead, the slope coming down to a knee wall on the outside,
+  // and pink insulation stuffed between the joists.
+  const ey = FLOOR_Y[2];
+  const top = ey + 2.4;
+  for (const [z0, z1] of [[0.12, 8.4], [12.2, DEPTH - 0.12]]) {
+    for (let z = z0 + 0.2; z < z1 - 0.1; z += 0.6) k.box('rafter', 0.12, top - 0.14, z, 2.04, top, z + 0.07);
+    k.slope('cardboard', 0.12, top - 1.35, 1.6, top - 0.02, z0, z1);
+    for (let z = z0 + 0.4; z < z1 - 0.6; z += 2.3) k.box('insulation', 0.14, ey + 0.002, z, 0.5, ey + 0.16, z + 0.9);
   }
   // A frame and a little shelf round the bathroom mirror (world.ts's Reflector sits inside it).
   const mx = WIDTH - 0.12;

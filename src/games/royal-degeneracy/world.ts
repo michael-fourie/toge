@@ -49,6 +49,7 @@ const LOOKS: Record<string, Look> = {
   path: { color: '#8a8478' },
   porch: { color: '#ffffff', tex: 'porch' },
   stair: { color: '#ffffff', tex: 'stair' },
+  ply: { color: '#ffffff', tex: 'ply' },
   stone: { color: '#8d877c' },
   brick: { color: '#ffffff', tex: 'brick' },
   feature: { color: '#d8b8b0', tex: 'brick' },
@@ -329,10 +330,31 @@ function addBox(bld: Builder, b: HBox) {
   }
   face([x0, t00, z0], [x1, t10, z0], [x1, t11, z1], [x0, t01, z1], tn, 0, 2);
   face([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], 0, 2);
-  face([x0, y0, z0], [x1, y0, z0], [x1, t10, z0], [x0, t00, z0], [0, 0, -1], 0, 1);
-  face([x0, y0, z1], [x1, y0, z1], [x1, t11, z1], [x0, t01, z1], [0, 0, 1], 0, 1);
-  face([x0, y0, z0], [x0, y0, z1], [x0, t01, z1], [x0, t00, z0], [-1, 0, 0], 2, 1);
-  face([x1, y0, z0], [x1, y0, z1], [x1, t11, z1], [x1, t10, z0], [1, 0, 0], 2, 1);
+  if (b.ramp) {
+    face([x0, y0, z0], [x1, y0, z0], [x1, t10, z0], [x0, t00, z0], [0, 0, -1], 0, 1);
+    face([x0, y0, z1], [x1, y0, z1], [x1, t11, z1], [x0, t01, z1], [0, 0, 1], 0, 1);
+    face([x0, y0, z0], [x0, y0, z1], [x0, t01, z1], [x0, t00, z0], [-1, 0, 0], 2, 1);
+    face([x1, y0, z0], [x1, y0, z1], [x1, t11, z1], [x1, t10, z0], [1, 0, 0], 2, 1);
+    return;
+  }
+  // Long wall faces are cut where rooms meet, so each stretch takes its own room's paint, tiles and skirting.
+  const y1 = b.max.y;
+  for (const [s0, s1] of spans(b.floor, 'x', x0, x1)) {
+    face([s0, y0, z0], [s1, y0, z0], [s1, y1, z0], [s0, y1, z0], [0, 0, -1], 0, 1);
+    face([s0, y0, z1], [s1, y0, z1], [s1, y1, z1], [s0, y1, z1], [0, 0, 1], 0, 1);
+  }
+  for (const [s0, s1] of spans(b.floor, 'z', z0, z1)) {
+    face([x0, y0, s0], [x0, y0, s1], [x0, y1, s1], [x0, y1, s0], [-1, 0, 0], 2, 1);
+    face([x1, y0, s0], [x1, y0, s1], [x1, y1, s1], [x1, y1, s0], [1, 0, 0], 2, 1);
+  }
+}
+
+/** A run from a0 to a1 along x or z, cut at every room edge on this floor that falls inside it. */
+function spans(floor: number, axis: 'x' | 'z', a0: number, a1: number): [number, number][] {
+  const cuts = new Set([a0, a1]);
+  if (a1 - a0 > 0.3) for (const r of ROOMS) if (r.floor === floor) for (const v of [r.min[axis], r.max[axis]]) if (v > a0 + 0.05 && v < a1 - 0.05) cuts.add(v);
+  const list = [...cuts].sort((p, q) => p - q);
+  return list.slice(1).map((v, i) => [list[i], v]);
 }
 
 /** A railing at hand height (porch, balconies, stair wells): drawn as a capped rail on spindles, not a slab. */
@@ -420,9 +442,9 @@ export class World {
     const bld = new Builder();
     for (const b of BOXES) if (b.mat !== 'invisible' && !DRAWN.has(b.mat)) (isBalustrade(b) ? addBalustrade : addBox)(bld, b);
     this.addOutside(bld);
-    // Kitchen lino and bathroom tile, laid over the floorboards.
+    // Kitchen lino, bathroom tile and the eaves' rough plywood, laid over the floorboards.
     for (const r of ROOMS) {
-      if (r.outside || (r.surface !== 'lino' && r.surface !== 'tile')) continue;
+      if (r.outside || (r.surface !== 'lino' && r.surface !== 'tile' && r.surface !== 'ply')) continue;
       const y = FLOOR_Y[r.floor] + 0.004;
       bld.quad(r.surface, [r.min.x, y, r.min.z], [r.max.x, y, r.min.z], [r.max.x, y, r.max.z], [r.min.x, y, r.max.z], [0, 1, 0], 0, 2);
     }

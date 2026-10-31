@@ -1208,20 +1208,91 @@
   font-weight: 700;
   font-size: 14px;
 }
-.royal-degeneracy .rd-night.vibe-high .rd-canvas {
-  filter: blur(0.8px) saturate(1.45) brightness(1.06);
+.royal-degeneracy .rd-night .rd-canvas {
+  /* Everything you've had shows here: haze (weed) blurs, warms and saturates; buzz (stimulants) sharpens and pops. */
+  filter: blur(calc(var(--haze, 0) * 2.2px)) saturate(calc(1 + var(--haze, 0) * 1.2 + var(--buzz, 0) * 0.7))
+    contrast(calc(1 + var(--buzz, 0) * 0.35)) brightness(calc(1 + var(--haze, 0) * 0.1)) hue-rotate(calc(var(--haze, 0) * -28deg));
 }
-.royal-degeneracy .rd-night.vibe-high2 .rd-canvas {
-  filter: blur(1.6px) saturate(1.8) brightness(1.1) hue-rotate(-12deg);
+.royal-degeneracy .rd-night.vibe-breathe .rd-canvas {
   animation: rd-breathe 4s ease-in-out infinite alternate;
 }
 @keyframes rd-breathe {
   to {
-    transform: scale(1.025);
+    transform: scale(1.03) rotate(0.4deg);
   }
 }
-.royal-degeneracy .rd-night.vibe-wired .rd-canvas {
-  filter: contrast(1.25) saturate(1.6) brightness(1.08);
+.royal-degeneracy .rd-haze,
+.royal-degeneracy .rd-buzz {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.royal-degeneracy .rd-haze {
+  background: radial-gradient(ellipse at center, transparent 30%, rgba(70, 170, 70, 0.6) 100%);
+  opacity: calc(var(--haze, 0) * 0.8);
+}
+.royal-degeneracy .rd-buzz {
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(220, 40, 40, 0.6) 100%);
+  opacity: calc(var(--buzz, 0) * 0.7);
+  animation: rd-thump 0.55s ease-in-out infinite;
+}
+@keyframes rd-thump {
+  50% {
+    transform: scale(1.04);
+    filter: brightness(1.4);
+  }
+}
+/* Crashed: greened out (black, a slow green pulse) or overdone it (a pounding red). */
+.royal-degeneracy .rd-crash {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  color: #eaffea;
+  pointer-events: none;
+  padding: 0 16px;
+}
+.royal-degeneracy .rd-crash b {
+  font-size: clamp(26px, 5vw, 46px);
+  letter-spacing: 0.04em;
+}
+.royal-degeneracy .rd-crash p {
+  max-width: 34em;
+  margin: 0;
+  font-size: 15px;
+  opacity: 0.85;
+}
+.royal-degeneracy .rd-crash.green {
+  display: flex;
+  background: radial-gradient(circle at center, rgba(30, 190, 80, 0.42), rgba(0, 0, 0, 0.96) 48%);
+  animation: rd-greenpulse 3s ease-in-out infinite;
+}
+@keyframes rd-greenpulse {
+  50% {
+    background-size: 140% 140%;
+    filter: brightness(0.55);
+  }
+}
+.royal-degeneracy .rd-crash.od {
+  display: flex;
+  color: #fff;
+  background: radial-gradient(circle at center, rgba(120, 0, 0, 0.55), rgba(20, 0, 0, 0.95) 70%);
+  animation: rd-heart 0.8s ease-in-out infinite;
+}
+@keyframes rd-heart {
+  10% {
+    filter: brightness(2.2);
+  }
+  25% {
+    filter: brightness(1);
+  }
+  35% {
+    filter: brightness(1.8);
+  }
 }
 .royal-degeneracy .rd-night.vibe-down .rd-canvas {
   filter: saturate(0.5) brightness(0.85);

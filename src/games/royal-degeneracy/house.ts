@@ -36,7 +36,7 @@ export type Mat =
   | 'wood' | 'tile' | 'lino' | 'grass' | 'path' | 'porch' | 'stair' | 'stone'
   | 'wall' | 'brick' | 'trim' | 'glass' | 'ceiling' | 'rail' | 'fence' | 'neighbour' | 'tv'
   | 'bed' | 'desk' | 'couch' | 'leather' | 'table' | 'counter' | 'fridge' | 'toilet' | 'tub' | 'sink'
-  | 'radiator' | 'hutch' | 'shelf' | 'records' | 'beanbag' | 'bin' | 'junk' | 'invisible' | 'banister' | 'wardrobe' | 'nightstand' | 'dresser' | 'chair' | 'firepit' | 'cooler' | 'stool';
+  | 'radiator' | 'hutch' | 'shelf' | 'records' | 'beanbag' | 'bin' | 'junk' | 'invisible' | 'banister' | 'wardrobe' | 'nightstand' | 'dresser' | 'chair' | 'firepit' | 'cooler' | 'stool' | 'ply';
 
 export interface HBox extends Box {
   mat: Mat;
@@ -91,7 +91,7 @@ export interface Spot {
   /** A sneak route's other end. */
   pair?: string;
   /** A vice: roll a joint here, rip a bong, a line, the pill (vices.ts). */
-  vice?: 'roll' | 'bong' | 'coke' | 'pill';
+  vice?: 'roll' | 'bong' | 'coke' | 'pill' | 'snack' | 'water';
   /** How big it is to look at (small things on a crowded table), default 0.5 m. */
   r?: number;
 }
@@ -447,8 +447,8 @@ room('jung', 'Jung’s room', 2, 2.1, 0, W, 8.45);
 room('bath3', 'the top bathroom', 2, 6.4, 8.45, W, 12.15, 'tile');
 room('hall3', 'the top hall', 2, SB.x2, 8.45, 6.4, 12.15);
 room('wags', 'Wags’s room', 2, 2.1, 12.15, W, DEPTH);
-room('eaves', 'the back eaves', 2, 0, 0, 2.1, 8.45, 'stair');
-room('eaves2', 'the front eaves', 2, 0, 12.15, 2.1, DEPTH, 'stair');
+room('eaves', 'the back eaves', 2, 0, 0, 2.1, 8.45, 'ply');
+room('eaves2', 'the front eaves', 2, 0, 12.15, 2.1, DEPTH, 'ply');
 
 slab(2, 'wood', -0.12, -0.12, W + 0.12, SB.z0);
 slab(2, 'wood', SB.x2, SB.z0, W + 0.12, SB.z1);
@@ -531,7 +531,7 @@ spot('sneak-gap', 'sneak', 'Climb in the kitchen window', W + 0.6, -0.2, 4.1, un
 // The Ring cam laptop on the coffee table.
 spot('laptop', 'laptop', 'Watch the Ring cam', 6.25, 0.5, 9.35);
 // The house's vices: rolling trays, bongs, the plate, the pill.
-const vice = (id: string, v: 'roll' | 'bong' | 'coke' | 'pill', name: string, x: number, y: number, z: number) => spots.push({ id, kind: 'vice', vice: v, name, pos: { x, y, z }, r: 0.28 });
+const vice = (id: string, v: NonNullable<Spot['vice']>, name: string, x: number, y: number, z: number) => spots.push({ id, kind: 'vice', vice: v, name, pos: { x, y, z }, r: 0.28 });
 vice('roll-dining', 'roll', 'Roll a joint', 0.7, 0.82, 7.2);
 vice('roll-jung', 'roll', 'Roll a joint', 2.5, 6.4, 3.3);
 vice('bong-living', 'bong', 'the coffee-table bong', 6.8, 0.6, 9.05);
@@ -540,6 +540,10 @@ vice('bong-selby', 'bong', 'the Bike Stu bong', 4.55, 3.75, 4.1);
 vice('bong-mikol', 'bong', 'Mikol’s bong', 8.05, 0.95, 18.4);
 vice('coke', 'coke', 'Do a line off the plate', 5.75, 0.46, 9.6);
 vice('pill', 'pill', 'Take the mystery pill', 0.8, 0.8, 8.8);
+// Ways to come down a bit: the pantry (the munchies) and cold water at the bathroom sinks.
+vice('snack', 'snack', 'Raid the pantry', KITCHEN_X + 0.8, 1.2, 4.2);
+vice('water-2', 'water', 'Splash cold water on your face', 7.85, FLOOR_Y[1] + 0.95, 10.75);
+vice('water-3', 'water', 'Splash cold water on your face', 7.85, FLOOR_Y[2] + 0.95, 10.35);
 // Search spots: where hidden clues land (hold E to dig through them).
 spot('s-kitchen-bin', 'search', 'the kitchen bin', 3.56, 0.7, 0.4);
 spot('s-kitchen-drawer', 'search', 'the junk drawer', KITCHEN_X + 0.7, 0.9, 2.2);
@@ -594,6 +598,11 @@ export const MEETING_CENTRE = { x: TABLE.x, y: 0.45, z: TABLE.z };
  */
 export const PERCHES: Seat[] = [];
 for (const b of boxes) {
+  if (b.mat === 'chair') {
+    const c = { x: (b.min.x + b.max.x) / 2, z: (b.min.z + b.max.z) / 2 };
+    PERCHES.push({ pos: { x: c.x, y: b.min.y, z: c.z }, yaw: Math.atan2(-(FIREPIT.x - c.x), -(FIREPIT.z - c.z)) });
+    continue;
+  }
   if (b.mat === 'stool') {
     PERCHES.push({ pos: { x: (b.min.x + b.max.x) / 2, y: FLOOR_Y[b.floor], z: (b.min.z + b.max.z) / 2 }, yaw: -Math.PI / 2 });
     continue;

@@ -10,7 +10,7 @@ import { cleanSettings, type Phase, type PrivateView, type PublicView, type Role
 import { VOICE_KINDS, type VoiceKind, type VoiceMsg } from './voice.ts';
 
 /** Pose flag bits. */
-export const PF = { crouch: 1, torch: 2, ghost: 4, sit: 8, point: 16, busy: 32, phone: 64, bongus: 128, sled: 256, watch: 512, smoke: 1024, high: 2048, wired: 4096, hit: 8192, exhale: 16384 } as const;
+export const PF = { crouch: 1, torch: 2, ghost: 4, sit: 8, point: 16, busy: 32, phone: 64, bongus: 128, sled: 256, watch: 512, smoke: 1024, high: 2048, wired: 4096, hit: 8192, exhale: 16384, green: 32768, od: 65536, doodle: 131072 } as const;
 
 /** Emotes, sent with your pose (0: none). */
 export const EMOTES = ['', 'wave', 'point', 'shrug', 'facepalm', 'dance', 'five', 'hug'] as const;
@@ -49,6 +49,10 @@ export type Msg =
   | { t: 'fix'; spot: string }
   | { t: 'sneak'; spot: string }
   | { t: 'shoo' }
+  // Helping someone who's greened out or overdone it (sent while holding E on them)
+  | { t: 'aid'; to: number }
+  // Drawing a moustache on someone who's down
+  | { t: 'doodle'; to: number }
   // host → everyone (or one)
   | { t: 'lobby'; picks: [number, CharId][]; s: Settings; live: boolean }
   | { t: 'go' }
@@ -73,6 +77,9 @@ export type Msg =
   | { t: 'greeted'; a: number; b: number; k: 'five' | 'hug' }
   /** A sneak route: you come out here. */
   | { t: 'warp'; x: number; y: number; z: number }
+  // A friend got you through it
+  | { t: 'aided'; by: number }
+  | { t: 'doodled'; by: number }
   /** The raccoon: [x, y, z, yaw], or null when it's back on its balcony. */
   | { t: 'coon'; p: [number, number, number, number] | null }
   /** At the reveal, a takeout seen from above: who, whom, and frames of [id, x, z, floor]. */
@@ -154,7 +161,7 @@ export function readMsg(d: unknown): Msg | null {
   const m = d as Record<string, unknown>;
   switch (m.t) {
     case 'p':
-      return num(m.x, 100) && num(m.y, 100) && num(m.z, 100) && num(m.yaw, 100) && num(m.pitch, 2) && int(m.f) && m.f >= 0 && m.f < 32768
+      return num(m.x, 100) && num(m.y, 100) && num(m.z, 100) && num(m.yaw, 100) && num(m.pitch, 2) && int(m.f) && m.f >= 0 && m.f < 262144
         ? { t: 'p', x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, f: m.f, e: int(m.e) && m.e > 0 && m.e < EMOTES.length ? m.e : 0, h: int(m.h) && m.h >= 0 && m.h <= 6 ? m.h : 0 }
         : null;
     case 'chat':
@@ -168,6 +175,14 @@ export function readMsg(d: unknown): Msg | null {
       return { t: m.t };
     case 'pick':
       return isCharId(m.c) ? { t: 'pick', c: m.c } : null;
+    case 'aid':
+      return int(m.to) ? { t: 'aid', to: m.to } : null;
+    case 'aided':
+      return int(m.by) ? { t: 'aided', by: m.by } : null;
+    case 'doodle':
+      return int(m.to) ? { t: 'doodle', to: m.to } : null;
+    case 'doodled':
+      return int(m.by) ? { t: 'doodled', by: m.by } : null;
     case 'door':
       return typeof m.id === 'string' && DOOR_IDS.has(m.id) ? { t: 'door', id: m.id } : null;
     case 'shove':

@@ -49,7 +49,29 @@ function part(g: THREE.BufferGeometry, mat: THREE.Material, sx: number, sy: numb
 
 export type Face = 'smile' | 'talk' | 'dead' | 'worried' | 'high' | 'wired';
 
-function drawFace(c: HTMLCanvasElement, face: Face) {
+function drawFace(c: HTMLCanvasElement, face: Face, stache = false) {
+  drawExpression(c, face);
+  if (!stache) return;
+  // A felt-tip handlebar moustache (and a bonus monobrow), drawn on while they were out.
+  const g = c.getContext('2d')!;
+  g.strokeStyle = '#111';
+  g.lineWidth = 6;
+  g.lineCap = 'round';
+  for (const s of [-1, 1]) {
+    g.beginPath();
+    g.moveTo(64, 80);
+    g.quadraticCurveTo(64 + s * 16, 92, 64 + s * 30, 80);
+    g.quadraticCurveTo(64 + s * 36, 72, 64 + s * 28, 70);
+    g.stroke();
+  }
+  g.lineWidth = 5;
+  g.beginPath();
+  g.moveTo(28, 34);
+  g.quadraticCurveTo(64, 26, 100, 34);
+  g.stroke();
+}
+
+function drawExpression(c: HTMLCanvasElement, face: Face) {
   const g = c.getContext('2d')!;
   g.clearRect(0, 0, 128, 128);
   g.strokeStyle = g.fillStyle = '#2a1d1a';
@@ -203,6 +225,8 @@ export interface PoseIn {
   pitch: number;
   sit?: boolean;
   dead?: boolean;
+  /** Flat on the floor but alive (greened out, overdone it): like a body, but with their own face. */
+  lying?: boolean;
   point?: boolean;
   /** Looking down at their phone (others can see it). */
   phone?: boolean;
@@ -224,6 +248,7 @@ export class Person {
   private faceCanvas = document.createElement('canvas');
   private faceTex: THREE.CanvasTexture;
   private face: Face = 'smile';
+  private stache = false;
   private mats: THREE.Material[] = [];
   private phase = 0;
   private tag: THREE.Sprite | null = null;
@@ -366,7 +391,15 @@ export class Person {
   setFace(face: Face) {
     if (face === this.face) return;
     this.face = face;
-    drawFace(this.faceCanvas, face);
+    drawFace(this.faceCanvas, face, this.stache);
+    this.faceTex.needsUpdate = true;
+  }
+
+  /** Someone drew a moustache on them while they were down. */
+  setDoodle(on: boolean) {
+    if (on === this.stache) return;
+    this.stache = on;
+    drawFace(this.faceCanvas, this.face, on);
     this.faceTex.needsUpdate = true;
   }
 
@@ -507,7 +540,7 @@ export class Person {
     this.chest.rotation.set(0, 0, 0);
     this.armL.rotation.set(0, 0, 0.08);
     this.armR.rotation.set(0, 0, -0.08);
-    if (p.dead) {
+    if (p.dead || p.lying) {
       // Slumped on the floor, face up, arms out.
       this.body.rotation.x = Math.PI / 2;
       this.body.position.set(0, 0.15, -0.85);
@@ -516,7 +549,7 @@ export class Person {
       this.armL.rotation.set(0, 0, 1.2);
       this.armR.rotation.set(0, 0, -1.2);
       this.head.rotation.set(0, 0, 0.3);
-      this.setFace('dead');
+      if (p.dead) this.setFace('dead');
       return;
     }
     if (p.sit) {

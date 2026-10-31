@@ -31,7 +31,27 @@ export const VIBES = {
   pill: 60,
   /** A coughing fit lasts this long (scaled by how big the hit was). */
   cough: 3,
+  /**
+   * How much you've had. Weed builds a dose (a second of drag, a full chamber), stimulants a load (a line, a pill);
+   * both fade with time. The effects grow with them, and past `greenAt` you green out, past `odAt` you overdo it:
+   * down on the floor for `crash` seconds, or until a friend spends `aidNeed` seconds helping you up.
+   */
+  greenAt: 10,
+  dragDose: 1.3,
+  ripDose: 4.2,
+  doseFade: 0.04,
+  odAt: 4,
+  lineLoad: 1.5,
+  pillLoad: 1.2,
+  loadFade: 0.025,
+  crash: 40,
+  aidNeed: 3,
+  /** The pantry takes the edge off (the munchies), cold water on your face calms your heart. */
+  munchies: 1.8,
+  water: 1,
 };
+
+export type Crash = 'green' | 'od';
 
 type Joint = 'none' | 'rolled' | 'lit';
 
@@ -55,6 +75,11 @@ export interface Vibe {
   trip: Trip | null;
   tripUntil: number;
   coughUntil: number;
+  /** The weed dose and the stimulant load (see VIBES), and whether you've crashed (until when). */
+  dose: number;
+  load: number;
+  crash: Crash | null;
+  crashUntil: number;
 }
 
 export const newVibe = (): Vibe => ({
@@ -71,7 +96,69 @@ export const newVibe = (): Vibe => ({
   trip: null,
   tripUntil: 0,
   coughUntil: 0,
+  dose: 0,
+  load: 0,
+  crash: null,
+  crashUntil: 0,
 });
+
+/** Over the limit: down you go. */
+function overdo(v: Vibe, now: number) {
+  if (v.crash) return;
+  if (v.dose >= VIBES.greenAt) v.crash = 'green';
+  else if (v.load >= VIBES.odAt) v.crash = 'od';
+  else return;
+  v.crashUntil = now + VIBES.crash;
+}
+
+/** How hazy (weed) and how buzzed (stimulants) you are, 0..1: the effects scale with these. */
+export const haze = (v: Vibe) => Math.min(1, v.dose / VIBES.greenAt);
+export const buzz = (v: Vibe) => Math.min(1, v.load / VIBES.odAt);
+
+/**
+ * Time passing: the dose and load fade; a crash wears off by itself in the end (you come round still well gone).
+ * Returns the crash you just came round from, if any.
+ */
+export function settle(v: Vibe, now: number, dt: number): Crash | null {
+  if (v.crash) {
+    if (now < v.crashUntil) return null;
+    const was = v.crash;
+    comeRound(v);
+    return was;
+  }
+  v.dose = Math.max(0, v.dose - VIBES.doseFade * dt);
+  v.load = Math.max(0, v.load - VIBES.loadFade * dt);
+  return null;
+}
+
+function comeRound(v: Vibe) {
+  v.crash = null;
+  v.dose = Math.min(v.dose, VIBES.greenAt * 0.45);
+  v.load = Math.min(v.load, VIBES.odAt * 0.45);
+}
+
+/** A friend got you through it (water, a walk round the block). */
+export function aided(v: Vibe): boolean {
+  if (!v.crash) return false;
+  comeRound(v);
+  return true;
+}
+
+export const crashed = (v: Vibe, now: number): Crash | null => (v.crash && now < v.crashUntil ? v.crash : null);
+
+/** Raiding the pantry: the munchies take a little of the edge off. */
+export function munch(v: Vibe): boolean {
+  if (v.dose <= 0.5) return false;
+  v.dose = Math.max(0, v.dose - VIBES.munchies);
+  return true;
+}
+
+/** Cold water on your face: your heart calms down a bit. */
+export function splash(v: Vibe): boolean {
+  if (v.load <= 0.3) return false;
+  v.load = Math.max(0, v.load - VIBES.water);
+  return true;
+}
 
 function getHigh(v: Vibe, now: number, secs: number, level: number) {
   v.level = now < v.highUntil ? Math.max(v.level, level) : level;
@@ -114,7 +201,11 @@ export function drag(v: Vibe, dt: number): boolean {
 export function exhaleJoint(v: Vibe, now: number): Exhale {
   const d = v.drag;
   v.drag = 0;
-  if (d > 0.15) getHigh(v, now, d * VIBES.dragHigh, 1);
+  if (d > 0.15) {
+    getHigh(v, now, d * VIBES.dragHigh, 1);
+    v.dose += d * VIBES.dragDose;
+    overdo(v, now);
+  }
   const cough = d > VIBES.dragCough;
   if (cough) v.coughUntil = now + VIBES.cough * 0.6;
   const cashed = v.joint === 'lit' && v.burn <= 0;
@@ -158,6 +249,8 @@ export function clearRip(v: Vibe, now: number): Exhale {
   if (!packed(v) || f < 0.08) return { size: 0, cough: false, cashed: false };
   v.packed = v.packed.filter((b) => b !== v.bong);
   getHigh(v, now, VIBES.ripHigh * Math.min(1, f), 2);
+  v.dose += Math.min(VIBES.ripOver, f) * VIBES.ripDose;
+  overdo(v, now);
   const cough = f > VIBES.ripCough;
   if (cough) v.coughUntil = now + VIBES.cough * Math.min(1.3, f);
   return { size: Math.min(1, f), cough, cashed: true };
@@ -167,12 +260,16 @@ export function clearRip(v: Vibe, now: number): Exhale {
 export function line(v: Vibe, now: number) {
   v.wiredUntil = Math.max(v.wiredUntil, now) + VIBES.wired;
   v.comedownUntil = v.wiredUntil + VIBES.comedown;
+  v.load += VIBES.lineLoad;
+  overdo(v, now);
 }
 
 /** The mystery pill: one trip, picked with `rand` (0..1). */
 export function pill(v: Vibe, now: number, rand: number): Trip {
   v.trip = TRIPS[Math.min(TRIPS.length - 1, Math.floor(rand * TRIPS.length))];
   v.tripUntil = now + VIBES.pill;
+  v.load += VIBES.pillLoad;
+  overdo(v, now);
   return v.trip;
 }
 
@@ -190,7 +287,8 @@ export function speedOf(v: Vibe, now: number): number {
   const t = tripping(v, now);
   if (t === 'giant') k *= 0.85;
   if (t === 'tiny') k *= 1.1;
-  return k;
+  // The deeper in, the heavier your legs (weed) or the twitchier (stimulants).
+  return k * (1 - 0.25 * haze(v)) * (1 + 0.15 * buzz(v));
 }
 
 /** Eye height change (m) from a trip. */
