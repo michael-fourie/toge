@@ -622,6 +622,7 @@ export class NightSession {
     if (ph === 'meeting') {
       if (this.chore) this.endChore();
       this.audio.play('horn');
+      this.meetingSplash();
       this.setPaused(false);
       this.input.unlock();
       this.input.dragLook = true;
@@ -711,6 +712,29 @@ export class NightSession {
     }, showRole && this.evil ? 'evil' : '');
   }
 
+  /** The moment a meeting's called: a slam across the screen (who found whom, or who banged the pot), then the table. */
+  private meetingSplash() {
+    const m = this.pub?.meet;
+    if (!m) return;
+    const box = document.createElement('div');
+    box.className = `rd-splash ${m.kind}`;
+    const face = (id: number, dead = false) => {
+      const img = document.createElement('img');
+      img.src = portrait(this.o.renderer, this.chars.get(id) ?? 'guest', this.names.get(id));
+      img.alt = '';
+      if (dead) img.className = 'dead';
+      return img;
+    };
+    const row = document.createElement('div');
+    row.className = 'rd-splash-row';
+    if (m.kind === 'body') row.append(face(m.by), Object.assign(document.createElement('b'), { textContent: '→' }), face(m.body ?? -1, true));
+    else if (m.kind === 'bell') row.append(face(m.by), Object.assign(document.createElement('b'), { textContent: '🍳' }));
+    const title = m.kind === 'body' ? 'BODY REPORTED!' : m.kind === 'last' ? 'THE LAST MEETING' : 'HOUSE MEETING!';
+    box.append(Object.assign(document.createElement('h1'), { textContent: title }), row);
+    this.wrap.append(box);
+    setTimeout(() => box.remove(), 2300);
+  }
+
   private drawMeeting() {
     const v = this.pub!;
     const c = caseById(v.caseId);
@@ -767,6 +791,8 @@ export class NightSession {
       const deg = r!.deg;
       const line = deg === null ? 'Into the rain with a bin bag. Were they a Degenerate? Nobody’s saying.' : deg ? `${name} WAS a Degenerate.` : `${name} was not a Degenerate.`;
       box.append(Object.assign(document.createElement('p'), { className: deg ? 'evil' : '', textContent: line }));
+      // A stamp across the card: caught one, or the house got it wrong.
+      if (deg !== null) box.append(Object.assign(document.createElement('div'), { className: `rd-stamp${deg ? ' evil' : ''}`, textContent: deg ? 'CAUGHT' : 'INNOCENT' }));
       const char = this.chars.get(out)!;
       box.append(Object.assign(document.createElement('p'), { className: 'rd-quote', textContent: `“${CAST[char].lines.evicted}”` }));
     }, 'low');
@@ -1224,7 +1250,12 @@ export class NightSession {
         consider({ kind: 'door', door, t });
       }
     }
-    if (!this.ghost && this.evidence) for (const [id, p] of this.evidence.spots) consider({ kind: 'clue', id, t: raySphere(o, d, p, 0.35, REACH) });
+    // A clue right on the crosshair beats the body it's lying beside (the body's target is big).
+    if (!this.ghost && this.evidence)
+      for (const [id, p] of this.evidence.spots) {
+        const t = raySphere(o, d, p, 0.35, REACH);
+        consider({ kind: 'clue', id, t: t >= 0 ? Math.max(0, t - 0.8) : t });
+      }
     if (!this.ghost && this.perch < 0)
       PERCHES.forEach((p, i) => {
         if (Math.abs(p.pos.y - this.walker.pos.y) < 1 && Math.hypot(p.pos.x - o.x, p.pos.z - o.z) < REACH + 1)
@@ -2071,9 +2102,38 @@ export class NightSession {
       const sz = (z: number) => 10 + ((z + 1.5) / 23) * 280;
       g.fillStyle = '#16102a';
       g.fillRect(0, 0, 200, 300);
-      g.strokeStyle = '#5a4a8a';
-      for (const room of ROOMS) if (room.floor === floor && !room.outside) g.strokeRect(sx(room.min.x), sz(room.min.z), sx(room.max.x) - sx(room.min.x), sz(room.max.z) - sz(room.min.z));
-      const frame = r.f[Math.min(r.f.length - 1, Math.floor(this.replayT))];
+      // The floor plan: rooms filled and named, so you can read where it happened.
+      g.lineWidth = 1.5;
+      g.font = '600 9px system-ui, sans-serif';
+      g.textAlign = 'center';
+      for (const room of ROOMS) {
+        if (room.floor !== floor || room.outside) continue;
+        const x = sx(room.min.x);
+        const y = sz(room.min.z);
+        const w = sx(room.max.x) - x;
+        const h = sz(room.max.z) - y;
+        g.fillStyle = room.id.startsWith('stairs') ? '#2a2046' : '#2e2452';
+        g.fillRect(x, y, w, h);
+        g.strokeStyle = '#8a78c8';
+        g.strokeRect(x, y, w, h);
+        if (w > 30 && h > 24 && !room.id.startsWith('stairs')) {
+          g.fillStyle = 'rgba(232,228,255,0.45)';
+          g.fillText(room.name.replace(/^the /, ''), x + w / 2, y + h / 2 + 3, w - 4);
+        }
+      }
+      g.fillStyle = '#e8e4ff';
+      g.fillText(['Ground floor', 'First floor', 'Top floor'][floor] ?? '', 100, 296);
+      const now = Math.min(r.f.length - 1, Math.floor(this.replayT));
+      // The killer's trail up to now.
+      g.strokeStyle = 'rgba(255,61,90,0.55)';
+      g.lineWidth = 2;
+      g.beginPath();
+      for (let k = Math.max(0, now - 8); k <= now; k++) {
+        const e = r.f[k].find((p) => p[0] === r.k && p[3] === floor);
+        if (e) g.lineTo(sx(e[1]), sz(e[2]));
+      }
+      g.stroke();
+      const frame = r.f[now];
       for (const [id, x, z, fl] of frame) {
         if (fl !== floor) continue;
         g.fillStyle = id === r.k ? '#ff3d5a' : id === r.v ? '#ffd21a' : '#e8e4ff';

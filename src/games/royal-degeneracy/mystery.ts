@@ -26,6 +26,19 @@ const SHAPES: Record<Cat, { size: [number, number, number]; color: string }> = {
   belonging: { size: [0.18, 0.08, 0.14], color: '#3a7a9a' },
 };
 
+/** What's drawn on a clue card's front. */
+const ICON: Record<Cat, string> = {
+  notes: '📝',
+  smoke: '🚬',
+  temper: '💢',
+  room: '🧺',
+  drinking: '🥫',
+  footprint: '👣',
+  hairColour: '〰️',
+  hairLength: '💇',
+  belonging: '🎒',
+};
+
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string) => {
   const e = document.createElement(tag);
   e.className = cls;
@@ -246,6 +259,7 @@ export class InspectView {
     const front = el('div', 'rd-face front');
     const swatch = el('div', 'rd-swatch');
     swatch.style.background = SHAPES[clue.cat].color;
+    swatch.textContent = ICON[clue.cat];
     front.append(el('small', '', `Evidence #${clue.id + 1} · ${crimeName}`), swatch, el('b', '', ITEM[clue.cat]), el('small', '', 'Turn it over →'));
     const back = el('div', 'rd-face back');
     back.append(el('small', '', 'On the back'), el('p', '', detail(clue.cat, clue.value)), el('b', '', label(clue.cat, clue.value)));

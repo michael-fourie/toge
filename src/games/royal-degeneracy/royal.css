@@ -633,6 +633,7 @@
   flex-direction: column;
   gap: 12px;
   animation: rd-pop 0.3s ease-out;
+  position: relative;
 }
 .royal-degeneracy .rd-cardbox.evil .rd-bigcard {
   border-color: var(--rd-evil);
@@ -891,6 +892,10 @@
   height: 60px;
   border-radius: 8px;
   border: 3px solid #2a1d30;
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+  line-height: 1;
 }
 .royal-degeneracy .rd-row {
   display: flex;
@@ -1269,8 +1274,8 @@
   color: var(--rd-dim);
 }
 .royal-degeneracy .rd-replays canvas {
-  width: 120px;
-  height: 180px;
+  width: 160px;
+  height: 240px;
   border-radius: 8px;
 }
 .royal-degeneracy .rd-bigcard {
@@ -1503,4 +1508,89 @@
 }
 .royal-degeneracy .rd-voice:empty {
   display: none;
+}
+
+/* ---------------------------------------------------------------- the meeting splash */
+
+.royal-degeneracy .rd-splash {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(30, 10, 40, 0.85) 0%, rgba(10, 4, 16, 0.92) 70%);
+  animation: rd-splash 2.3s ease-out forwards;
+}
+.royal-degeneracy .rd-splash.body {
+  background: radial-gradient(ellipse at center, rgba(120, 10, 30, 0.88) 0%, rgba(20, 2, 8, 0.94) 70%);
+}
+.royal-degeneracy .rd-splash h1 {
+  margin: 0;
+  font: 900 clamp(40px, 9vw, 110px) / 1 system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  color: #fff;
+  text-shadow: 0 6px 0 #000, 0 0 40px rgba(255, 80, 120, 0.7);
+  transform: rotate(-4deg);
+  animation: rd-slam 0.35s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+.royal-degeneracy .rd-splash-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  animation: rd-slam 0.35s 0.15s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+.royal-degeneracy .rd-splash-row img {
+  width: clamp(80px, 14vw, 140px);
+  height: clamp(80px, 14vw, 140px);
+  border-radius: 50%;
+  border: 5px solid #fff;
+  background: #2a1d40;
+  object-fit: cover;
+}
+.royal-degeneracy .rd-splash-row img.dead {
+  filter: grayscale(1) brightness(0.8);
+  transform: rotate(90deg);
+  border-color: #ff3d5a;
+}
+.royal-degeneracy .rd-splash-row b {
+  font-size: clamp(36px, 6vw, 70px);
+  color: #fff;
+}
+@keyframes rd-slam {
+  from {
+    transform: scale(2.4) rotate(-12deg);
+    opacity: 0;
+  }
+}
+@keyframes rd-splash {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* A rubber stamp slammed across the eviction card. */
+.royal-degeneracy .rd-stamp {
+  padding: 4px 14px;
+  border: 4px solid #7fd68f;
+  border-radius: 8px;
+  color: #7fd68f;
+  font: 900 26px system-ui, sans-serif;
+  letter-spacing: 0.12em;
+  align-self: center;
+  margin: 4px 0;
+  transform: rotate(-6deg);
+  opacity: 0.9;
+  animation: rd-slam 0.3s 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+.royal-degeneracy .rd-stamp.evil {
+  border-color: #ff3d5a;
+  color: #ff3d5a;
 }
