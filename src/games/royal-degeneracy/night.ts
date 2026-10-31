@@ -574,6 +574,26 @@ export class NightSession {
     this.walker.pos.y += 0.3;
     this.torch = false;
     if (this.chore) this.endChore();
+    if (st === 'dead') {
+      // The bonk: a slam with the night's weapon (not who: you're a ghost now, and ghosts gossip).
+      const box = document.createElement('div');
+      box.className = 'rd-splash body';
+      const img = document.createElement('img');
+      img.src = portrait(this.o.renderer, this.char, this.names.get(this.o.me));
+      img.className = 'dead';
+      img.alt = '';
+      const row = document.createElement('div');
+      row.className = 'rd-splash-row';
+      row.append(img);
+      box.append(
+        Object.assign(document.createElement('h1'), { textContent: 'X_X  BONK.' }),
+        row,
+        Object.assign(document.createElement('p'), { className: 'rd-splash-sub', textContent: `Taken out with ${caseById(this.pub!.caseId).weapon}.` }),
+      );
+      this.wrap.append(box);
+      setTimeout(() => box.remove(), 2300);
+      this.shake = 0.5;
+    }
     this.hud.toast(st === 'out' ? 'You’ve been evicted. Haunt the place: chores still count.' : 'You were taken out. X_X  You’re a ghost now: fly with Space / C, finish your chores, E to rattle things.', 6000);
   }
 

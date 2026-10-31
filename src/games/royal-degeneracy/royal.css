@@ -1594,3 +1594,9 @@
   border-color: #ff3d5a;
   color: #ff3d5a;
 }
+.royal-degeneracy .rd-splash-sub {
+  margin: 0;
+  color: #ffd6de;
+  font: 700 18px system-ui, sans-serif;
+  animation: rd-slam 0.35s 0.3s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
