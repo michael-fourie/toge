@@ -10,7 +10,52 @@ export type Sound = 'door' | 'bonk' | 'bell' | 'oof' | 'rattle' | 'ding' | 'evic
 /** 0 = clear line, 1 = through a wall, 2 = through a floor too. */
 export type Muffle = 0 | 1 | 2;
 
+/** A looping sound in the house (the party in the living room, Wags's record): gain and muffle change per frame. */
+interface Loop {
+  gain: GainNode;
+  lp: BiquadFilterNode;
+}
+
+export type LoopKind = 'party' | 'record';
+
+/** Writes a short loop into a buffer: the party's four-on-the-floor thump, or a dusty three-chord record. */
+function synthLoop(ctx: AudioContext, kind: LoopKind): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const secs = kind === 'party' ? 2 : 6;
+  const buf = ctx.createBuffer(1, sr * secs, sr);
+  const d = buf.getChannelData(0);
+  let seed = 9;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    if (kind === 'party') {
+      // 120 bpm: a kick every beat, a hat on the off-beats, a bass line underneath.
+      const beat = t % 0.5;
+      const kick = Math.sin(2 * Math.PI * (55 + 90 * Math.exp(-beat * 30)) * beat) * Math.exp(-beat * 9);
+      const off = (t + 0.25) % 0.5;
+      const hat = rnd() * Math.exp(-off * 60) * 0.25;
+      const note = [55, 55, 65.4, 49][Math.floor(t / 0.5) % 4];
+      const bass = Math.sin(2 * Math.PI * note * t) * 0.25 * (beat > 0.05 ? 1 : 0);
+      d[i] = (kick * 0.8 + hat + bass) * 0.5;
+    } else {
+      // Soft chords, a wobble, and record crackle.
+      const chord = [
+        [220, 277, 330],
+        [196, 247, 294],
+        [175, 220, 262],
+      ][Math.floor(t / 2) % 3];
+      const wob = 1 + Math.sin(2 * Math.PI * 0.5 * t) * 0.004;
+      let v = 0;
+      for (const f of chord) v += Math.sin(2 * Math.PI * f * wob * t) * 0.12;
+      const env = Math.min(1, (t % 2) * 4) * (1 - ((t % 2) / 2) * 0.4);
+      d[i] = v * env + (Math.random() < 0.0015 ? rnd() * 0.5 : rnd() * 0.012);
+    }
+  }
+  return buf;
+}
+
 export class Audio {
+  private loops = new Map<LoopKind, Loop>();
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
@@ -215,6 +260,40 @@ export class Audio {
         for (let i = 0; i < 2; i++) this.tone(dst, t + i * 0.18, 0.12, 'square', 150, 150, 0.06);
         break;
     }
+  }
+
+  /**
+   * A looping sound at a place: `gain` 0 silences it (the power's out, a meeting's on). Created on first use; call
+   * every frame with how muffled it is from where you are.
+   */
+  loop(kind: LoopKind, at: Vec3, gain: number, muffle: Muffle) {
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return;
+    let l = this.loops.get(kind);
+    if (!l) {
+      const src = ctx.createBufferSource();
+      src.buffer = synthLoop(ctx, kind);
+      src.loop = true;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      const p = ctx.createPanner();
+      p.panningModel = 'HRTF';
+      p.distanceModel = 'inverse';
+      p.refDistance = 2;
+      p.rolloffFactor = 1.1;
+      p.positionX.value = at.x;
+      p.positionY.value = at.y;
+      p.positionZ.value = at.z;
+      src.connect(g).connect(lp).connect(p).connect(this.master);
+      src.start();
+      l = { gain: g, lp };
+      this.loops.set(kind, l);
+    }
+    const t = ctx.currentTime;
+    l.gain.gain.setTargetAtTime(gain * (muffle === 2 ? 0.45 : muffle === 1 ? 0.7 : 1), t, 0.3);
+    l.lp.frequency.setTargetAtTime(muffle === 2 ? 220 : muffle === 1 ? 700 : 9000, t, 0.3);
   }
 
   dispose() {

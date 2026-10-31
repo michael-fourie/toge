@@ -198,6 +198,8 @@ export class NightSession {
   private replays: { k: number; v: number; f: [number, number, number, number][][] }[] = [];
   private statsSaved = false;
   private replayCanvases: HTMLCanvasElement[] = [];
+  /** You, as only the bathroom mirror sees you. */
+  private self: Person;
   private replayT = 0;
   private eviction: { person: Person | null; rain: THREE.Points; t: number } | null = null;
   private shake = 0;
@@ -238,6 +240,10 @@ export class NightSession {
     this.power = powerOf(this.char, me.name);
     this.powerUI = new PowerUI(this.wrap);
     this.input = new Input(o.renderer.domElement, o.api);
+    this.self = new Person(lookFor(this.char, me.name), CAST[this.char].height);
+    this.self.setLayer(1);
+    this.world.scene.add(this.self.root);
+    this.world.mirror.getReflectionCamera(this.camera).layers.enable(1);
     this.camera.rotation.order = 'YXZ';
     this.world.scene.add(this.camera, this.glows.group, this.sparkles.group);
     for (const p of o.people) if (p.id !== o.me) this.addRemote(p);
@@ -847,6 +853,12 @@ export class NightSession {
     }
     this.sendPose(dt, sitting);
     this.world.update(dt, this.camera.position, this.pub?.sab?.[0] !== 'power');
+    if (this.world.mirror.visible) {
+      this.self.root.visible = !this.ghost;
+      this.self.root.position.set(this.walker.pos.x, this.walker.pos.y, this.walker.pos.z);
+      this.self.root.rotation.y = this.walker.yaw;
+      this.self.pose({ speed: Math.hypot(this.walker.vel.x, this.walker.vel.z), crouch: this.walker.crouch, pitch: this.walker.pitch, phone: this.phone.open, emote: EMOTES[performance.now() < this.emote.until ? this.emote.id : 0] }, dt);
+    } else this.self.root.visible = false;
     this.world.torch.intensity = this.torch ? TORCH_POWER : 0;
     this.updateEviction(dt);
     this.glows.group.visible = this.roam < this.until.bongus;
@@ -1457,6 +1469,12 @@ export class NightSession {
   private updateHouse(dt: number, ph: PublicView['ph']) {
     const sab = this.pub?.sab ?? null;
     const kind = sab?.[0] as SabKind | undefined;
+    // The party in the living room and Wags's record upstairs: off in a power cut, down low for meetings.
+    const music = kind === 'power' || ph === 'over' ? 0 : this.inMeeting() || ph === 'result' ? 0.06 : 0.22;
+    const party = { x: 7.85, y: 1, z: 12.2 };
+    const record = { x: 5, y: FLOOR_Y[2] + 1, z: 19.5 };
+    this.audio.loop('party', party, music, this.muffle(party));
+    this.audio.loop('record', record, ph === 'over' ? 0.5 : music * 0.8, ph === 'over' ? 0 : this.muffle(record));
     this.world.setPower(kind !== 'power');
     this.world.setFlood(kind === 'flood' && sab ? Math.min(1, (this.roam - (sab[1] - SAB.crisis)) / SAB.crisis) : 0);
     if (kind === 'alarm' && this.char !== 'mikol' && ph === 'night') {
@@ -1691,6 +1709,7 @@ export class NightSession {
   destroy() {
     if (this.duoHeld) this.o.toHost({ t: 'duo', spot: this.duoHeld, on: false });
     this.syncNpcs([]);
+    this.self.dispose();
     this.powerUI.dispose();
     this.glows.dispose();
     this.sparkles.dispose();

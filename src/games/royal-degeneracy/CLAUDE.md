@@ -1,8 +1,8 @@
 # Royal Degeneracy (agent instructions)
 
 A first-person 3D social-deduction party game set in 282, our old university house. Steps 1–4 of the build order
-are built (channel and lobby, the house, the Among Us core, the mystery, the cast, the house coming alive); step 7
-(the art pass from the photos) is next.
+are built (channel and lobby, the house, the Among Us core, the mystery, the cast, the house coming alive, the art
+pass); step 8 (touch controls, more cases, proximity voice) is what's left.
 
 Where things are: `game.ts` (screens, the party room, who referees), `lobby.ts`, `night.ts` (one night on this
 screen), `referee.ts` (the host's checks), `rules.ts` / `net.ts` (pure rules and wire checks), `house.ts` (the
@@ -10,7 +10,8 @@ house as data), `move.ts` (the walker), `world.ts` / `people.ts` / `textures.ts`
 `meeting.ts`, `chores.ts`, `audio.ts`, `input.ts`, `cases.ts`, `cast.ts`, `clues.ts` (the mystery's rules: trait
 cards, picking clues per crime, search, post, plant, wipe, the reveal log) and `mystery.ts` (clue props, the clue in
 your hands, the phone, the plant menu), `abilities.ts` (each character's ability, pure, plus the referee's side of
-it) and `powers.ts` (the ability chip, result cards, Proof menu, emote wheel, buzz arrow, Bongus glows). `sabotage.ts` (sabotages and fixes,
+it) and `powers.ts` (the ability chip, result cards, Proof menu, emote wheel, buzz arrow, Bongus glows). `props.ts` (procedural furniture, clutter,
+signs, flags and posters, merged per colour; world.ts skips the plain boxes it replaces), `sabotage.ts` (sabotages and fixes,
 pure), `stats.ts` (your nights, in this browser). The raccoon, Bike Stu's randoms and the reveal's replay frames run
 in `referee.ts`. Quirks that
 only change your own screen (Rock Hound, Supervisor, Couch Lock, Illogical!, Will's cologne) live in `night.ts`. Tests: `tests/royal-degeneracy.test.ts` (rules, messages, cards),
@@ -19,6 +20,9 @@ clues, two-person chores), `tests/royal-degeneracy-house-alive.test.ts` (sabotag
 Sink, awards, stats) and `tests/royal-degeneracy-house.test.ts` (spawns, doorways,
 the square-spiral stairs, a flood fill that reaches every room and spot, shoves, nudges, seats). In dev, `window.__royal` is the app (`__royal.session` the
 night, `__royal.referee` the host's referee).
+
+Lamp light is baked into the house's vertex colours (world.ts `bake`) as a multiplier, so the power cut still goes
+dark. The bathroom mirror is a three.js Reflector that only renders near it; you appear in it on render layer 1.
 
 Doorways are 1 m wide, not 0.85 m: Gambol's collider is 0.8 m wide and has no step-up, so a real-width door snags.
 The house is 8.4 m wide. The stairs are a square spiral (straight flights, flat 90° landings); a stair well has to

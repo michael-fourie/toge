@@ -1,0 +1,459 @@
+// Procedural furniture and clutter, from the photos: dark upholstered beds, the navy couch and the black leather one,
+// the wooden hutch with bottles along its top, the PA speaker on its nightstand in the brick corner, the record
+// player, cans and pizza boxes everywhere, the traffic cone. Furniture is drawn over the house's collision boxes (same
+// footprint); everything is merged per material, so the whole lot is a handful of draw calls.
+
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { CAST, type CharId } from './cast.ts';
+import { BOXES, DEPTH, FLOOR_Y, WIDTH, roomAt, type HBox, type Mat } from './house.ts';
+import { ramp } from './people.ts';
+
+/** The furniture kinds props.ts draws (world.ts skips their plain boxes). */
+export const DRAWN: ReadonlySet<Mat> = new Set<Mat>(['bed', 'desk', 'couch', 'leather', 'table', 'counter', 'fridge', 'toilet', 'tub', 'sink', 'radiator', 'hutch', 'shelf', 'records', 'bin', 'junk', 'beanbag']);
+
+const COLOURS: Record<string, string> = {
+  frame: '#3a3a40',
+  sheet: '#e9e4da',
+  duvet: '#5f7a9a',
+  pillow: '#f4f1ea',
+  wood: '#8a5f3a',
+  darkwood: '#5a3a22',
+  metal: '#9a9aa2',
+  black: '#1a1a1e',
+  navy: '#2d3a5e',
+  navyLight: '#3a4a74',
+  leather: '#1c1a1c',
+  counter: '#d8d0c0',
+  cabinet: '#c9b48e',
+  white: '#f4f2ec',
+  porcelain: '#fbfbf8',
+  water: '#7aa8c8',
+  bluebin: '#2f5a8a',
+  cardboard: '#b08858',
+  can: '#c8ccd4',
+  canRed: '#c03a3a',
+  pizza: '#d8b070',
+  cone: '#f26a1a',
+  green: '#4a8a3a',
+  pot: '#a86a3a',
+  rug: '#9a948c',
+  laundry: '#7a6a9a',
+  speaker: '#202024',
+  bottleGreen: '#2f7a4a',
+  bottleClear: '#cfe4ea',
+  bottleBrown: '#7a4a1a',
+  vinyl: '#111111',
+  label: '#d94b4b',
+  screen: '#20304a',
+  beanbag: '#8a3a6a',
+};
+
+/** Collects geometry per colour, merged at the end. */
+class Kit {
+  private parts = new Map<string, THREE.BufferGeometry[]>();
+
+  box(c: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
+    const g = new THREE.BoxGeometry(Math.max(0.005, x1 - x0), Math.max(0.005, y1 - y0), Math.max(0.005, z1 - z0));
+    g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    this.add(c, g);
+  }
+
+  cyl(c: string, x: number, y: number, z: number, r: number, h: number, seg = 10, rTop = r) {
+    const g = new THREE.CylinderGeometry(rTop, r, h, seg);
+    g.translate(x, y + h / 2, z);
+    this.add(c, g);
+  }
+
+  cone(c: string, x: number, y: number, z: number, r: number, h: number) {
+    const g = new THREE.ConeGeometry(r, h, 12);
+    g.translate(x, y + h / 2, z);
+    this.add(c, g);
+  }
+
+  private add(c: string, g: THREE.BufferGeometry) {
+    const list = this.parts.get(c) ?? [];
+    list.push(g);
+    this.parts.set(c, list);
+  }
+
+  build(group: THREE.Group, owned: { dispose(): void }[]) {
+    for (const [c, list] of this.parts) {
+      const merged = mergeGeometries(list);
+      list.forEach((g) => g.dispose());
+      const mat = new THREE.MeshToonMaterial({ color: COLOURS[c] ?? c, gradientMap: ramp() });
+      if (c === 'leather') {
+        mat.emissive.set('#0c0c10');
+      }
+      group.add(new THREE.Mesh(merged, mat));
+      owned.push(merged, mat);
+    }
+  }
+}
+
+/** A seeded wobble so clutter lands in the same places every load. */
+function dice(seed: number) {
+  let a = seed;
+  return () => (a = (a * 16807) % 2147483647) / 2147483647;
+}
+
+/** Which end of a long box is against a wall (for headboards and couch backs): -1 low end, +1 high end. */
+function wallEnd(b: HBox, axis: 'x' | 'z'): -1 | 1 {
+  const r = roomAt({ x: (b.min.x + b.max.x) / 2, y: b.min.y + 0.1, z: (b.min.z + b.max.z) / 2 });
+  if (!r) return -1;
+  return b.min[axis] - r.min[axis] < r.max[axis] - b.max[axis] ? -1 : 1;
+}
+
+function furniture(k: Kit, b: HBox) {
+  const { min: lo, max: hi } = b;
+  const y = lo.y;
+  const h = hi.y - lo.y;
+  const longX = hi.x - lo.x > hi.z - lo.z;
+  switch (b.mat) {
+    case 'bed': {
+      // A dark upholstered frame, a mattress with a duvet, a pillow and a headboard at the wall end.
+      k.box('frame', lo.x, y, lo.z, hi.x, y + 0.28, hi.z);
+      k.box('sheet', lo.x + 0.04, y + 0.28, lo.z + 0.04, hi.x - 0.04, y + 0.46, hi.z - 0.04);
+      const axis = longX ? 'x' : 'z';
+      const end = wallEnd(b, axis);
+      const head = end < 0 ? lo[axis] : hi[axis];
+      const len = hi[axis] - lo[axis];
+      const duvetFrom = end < 0 ? lo[axis] + len * 0.32 : lo[axis];
+      const duvetTo = end < 0 ? hi[axis] : hi[axis] - len * 0.32;
+      const pillowA = end < 0 ? head + 0.08 : head - 0.42;
+      if (axis === 'x') {
+        k.box('duvet', duvetFrom, y + 0.46, lo.z + 0.02, duvetTo, y + 0.52, hi.z - 0.02);
+        k.box('pillow', pillowA, y + 0.46, lo.z + 0.12, pillowA + 0.34, y + 0.58, hi.z - 0.12);
+        k.box('frame', head - 0.05, y, lo.z, head + 0.05, y + 1.05, hi.z);
+      } else {
+        k.box('duvet', lo.x + 0.02, y + 0.46, duvetFrom, hi.x - 0.02, y + 0.52, duvetTo);
+        k.box('pillow', lo.x + 0.12, y + 0.46, pillowA, hi.x - 0.12, y + 0.58, pillowA + 0.34);
+        k.box('frame', lo.x, y, head - 0.05, hi.x, y + 1.05, head + 0.05);
+      }
+      break;
+    }
+    case 'desk': {
+      k.box('wood', lo.x, y + h - 0.04, lo.z, hi.x, y + h, hi.z);
+      for (const [x, z] of [[lo.x + 0.04, lo.z + 0.04], [hi.x - 0.08, lo.z + 0.04], [lo.x + 0.04, hi.z - 0.08], [hi.x - 0.08, hi.z - 0.08]]) k.box('darkwood', x, y, z, x + 0.04, y + h - 0.04, z + 0.04);
+      // A laptop and a mug.
+      const cx = (lo.x + hi.x) / 2;
+      const cz = (lo.z + hi.z) / 2;
+      k.box('black', cx - 0.16, y + h, cz - 0.11, cx + 0.16, y + h + 0.02, cz + 0.11);
+      k.cyl('white', cx + 0.24 * (longX ? 1 : 0), y + h, cz + 0.24 * (longX ? 0 : 1), 0.04, 0.09);
+      break;
+    }
+    case 'couch':
+    case 'leather': {
+      // Base, seat cushions, a back along the wall side, arms at the ends.
+      const c = b.mat === 'couch' ? 'navy' : 'leather';
+      const axis = longX ? 'z' : 'x';
+      const back = wallEnd(b, axis);
+      k.box(c, lo.x, y, lo.z, hi.x, y + 0.42, hi.z);
+      if (axis === 'z') {
+        const bz = back < 0 ? lo.z : hi.z - 0.22;
+        k.box(c, lo.x, y, bz, hi.x, y + 0.85, bz + 0.22);
+        for (const x of [lo.x, hi.x - 0.18]) k.box(c, x, y, lo.z, x + 0.18, y + 0.62, hi.z);
+        for (let i = 0; i < 3; i++) k.box(b.mat === 'couch' ? 'navyLight' : c, lo.x + 0.2 + i * ((hi.x - lo.x - 0.4) / 3) + 0.02, y + 0.42, lo.z + 0.05, lo.x + 0.2 + (i + 1) * ((hi.x - lo.x - 0.4) / 3) - 0.02, y + 0.52, hi.z - 0.05);
+      } else {
+        const bx = back < 0 ? lo.x : hi.x - 0.22;
+        k.box(c, bx, y, lo.z, bx + 0.22, y + 0.85, hi.z);
+        for (const z of [lo.z, hi.z - 0.18]) k.box(c, lo.x, y, z, hi.x, y + 0.62, z + 0.18);
+        for (let i = 0; i < 3; i++) k.box(b.mat === 'couch' ? 'navyLight' : c, lo.x + 0.05, y + 0.42, lo.z + 0.2 + i * ((hi.z - lo.z - 0.4) / 3) + 0.02, hi.x - 0.05, y + 0.52, lo.z + 0.2 + (i + 1) * ((hi.z - lo.z - 0.4) / 3) - 0.02);
+        // The black-and-white throw pillow on the navy couch.
+        if (b.mat === 'couch') k.box('white', bx - 0.12 * back, y + 0.5, (lo.z + hi.z) / 2 - 0.2, bx + 0.1, y + 0.82, (lo.z + hi.z) / 2 + 0.15);
+      }
+      break;
+    }
+    case 'table': {
+      const low = h < 0.5;
+      k.box(low ? 'black' : 'wood', lo.x, y + h - 0.05, lo.z, hi.x, y + h, hi.z);
+      for (const [x, z] of [[lo.x + 0.03, lo.z + 0.03], [hi.x - 0.08, lo.z + 0.03], [lo.x + 0.03, hi.z - 0.08], [hi.x - 0.08, hi.z - 0.08]]) k.box(low ? 'black' : 'darkwood', x, y, z, x + 0.05, y + h - 0.05, z + 0.05);
+      break;
+    }
+    case 'counter':
+      k.box('cabinet', lo.x, y, lo.z, hi.x, y + h - 0.04, hi.z);
+      k.box('counter', lo.x - 0.01, y + h - 0.04, lo.z - 0.01, hi.x + 0.01, y + h, hi.z + 0.01);
+      break;
+    case 'fridge':
+      k.box('white', lo.x, y, lo.z, hi.x, hi.y, hi.z);
+      k.box('metal', hi.x, y + 1.1, lo.z + 0.08, hi.x + 0.03, y + 1.6, lo.z + 0.12);
+      k.box('black', hi.x, y + 1.18, lo.z + 0.02, hi.x + 0.005, y + 1.2, hi.z - 0.02);
+      break;
+    case 'toilet': {
+      const cx = (lo.x + hi.x) / 2;
+      const cz = (lo.z + hi.z) / 2;
+      k.cyl('porcelain', cx, y, cz - 0.08, 0.2, 0.4, 14, 0.24);
+      k.box('porcelain', hi.x - 0.18, y + 0.35, lo.z + 0.1, hi.x, y + 0.75, hi.z - 0.1);
+      break;
+    }
+    case 'tub':
+      k.box('porcelain', lo.x, y, lo.z, hi.x, hi.y, hi.z);
+      k.box('water', lo.x + 0.06, hi.y - 0.04, lo.z + 0.06, hi.x - 0.06, hi.y + 0.002, hi.z - 0.06);
+      break;
+    case 'sink':
+      k.box('porcelain', lo.x + 0.1, y, lo.z + 0.2, hi.x - 0.05, y + 0.75, hi.z - 0.2);
+      k.box('porcelain', lo.x, y + 0.75, lo.z, hi.x, hi.y, hi.z);
+      break;
+    case 'radiator':
+      for (let x = lo.x; x < hi.x - 0.02; x += 0.07) for (let z = lo.z; z < hi.z - 0.02; z += 0.07) k.box('white', x, y + 0.08, z, x + 0.05, hi.y, z + 0.05);
+      break;
+    case 'hutch': {
+      // A wooden hutch: cupboard below, glass shelves above, bottles lined along the top.
+      k.box('wood', lo.x, y, lo.z, hi.x, y + 0.9, hi.z);
+      k.box('darkwood', lo.x, y + 0.9, lo.z, hi.x - 0.15, hi.y, hi.z);
+      const r = dice(5);
+      const cols = ['bottleGreen', 'bottleClear', 'bottleBrown'];
+      for (let z = lo.z + 0.08; z < hi.z - 0.05; z += 0.12) {
+        const tall = 0.22 + r() * 0.14;
+        k.cyl(cols[Math.floor(r() * 3)], (lo.x + hi.x) / 2 - 0.05, hi.y, z, 0.035, tall);
+        k.cyl(cols[Math.floor(r() * 3)], (lo.x + hi.x) / 2 - 0.05, hi.y + tall, z, 0.012, 0.08);
+      }
+      break;
+    }
+    case 'shelf':
+      k.box('white', lo.x, y, lo.z, hi.x, hi.y, lo.z + 0.03);
+      k.box('white', lo.x, y, hi.z - 0.03, hi.x, hi.y, hi.z);
+      for (let s = 0; s <= 5; s++) k.box('white', lo.x, y + s * (h / 5) - 0.02, lo.z, hi.x, y + s * (h / 5), hi.z);
+      for (let s = 0; s < 4; s++) for (let i = 0; i < 5; i++) k.box(['label', 'navy', 'green', 'cardboard', 'leather'][(s + i) % 5], lo.x + 0.05, y + s * (h / 5) + 0.02, lo.z + 0.08 + i * 0.22, hi.x - 0.08, y + s * (h / 5) + 0.27, lo.z + 0.24 + i * 0.22);
+      break;
+    case 'records': {
+      // Wags's record player: a low cabinet, the turntable, a record spinning, crates of sleeves beside it.
+      k.box('darkwood', lo.x, y, lo.z, hi.x, hi.y, hi.z);
+      const cx = (lo.x + hi.x) / 2;
+      const cz = (lo.z + hi.z) / 2;
+      k.box('black', cx - 0.25, hi.y, cz - 0.18, cx + 0.25, hi.y + 0.08, cz + 0.18);
+      k.cyl('vinyl', cx - 0.03, hi.y + 0.08, cz, 0.15, 0.01, 24);
+      k.cyl('label', cx - 0.03, hi.y + 0.09, cz, 0.05, 0.005, 16);
+      for (const dx of [-0.85, 0.75]) for (let i = 0; i < 8; i++) k.box(['label', 'navy', 'green', 'cardboard'][i % 4], cx + dx + i * 0.03, hi.y, cz - 0.15, cx + dx + i * 0.03 + 0.012, hi.y + 0.31, cz + 0.15);
+      break;
+    }
+    case 'bin':
+      k.box('bluebin', lo.x, y, lo.z, hi.x, hi.y - 0.04, hi.z);
+      k.box('black', lo.x - 0.02, hi.y - 0.04, lo.z - 0.02, hi.x + 0.02, hi.y, hi.z + 0.02);
+      break;
+    case 'junk':
+      k.box('cardboard', lo.x, y, lo.z, hi.x, hi.y, hi.z);
+      k.box('cardboard', lo.x + 0.1, hi.y, lo.z + 0.15, hi.x - 0.15, hi.y + 0.3, hi.z - 0.1);
+      break;
+    case 'beanbag': {
+      const cx = (lo.x + hi.x) / 2;
+      const cz = (lo.z + hi.z) / 2;
+      k.cyl('beanbag', cx, y, cz, (hi.x - lo.x) / 2, 0.38, 14, (hi.x - lo.x) / 3);
+      break;
+    }
+  }
+}
+
+/** Clutter: cans, pizza boxes, laundry, the traffic cone, a plant and a shag rug in Dev's room. */
+function clutter(k: Kit) {
+  const r = dice(11);
+  const f = (i: number) => FLOOR_Y[i];
+  // Cans on the coffee table, the dining table and the floor by the couches.
+  const cans: [number, number, number][] = [
+    [6, 0.42, 9.2], [6.3, 0.42, 9.5], [6.7, 0.42, 9.1], [2.2, 0.76, 7.5], [2.5, 0.76, 8.3], [7.3, 0, 11.3], [4.6, 0, 11.1], [1.9, 0, 11.2], [6.9, f(1) + 0.75, 5.7],
+    [5.2, f(1) + 0.75, 18.2], [8.1, f(2) + 0.5, 4.2], [3, 0.92, 1.8], [8.9, 0.92, 2.1],
+  ];
+  for (const [x, y, z] of cans) {
+    k.cyl(r() < 0.5 ? 'can' : 'canRed', x, y, z, 0.033, 0.12, 8);
+  }
+  // Pizza boxes.
+  for (const [x, y, z, n] of [[6.5, 0.42, 9.6, 2], [4.2, 0, 2.8, 3], [6.2, f(1), 17.6, 1], [0.6, 0.92, 2.6, 1]] as [number, number, number, number][])
+    for (let i = 0; i < n; i++) k.box('pizza', x - 0.2, y + i * 0.045, z - 0.2, x + 0.2, y + i * 0.045 + 0.04, z + 0.2);
+  // Laundry piles in Xang's and Selby's rooms (chaos).
+  for (const [x, y, z] of [[6.4, f(1), 15.6], [7.2, f(1), 18.8], [1.8, f(1), 2.2], [2.8, f(1), 6.6], [5.9, f(1), 14.2]] as [number, number, number][]) {
+    k.box('laundry', x - 0.3, y, z - 0.25, x + 0.3, y + 0.12, z + 0.25);
+    k.box(r() < 0.5 ? 'navy' : 'label', x - 0.15, y + 0.12, z - 0.12, x + 0.18, y + 0.2, z + 0.1);
+  }
+  // The traffic cone (nobody remembers where it came from).
+  k.cone('cone', 3.8, 0, 13.4, 0.17, 0.7);
+  k.box('cone', 3.6, 0, 13.2, 4, 0.04, 13.6);
+  // Dev's room: a shag runner, a plant in a pot.
+  k.box('rug', 5, f(1) + 0.002, 2.6, 5.7, f(1) + 0.02, 5.6);
+  k.cyl('pot', 4.5, f(1), 5.6, 0.16, 0.3, 10, 0.2);
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2;
+    k.box('green', 4.5 + Math.cos(a) * 0.15 - 0.02, f(1) + 0.3, 5.6 + Math.sin(a) * 0.15 - 0.02, 4.5 + Math.cos(a) * 0.3 + 0.02, f(1) + 0.75 + r() * 0.3, 5.6 + Math.sin(a) * 0.3 + 0.02);
+  }
+  // The PA speaker on its nightstand, in the brick corner where the couches meet.
+  k.box('wood', 7.6, 0, 12, 8.2, 0.55, 12.45);
+  k.box('speaker', 7.65, 0.55, 12.05, 8.15, 1.2, 12.42);
+  k.cyl('black', 7.9, 0.82, 12.03, 0.16, 0.01, 16);
+  // The wheelie bin's lid and the porch mailbox.
+  k.box('black', WIDTH - 0.02, 1.3, DEPTH + 0.12, WIDTH - 0.01, 1.31, DEPTH + 0.13);
+  k.box('black', 2.6, 1.15, DEPTH + 0.12, 2.9, 1.4, DEPTH + 0.2);
+}
+
+/** A wall sign or flag: a plane with a canvas texture, facing along `n`. */
+function sign(group: THREE.Group, owned: { dispose(): void }[], draw: (g: CanvasRenderingContext2D, w: number, h: number) => void, w: number, h: number, at: [number, number, number], yaw: number, glow = false) {
+  const c = document.createElement('canvas');
+  c.width = Math.round(256 * Math.max(1, w / h));
+  c.height = Math.round(256 * Math.max(1, h / w));
+  draw(c.getContext('2d')!, c.width, c.height);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = glow ? new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }) : new THREE.MeshToonMaterial({ map: tex, gradientMap: ramp() });
+  const geo = new THREE.PlaneGeometry(w, h);
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(...at);
+  m.rotation.y = yaw;
+  group.add(m);
+  owned.push(tex, mat, geo);
+}
+
+const text = (g: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, colour: string, weight = 900, font = 'system-ui') => {
+  g.font = `${weight} ${size}px ${font}, sans-serif`;
+  g.fillStyle = colour;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(s, x, y);
+};
+
+/** A printed photo of a housemate for the wall over the bar: a cartoon of them and a caption. */
+function poster(char: CharId, caption: string) {
+  return (g: CanvasRenderingContext2D, w: number, h: number) => {
+    const look = CAST[char].look;
+    g.fillStyle = '#f2efe6';
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = '#7fb3d8';
+    g.fillRect(10, 10, w - 20, h * 0.68);
+    g.fillStyle = look.shirt;
+    g.fillRect(w * 0.3, h * 0.48, w * 0.4, h * 0.25);
+    g.fillStyle = look.skin;
+    g.beginPath();
+    g.arc(w / 2, h * 0.34, w * 0.17, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = look.hair;
+    g.beginPath();
+    g.arc(w / 2, h * 0.28, w * 0.18, Math.PI, 0);
+    g.fill();
+    g.fillStyle = '#222';
+    g.fillRect(w * 0.43, h * 0.33, 6, 6);
+    g.fillRect(w * 0.55, h * 0.33, 6, 6);
+    text(g, caption, w / 2, h * 0.86, Math.min(34, (w * 1.5) / caption.length), '#c0202a');
+  };
+}
+
+/** Builds every prop. Returns the group and what to dispose. */
+export function buildProps(): { group: THREE.Group; owned: { dispose(): void }[] } {
+  const group = new THREE.Group();
+  const owned: { dispose(): void }[] = [];
+  const k = new Kit();
+  for (const b of BOXES) if (DRAWN.has(b.mat)) furniture(k, b);
+  clutter(k);
+  k.build(group, owned);
+
+  const brick = (g: CanvasRenderingContext2D, w: number, h: number) => {
+    g.fillStyle = '#e8dccb';
+    g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 18)
+      for (let x = (y / 18) % 2 ? -20 : 0; x < w; x += 40) {
+        g.fillStyle = `hsl(${12 + ((x * 7 + y) % 9)}, 45%, ${44 + ((x + y * 3) % 7)}%)`;
+        g.fillRect(x + 2, y + 2, 36, 14);
+      }
+  };
+  // The faux-brick corner where the couches meet.
+  sign(group, owned, brick, 0.85, 2.55, [7.85, 1.3, 12.53], Math.PI);
+  sign(group, owned, brick, 1.6, 2.55, [WIDTH - 0.13, 1.3, 11.7], -Math.PI / 2);
+  // The Coors flag over the leather couch, the Queen's sign above it, the Martin Garrix flag on the navy couch's wall.
+  sign(group, owned, (g, w, h) => {
+    g.fillStyle = '#f2c230';
+    g.fillRect(0, 0, w, h);
+    text(g, 'Coors', w * 0.4, h * 0.55, h * 0.4, '#111', 900, 'Georgia');
+    g.strokeStyle = '#c0202a';
+    g.lineWidth = 8;
+    g.strokeRect(10, 10, w - 20, h - 20);
+  }, 1.4, 0.85, [5.4, 1.75, 12.53], Math.PI);
+  sign(group, owned, (g, w, h) => {
+    g.fillStyle = '#f7f5f0';
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = '#9a1c2a';
+    g.fillRect(0, h - 14, w, 14);
+    text(g, 'Welcome to', w / 2, h * 0.28, h * 0.17, '#333', 600);
+    text(g, 'GORDON BROCKINGTON HALL', w / 2, h * 0.6, h * 0.2, '#222', 800);
+  }, 1.6, 0.32, [6.1, 2.38, 12.53], Math.PI);
+  sign(group, owned, (g, w, h) => {
+    g.fillStyle = '#f4f4f0';
+    g.fillRect(0, 0, w, h);
+    text(g, 'MARTIN', w / 2, h * 0.35, w * 0.22, '#111');
+    text(g, 'GARRIX', w / 2, h * 0.68, w * 0.22, '#111');
+  }, 0.8, 1.3, [WIDTH - 0.13, 1.6, 8.6], -Math.PI / 2);
+  // The DRINK BEER LED sign over the bar, glowing.
+  sign(group, owned, (g, w, h) => {
+    g.fillStyle = '#111';
+    g.fillRect(0, 0, w, h);
+    text(g, 'DRINK', w / 2, h * 0.3, h * 0.32, '#ff4040');
+    text(g, 'BEER', w / 2, h * 0.72, h * 0.32, '#40ff70');
+  }, 0.75, 0.4, [0.13, 2.25, 9.2], Math.PI / 2, true);
+  // Printed photos of the housemates along the top of the wall over the dining room's opening.
+  const posters: [CharId, string][] = [['jung', 'Andrew 3-0'], ['dev', 'We’d go to bat for you DEVLIN'], ['xang', 'XANGUS!!!'], ['selby', 'Selby? Our Jayvon?'], ['wags', 'Records after?'], ['will', 'Campus Legend'], ['jj', 'CHORE CHART'], ['mikol', 'What bro.']];
+  posters.forEach(([c, cap], i) => sign(group, owned, poster(c, cap), 0.42, 0.34, [3.62, 2.3, 5.95 + i * 0.44], -Math.PI / 2));
+  // Dev's blacklight Jimi Hendrix poster.
+  sign(group, owned, (g, w, h) => {
+    const grad = g.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, '#2a0a4a');
+    grad.addColorStop(0.5, '#0a6a4a');
+    grad.addColorStop(1, '#6a0a3a');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 6; i++) {
+      g.strokeStyle = ['#ff3df0', '#ffe14d', '#3dffd6'][i % 3];
+      g.lineWidth = 10;
+      g.beginPath();
+      g.arc(w * 0.7, h * 0.2, 60 + i * 26, 0, Math.PI);
+      g.stroke();
+    }
+    g.fillStyle = '#111';
+    g.beginPath();
+    g.ellipse(w * 0.45, h * 0.6, w * 0.18, h * 0.3, -0.3, 0, Math.PI * 2);
+    g.fill();
+    text(g, 'Jimi Hendrix', w / 2, h * 0.1, h * 0.08, '#ffe14d');
+  }, 0.6, 0.9, [7.3, FLOOR_Y[1] + 1.6, 0.13], 0, true);
+  // The purple flag on the front balcony railing, and the house number by the door.
+  sign(group, owned, (g, w, h) => {
+    g.fillStyle = '#5a3a9a';
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#e8e0ff';
+    g.lineWidth = 6;
+    g.beginPath();
+    g.arc(w / 2, h / 2, h * 0.32, 0, Math.PI * 2);
+    g.stroke();
+  }, 1.1, 0.7, [2.2, FLOOR_Y[1] + 0.55, 22.23], 0);
+  sign(group, owned, (g, w, h) => {
+    g.fillStyle = '#f4f2ec';
+    g.fillRect(0, 0, w, h);
+    text(g, '282', w / 2, h / 2, h * 0.7, '#222', 700, 'Georgia');
+  }, 0.36, 0.16, [0.6, 1.8, DEPTH + 0.13], 0);
+  // The red LED strip round the top of the living room, and the drop ceiling with tiles missing.
+  const led = new THREE.MeshBasicMaterial({ color: 0xff2a3a, toneMapped: false });
+  const ledGeo = mergeGeometries(
+    [
+      [4.3, 2.5, 12.48, 8.2, 2.53, 12.5],
+      [WIDTH - 0.14, 2.5, 6.2, WIDTH - 0.12, 2.53, 12.4],
+    ].map(([x0, y0, z0, x1, y1, z1]) => new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0).translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)),
+  );
+  group.add(new THREE.Mesh(ledGeo, led));
+  owned.push(led, ledGeo);
+  const tiles = document.createElement('canvas');
+  tiles.width = tiles.height = 512;
+  const tg = tiles.getContext('2d')!;
+  const tr = dice(17);
+  for (let i = 0; i < 8; i++)
+    for (let j = 0; j < 8; j++) {
+      const missing = tr() < 0.07;
+      tg.fillStyle = missing ? '#16121a' : `hsl(40, 12%, ${86 + tr() * 6}%)`;
+      tg.fillRect(i * 64, j * 64, 64, 64);
+      tg.strokeStyle = '#b8b2a6';
+      tg.lineWidth = 3;
+      tg.strokeRect(i * 64, j * 64, 64, 64);
+    }
+  const tileTex = new THREE.CanvasTexture(tiles);
+  tileTex.colorSpace = THREE.SRGBColorSpace;
+  const ceilMat = new THREE.MeshToonMaterial({ map: tileTex, gradientMap: ramp(), side: THREE.DoubleSide });
+  const ceilGeo = new THREE.PlaneGeometry(WIDTH - 3.6, 7);
+  const ceil = new THREE.Mesh(ceilGeo, ceilMat);
+  ceil.rotation.x = Math.PI / 2;
+  ceil.position.set(3.6 + (WIDTH - 3.6) / 2, 2.55, 9.05);
+  group.add(ceil);
+  owned.push(tileTex, ceilMat, ceilGeo);
+  return { group, owned };
+}

@@ -19,12 +19,15 @@ import {
   TREE,
   WIDTH,
   doorBox,
+  floorOf,
   roomAt,
   type Door,
   type HBox,
 } from './house.ts';
 import { ramp } from './people.ts';
 import { disposeTextures, texture } from './textures.ts';
+import { DRAWN, buildProps } from './props.ts';
+import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import type { Vec3 } from '../../shared/math.ts';
 
 interface Look {
@@ -52,6 +55,7 @@ const LOOKS: Record<string, Look> = {
   ceiling: { color: '#f2ede2' },
   fence: { color: '#6b5440' },
   neighbour: { color: '#6d4a3e', tex: 'brick' },
+  neighbourRoof: { color: '#3a3a42' },
   tv: { color: '#111216', glow: '#24304a' },
   bed: { color: '#5f7a9a' },
   desk: { color: '#9a7350' },
@@ -107,11 +111,48 @@ const PARTY = new Set([0, 1]);
 
 type V = [number, number, number];
 
-/** Collects quads per material, with UVs in metres. */
+/**
+ * Lamp light baked into vertex colours when the house loads: pools of warm light under each lamp, darker corners and
+ * far ends. It multiplies the surface colour, so a power cut (the real lights off) still goes dark.
+ */
+const BAKE_LAMPS = [...LAMPS, ...OUT_LAMPS];
+function bake(v: V, n: V): number {
+  const f = floorOf(v[1] + 0.05);
+  let light = 0.62;
+  for (const l of BAKE_LAMPS) {
+    if (floorOf(l.y - 0.2) !== f && l.y > 0.5) continue;
+    const dx = l.x - v[0];
+    const dy = l.y - v[1];
+    const dz = l.z - v[2];
+    const d2 = dx * dx + dy * dy + dz * dz;
+    const facing = Math.max(0, (dx * n[0] + dy * n[1] + dz * n[2]) / Math.sqrt(d2 + 1e-6));
+    light += (0.75 * (0.35 + 0.65 * facing)) / (1 + d2 / 5);
+  }
+  // A touch of darkness right at the floor and in the top corners.
+  const up = v[1] - [0, 2.8, 5.6][f];
+  if (up < 0.25 && n[1] < 0.5) light *= 0.82 + up * 0.7;
+  return Math.max(0.5, Math.min(1.35, light));
+}
+
+/** Collects quads per material, with UVs in metres; big faces are split into tiles so the baked light can vary. */
 class Builder {
-  private parts = new Map<string, { pos: number[]; uv: number[]; nrm: number[] }>();
+  private parts = new Map<string, { pos: number[]; uv: number[]; nrm: number[]; col: number[] }>();
 
   quad(mat: string, a: V, b: V, c: V, d: V, n: V, uAxis: 0 | 1 | 2, vAxis: 0 | 1 | 2) {
+    const len = (p: V, q: V) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+    const nu = Math.min(12, Math.max(1, Math.ceil(Math.max(len(a, b), len(d, c)) / 1.2)));
+    const nv = Math.min(12, Math.max(1, Math.ceil(Math.max(len(a, d), len(b, c)) / 1.2)));
+    if (nu === 1 && nv === 1) return this.tile(mat, a, b, c, d, n, uAxis, vAxis);
+    const at = (s: number, t: number): V => {
+      const top: V = [a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s, a[2] + (b[2] - a[2]) * s];
+      const bot: V = [d[0] + (c[0] - d[0]) * s, d[1] + (c[1] - d[1]) * s, d[2] + (c[2] - d[2]) * s];
+      return [top[0] + (bot[0] - top[0]) * t, top[1] + (bot[1] - top[1]) * t, top[2] + (bot[2] - top[2]) * t];
+    };
+    for (let i = 0; i < nu; i++)
+      for (let j = 0; j < nv; j++) this.tile(mat, at(i / nu, j / nv), at((i + 1) / nu, j / nv), at((i + 1) / nu, (j + 1) / nv), at(i / nu, (j + 1) / nv), n, uAxis, vAxis);
+  }
+
+  private tile(mat: string, a: V, b: V, c: V, d: V, n: V, uAxis: 0 | 1 | 2, vAxis: 0 | 1 | 2) {
     // Wind so the face's normal points out (n).
     const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
@@ -120,13 +161,16 @@ class Builder {
     const cz = e1[0] * e2[1] - e1[1] * e2[0];
     const pts = cx * n[0] + cy * n[1] + cz * n[2] >= 0 ? [a, b, c, a, c, d] : [a, c, b, a, d, c];
     let p = this.parts.get(mat);
-    if (!p) this.parts.set(mat, (p = { pos: [], uv: [], nrm: [] }));
+    if (!p) this.parts.set(mat, (p = { pos: [], uv: [], nrm: [], col: [] }));
+    const lit = !mat.startsWith('glass') && mat !== 'window' && mat !== 'wire';
     const look = LOOKS[mat];
     const m = look?.tex ? texture(look.tex)!.metres : 1;
     for (const v of pts) {
       p.pos.push(v[0], v[1], v[2]);
       p.uv.push(v[uAxis] / m, v[vAxis] / m);
       p.nrm.push(n[0], n[1], n[2]);
+      const k = lit ? bake(v, n) : 1;
+      p.col.push(k, k, k);
     }
   }
 
@@ -137,17 +181,19 @@ class Builder {
       g.setAttribute('position', new THREE.Float32BufferAttribute(p.pos, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(p.uv, 2));
       g.setAttribute('normal', new THREE.Float32BufferAttribute(p.nrm, 3));
-      out.push(new THREE.Mesh(g, material(key)));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(p.col, 3));
+      out.push(new THREE.Mesh(g, material(key, true)));
     }
     return out;
   }
 }
 
 const mats = new Map<string, THREE.Material>();
-function material(key: string): THREE.Material {
-  let m = mats.get(key);
+/** A surface's material; `baked` ones read the house's vertex colours (the baked lamp light). */
+function material(key: string, baked = false): THREE.Material {
+  let m = mats.get(baked ? `b:${key}` : key);
   if (m) return m;
-  if (key.startsWith('paint:')) m = new THREE.MeshToonMaterial({ color: key.slice(6), gradientMap: ramp() });
+  if (key.startsWith('paint:')) m = new THREE.MeshToonMaterial({ color: key.slice(6), gradientMap: ramp(), vertexColors: baked });
   else {
     const l = LOOKS[key] ?? { color: '#ff00ff' };
     const t = l.tex ? texture(l.tex)!.tex : null;
@@ -159,9 +205,10 @@ function material(key: string): THREE.Material {
       transparent: !!l.clear,
       opacity: l.clear ? 0.45 : 1,
       side: l.clear ? THREE.DoubleSide : THREE.FrontSide,
+      vertexColors: baked,
     });
   }
-  mats.set(key, m);
+  mats.set(baked ? `b:${key}` : key, m);
   return m;
 }
 
@@ -239,6 +286,8 @@ export class World {
   private ambient = new THREE.AmbientLight('#ffffff', 0.25);
   /** The Ring doorbell's light (red while someone's watching the laptop). */
   private doorbell = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), new THREE.MeshBasicMaterial({ color: 0x3355ff }));
+  /** The mirror over the floor-2 bathroom sink: the one place you see yourself (people.ts draws you on layer 1). */
+  readonly mirror = new Reflector(new THREE.PlaneGeometry(0.6, 0.8), { textureWidth: 384, textureHeight: 512, color: 0xb8c4cc });
   /** The flood: water spreading over the floor-2 landing and bathroom. */
   readonly water = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),
@@ -269,7 +318,7 @@ export class World {
     ];
 
     const bld = new Builder();
-    for (const b of BOXES) if (b.mat !== 'invisible') addBox(bld, b);
+    for (const b of BOXES) if (b.mat !== 'invisible' && !DRAWN.has(b.mat)) addBox(bld, b);
     this.addOutside(bld);
     for (const m of bld.build()) {
       s.add(m);
@@ -284,6 +333,15 @@ export class World {
     this.addDoors();
     this.addTree();
     this.addPrisms();
+    const props = buildProps();
+    s.add(props.group);
+    this.disposables.push(...props.owned);
+    // The bathroom mirror (it only renders while you're close enough to see it).
+    this.mirror.position.set(WIDTH - 0.135, FLOOR_Y[1] + 1.55, 11.15);
+    this.mirror.rotation.y = -Math.PI / 2;
+    this.mirror.visible = false;
+    s.add(this.mirror);
+    this.disposables.push(this.mirror.geometry, this.mirror);
     this.rebuildColliders();
   }
 
@@ -325,6 +383,28 @@ export class World {
         [17, 1.2],
       ])
         bld.quad('window', [x, y, z], [x, y, z + 1], [x, y + 1.2, z + 1], [x, y + 1.2, z], [n === -1 ? 1 : -1, 0, 0], 2, 1);
+    // The stone foundation round the house, white eave boards under the roof.
+    const base = GROUND;
+    const top = 0.25;
+    const o = 0.13;
+    bld.quad('stone', [-o, base, DEPTH + o], [WIDTH + o, base, DEPTH + o], [WIDTH + o, top, DEPTH + o], [-o, top, DEPTH + o], [0, 0, 1], 0, 1);
+    bld.quad('stone', [-o, base, -o], [WIDTH + o, base, -o], [WIDTH + o, top, -o], [-o, top, -o], [0, 0, -1], 0, 1);
+    bld.quad('stone', [-o, base, -o], [-o, base, DEPTH + o], [-o, top, DEPTH + o], [-o, top, -o], [-1, 0, 0], 2, 1);
+    bld.quad('stone', [WIDTH + o, base, -o], [WIDTH + o, base, DEPTH + o], [WIDTH + o, top, DEPTH + o], [WIDTH + o, top, -o], [1, 0, 0], 2, 1);
+    for (const z of [zf + 0.01, zb - 0.01]) {
+      const n: V = [0, 0, z > 10 ? 1 : -1];
+      bld.quad('trim', [-0.5, eave - 0.18, z], [cx, ridge - 0.12, z], [cx, ridge + 0.05, z], [-0.5, eave, z], n, 0, 1);
+      bld.quad('trim', [WIDTH + 0.5, eave - 0.18, z], [cx, ridge - 0.12, z], [cx, ridge + 0.05, z], [WIDTH + 0.5, eave, z], n, 0, 1);
+    }
+    // Next door's houses get gable roofs too.
+    for (const [x0, x1] of [
+      [-9, -1.2],
+      [WIDTH + 1.2, WIDTH + 9],
+    ]) {
+      const mid = (x0 + x1) / 2;
+      bld.quad('neighbourRoof', [x0 - 0.3, 9, -2.3], [mid, 12, -2.3], [mid, 12, 22.3], [x0 - 0.3, 9, 22.3], [-0.6, 0.8, 0], 2, 1);
+      bld.quad('neighbourRoof', [x1 + 0.3, 9, -2.3], [mid, 12, -2.3], [mid, 12, 22.3], [x1 + 0.3, 9, 22.3], [0.6, 0.8, 0], 2, 1);
+    }
     // Power lines across the front.
     for (const y of [7.2, 7.5])
       bld.quad('wire', [-14, y, 29], [24, y, 29], [24, y + 0.03, 29], [-14, y + 0.03, 29], [0, 0, 1], 0, 1);
@@ -353,7 +433,7 @@ export class World {
           nz = -nz;
         }
         const tvFace = p.tv && k === 1;
-        bld.quad(tvFace ? 'feature' : `paint:${CREAM}`, [ax, y0, az], [bx, y0, bz], [bx, y1, bz], [ax, y1, az], [nx, 0, nz], Math.abs(nx) > Math.abs(nz) ? 2 : 0, 1);
+        bld.quad(`paint:${CREAM}`, [ax, y0, az], [bx, y0, bz], [bx, y1, bz], [ax, y1, az], [nx, 0, nz], Math.abs(nx) > Math.abs(nz) ? 2 : 0, 1);
         if (tvFace) {
           // The TV and the PA speaker, a hair proud of the bricks.
           const at = (t: number, up: number, out: number): V => [ax + (bx - ax) * t + nx * out, y0 + up, az + (bz - az) * t + nz * out];
@@ -479,6 +559,7 @@ export class World {
 
   update(dt: number, eye: Vec3, power = true) {
     this.t += dt;
+    this.mirror.visible = floorOf(eye.y - 1) === 1 && Math.hypot(eye.x - this.mirror.position.x, eye.z - this.mirror.position.z) < 3.2 && eye.x > 6.6;
     for (const v of this.doorViews.values()) {
       v.open += Math.sign(v.target - v.open) * Math.min(Math.abs(v.target - v.open), dt * 4);
       v.pivot.rotation.y = (v.door.axis === 'x' ? 1 : -1) * v.open * (Math.PI / 2) * 0.95;

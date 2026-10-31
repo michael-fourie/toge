@@ -1,6 +1,6 @@
 # Royal Degeneracy: design and build plan
 
-Status: steps 1–6 of the build order are built; step 7 (the art pass) is next. The cast is in [CAST.md](CAST.md), the floorplans are in
+Status: steps 1–7 of the build order are built; step 8 (later: touch controls, more cases, proximity voice) is left. The cast is in [CAST.md](CAST.md), the floorplans are in
 `floorplans/`, and the house is read off them in [CLAUDE.md](CLAUDE.md), which also says where to start. The guests
 come later.
 

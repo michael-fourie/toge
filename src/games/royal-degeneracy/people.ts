@@ -344,6 +344,11 @@ export class Person {
     this.said = null;
   }
 
+  /** Puts every part on one render layer (you, in the mirror, live on layer 1). */
+  setLayer(n: number) {
+    this.root.traverse((o) => o.layers.set(n));
+  }
+
   /** Seen through walls (Wallhack, Eavesdrop): drawn last, never hidden. */
   setXray(on: boolean) {
     if (on === this.xray) return;
