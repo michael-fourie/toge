@@ -502,6 +502,21 @@ function clutter(k: Kit) {
   k.box('wood', 7.6, 0, 12, 8.2, 0.55, 12.45);
   k.box('speaker', 7.65, 0.55, 12.05, 8.15, 1.2, 12.42);
   k.cyl('black', 7.9, 0.82, 12.03, 0.16, 0.01, 16);
+  // The kitchen worktops: a microwave by the fridge, the kettle and toaster either side of the hob, a tower of
+  // dirty plates and mugs by the sink (and a dish rack nobody empties), cereal boxes on top of the fridge.
+  const top = 0.92;
+  k.box('#2a2a30', 1.3, top, 2.45, 1.78, top + 0.3, 2.82);
+  k.box('#101418', 1.775, top + 0.05, 2.5, 1.785, top + 0.25, 2.72);
+  k.box('#7aff9a', 1.79, top + 0.2, 2.76, 1.792, top + 0.24, 2.8);
+  k.cyl('steel', WIDTH - 0.42, top, 4.3, 0.08, 0.2, 12, 0.06);
+  k.box('black', WIDTH - 0.47, top + 0.2, 4.28, WIDTH - 0.37, top + 0.23, 4.32);
+  k.box('#c0c4cc', WIDTH - 0.6, top, 1.5, WIDTH - 0.3, top + 0.18, 1.7);
+  k.box('#1a1a1e', WIDTH - 0.56, top + 0.18, 1.56, WIDTH - 0.34, top + 0.181, 1.64);
+  for (let i = 0; i < 6; i++) k.cyl(i % 3 ? 'white' : '#e8dcc0', 5.45 + (i % 2) * 0.02, top + i * 0.025, 4.95, 0.12, 0.022, 14);
+  for (const [x, c] of [[5.8, '#c84a4a'], [5.92, '#4a7ac8'], [4.15, '#f2c53d']] as [number, string][]) k.cyl(c, x, top, 5.12, 0.04, 0.1, 10);
+  k.box('steel', 3.45, top, 4.7, 3.95, top + 0.12, 5.2);
+  for (let i = 0; i < 4; i++) k.box('white', 3.52 + i * 0.11, top + 0.02, 4.75, 3.53 + i * 0.11, top + 0.22, 5.15);
+  for (const [z, c] of [[0.3, '#e85a2a'], [0.52, '#3a8ad8'], [0.72, '#f2c53d']] as [number, string][]) k.box(c, 1.4, 1.85, z, 1.52, 2.15, z + 0.17);
   // The bathrooms, lived in: a mat by the tub, a towel over its side, half-empty bottles on the rim, a tower of
   // toilet rolls (and the empty tube nobody binned) and the plunger, on call.
   for (const [fl, tub0, tub1, tubX, loo] of [[1, 6.6, 8.3, 7.5, 12.45], [2, 10.85, 12.08, 7.65, 9.45]] as [number, number, number, number, number][]) {
