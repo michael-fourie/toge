@@ -3,12 +3,18 @@
 // to one player. Secrets (roles, who's a Degenerate) only ever leave in private messages, or at the reveal.
 
 import { CAST, tagFor } from './cast.ts';
-import { ITEM, inspect, label, plant, post, search, wipe } from './clues.ts';
-import { DOORS, REACH, SPOTS, doorBox, type Door } from './house.ts';
+import { BONGUS_RANGE, LOOKOUT_RANGE, NPC_SIGHT, POWERS, hiddenNear, plantedIn, powerOf, powerProblem, proof, recordRooms, routerLog, spend, teaFact } from './abilities.ts';
+import { CATS, ITEM, hint, inspect, label, nextRand, plant, post, search, traceable, unlock, valueOf, wipe } from './clues.ts';
+import { WALK, newWalker, stepWalker, type Walker } from './move.ts';
+import { rayWorld } from '../../shared/collision.ts';
+import { DOORS, DUO_PAIRS, FLOOR_Y, REACH, ROOMS, SOLIDS, SPOTS, doorBox, floorOf, roomAt, type Door } from './house.ts';
 import type { Msg } from './net.ts';
 import {
   REPORT_RANGE,
   castVote,
+  legend,
+  objection,
+  settle,
   doChore,
   killProblem,
   leave,
@@ -58,6 +64,14 @@ export class Referee {
   private sinceSync = 0;
   /** How many of the case's texts have gone out. */
   private textsSent = 0;
+  private sinceRooms = 0;
+  /** Two-person chores: who's holding which end, since when (referee clock). */
+  private holding = new Map<string, { id: number; since: number }>();
+  /** High-five / hug offers: from → [to, kind, when]. */
+  private offers = new Map<number, [number, 'five' | 'hug', number]>();
+  /** Bike Stu's randoms, wandering from door to door. */
+  private npcs: { w: Walker; goal: { x: number; z: number }; stuck: number; last: number }[] = [];
+  private sinceNpcs = 0;
   /** True once the night is over and its end card has had its time. */
   done = false;
 
@@ -104,6 +118,225 @@ export class Referee {
       this.out({ t: 'feed', from, text, clue: -1 });
     }
     if (this.night.phase === 'over' && this.night.left <= 0) this.done = true;
+    if (this.night.phase !== 'night') return;
+    this.sinceRooms += dt;
+    if (this.sinceRooms > 1) {
+      this.sinceRooms = 0;
+      const live = new Map([...this.poses].filter(([id]) => { const p = playerOf(this.night, id); return !!p && living(p); }));
+      recordRooms(this.night, live);
+    }
+    this.tickDuo();
+    this.tickNpcs(dt);
+    // Shota overheats: off comes the shirt, wherever he's standing.
+    const n = this.night;
+    if (!n.shirt.pos && n.roam >= n.shirt.at) {
+      const shota = n.players.find((p) => p.char === 'shota' && living(p));
+      const pose = shota && this.poses.get(shota.id);
+      if (pose) {
+        n.shirt.pos = { x: pose.x, y: pose.y, z: pose.z };
+        this.out({ t: 'feed', from: 'Shota', text: 'too hot. shirt’s off. no further questions', clue: -1 });
+        this.broadcast(false);
+      } else n.shirt.at = Infinity;
+    }
+  }
+
+  private pw(to: number, text: string, extra: { pos?: [number, number, number][]; ids?: number[]; until?: number } = {}) {
+    this.out({ t: 'pw', text, pos: extra.pos ?? [], ids: extra.ids ?? [], until: extra.until ?? 0 }, to);
+  }
+
+  /** After a takeout: Wags's phone buzzes if it was on his floor; Bike Stu's randoms may have seen it. */
+  private afterCrime(killer: number, at: Pose) {
+    const n = this.night;
+    const f = floorOf(at.y + 0.1);
+    for (const p of n.players) {
+      const pose = this.poses.get(p.id);
+      if (p.char === 'wags' && living(p) && pose && floorOf(pose.y + 0.1) === f) this.out({ t: 'buzz', x: at.x, y: at.y, z: at.z, text: 'Something bad just happened on your floor.' }, p.id);
+    }
+    if (n.powers.stuUntil <= n.roam) return;
+    const k = playerOf(n, killer)!;
+    for (const npc of this.npcs) {
+      const e = { x: npc.w.pos.x, y: npc.w.pos.y + 1.6, z: npc.w.pos.z };
+      const d = { x: at.x - e.x, y: at.y + 1 - e.y, z: at.z - e.z };
+      const len = Math.hypot(d.x, d.y, d.z);
+      if (len > NPC_SIGHT || floorOf(npc.w.pos.y + 0.1) !== f) continue;
+      if (rayWorld(e, { x: d.x / len, y: d.y / len, z: d.z / len }, SOLIDS, len) < len - 0.5) continue;
+      const cats = CATS.filter((c) => c !== 'belonging' && traceable(c, valueOf(k, c)));
+      const cat = cats[Math.floor(nextRand(n) * cats.length)];
+      const room = roomAt({ ...at, y: at.y + 0.1 })?.name ?? 'somewhere';
+      this.pw(n.powers.stuBy, `📱 random from bike stu: yo ${hint(cat, valueOf(k, cat))} just bonked someone in ${room}. anyway see u at the session`);
+      return;
+    }
+  }
+
+  /** Someone used their ability. */
+  private power(from: number, target: number, crime: number) {
+    const n = this.night;
+    const me = playerOf(n, from);
+    const pose = this.poses.get(from);
+    if (!me || !pose) return;
+    const kind = powerOf(me.char, me.name);
+    if (kind === 'legend' || kind === 'objection') {
+      const ok = kind === 'legend' ? legend(n, from) : objection(n, from);
+      if (!ok) return;
+      this.out({ t: 'feed', from: tagFor(me.char, me.name), text: kind === 'legend' ? 'pulled the Campus Legend card: my vote counts double 😎' : 'OBJECTION! That vote is void. Vote again.', clue: -1 });
+      return this.broadcast(false);
+    }
+    if (n.phase !== 'night' || powerProblem(n, from)) return;
+    const def = POWERS[kind];
+    const until = n.roam + (def.dur ?? 0);
+    switch (kind) {
+      case 'toboggan':
+        spend(n, from);
+        this.out({ t: 'fx', k: 'toboggan', x: pose.x, y: pose.y, z: pose.z });
+        this.pw(from, '', { until });
+        break;
+      case 'router': {
+        const r = SPOTS.find((s) => s.kind === 'router')!;
+        if (dist(pose, r.pos) > REACH + 1) return this.pw(from, 'You need to be at the router (the shelf by the front door).');
+        spend(n, from);
+        this.pw(from, ['Router logs, last 90 s:', ...routerLog(n)].join('\n'));
+        break;
+      }
+      case 'proof': {
+        const t = playerOf(n, target);
+        if (!t || !n.mystery.crimes[crime]) return;
+        const r = proof(n, target, crime);
+        if (!r) return this.pw(from, 'Nothing to go on: nobody has posted a real photo from that crime yet. (No use spent.)');
+        spend(n, from);
+        this.pw(from, `Proof: ${tagFor(t.char, t.name)} is ${r === 'consistent' ? 'CONSISTENT with' : 'a CONTRADICTION to'} the real photos from that crime.`);
+        break;
+      }
+      case 'bongus':
+        spend(n, from);
+        this.pw(from, '', { pos: hiddenNear(n, pose, BONGUS_RANGE), until });
+        break;
+      case 'bikestu':
+        spend(n, from);
+        n.powers.stuUntil = until;
+        n.powers.stuBy = from;
+        this.npcs = [0, 1].map((i) => ({ w: newWalker({ x: pose.x + (i ? 0.5 : -0.5), y: pose.y, z: pose.z }), goal: this.npcGoal(pose), stuck: 0, last: 0 }));
+        this.out({ t: 'feed', from: 'Selby', text: 'come through to bike stu 🎤 (two people you’ve never met are now in the house)', clue: -1 });
+        break;
+      case 'lookout': {
+        const t = playerOf(n, target);
+        const them = this.poses.get(target);
+        if (!t || !them || t === me || !living(t) || dist(pose, them) > LOOKOUT_RANGE + SHOVE.slack) return this.pw(from, 'Look right at a friend, close up.');
+        spend(n, from);
+        n.powers.guard.set(target, { by: from, until });
+        this.pw(from, `You’re looking out for ${tagFor(t.char, t.name)} for 30 s.`);
+        break;
+      }
+      case 'inspection': {
+        const room = roomAt({ ...pose, y: pose.y + 0.1 });
+        if (!room) return;
+        spend(n, from);
+        const ids = plantedIn(n, room.id);
+        this.pw(from, ids.length ? `Something in ${room.name} was planted. It’s sparkling.` : `Nothing in ${room.name} is out of place.`, { ids, until: n.roam + 10 });
+        break;
+      }
+      case 'wallhack':
+      case 'eavesdrop':
+        spend(n, from);
+        this.pw(from, '', { until });
+        break;
+      case 'ruck': {
+        spend(n, from);
+        let opened = false;
+        for (const d of DOORS)
+          if (!this.open.has(d.id) && Math.abs(FLOOR_Y[d.floor] - pose.y) < 1 && Math.hypot(d.x - pose.x, d.z - pose.z) < 2.2) {
+            this.open.add(d.id);
+            opened = true;
+          }
+        if (opened) this.out({ t: 'doors', open: [...this.open] });
+        for (const [id, p] of this.poses) {
+          const t = playerOf(n, id);
+          if (id === from || !t || !living(t) || dist(pose, p) > 2.2) continue;
+          const l = Math.hypot(p.x - pose.x, p.z - pose.z) || 1;
+          this.out({ t: 'shoved', id, x: Math.round(((p.x - pose.x) / l) * 100) / 100, z: Math.round(((p.z - pose.z) / l) * 100) / 100 });
+          this.out({ t: 'fx', k: 'oof', x: p.x, y: p.y, z: p.z });
+        }
+        break;
+      }
+      case 'swab': {
+        const c = n.mystery.clues[target];
+        if (!c || c.state !== 'view' || dist(pose, c.pos) > REACH + 1.5) return this.pw(from, 'Look right at a clue to swab it.');
+        spend(n, from);
+        this.pw(from, `Swab result for evidence #${c.id + 1}: ${c.planted ? 'PLANTED. Someone put that there.' : 'real.'}`);
+        break;
+      }
+      case 'tea': {
+        const fact = teaFact(n, from, () => nextRand(n));
+        if (!fact) return this.pw(from, 'No tea yet. Give it a minute. (No use spent.)');
+        spend(n, from);
+        this.pw(from, `☕ ${fact}`);
+        break;
+      }
+    }
+    this.privateTo(from);
+  }
+
+  /** Bike Stu's randoms head for a doorway on their floor, then somewhere in that room. */
+  private npcGoal(at: Vec3): { x: number; z: number } {
+    const f = floorOf(at.y + 0.1);
+    const rooms = ROOMS.filter((r) => r.floor === f && !r.outside && !r.id.startsWith('stairs') && !r.id.startsWith('eaves'));
+    const r = rooms[Math.floor(nextRand(this.night) * rooms.length)];
+    return { x: r.min.x + 0.6 + nextRand(this.night) * (r.max.x - r.min.x - 1.2), z: r.min.z + 0.6 + nextRand(this.night) * (r.max.z - r.min.z - 1.2) };
+  }
+
+  private tickNpcs(dt: number) {
+    const n = this.night;
+    if (!this.npcs.length) return;
+    if (n.powers.stuUntil <= n.roam) {
+      this.npcs = [];
+      this.out({ t: 'npcs', p: [] });
+      return;
+    }
+    const doors = DOORS.filter((d) => !this.open.has(d.id)).map(doorBox);
+    const walls = [...SOLIDS, ...doors];
+    for (const npc of this.npcs) {
+      const w = npc.w;
+      const dx = npc.goal.x - w.pos.x;
+      const dz = npc.goal.z - w.pos.z;
+      const far = Math.hypot(dx, dz);
+      // Head for the goal; when a wall's in the way, slide along it, and give up on goals they can't reach.
+      w.yaw = Math.atan2(-dx, -dz) + Math.sin(this.clock * 0.7 + npc.last) * 0.4;
+      const before = { ...w.pos };
+      stepWalker(w, { fwd: far > 0.5 ? 0.45 : 0, side: 0, jump: false, crouch: false, up: false }, dt, walls);
+      npc.stuck = Math.hypot(w.pos.x - before.x, w.pos.z - before.z) < WALK.speed * 0.45 * dt * 0.3 ? npc.stuck + dt : 0;
+      if (far < 0.5 || npc.stuck > 1.2) {
+        npc.goal = this.npcGoal(w.pos);
+        npc.stuck = 0;
+        npc.last += 1;
+      }
+    }
+    this.sinceNpcs += dt;
+    if (this.sinceNpcs > 0.2) {
+      this.sinceNpcs = 0;
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      this.out({ t: 'npcs', p: this.npcs.map((x) => [r2(x.w.pos.x), r2(x.w.pos.y), r2(x.w.pos.z), r2(x.w.yaw)]) });
+    }
+  }
+
+  /** Two-person chores: both ends held for 4 s (or Shota at either end, alone). */
+  private tickDuo() {
+    const n = this.night;
+    for (const [a, b, what] of DUO_PAIRS) {
+      if (n.duoDone.includes(a)) continue;
+      const ha = this.holding.get(a);
+      const hb = this.holding.get(b);
+      const shota = (h?: { id: number }) => !!h && playerOf(n, h.id)?.char === 'shota';
+      const both = ha && hb && ha.id !== hb.id;
+      const since = both ? Math.max(ha.since, hb.since) : shota(ha) ? ha!.since : shota(hb) ? hb!.since : null;
+      if (since === null || this.clock - since < 4) continue;
+      n.duoDone.push(a);
+      const names = [ha, hb].filter((h) => h).map((h) => { const p = playerOf(n, h!.id)!; return tagFor(p.char, p.name); });
+      this.holding.delete(a);
+      this.holding.delete(b);
+      this.out({ t: 'feed', from: 'House', text: `${[...new Set(names)].join(' and ')} ${what}. Teamwork.`, clue: -1 });
+      this.out({ t: 'fx', k: 'chore', x: 0, y: 0, z: 0 });
+      settle(n);
+      this.broadcast(true);
+    }
   }
 
   private victim(id: number | null): [keyof typeof CAST, string] {
@@ -154,8 +387,19 @@ export class Referee {
       }
       case 'kill': {
         const them = this.poses.get(m.v);
-        if (!pose || !them || killProblem(n, from, m.v, dist(pose, them))) return;
+        if (!pose || !them) return;
+        const why = killProblem(n, from, m.v, dist(pose, them));
+        if (why === 'guarded') {
+          // Wags is looking out: nothing happens, and he hears about it.
+          const g = n.powers.guard.get(m.v)!;
+          const v = playerOf(n, m.v)!;
+          this.pw(g.by, `Someone just tried to take out ${tagFor(v.char, v.name)}! You were looking out.`);
+          this.pw(from, `${tagFor(v.char, v.name)} is being looked out for. Not now.`);
+          return;
+        }
+        if (why) return;
         takeOut(n, from, m.v, them);
+        this.afterCrime(from, them);
         this.out({ t: 'fx', k: 'bonk', x: them.x, y: them.y, z: them.z });
         this.broadcast(false);
         this.privateTo(from);
@@ -180,6 +424,39 @@ export class Referee {
       case 'vote':
         if (castVote(n, from, m.v)) this.broadcast(false);
         return;
+      case 'unlock': {
+        const c = pose && unlock(n, from, m.id, pose);
+        if (c) {
+          this.out({ t: 'clue', id: c.id, cat: c.cat, value: c.value, crime: c.crime }, from);
+          this.broadcast(false);
+        }
+        return;
+      }
+      case 'power':
+        return this.power(from, m.target, m.crime);
+      case 'duo': {
+        const s = SPOTS.find((x) => x.id === m.spot && x.kind === 'duo');
+        if (!s) return;
+        for (const [k, h] of this.holding) if (h.id === from) this.holding.delete(k);
+        if (m.on && pose && living(me) && n.phase === 'night' && dist(pose, s.pos) < REACH + 1.5) this.holding.set(m.spot, { id: from, since: this.clock });
+        return;
+      }
+      case 'ping': {
+        if (!pose || !living(me)) return;
+        for (const p of n.players) if (p.char === 'shota' && living(p) && p.id !== from) this.out({ t: 'buzz', x: pose.x, y: pose.y, z: pose.z, text: `${tagFor(me.char, me.name)} pinged you. You’re down.` }, p.id);
+        return;
+      }
+      case 'greet': {
+        const them = this.poses.get(m.to);
+        const t = playerOf(n, m.to);
+        if (!pose || !them || !t || !living(me) || !living(t) || dist(pose, them) > SHOVE.range + SHOVE.slack) return;
+        const theirs = this.offers.get(m.to);
+        if (theirs && theirs[0] === from && theirs[1] === m.k && this.clock - theirs[2] < 3) {
+          this.offers.delete(m.to);
+          this.out({ t: 'greeted', a: from, b: m.to, k: m.k });
+        } else this.offers.set(from, [m.to, m.k, this.clock]);
+        return;
+      }
       case 'chore': {
         const s = SPOTS.find((x) => x.id === m.spot);
         if (!pose || !s || dist(pose, s.pos) > REACH + 1.5 || !doChore(n, from, m.spot)) return;

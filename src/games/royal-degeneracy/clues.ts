@@ -195,6 +195,8 @@ export interface Clue {
   pos: Vec3;
   /** Hidden in this search spot until someone finds it. */
   spot: string | null;
+  /** A locked phone or a knotted bin bag: it has to be opened before anyone can read it. */
+  lock: 'phone' | 'bag' | null;
   state: 'view' | 'hidden' | 'gone';
 }
 
@@ -261,7 +263,9 @@ export function commitCrime(n: Night, kind: Crime['kind'], by: number, pos: Vec3
     if (isHidden && !spot) return;
     const at = isHidden ? { ...SPOTS.find((s) => s.id === spot)!.pos } : kind === 'case' ? floorSpot(room, rand, taken) : near(pos, rand, taken);
     taken.push(at);
-    m.clues.push({ id: m.clues.length, crime: crime.id, cat, value: valueOf(culprit, cat), planted: false, by, pos: at, spot, state: isHidden ? 'hidden' : 'view' });
+    // Now and then a clue on view comes locked: a phone with a passcode, a knotted bin bag.
+    const lock = !isHidden && rand() < 0.35 ? (rand() < 0.5 ? 'phone' : 'bag') : null;
+    m.clues.push({ id: m.clues.length, crime: crime.id, cat, value: valueOf(culprit, cat), planted: false, by, pos: at, spot, state: isHidden ? 'hidden' : 'view', lock });
   });
   if (kind === 'takeout') {
     const v = n.players.find((p) => p.id === victim)!;
@@ -290,7 +294,7 @@ const SLACK = 1.5;
 export function inspect(n: Night, who: number, clueId: number, at: Vec3): Clue | null {
   const c = n.mystery.clues[clueId];
   const p = n.players.find((x) => x.id === who);
-  if (!c || !p || c.state !== 'view' || p.gone || !near2(c.pos, at, REACH + SLACK)) return null;
+  if (!c || !p || c.state !== 'view' || c.lock || p.gone || !near2(c.pos, at, REACH + SLACK)) return null;
   const seen = n.mystery.seen.get(who) ?? new Set<number>();
   seen.add(clueId);
   n.mystery.seen.set(who, seen);
@@ -320,6 +324,20 @@ function floorAt(p: Vec3) {
   return r?.outside && r.surface !== 'porch' ? GROUND : FLOOR_Y[floorOf(p.y)];
 }
 
+/** Seconds to open a locked clue: a slow fiddle for anyone, 2 s for JJ's spare keys (bags) or Mikol (phones). */
+export function unlockTime(char: CharId, lock: 'phone' | 'bag'): number {
+  return (lock === 'bag' && char === 'jj') || (lock === 'phone' && char === 'mikol') ? 2 : 30;
+}
+
+/** Opens a locked clue (and the opener reads it). */
+export function unlock(n: Night, who: number, clueId: number, at: Vec3): Clue | null {
+  const c = n.mystery.clues[clueId];
+  const p = n.players.find((x) => x.id === who);
+  if (!c || !p || p.gone || c.state !== 'view' || !c.lock || n.phase !== 'night' || !near2(c.pos, at, REACH + SLACK)) return null;
+  c.lock = null;
+  return inspect(n, who, clueId, at);
+}
+
 /** Posts a clue's photo to the group chat (you must have looked at it, and nobody has posted it yet). */
 export function post(n: Night, who: number, clueId: number): Clue | null {
   const c = n.mystery.clues[clueId];
@@ -344,7 +362,7 @@ export function plant(n: Night, who: number, cat: Cat, value: string, at: Vec3):
   if (!plantable(n, cat, value) || !m.crimes.length || !clearAt({ ...at, y: at.y + 0.02 })) return null;
   const crime = m.crimes.reduce((a, b) => (Math.hypot(b.pos.x - at.x, b.pos.y - at.y, b.pos.z - at.z) < Math.hypot(a.pos.x - at.x, a.pos.y - at.y, a.pos.z - at.z) ? b : a));
   m.plants.set(who, plantsLeft(n, who) - 1);
-  const c: Clue = { id: m.clues.length, crime: crime.id, cat, value, planted: true, by: who, pos: { ...at }, spot: null, state: 'view' };
+  const c: Clue = { id: m.clues.length, crime: crime.id, cat, value, planted: true, by: who, pos: { ...at }, spot: null, state: 'view', lock: null };
   m.clues.push(c);
   const seen = m.seen.get(who) ?? new Set<number>();
   seen.add(c.id);

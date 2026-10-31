@@ -265,6 +265,8 @@ export interface PhoneData {
   crossed: Set<number>;
   post(id: number): void;
   cross(id: number): void;
+  /** Always Down: ping Shota (null when he isn't around, or you're him). */
+  ping: (() => void) | null;
 }
 
 export type PhoneTab = 'chat' | 'file' | 'board';
@@ -321,6 +323,12 @@ export class Phone {
   }
 
   private chat(body: HTMLElement, d: PhoneData) {
+    if (d.ping) {
+      const b = el('button', 'rd-btn small', '📣 Ping Shota (he’s always down)');
+      b.dataset.k = 'ping';
+      b.addEventListener('click', () => d.ping?.());
+      body.append(b);
+    }
     if (!d.feed.length) body.append(el('p', 'rd-dim', 'The house group chat. Photos of clues land here.'));
     for (const f of d.feed) {
       const m = el('div', 'rd-msg');

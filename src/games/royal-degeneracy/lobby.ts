@@ -5,6 +5,8 @@
 import * as THREE from 'three';
 import { CAST, CHAR_IDS, STAT_NAMES, eyeHeight, lookFor, type CharId } from './cast.ts';
 import { CASES } from './cases.ts';
+import { POWERS, powerOf } from './abilities.ts';
+import { CATS, label, valueOf } from './clues.ts';
 import { Person } from './people.ts';
 import { CHOICES, MIN_PLAYERS, degeneratesFor, type Settings } from './rules.ts';
 
@@ -267,6 +269,7 @@ export function renderLobby(root: HTMLElement, v: LobbyView, standCanvas: HTMLCa
           <h2 class="rd-cardname" data-name></h2>
           <p class="rd-blurb" data-blurb></p>
           <div class="rd-stats" data-stats></div>
+          <div class="rd-traits" data-traits></div>
           <div class="rd-power"><b>Ability · <span data-ab></span></b><p data-abt></p></div>
           <div class="rd-power"><b>Quirk · <span data-q></span></b><p data-qt></p></div>
           <p class="rd-quote" data-quote></p>
@@ -288,8 +291,19 @@ export function renderLobby(root: HTMLElement, v: LobbyView, standCanvas: HTMLCa
   $('[data-studies]').textContent = c.studies;
   $('[data-name]').textContent = c.tag;
   $('[data-blurb]').textContent = c.blurb;
-  $('[data-ab]').textContent = c.ability.name;
-  $('[data-abt]').textContent = c.ability.text;
+  // Guests get an ability from the guest pool, by name.
+  const myName = v.members.find((m) => m.id === v.me)?.name ?? '';
+  const pw = v.preview === 'guest' ? POWERS[powerOf('guest', myName)] : null;
+  $('[data-ab]').textContent = pw ? pw.name : c.ability.name;
+  $('[data-abt]').textContent = pw ? pw.text.replace(/^Q( at a clue)?: /, '') : c.ability.text;
+  // The trait card: what clues about this person look like.
+  const traits = $('[data-traits]');
+  for (const cat of CATS) {
+    if (cat === 'belonging') continue;
+    const chip = document.createElement('span');
+    chip.textContent = label(cat, valueOf({ char: v.preview, name: myName }, cat));
+    traits.append(chip);
+  }
   $('[data-q]').textContent = c.quirk.name;
   $('[data-qt]').textContent = c.quirk.text;
   $('[data-quote]').textContent = `“${c.catchphrase}”`;

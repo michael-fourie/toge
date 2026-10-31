@@ -5,7 +5,7 @@
 import type { Mat } from './house.ts';
 import type { Vec3 } from '../../shared/math.ts';
 
-export type Sound = 'door' | 'bonk' | 'bell' | 'oof' | 'rattle' | 'ding' | 'evict' | 'horn' | 'click' | 'fail';
+export type Sound = 'door' | 'bonk' | 'bell' | 'oof' | 'rattle' | 'ding' | 'evict' | 'horn' | 'click' | 'fail' | 'toboggan' | 'slap' | 'buzz';
 
 /** 0 = clear line, 1 = through a wall, 2 = through a floor too. */
 export type Muffle = 0 | 1 | 2;
@@ -194,6 +194,18 @@ export class Audio {
         break;
       case 'fail':
         this.tone(dst, t, 0.25, 'square', 200, 120, 0.1);
+        break;
+      case 'toboggan':
+        // Concrete on hardwood: a long grinding roar.
+        this.burst(dst, t, 2.6, 'lowpass', 380, 0.8, 1.4);
+        this.tone(dst, t, 2.6, 'sawtooth', 70, 55, 0.12);
+        break;
+      case 'slap':
+        this.burst(dst, t, 0.08, 'highpass', 1500, 0.8, 1);
+        this.tone(dst, t + 0.05, 0.3, 'sine', 990, 1480, 0.15);
+        break;
+      case 'buzz':
+        for (let i = 0; i < 2; i++) this.tone(dst, t + i * 0.18, 0.12, 'square', 150, 150, 0.06);
         break;
     }
   }

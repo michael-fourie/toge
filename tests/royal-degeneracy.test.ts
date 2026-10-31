@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CAST, CHAR_IDS, type CharId } from '../src/games/royal-degeneracy/cast.ts';
-import { SPOTS } from '../src/games/royal-degeneracy/house.ts';
+import { DUO_PAIRS, SPOTS } from '../src/games/royal-degeneracy/house.ts';
 import { readMsg } from '../src/games/royal-degeneracy/net.ts';
 import {
   DEFAULT_SETTINGS,
@@ -190,6 +190,7 @@ test('royal: chores win it for the housemates; Degenerates’ chores are for sho
   for (const t of d.tasks) assert.ok(doChore(n, d.id, t.spot));
   assert.equal(publicView(n).prog, 0, 'fake chores fill nothing');
   assert.ok(!doChore(n, ghost.id, 'bell'), 'not one of theirs');
+  n.duoDone.push(...DUO_PAIRS.map((p) => p[0]));
   for (const p of mates(n)) for (const t of p.tasks) doChore(n, p.id, t.spot);
   assert.equal(n.phase, 'over');
   assert.equal(n.win?.side, 'housemates');
@@ -234,7 +235,7 @@ test('royal: messages are shape-checked: the host’s own views pass, junk doesn
   assert.equal(st?.t, 'st');
   const me = readMsg(JSON.parse(JSON.stringify({ t: 'me', v: privateView(n, 1) })));
   assert.equal(me?.t, 'me');
-  assert.deepEqual(readMsg({ t: 'p', x: 1, y: 0, z: 2, yaw: 0.5, pitch: 0.1, f: 3 }), { t: 'p', x: 1, y: 0, z: 2, yaw: 0.5, pitch: 0.1, f: 3 });
+  assert.deepEqual(readMsg({ t: 'p', x: 1, y: 0, z: 2, yaw: 0.5, pitch: 0.1, f: 3 }), { t: 'p', x: 1, y: 0, z: 2, yaw: 0.5, pitch: 0.1, f: 3, e: 0 });
   for (const bad of [
     null,
     'hi',

@@ -4,8 +4,9 @@
 
 import { CHAR_IDS, tagFor, type CharId } from './cast.ts';
 import { CASES, caseById } from './cases.ts';
+import { newPowers, powerOf, powerView, guarded, spend, powerProblem, type Powers } from './abilities.ts';
 import { PLANTS_PER_NIGHT, caseTexts, commitCrime, log, newMystery, nextRand, type Mystery } from './clues.ts';
-import { CHORE_KINDS, FLOOR_Y, ROOMS, SEATS, SPOTS, roomAt } from './house.ts';
+import { CHORE_KINDS, DUO_PAIRS, FLOOR_Y, ROOMS, SEATS, SPOTS, roomAt } from './house.ts';
 import type { Vec3 } from '../../shared/math.ts';
 
 // ---------------------------------------------------------------------------------------------
@@ -181,6 +182,12 @@ export interface Night {
   mystery: Mystery;
   /** The referee's dice state (clues.ts `nextRand`). */
   rs: number;
+  /** Abilities' bookkeeping (abilities.ts). */
+  powers: Powers;
+  /** Two-person chores done (DUO_PAIRS' first spot). */
+  duoDone: string[];
+  /** Shota overheats once a night: when (roam), and where his shirt landed. */
+  shirt: { at: number; pos: Vec3 | null };
 }
 
 export interface Joiner {
@@ -209,6 +216,9 @@ export function newNight(people: readonly Joiner[], settings: Settings, seed: nu
     win: null,
     mystery: newMystery(),
     rs: seed >>> 0,
+    powers: newPowers(),
+    duoDone: [],
+    shirt: { at: Infinity, pos: null },
   };
   const r = () => nextRand(n);
   n.caseId = settings.caseId === 'random' ? CASES[Math.floor(r() * CASES.length)].id : settings.caseId;
@@ -238,6 +248,7 @@ export function newNight(people: readonly Joiner[], settings: Settings, seed: nu
     log(n, `Before the night began: ${tagFor(by.char, by.name)} ${c.scene.did}.`);
   }
   n.mystery.texts = caseTexts(n, c.texts);
+  if (n.players.some((p) => p.char === 'shota')) n.shirt.at = n.length * (0.2 + 0.5 * r());
   return n;
 }
 
@@ -253,6 +264,11 @@ function progress(n: Night): number {
     if (p.role !== 'housemate' || p.gone) continue;
     all += p.tasks.length;
     done += p.tasks.filter((t) => t.done).length;
+  }
+  // The house's two-person chores count double, once there's anyone to do them.
+  if (all) {
+    all += DUO_PAIRS.length * 2;
+    done += n.duoDone.length * 2;
   }
   return all ? done / all : 0;
 }
@@ -276,7 +292,7 @@ function finish(n: Night, win: Win) {
 }
 
 /** Ends the night now if someone has won. */
-function settle(n: Night): boolean {
+export function settle(n: Night): boolean {
   const w = winner(n);
   if (w) finish(n, w);
   return !!w;
@@ -318,6 +334,7 @@ export function killProblem(n: Night, killerId: number, victimId: number, dist: 
   if (!living(v) || v.role === 'degenerate') return 'not a target';
   if (n.roam < k.killAt) return 'cooling down';
   if (dist > KILL_RANGE + KILL_SLACK) return 'too far';
+  if (guarded(n, victimId)) return 'guarded';
   return null;
 }
 
@@ -353,6 +370,7 @@ export function startMeeting(n: Night, kind: MeetKind, by: number, body?: number
   n.left = n.settings.discuss;
   n.meet = { kind, by, body };
   n.votes = new Map();
+  n.powers.doubled = null;
   n.result = null;
   n.seats = n.players.filter(living).map((p) => p.id).slice(0, SEATS.length);
 }
@@ -375,9 +393,9 @@ export function castVote(n: Night, who: number, target: number): boolean {
 const everyoneVoted = (n: Night) => n.players.filter(living).every((p) => n.votes.has(p.id));
 
 /** The count: the most-voted player goes, unless it's a tie or skipping wins. */
-export function tally(votes: ReadonlyMap<number, number>): { out: number | null; counts: [number, number][] } {
+export function tally(votes: ReadonlyMap<number, number>, doubled: number | null = null): { out: number | null; counts: [number, number][] } {
   const counts = new Map<number, number>();
-  for (const t of votes.values()) counts.set(t, (counts.get(t) ?? 0) + 1);
+  for (const [who, t] of votes) counts.set(t, (counts.get(t) ?? 0) + (who === doubled ? 2 : 1));
   let best = 0;
   let out: number | null = null;
   for (const [t, c] of counts) {
@@ -389,8 +407,29 @@ export function tally(votes: ReadonlyMap<number, number>): { out: number | null;
   return { out: out === SKIP ? null : out, counts: [...counts] };
 }
 
+/** Will Palmer's Campus Legend: his vote this meeting counts double (once a night). */
+export function legend(n: Night, who: number): boolean {
+  const p = playerOf(n, who);
+  if (!p || n.phase !== 'vote' || powerOf(p.char, p.name) !== 'legend' || powerProblem(n, who)) return false;
+  spend(n, who);
+  n.powers.doubled = who;
+  return true;
+}
+
+/** Objection!: the votes so far are void and the vote starts over (once a night). */
+export function objection(n: Night, who: number): boolean {
+  const p = playerOf(n, who);
+  if (!p || n.phase !== 'vote' || powerOf(p.char, p.name) !== 'objection' || powerProblem(n, who)) return false;
+  spend(n, who);
+  n.votes = new Map();
+  n.powers.doubled = null;
+  n.left = n.settings.vote;
+  log(n, `${tagFor(p.char, p.name)} shouted OBJECTION! The vote started over.`);
+  return true;
+}
+
 function endVote(n: Night) {
-  const { out, counts } = tally(n.votes);
+  const { out, counts } = tally(n.votes, n.powers.doubled);
   const p = out === null ? undefined : playerOf(n, out);
   if (p) p.evicted = true;
   log(n, p ? `The house evicted ${tagFor(p.char, p.name)}${p.role === 'degenerate' ? ' (a Degenerate!)' : ' (innocent)'}.` : 'The vote evicted nobody.');
@@ -468,10 +507,17 @@ export interface PublicView {
   win: (Win & { roles: [number, Role][]; log: [number, string][] }) | null;
   /** Crimes so far: [0 the case / 1 a takeout, the victim or -1, room id]. */
   crimes: [number, number, string][];
-  /** Clues lying on view: [id, crime, category, x, y, z] (what they say is only learned by picking one up). */
-  clues: [number, number, string, number, number, number][];
+  /** Clues lying on view: [id, crime, category, x, y, z, locked (0 no, 1 phone, 2 bag)] (what they say is only
+   * learned by picking one up). */
+  clues: [number, number, string, number, number, number, number][];
   /** Photos in the group chat: [clue id, category, value, crime, who posted]. */
   posted: [number, string, string, number, number][];
+  /** Whose vote counts double this meeting (-1: nobody's). */
+  doubled: number;
+  /** Two-person chores done. */
+  duo: string[];
+  /** Shota's shirt, once it's off: [x, y, z]. */
+  shirt: [number, number, number] | null;
 }
 
 export interface PrivateView {
@@ -485,6 +531,8 @@ export interface PrivateView {
   plants: number;
   /** Your Case File: every clue you've picked up, [id, category, value, crime]. */
   seen: [number, string, string, number][];
+  /** Your ability: [uses left (-1: unlimited), ready at (roam)]. */
+  power: [number, number];
 }
 
 const status = (p: Player): Status => (p.gone ? 'gone' : p.evicted ? 'out' : p.alive ? 'in' : 'dead');
@@ -506,11 +554,14 @@ export function publicView(n: Night): PublicView {
     result: n.result,
     win: n.win && { ...n.win, roles: n.players.map((p) => [p.id, p.role]), log: n.mystery.log },
     crimes: n.mystery.crimes.map((c) => [c.kind === 'case' ? 0 : 1, c.victim ?? -1, c.room]),
-    clues: n.mystery.clues.filter((c) => c.state === 'view').map((c) => [c.id, c.crime, c.cat, r2(c.pos.x), r2(c.pos.y), r2(c.pos.z)]),
+    clues: n.mystery.clues.filter((c) => c.state === 'view').map((c) => [c.id, c.crime, c.cat, r2(c.pos.x), r2(c.pos.y), r2(c.pos.z), c.lock === 'phone' ? 1 : c.lock === 'bag' ? 2 : 0]),
     posted: [...n.mystery.posted].map(([id, by]) => {
       const c = n.mystery.clues[id];
       return [id, c.cat, c.value, c.crime, by];
     }),
+    doubled: n.powers.doubled ?? -1,
+    duo: n.duoDone,
+    shirt: n.shirt.pos && [r2(n.shirt.pos.x), r2(n.shirt.pos.y), r2(n.shirt.pos.z)],
   };
 }
 
@@ -529,5 +580,6 @@ export function privateView(n: Night, id: number): PrivateView | null {
       const c = n.mystery.clues[cid];
       return [cid, c.cat, c.value, c.crime];
     }),
+    power: ((v) => [v.uses, v.readyAt] as [number, number])(powerView(n, id)),
   };
 }

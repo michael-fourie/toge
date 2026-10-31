@@ -11,15 +11,17 @@ import { Audio, type Muffle } from './audio.ts';
 import { CAST, eyeHeight, lookFor, tagFor, type CharId } from './cast.ts';
 import { caseById } from './cases.ts';
 import { ChoreView } from './chores.ts';
-import { ITEM, SEARCH_SECONDS, WIPE_SECONDS, type Cat } from './clues.ts';
-import { DOORS, FLOOR_Y, MEETING_CENTRE, REACH, SEATS, SPOTS, doorBox, floorOf, roomAt, wakeSpot, type Door, type Spot } from './house.ts';
+import { ITEM, SEARCH_SECONDS, WIPE_SECONDS, fits, unlockTime, type Cat } from './clues.ts';
+import { DOORS, DUO_PAIRS, FLOOR_Y, MEETING_CENTRE, REACH, SEATS, SPOTS, doorBox, floorOf, roomAt, wakeSpot, type Door, type Spot } from './house.ts';
 import { Hud, KEYS, chip, loadPrefs, type Prefs } from './hud.ts';
 import { Input, type Frame } from './input.ts';
 import { portrait } from './lobby.ts';
 import { Meeting } from './meeting.ts';
 import { Evidence, InspectView, Phone, PlantMenu, crimeName, type FeedItem, type Known, type PhoneTab } from './mystery.ts';
+import { POWERS, powerOf, type Power } from './abilities.ts';
+import { Glows, PowerUI } from './powers.ts';
 import { newWalker, nudgeApart, shove, stepWalker } from './move.ts';
-import { PF, type Msg } from './net.ts';
+import { EMOTES, PF, type Msg } from './net.ts';
 import { Person } from './people.ts';
 import { KILL_RANGE, TIMES, type Joiner, type PrivateView, type PublicView, type Status } from './rules.ts';
 import { World } from './world.ts';
@@ -53,6 +55,7 @@ interface Snap {
   yaw: number;
   pitch: number;
   f: number;
+  e: number;
 }
 
 interface Remote {
@@ -68,6 +71,8 @@ interface Remote {
   f: number;
   speed: number;
   walked: number;
+  /** Their emote (net.ts EMOTES index), so a new wave pops a speech bubble. */
+  e: number;
 }
 
 type Target =
@@ -150,6 +155,30 @@ export class NightSession {
   private hold: { key: string; t: number } | null = null;
   /** Open the next clue that arrives (we asked to pick one up, or a search found one). */
   private wantClue = false;
+  private power: Power;
+  private powerUI: PowerUI;
+  private glows = new Glows();
+  private sparkles = new Glows(0xffe14d);
+  /** Abilities running on this screen, until these roam times. */
+  private until = { sled: 0, bongus: 0, xray: 0, sparkle: 0 };
+  private xrayRange = 8;
+  private sledYaw = 0;
+  /** Inspection: standing still since this roam time (0: not inspecting). */
+  private inspectSince = 0;
+  private emote = { id: 0, until: 0 };
+  private npcs: Person[] = [];
+  private npcAt: [number, number, number, number][] = [];
+  private shirt: THREE.Mesh | null = null;
+  /** The two-person chore end you're holding. */
+  private duoHeld: string | null = null;
+  /** Standing still (for sniffing Will's cologne), and the last room you sniffed. */
+  private stillFor = 0;
+  private sniffed = '';
+  /** When Will Palmer was last in each room (performance ms). */
+  private willRooms = new Map<string, number>();
+  /** Contradictions Jung's phone has already buzzed about. */
+  private illogical = new Set<string>();
+  private lastTarget: Target | null = null;
   private eviction: { person: Person | null; rain: THREE.Points; t: number } | null = null;
   private shake = 0;
   private introStage = '';
@@ -186,9 +215,11 @@ export class NightSession {
       },
     });
     this.phone = new Phone(this.wrap);
+    this.power = powerOf(this.char, me.name);
+    this.powerUI = new PowerUI(this.wrap);
     this.input = new Input(o.renderer.domElement, o.api);
     this.camera.rotation.order = 'YXZ';
-    this.world.scene.add(this.camera);
+    this.world.scene.add(this.camera, this.glows.group, this.sparkles.group);
     for (const p of o.people) if (p.id !== o.me) this.addRemote(p);
     this.applyPrefs();
 
@@ -235,7 +266,7 @@ export class NightSession {
     cone.visible = false;
     this.world.scene.add(person.root, cone);
     const start = wakeSpot(CAST[p.char].wake, 0);
-    this.remotes.set(p.id, { id: p.id, name: p.name, char: p.char, person, cone, buf: [], pos: { ...start }, yaw: 0, pitch: 0, f: 0, speed: 0, walked: 0 });
+    this.remotes.set(p.id, { id: p.id, name: p.name, char: p.char, person, cone, buf: [], pos: { ...start }, yaw: 0, pitch: 0, f: 0, speed: 0, walked: 0, e: 0 });
     person.root.visible = false;
   }
 
@@ -273,7 +304,7 @@ export class NightSession {
       case 'p': {
         const r = this.remotes.get(from);
         if (!r) return;
-        r.buf.push({ t: performance.now(), x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, f: m.f });
+        r.buf.push({ t: performance.now(), x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, f: m.f, e: m.e });
         if (r.buf.length > 12) r.buf.shift();
         return;
       }
@@ -308,6 +339,26 @@ export class NightSession {
         const name = SPOTS.find((s) => s.id === m.spot)?.name ?? 'there';
         this.hud.toast(m.id < 0 ? `Nothing in ${name}. Just crumbs.` : `Found something in ${name}!`);
         if (m.id < 0) this.wantClue = false;
+        return;
+      }
+      case 'pw':
+        return this.powerResult(m.text, m.pos, m.ids, m.until);
+      case 'buzz':
+        this.powerUI.pointTo(m.x, m.z, m.text.includes('pinged') ? 10 : 3);
+        this.hud.toast(`📳 ${m.text}`, 3500);
+        this.audio.play('buzz');
+        return;
+      case 'npcs':
+        return this.syncNpcs(m.p);
+      case 'greeted': {
+        const kind = m.k === 'five' ? 'high-five' : 'hug';
+        for (const id of [m.a, m.b]) {
+          const r = this.remotes.get(id);
+          if (r) r.person.say(CAST[r.char].catchphrase);
+        }
+        if (m.a === this.o.me || m.b === this.o.me) this.hud.toast(`${m.k === 'five' ? '✋' : '🤗'} ${this.names.get(m.a === this.o.me ? m.b : m.a) ?? 'Someone'}: ${kind}!`);
+        const p = this.remotes.get(m.a)?.pos ?? this.walker.pos;
+        this.audio.play('slap', { x: p.x, y: p.y + 1.4, z: p.z }, this.muffle({ x: p.x, y: p.y + 1.4, z: p.z }));
         return;
       }
       case 'feed':
@@ -371,6 +422,8 @@ export class NightSession {
     }
     this.evidence.sync(v);
     this.renderPhone();
+    this.syncShirt(v.shirt);
+    if (this.char === 'jung') this.checkLogic(v);
     if (!prev || prev.ph !== v.ph) this.enterPhase(v.ph, prev?.ph);
     if (v.ph === 'meeting' || v.ph === 'vote') this.drawMeeting();
     if (was !== this.status) this.refreshTasks();
@@ -508,7 +561,7 @@ export class NightSession {
       v.meet?.kind === 'last'
         ? c.last
         : v.meet?.kind === 'body'
-          ? `${by} found ${this.names.get(v.meet.body ?? -1) ?? 'someone'}’s body.`
+          ? `${by} found ${this.names.get(v.meet.body ?? -1) ?? 'someone'}’s body. “${CAST[this.chars.get(v.meet.by) ?? 'guest'].lines.body}”${v.doubled >= 0 ? ' · Will’s vote counts double.' : ''}`
           : `${by} banged the pot.`;
     const living = v.people.filter((p) => p[2] === 'in');
     this.meeting.show({
@@ -697,12 +750,18 @@ export class NightSession {
     // Seated players sit inside the sofa's box: they're placed, not walked (collision would lift them out).
     const sitting = !this.ghost && this.seat >= 0 && (this.inMeeting() || ph === 'result');
     if (!sitting) {
+      // Dev's toboggan runs straight ahead at 3×; Bongus Mode is slower going.
+      const sled = this.roam < this.until.sled && !this.ghost;
+      const look = this.walker.yaw;
+      if (sled) this.walker.yaw = this.sledYaw;
+      const mult = sled ? 3 : this.roam < this.until.bongus ? 0.7 : 1;
       stepWalker(
         this.walker,
-        { fwd: canMove ? f.fwd : 0, side: canMove ? f.side : 0, jump: canMove && f.jump, crouch: canMove && f.crouch, up: canMove && f.jump },
+        { fwd: sled ? 1 : canMove ? f.fwd : 0, side: sled || !canMove ? 0 : f.side, jump: canMove && f.jump, crouch: canMove && f.crouch, up: canMove && f.jump, speedMult: mult },
         dt,
         this.world.colliders,
       );
+      this.walker.yaw = look;
       nudgeApart(this.walker, this.livingRemotePositions(), dt, this.world.colliders);
     }
     this.ownSteps(dt);
@@ -712,6 +771,7 @@ export class NightSession {
       this.audio.play('click');
     }
     if (f.phone && !this.inMeeting() && ph !== 'over' && ph !== 'intro' && !this.chore && !this.inspecting && !this.plantMenu) this.togglePhone();
+    this.abilityInput(f, ph);
     if (this.chore) this.runChore(dt, f);
     else if (this.inspecting) this.inspecting.frame(f);
     else if (this.overlay()) this.hud.setPrompt('');
@@ -719,12 +779,20 @@ export class NightSession {
     else this.hud.setPrompt('');
 
     this.updateRemotes(dt);
+    this.updateNpcs(dt);
+    this.tells(dt);
     this.placeCamera(dt, sitting);
     this.updateHud(ph);
     this.sendPose(dt, sitting);
     this.world.update(dt, this.camera.position);
     this.world.torch.intensity = this.torch ? TORCH_POWER : 0;
     this.updateEviction(dt);
+    this.glows.group.visible = this.roam < this.until.bongus;
+    this.sparkles.group.visible = this.roam < this.until.sparkle;
+    this.glows.pulse(performance.now() / 1000);
+    this.sparkles.pulse(performance.now() / 700);
+    this.wrap.classList.toggle('bongus', this.roam < this.until.bongus && !this.ghost);
+    this.powerUI.update(this.camera.position, this.walker.yaw);
     this.render();
   }
 
@@ -786,8 +854,11 @@ export class NightSession {
       (this.torch ? PF.torch : 0) |
       (w.ghost ? PF.ghost : 0) |
       (sitting ? PF.sit : 0) |
-      (this.chore ? PF.busy : 0);
-    const m: Msg = { t: 'p', x: r2(w.pos.x), y: r2(w.pos.y), z: r2(w.pos.z), yaw: r2(wrapAngle(w.yaw)), pitch: r2(w.pitch), f };
+      (this.chore ? PF.busy : 0) |
+      (this.roam < this.until.bongus ? PF.bongus : 0) |
+      (this.roam < this.until.sled ? PF.sled : 0);
+    const e = performance.now() < this.emote.until ? this.emote.id : 0;
+    const m: Msg = { t: 'p', x: r2(w.pos.x), y: r2(w.pos.y), z: r2(w.pos.z), yaw: r2(wrapAngle(w.yaw)), pitch: r2(w.pitch), f, e };
     this.o.toAll(m);
     if (this.o.hosting) this.o.toHost(m);
   }
@@ -816,13 +887,25 @@ export class NightSession {
       r.yaw = a.yaw + wrapAngle(c.yaw - a.yaw) * k;
       r.pitch = lerp(a.pitch, c.pitch, k);
       r.f = c.f;
+      if (c.e !== r.e) {
+        if (EMOTES[c.e] === 'wave' && st === 'in') r.person.say(CAST[r.char].catchphrase);
+        r.e = c.e;
+      }
+      if (r.char === 'will' && st === 'in') {
+        const room = roomAt({ x: nx, y: ny + 0.1, z: nz });
+        if (room) this.willRooms.set(room.id, performance.now());
+      }
       const ghost = st !== 'in';
       const visible = st !== 'gone' && (!ghost || this.ghost) && this.pub?.ph !== 'result';
       r.person.root.visible = visible;
       r.person.setOpacity(ghost ? 0.35 : 1);
       r.person.root.position.set(nx, ny + (ghost ? Math.sin(performance.now() / 400 + r.id) * 0.08 : 0), nz);
       r.person.root.rotation.y = r.yaw;
-      r.person.pose({ speed: ghost ? 0 : r.speed, crouch: !!(r.f & PF.crouch), pitch: r.pitch, sit: !!(r.f & PF.sit), phone: !!(r.f & PF.phone) }, dt);
+      r.person.pose({ speed: ghost ? 0 : r.speed, crouch: !!(r.f & PF.crouch), pitch: r.pitch, sit: !!(r.f & PF.sit), phone: !!(r.f & PF.phone), emote: EMOTES[r.e] }, dt);
+      r.person.setSled(!!(r.f & PF.sled));
+      r.person.setTag(r.f & PF.bongus ? 'BONGUS' : tagFor(r.char, r.name), this.priv?.mates.includes(r.id) ? '#ff6b8a' : r.f & PF.bongus ? '#9cff6a' : '#ffffff');
+      // Wallhack / Eavesdrop: everyone close enough shows through walls.
+      r.person.setXray(visible && this.roam < this.until.xray && Math.hypot(nx - this.walker.pos.x, ny - this.walker.pos.y, nz - this.walker.pos.z) < this.xrayRange);
       r.person.setFace(r.f & PF.busy ? 'worried' : 'smile');
       // Their torch: a soft cone, not a real light.
       r.cone.visible = visible && !!(r.f & PF.torch);
@@ -835,7 +918,9 @@ export class NightSession {
         r.walked += moved;
         if (r.walked > STEP_EVERY) {
           r.walked = 0;
-          this.audio.step(r.pos, this.surfaceAt(r.pos), this.muffle({ x: nx, y: ny + 0.2, z: nz }));
+          // Nash on the sofa hears every step in the house, walls or not.
+          const couch = this.char === 'nash' && this.onCouch();
+          this.audio.step(r.pos, this.surfaceAt(r.pos), couch ? 0 : this.muffle({ x: nx, y: ny + 0.2, z: nz }), couch ? 0.9 : 0.6);
         }
       }
     }
@@ -856,8 +941,10 @@ export class NightSession {
     if (!this.ghost) {
       for (const r of this.remotes.values()) {
         if (!r.person.root.visible || this.statusOf(r.id) !== 'in') continue;
-        const t = raySphere(o, d, { x: r.pos.x, y: r.pos.y + CAST[r.char].height / 100 - 0.6, z: r.pos.z }, 0.45, REACH);
-        consider({ kind: 'player', id: r.id, t });
+        // Their body and their head, so you can target someone much taller or shorter than you.
+        const h = CAST[r.char].height / 100;
+        const hits = [raySphere(o, d, { x: r.pos.x, y: r.pos.y + h * 0.55, z: r.pos.z }, 0.42, REACH), raySphere(o, d, { x: r.pos.x, y: r.pos.y + h - 0.15, z: r.pos.z }, 0.3, REACH)].filter((t) => t >= 0);
+        consider({ kind: 'player', id: r.id, t: hits.length ? Math.min(...hits) : -1 });
       }
       for (const [id, objs] of this.bodies) {
         const p = objs[0].position;
@@ -873,6 +960,7 @@ export class NightSession {
     if (!this.ghost && this.evidence) for (const [id, p] of this.evidence.spots) consider({ kind: 'clue', id, t: raySphere(o, d, p, 0.35, REACH) });
     for (const s of SPOTS) {
       if (s.kind !== 'chore' && this.ghost) continue;
+      if (s.kind === 'duo' && this.pub?.duo.includes(DUO_PAIRS.find((p) => p[0] === s.id || p[1] === s.id)![0])) continue;
       if (s.kind === 'chore' && !this.priv?.tasks.some(([id, done]) => id === s.id && !done)) continue;
       consider({ kind: 'spot', spot: s, t: raySphere(o, d, s.pos, 0.5, REACH) });
     }
@@ -881,6 +969,7 @@ export class NightSession {
 
   private interact(f: Frame, dt: number) {
     const t = this.findTarget();
+    this.lastTarget = t;
     this.evidence?.highlight(t?.kind === 'clue' ? t.id : null);
     let prompt = '';
     if (this.ghost) {
@@ -896,10 +985,24 @@ export class NightSession {
     }
     if (t?.kind === 'door') prompt = `E  ${this.world.isOpen(t.door.id) ? 'Close' : 'Open'} the ${t.door.hatch ? 'hatch' : 'door'}`;
     else if (t?.kind === 'body') prompt = `E  Report ${this.names.get(t.id) ?? 'the'}’s body`;
-    else if (t?.kind === 'spot') prompt = t.spot.kind === 'search' ? `Hold E  Search ${t.spot.name}` : `E  ${t.spot.name}`;
+    else if (t?.kind === 'spot')
+      prompt =
+        t.spot.kind === 'search'
+          ? `Hold E  Search ${t.spot.name}`
+          : t.spot.kind === 'duo'
+            ? `Hold E  ${t.spot.name} (someone needs the other end)`
+            : t.spot.kind === 'router'
+              ? this.power === 'router'
+                ? 'Q  Read the router logs'
+                : 'The house router. Mikol set it up.'
+              : `E  ${t.spot.name}`;
     else if (t?.kind === 'clue') {
-      const cat = this.pub?.clues.find((c) => c[0] === t.id)?.[2] as Cat | undefined;
-      prompt = `E  Pick up: ${cat ? ITEM[cat].toLowerCase() : 'something'}${this.evil ? ' · hold R wipe it' : ''}`;
+      const c = this.pub?.clues.find((x) => x[0] === t.id);
+      const cat = c?.[2] as Cat | undefined;
+      const lock = c?.[6] === 1 ? 'phone' : c?.[6] === 2 ? 'bag' : null;
+      prompt = lock
+        ? `Hold E  Open the locked ${lock === 'phone' ? 'phone' : 'bin bag'} (${unlockTime(this.char, lock)} s)`
+        : `E  Pick up: ${cat ? ITEM[cat].toLowerCase() : 'something'}${this.evil ? ' · hold R wipe it' : ''}`;
     } else if (t?.kind === 'player') {
       const near = t.t <= SHOVE_RANGE;
       const parts = [this.names.get(t.id) ?? ''];
@@ -908,17 +1011,37 @@ export class NightSession {
       prompt = parts.join(' · ');
     }
     // Holding: E digs through a search spot, R (Degenerates) wipes a clue away.
-    const holdKey = t?.kind === 'spot' && t.spot.kind === 'search' && f.useHeld ? t.spot.id : t?.kind === 'clue' && this.evil && f.altHeld ? `clue:${t.id}` : null;
+    const lockOf = (id: number) => this.pub?.clues.find((x) => x[0] === id)?.[6] ?? 0;
+    const holdKey =
+      t?.kind === 'spot' && t.spot.kind === 'search' && f.useHeld
+        ? t.spot.id
+        : t?.kind === 'clue' && lockOf(t.id) && f.useHeld
+          ? `lock:${t.id}`
+          : t?.kind === 'clue' && this.evil && f.altHeld
+            ? `clue:${t.id}`
+            : null;
+    // Two-person chores: tell the referee while you're holding your end.
+    const duo = t?.kind === 'spot' && t.spot.kind === 'duo' && f.useHeld ? t.spot.id : null;
+    if (duo !== this.duoHeld) {
+      if (duo) this.o.toHost({ t: 'duo', spot: duo, on: true });
+      else if (this.duoHeld) this.o.toHost({ t: 'duo', spot: this.duoHeld, on: false });
+      this.duoHeld = duo;
+    }
+    if (duo) prompt = 'Lifting… hold on (both ends for 4 s)';
     if (!holdKey) this.hold = null;
     else {
       if (this.hold?.key !== holdKey) this.hold = { key: holdKey, t: 0 };
       if (this.hold.t >= 0) {
         this.hold.t += dt;
-        const need = holdKey.startsWith('clue:') ? WIPE_SECONDS : SEARCH_SECONDS;
-        prompt = `${holdKey.startsWith('clue:') ? 'Wiping' : 'Searching'}… ${Math.min(100, Math.round((100 * this.hold.t) / need))}%`;
+        const lock = holdKey.startsWith('lock:') ? lockOf(Number(holdKey.slice(5))) : 0;
+        const need = lock ? unlockTime(this.char, lock === 1 ? 'phone' : 'bag') : holdKey.startsWith('clue:') ? WIPE_SECONDS : SEARCH_SECONDS / (this.char === 'xang' ? 2 : 1);
+        prompt = `${lock ? 'Fiddling with it' : holdKey.startsWith('clue:') ? 'Wiping' : 'Searching'}… ${Math.min(100, Math.round((100 * this.hold.t) / need))}%`;
         if (this.hold.t >= need) {
           if (holdKey.startsWith('clue:')) this.o.toHost({ t: 'wipe', id: Number(holdKey.slice(5)) });
-          else {
+          else if (lock) {
+            this.o.toHost({ t: 'unlock', id: Number(holdKey.slice(5)) });
+            this.wantClue = true;
+          } else {
             this.o.toHost({ t: 'search', spot: holdKey });
             this.wantClue = true;
           }
@@ -932,9 +1055,11 @@ export class NightSession {
     if (f.use && t) {
       if (t.kind === 'door') this.o.toHost({ t: 'door', id: t.door.id });
       else if (t.kind === 'clue') {
-        this.wantClue = true;
-        this.o.toHost({ t: 'inspect', id: t.id });
-      } else if (t.kind === 'spot' && t.spot.kind === 'search') return;
+        if (!lockOf(t.id)) {
+          this.wantClue = true;
+          this.o.toHost({ t: 'inspect', id: t.id });
+        }
+      } else if (t.kind === 'spot' && (t.spot.kind === 'search' || t.spot.kind === 'duo' || t.spot.kind === 'router')) return;
       else if (t.kind === 'spot' && t.spot.kind === 'fridge') this.togglePhone('board');
       else if (t.kind === 'body') this.o.toHost({ t: 'report', body: t.id });
       else if (t.kind === 'spot' && t.spot.kind === 'bell') {
@@ -955,13 +1080,16 @@ export class NightSession {
   // Clues, the phone, plants
 
   private overlay() {
-    return !!(this.inspecting || this.plantMenu || this.phone.open);
+    return !!(this.inspecting || this.plantMenu || this.phone.open || this.powerUI.menuOpen);
   }
 
   /** Esc closes whatever's open over the view; true if something was. */
   private closeOverlays(): boolean {
     if (this.inspecting) this.closeInspect();
-    else if (this.plantMenu) this.closePlant();
+    else if (this.powerUI.menuOpen) {
+      this.powerUI.closeMenu();
+      this.afterOverlay();
+    } else if (this.plantMenu) this.closePlant();
     else if (this.phone.open) this.togglePhone();
     else return false;
     return true;
@@ -1012,6 +1140,7 @@ export class NightSession {
       people: this.o.people.map((p) => ({ id: p.id, char: p.char, name: p.name, img: portrait(this.o.renderer, p.char, p.name) })),
       names: this.names,
       crossed: this.crossed,
+      ping: this.char !== 'shota' && !this.ghost && this.o.people.some((p) => p.char === 'shota' && this.statusOf(p.id) === 'in') ? () => this.o.toHost({ t: 'ping' }) : null,
       post: (id) => this.o.toHost({ t: 'post', id }),
       cross: (id) => {
         if (!this.crossed.delete(id)) this.crossed.add(id);
@@ -1043,6 +1172,184 @@ export class NightSession {
   }
 
   // -------------------------------------------------------------------------------------------
+  // Abilities, emotes and the cast's tells
+
+  /** Q (your ability) and G (emotes), and the emote wheel's number keys. */
+  private abilityInput(f: Frame, ph: PublicView['ph']) {
+    if (this.powerUI.menuOpen && !this.phone.open) {
+      for (let i = 1; i < EMOTES.length; i++) if (f.keys.has(`Digit${i}`)) this.pickEmote(i);
+    }
+    if (this.overlay() || this.chore || this.paused || this.ghost) return;
+    if (f.emote && (ph === 'night' || this.inMeeting())) {
+      this.o.api.setMenuNav(true);
+      this.powerUI.emoteMenu((i) => this.pickEmote(i));
+      return;
+    }
+    if (f.ability) this.usePower(ph);
+    // Inspection: stand still for 3 s.
+    if (this.inspectSince) {
+      if (Math.hypot(this.walker.vel.x, this.walker.vel.z) > 0.3) {
+        this.inspectSince = 0;
+        this.hud.toast('You moved. Inspection’s off.');
+      } else if (this.roam - this.inspectSince >= 3) {
+        this.inspectSince = 0;
+        this.o.toHost({ t: 'power', target: -1, crime: -1 });
+      } else this.hud.setPrompt('Inspecting… stay still');
+    }
+  }
+
+  private pickEmote(i: number) {
+    this.powerUI.closeMenu();
+    this.afterOverlay();
+    const e = EMOTES[i];
+    this.emote = { id: i, until: performance.now() + (e === 'dance' ? 6000 : 3000) };
+    if (e !== 'five' && e !== 'hug') return;
+    const t = this.findTarget();
+    if (t?.kind === 'player' && t.t <= SHOVE_RANGE) this.o.toHost({ t: 'greet', to: t.id, k: e });
+    else this.hud.toast(e === 'five' ? 'Nobody there. Your hand just hangs in the air.' : 'You hug the air. It doesn’t hug back.');
+  }
+
+  private usePower(ph: PublicView['ph']) {
+    const p = this.priv?.power;
+    if (!p || !this.pub) return;
+    const def = POWERS[this.power];
+    if (this.power === 'legend' || this.power === 'objection') {
+      if (ph === 'vote' && p[0] !== 0) this.o.toHost({ t: 'power', target: -1, crime: -1 });
+      else this.hud.toast(`${def.name}: use it during a vote.`);
+      return;
+    }
+    if (ph !== 'night') return;
+    if (p[0] === 0) return this.hud.toast(`${def.name}: used up tonight.`);
+    if (this.roam < p[1]) return this.hud.toast(`${def.name}: ready in ${Math.ceil(p[1] - this.roam)} s.`);
+    const t = this.lastTarget;
+    switch (this.power) {
+      case 'proof': {
+        const people = this.o.people.map((x) => ({ id: x.id, name: this.names.get(x.id) ?? x.name }));
+        const crimes = this.pub.crimes.map((_, i) => crimeName(this.pub!, this.names, i));
+        this.input.unlock();
+        this.o.api.setMenuNav(true);
+        this.powerUI.proofMenu(people, crimes, (target, crime) => {
+          this.o.toHost({ t: 'power', target, crime });
+          this.afterOverlay();
+        });
+        return;
+      }
+      case 'lookout':
+        if (t?.kind !== 'player') return this.hud.toast('Look right at a friend to look out for them.');
+        return this.o.toHost({ t: 'power', target: t.id, crime: -1 });
+      case 'swab':
+        if (t?.kind !== 'clue') return this.hud.toast('Look right at a clue to swab it.');
+        return this.o.toHost({ t: 'power', target: t.id, crime: -1 });
+      case 'inspection':
+        this.inspectSince = this.roam;
+        return this.hud.toast('Inspecting: stand still for 3 s…');
+      default:
+        this.o.toHost({ t: 'power', target: -1, crime: -1 });
+    }
+  }
+
+  /** What your ability turned up (and the effects that last). */
+  private powerResult(text: string, pos: [number, number, number][], ids: number[], until: number) {
+    if (text) this.powerUI.showCard(text, text.length > 140 ? 16 : 9);
+    switch (this.power) {
+      case 'toboggan':
+        if (until) {
+          this.until.sled = until;
+          this.sledYaw = this.walker.yaw;
+        }
+        break;
+      case 'bongus':
+        this.until.bongus = until;
+        this.glows.set(pos);
+        this.hud.toast(pos.length ? `Yoooooooooo. ${pos.length} thing${pos.length > 1 ? 's' : ''} glowing nearby.` : 'Yoooooooooo. Nothing glowing round here.', 4000);
+        break;
+      case 'wallhack':
+      case 'eavesdrop':
+        this.until.xray = until;
+        this.xrayRange = this.power === 'wallhack' ? 8 : 7;
+        break;
+      case 'inspection':
+        this.until.sparkle = until;
+        this.sparkles.set(ids.map((id) => this.evidence?.spots.get(id)).filter((v) => v).map((v) => [v!.x, v!.y + 0.15, v!.z]));
+        break;
+    }
+  }
+
+  /** Bike Stu's randoms: two strangers with "???" over their heads. */
+  private syncNpcs(list: [number, number, number, number][]) {
+    this.npcAt = list;
+    while (this.npcs.length < list.length) {
+      const i = this.npcs.length;
+      const p = new Person(lookFor('guest', `stu${i}${this.o.me}`), 176 + i * 8);
+      p.setTag('???', '#c9b8ff');
+      p.root.position.set(list[i][0], list[i][1], list[i][2]);
+      this.world.scene.add(p.root);
+      this.npcs.push(p);
+    }
+    while (this.npcs.length > list.length) {
+      const p = this.npcs.pop()!;
+      this.world.scene.remove(p.root);
+      p.dispose();
+    }
+  }
+
+  private updateNpcs(dt: number) {
+    this.npcs.forEach((p, i) => {
+      const [x, y, z, yaw] = this.npcAt[i];
+      const moved = Math.hypot(x - p.root.position.x, z - p.root.position.z);
+      p.root.position.lerp(new THREE.Vector3(x, y, z), Math.min(1, dt * 8));
+      p.root.rotation.y = yaw;
+      p.pose({ speed: Math.min(3, moved / Math.max(dt, 1e-3)), crouch: false, pitch: 0 }, dt);
+    });
+  }
+
+  /** Shota's shirt on the floor (and Shota without it). */
+  private syncShirt(at: [number, number, number] | null) {
+    if (!at || this.shirt) return;
+    this.shirt = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.04, 0.35), new THREE.MeshToonMaterial({ color: CAST.shota.look.shirt }));
+    this.shirt.position.set(at[0], at[1] + 0.02, at[2]);
+    this.shirt.rotation.y = 0.7;
+    this.world.scene.add(this.shirt);
+    for (const r of this.remotes.values()) if (r.char === 'shota') r.person.setShirtless(true);
+  }
+
+  /** Nash's sofas: the navy couch and the leather one. */
+  private onCouch() {
+    const p = this.walker.pos;
+    return p.y < 0.5 && ((p.x > 7.2 && p.z > 6.6 && p.z < 11.2) || (p.z > 11.2 && p.x > 4 && p.x < 7.7));
+  }
+
+  /** Will's cologne (stand still 2 s to sniff) and Jung's buzzing phone. */
+  private tells(dt: number) {
+    if (this.ghost || this.pub?.ph !== 'night') return;
+    this.stillFor = Math.hypot(this.walker.vel.x, this.walker.vel.z) < 0.1 ? this.stillFor + dt : 0;
+    if (this.stillFor < 2 || this.char === 'will') return;
+    const room = roomAt({ ...this.walker.pos, y: this.walker.pos.y + 0.1 });
+    const last = room && this.willRooms.get(room.id);
+    if (!room || !last || this.sniffed === `${room.id}:${last}`) return;
+    const willHere = [...this.remotes.values()].some((r) => r.char === 'will' && roomAt({ ...r.pos, y: r.pos.y + 0.1 })?.id === room.id);
+    if (!willHere && performance.now() - last < 20000) {
+      this.sniffed = `${room.id}:${last}`;
+      this.hud.toast('*sniff* … Will Palmer’s cologne. He was just in here.', 3500);
+    }
+  }
+
+  /** Illogical!: two posted photos from one crime that nobody in the house fits both of. */
+  private checkLogic(v: PublicView) {
+    for (const a of v.posted)
+      for (const b of v.posted) {
+        if (a[0] >= b[0] || a[3] !== b[3]) continue;
+        const key = `${a[0]}:${b[0]}`;
+        if (this.illogical.has(key)) continue;
+        const someone = this.o.people.some((p) => fits(p, a[1] as Cat, a[2]) && fits(p, b[1] as Cat, b[2]));
+        if (someone) continue;
+        this.illogical.add(key);
+        this.hud.toast(`📳 ILLOGICAL! Photos #${a[0] + 1} and #${b[0] + 1} from ${crimeName(v, this.names, a[3])} can’t both be true. One’s a plant.`, 7000);
+        this.audio.play('buzz');
+      }
+  }
+
+  // -------------------------------------------------------------------------------------------
   // Chores
 
   private startChore(spot: Spot) {
@@ -1060,7 +1367,10 @@ export class NightSession {
     const c = this.chore!;
     this.hud.setPrompt('');
     if (f.pad[1] || this.pub?.ph !== 'night') return this.endChore();
-    if (c.view.frame(dt, f)) {
+    // Will Palmer supervises: anyone working near him is quicker, his own chores are slower.
+    const will = [...this.remotes.values()].some((r) => r.char === 'will' && this.statusOf(r.id) === 'in' && Math.hypot(r.pos.x - this.walker.pos.x, r.pos.y - this.walker.pos.y, r.pos.z - this.walker.pos.z) < 3);
+    const speed = this.char === 'will' ? 0.67 : will ? 1.5 : 1;
+    if (c.view.frame(dt, f, speed)) {
       this.o.toHost({ t: 'chore', spot: c.spot.id });
       this.audio.play('ding');
       this.hud.toast(this.evil ? 'Chore “done”. Very convincing.' : 'Chore done!');
@@ -1090,6 +1400,12 @@ export class NightSession {
       this.hud.setKill(wait > 0 ? `Take out in ${Math.ceil(wait)} s` : `Take out ready (${c.weapon})`, wait <= 0);
     } else this.hud.setKill('', false);
     this.hud.setHint(ph === 'night' ? (this.ghost ? 'Ghost · Space up · C down · E chores / rattle' : KEYS) : '');
+    const pw = this.priv?.power;
+    if (pw) this.powerUI.setChip(this.power, pw[0], pw[1] - this.roam, !this.ghost && ph === 'night');
+    if (this.inMeeting()) {
+      const can = ph === 'vote' && !this.ghost && (this.power === 'legend' || this.power === 'objection') && pw?.[0] !== 0;
+      this.meeting.setPower(can ? (this.power === 'legend' ? '😎 Campus Legend: double my vote (Q)' : '✋ OBJECTION! Void this vote (Q)') : null, () => this.usePower(ph));
+    }
   }
 
   private updateEviction(dt: number) {
@@ -1136,6 +1452,15 @@ export class NightSession {
   }
 
   destroy() {
+    if (this.duoHeld) this.o.toHost({ t: 'duo', spot: this.duoHeld, on: false });
+    this.syncNpcs([]);
+    this.powerUI.dispose();
+    this.glows.dispose();
+    this.sparkles.dispose();
+    if (this.shirt) {
+      this.shirt.geometry.dispose();
+      (this.shirt.material as THREE.Material).dispose();
+    }
     this.endChore();
     this.closeInspect();
     this.plantMenu?.dispose();

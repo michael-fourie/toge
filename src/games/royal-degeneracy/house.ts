@@ -76,7 +76,7 @@ export interface Prism {
 }
 
 export type ChoreKind = 'pan' | 'plunge' | 'socks' | 'recycling';
-type SpotKind = 'bell' | 'chore' | 'search' | 'fridge';
+type SpotKind = 'bell' | 'chore' | 'search' | 'fridge' | 'router' | 'duo';
 
 export interface Spot {
   id: string;
@@ -292,8 +292,9 @@ furn(0, 'table', 5.6, 8.9, 6.9, 9.8, 0.42);
 furn(0, 'bed', 6.9, 12.72, W - 0.12, 14.9, 0.55);
 furn(0, 'desk', 7.5, 17.9, W - 0.12, 19.4, 0.75);
 furn(0, 'radiator', 5.6, 19.66, 6.6, 19.86, 0.6);
-// The porch recycling.
+// The porch recycling, and the router on a little shelf by the front door.
 furn(0, 'bin', 3.5, 21.3, 4.2, 22, 0.7);
+furn(0, 'shelf', 3.4, 19.4, 3.84, 19.86, 0.9);
 
 // ---------------------------------------------------------------------------------------------
 // Floor 2: Selby (back left) with the covered balcony behind, Dev (back right), the bathroom (middle right),
@@ -415,6 +416,12 @@ for (const z of [0.6, 2.4, 4.3, 6.4, 11, 13.2, 15.6, 17.8]) furn(2, 'junk', 0.12
 
 spot('bell', 'bell', 'Bang the pot (call a house meeting)', 0.75, 1.3, 6.9);
 spot('fridge', 'fridge', 'Look at the fridge (the case board)', 0.95, 1.2, 0.8);
+spot('router', 'router', 'the router', 3.62, 1.05, 19.63);
+// Two-person chores: one person at each end, holding E together (or Shota alone).
+spot('duo-sofa-a', 'duo', 'Lift one end of the sofa', 7.9, 0.6, 7.2);
+spot('duo-sofa-b', 'duo', 'Lift the other end of the sofa', 7.9, 0.6, 10.6);
+spot('duo-mattress-a', 'duo', 'Grab one side of Mikol’s mattress', 7.6, 0.6, 15.2);
+spot('duo-mattress-b', 'duo', 'Grab the other side of Mikol’s mattress', 6.6, 0.6, 13.8);
 spot('pan-kitchen', 'chore', 'Scrub the pan in the sink', 5.6, 0.95, 0.45, 'pan');
 spot('pan-xang', 'chore', 'Scrub the pan on Xang’s desk', 5.1, 3.55, 18.4, 'pan');
 spot('pan-jung', 'chore', 'Scrub the pan under Jung’s desk', 2.5, 6.35, 2.3, 'pan');
@@ -476,6 +483,11 @@ export const DOORS: readonly Door[] = doors;
 export const SPOTS: readonly Spot[] = spots;
 export const PRISMS: readonly Prism[] = prisms;
 export const CHORE_KINDS: ChoreKind[] = ['pan', 'plunge', 'socks', 'recycling'];
+/** The two-person chores: [end A, end B, what it is]. Each counts as two chores on the bar. */
+export const DUO_PAIRS: [string, string, string][] = [
+  ['duo-sofa-a', 'duo-sofa-b', 'carried the sofa'],
+  ['duo-mattress-a', 'duo-mattress-b', 'flipped Mikol’s mattress'],
+];
 /** Use things (doors, chores, bodies, the bell) from this far. */
 export const REACH = 2;
 

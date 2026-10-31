@@ -8,13 +8,17 @@ import { DOORS, ROOMS, SPOTS } from './house.ts';
 import { cleanSettings, type Phase, type PrivateView, type PublicView, type Role, type Settings, type Status } from './rules.ts';
 
 /** Pose flag bits. */
-export const PF = { crouch: 1, torch: 2, ghost: 4, sit: 8, point: 16, busy: 32, phone: 64 } as const;
+export const PF = { crouch: 1, torch: 2, ghost: 4, sit: 8, point: 16, busy: 32, phone: 64, bongus: 128, sled: 256 } as const;
 
-type FxKind = 'bonk' | 'bell' | 'rattle' | 'chore' | 'oof' | 'evict';
+/** Emotes, sent with your pose (0: none). */
+export const EMOTES = ['', 'wave', 'point', 'shrug', 'facepalm', 'dance', 'five', 'hug'] as const;
+export type Emote = (typeof EMOTES)[number];
+
+type FxKind = 'bonk' | 'bell' | 'rattle' | 'chore' | 'oof' | 'evict' | 'toboggan';
 
 export type Msg =
   // anyone → everyone
-  | { t: 'p'; x: number; y: number; z: number; yaw: number; pitch: number; f: number }
+  | { t: 'p'; x: number; y: number; z: number; yaw: number; pitch: number; f: number; e: number }
   | { t: 'chat'; text: string }
   // player → host
   | { t: 'hi' }
@@ -32,6 +36,12 @@ export type Msg =
   | { t: 'post'; id: number }
   | { t: 'plant'; cat: Cat; value: string }
   | { t: 'wipe'; id: number }
+  | { t: 'unlock'; id: number }
+  /** Your ability: a player (-1: none) and a crime (-1: none) when it needs them. */
+  | { t: 'power'; target: number; crime: number }
+  | { t: 'duo'; spot: string; on: boolean }
+  | { t: 'ping' }
+  | { t: 'greet'; to: number; k: 'five' | 'hug' }
   // host → everyone (or one)
   | { t: 'lobby'; picks: [number, CharId][]; s: Settings; live: boolean }
   | { t: 'go' }
@@ -46,7 +56,14 @@ export type Msg =
   /** What your search turned up: a clue id, or -1 for nothing. */
   | { t: 'found'; spot: string; id: number }
   /** The house group chat: case texts, photos, announcements. */
-  | { t: 'feed'; from: string; text: string; clue: number };
+  | { t: 'feed'; from: string; text: string; clue: number }
+  /** Your ability's result (to you only): a line, places to glow, clues to sparkle, until when (roam). */
+  | { t: 'pw'; text: string; pos: [number, number, number][]; ids: number[]; until: number }
+  /** Your phone buzzes with an arrow to somewhere (Worrier, Always Down). */
+  | { t: 'buzz'; x: number; y: number; z: number; text: string }
+  /** Bike Stu's randoms: [x, y, z, yaw] each (empty: they've gone home). */
+  | { t: 'npcs'; p: [number, number, number, number][] }
+  | { t: 'greeted'; a: number; b: number; k: 'five' | 'hug' };
 
 const num = (v: unknown, lim = 1e6): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= lim;
 const int = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= -1 && v < 1e9;
@@ -57,7 +74,7 @@ const SPOT_IDS = new Set(SPOTS.map((s) => s.id));
 const PHASES: Phase[] = ['intro', 'night', 'meeting', 'vote', 'result', 'over'];
 const STATUSES: Status[] = ['in', 'dead', 'out', 'gone'];
 const ROLES: Role[] = ['housemate', 'degenerate'];
-const FX: FxKind[] = ['bonk', 'bell', 'rattle', 'chore', 'oof', 'evict'];
+const FX: FxKind[] = ['bonk', 'bell', 'rattle', 'chore', 'oof', 'evict', 'toboggan'];
 const ROOM_IDS = new Set(ROOMS.map((r) => r.id));
 const isCat = (v: unknown): v is Cat => typeof v === 'string' && (CATS as string[]).includes(v);
 
@@ -87,7 +104,9 @@ function readPublic(v: unknown): PublicView | null {
   }
   if (!arr(s.crimes, 40) || !arr(s.clues, 120) || !arr(s.posted, 120)) return null;
   for (const c of s.crimes) if (!arr(c, 3) || !(c[0] === 0 || c[0] === 1) || !int(c[1]) || !ROOM_IDS.has(c[2] as string)) return null;
-  for (const c of s.clues) if (!arr(c, 6) || !int(c[0]) || !int(c[1]) || !isCat(c[2]) || !num(c[3], 100) || !num(c[4], 100) || !num(c[5], 100)) return null;
+  for (const c of s.clues) if (!arr(c, 7) || !int(c[0]) || !int(c[1]) || !isCat(c[2]) || !num(c[3], 100) || !num(c[4], 100) || !num(c[5], 100) || ![0, 1, 2].includes(c[6] as number)) return null;
+  if (!int(s.doubled) || !arr(s.duo, 4) || !s.duo.every((d) => SPOT_IDS.has(d as string))) return null;
+  if (s.shirt !== null && (!arr(s.shirt, 3) || !s.shirt.every((v) => num(v, 100)))) return null;
   for (const c of s.posted) if (!arr(c, 5) || !int(c[0]) || !isCat(c[1]) || !str(c[2], 24) || !int(c[3]) || !int(c[4])) return null;
   return v as PublicView;
 }
@@ -98,6 +117,7 @@ function readPrivate(v: unknown): PrivateView | null {
   if (!ROLES.includes(s.role as Role) || !arr(s.mates, 16) || !s.mates.every(int) || !arr(s.tasks, 12)) return null;
   for (const t of s.tasks) if (!arr(t, 2) || !SPOT_IDS.has(t[0] as string) || typeof t[1] !== 'boolean') return null;
   if (!num(s.killAt) || typeof s.rang !== 'boolean' || !num(s.rattleAt) || !int(s.plants) || !arr(s.seen, 120)) return null;
+  if (!arr(s.power, 2) || !int(s.power[0]) || !num(s.power[1])) return null;
   for (const c of s.seen) if (!arr(c, 4) || !int(c[0]) || !isCat(c[1]) || !str(c[2], 24) || !int(c[3])) return null;
   return v as PrivateView;
 }
@@ -108,8 +128,8 @@ export function readMsg(d: unknown): Msg | null {
   const m = d as Record<string, unknown>;
   switch (m.t) {
     case 'p':
-      return num(m.x, 100) && num(m.y, 100) && num(m.z, 100) && num(m.yaw, 100) && num(m.pitch, 2) && int(m.f) && m.f >= 0 && m.f < 256
-        ? { t: 'p', x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, f: m.f }
+      return num(m.x, 100) && num(m.y, 100) && num(m.z, 100) && num(m.yaw, 100) && num(m.pitch, 2) && int(m.f) && m.f >= 0 && m.f < 1024
+        ? { t: 'p', x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, f: m.f, e: int(m.e) && m.e > 0 && m.e < EMOTES.length ? m.e : 0 }
         : null;
     case 'chat':
       return str(m.text, 160) && m.text.trim() ? { t: 'chat', text: m.text.trim() } : null;
@@ -117,6 +137,7 @@ export function readMsg(d: unknown): Msg | null {
     case 'bell':
     case 'rattle':
     case 'go':
+    case 'ping':
       return { t: m.t };
     case 'pick':
       return isCharId(m.c) ? { t: 'pick', c: m.c } : null;
@@ -137,6 +158,7 @@ export function readMsg(d: unknown): Msg | null {
     case 'inspect':
     case 'post':
     case 'wipe':
+    case 'unlock':
       return int(m.id) && m.id >= 0 ? { t: m.t, id: m.id } : null;
     case 'plant':
       return isCat(m.cat) && str(m.value, 24) ? { t: 'plant', cat: m.cat, value: m.value } : null;
@@ -144,6 +166,28 @@ export function readMsg(d: unknown): Msg | null {
       return int(m.id) && isCat(m.cat) && str(m.value, 24) && int(m.crime) ? { t: 'clue', id: m.id, cat: m.cat, value: m.value, crime: m.crime } : null;
     case 'found':
       return typeof m.spot === 'string' && SPOT_IDS.has(m.spot) && int(m.id) ? { t: 'found', spot: m.spot, id: m.id } : null;
+    case 'power':
+      return int(m.target) && int(m.crime) ? { t: 'power', target: m.target, crime: m.crime } : null;
+    case 'duo':
+      return typeof m.spot === 'string' && SPOT_IDS.has(m.spot) && typeof m.on === 'boolean' ? { t: 'duo', spot: m.spot, on: m.on } : null;
+    case 'greet':
+    case 'greeted': {
+      if (m.k !== 'five' && m.k !== 'hug') return null;
+      if (m.t === 'greet') return int(m.to) ? { t: 'greet', to: m.to, k: m.k } : null;
+      return int(m.a) && int(m.b) ? { t: 'greeted', a: m.a, b: m.b, k: m.k } : null;
+    }
+    case 'pw': {
+      if (!str(m.text, 1500) || !num(m.until) || !arr(m.pos, 30) || !arr(m.ids, 60) || !m.ids.every(int)) return null;
+      for (const p of m.pos) if (!arr(p, 3) || p.length !== 3 || !p.every((v) => num(v, 100))) return null;
+      return { t: 'pw', text: m.text, pos: m.pos as [number, number, number][], ids: m.ids as number[], until: m.until };
+    }
+    case 'buzz':
+      return num(m.x, 100) && num(m.y, 100) && num(m.z, 100) && str(m.text, 160) ? { t: 'buzz', x: m.x, y: m.y, z: m.z, text: m.text } : null;
+    case 'npcs': {
+      if (!arr(m.p, 4)) return null;
+      for (const p of m.p) if (!arr(p, 4) || p.length !== 4 || !p.every((v) => num(v, 100))) return null;
+      return { t: 'npcs', p: m.p as [number, number, number, number][] };
+    }
     case 'feed':
       return str(m.from, 40) && str(m.text, 300) && int(m.clue) ? { t: 'feed', from: m.from, text: m.text, clue: m.clue } : null;
     case 'lobby': {

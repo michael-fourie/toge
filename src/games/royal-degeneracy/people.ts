@@ -105,6 +105,32 @@ function drawFace(c: HTMLCanvasElement, face: Face) {
   }
 }
 
+/** A speech bubble: dark text on white. */
+function bubble(text: string): THREE.Sprite {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 96;
+  const g = c.getContext('2d')!;
+  g.font = '700 30px system-ui, sans-serif';
+  const w = Math.min(500, g.measureText(text).width + 36);
+  g.fillStyle = '#fffdf6';
+  g.beginPath();
+  g.roundRect(256 - w / 2, 8, w, 60, 24);
+  g.moveTo(240, 66);
+  g.lineTo(256, 90);
+  g.lineTo(272, 66);
+  g.fill();
+  g.fillStyle = '#2a1d30';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, 256, 39, 480);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  s.scale.set(1.6, 0.3, 1);
+  return s;
+}
+
 /** A floating name tag (depth-tested, so walls hide it like everything else). */
 function nameTag(text: string, colour = '#fff'): THREE.Sprite {
   const c = document.createElement('canvas');
@@ -139,6 +165,8 @@ export interface PoseIn {
   point?: boolean;
   /** Looking down at their phone (others can see it). */
   phone?: boolean;
+  /** An emote from net.ts EMOTES ('' for none). */
+  emote?: string;
 }
 
 export class Person {
@@ -158,6 +186,13 @@ export class Person {
   private mats: THREE.Material[] = [];
   private phase = 0;
   private tag: THREE.Sprite | null = null;
+  private tagText = '';
+  private said: THREE.Sprite | null = null;
+  private saidUntil = 0;
+  private shirtMat!: THREE.MeshToonMaterial;
+  private trimMat!: THREE.MeshToonMaterial;
+  private skin: string;
+  private sled: THREE.Mesh;
   readonly height: number;
 
   constructor(look: Look, heightCm: number) {
@@ -173,11 +208,19 @@ export class Person {
     const hair = m(look.hair);
     const shirt = m(look.shirt);
     const trim = m(look.trim);
+    this.shirtMat = shirt;
+    shirt.userData.colour = look.shirt;
+    this.trimMat = trim;
+    this.skin = look.skin;
     const pants = m(look.pants);
     const shoes = m(look.shoes);
     const w = look.build;
 
     this.root.add(this.body);
+    // Dev's concrete toboggan, under the feet while he rides it.
+    this.sled = part(geo.box, m('#9a9a96'), 0.62, 0.12, 1.2, 0, 0.06, 0, true);
+    this.sled.visible = false;
+    this.root.add(this.sled);
     this.body.add(this.hips);
     this.hips.position.y = HIP;
     // Legs pivot at the hips and hang down; shoes at the bottom.
@@ -282,8 +325,45 @@ export class Person {
     this.faceTex.needsUpdate = true;
   }
 
-  /** A name tag floating over their head (null removes it). */
+  /** A speech bubble over their head for a few seconds. */
+  say(text: string, secs = 3.5) {
+    this.clearSaid();
+    this.said = bubble(text);
+    this.said.position.y = BASE + 0.62;
+    this.said.scale.multiplyScalar(BASE / this.height);
+    this.root.add(this.said);
+    this.saidUntil = performance.now() + secs * 1000;
+  }
+
+  private clearSaid() {
+    if (!this.said) return;
+    this.root.remove(this.said);
+    this.said.material.map?.dispose();
+    this.said.material.dispose();
+    this.said = null;
+  }
+
+  /** Seen through walls (Wallhack, Eavesdrop): drawn last, never hidden. */
+  setXray(on: boolean) {
+    for (const mat of this.mats) mat.depthTest = !on;
+    this.root.traverse((o) => (o.renderOrder = on ? 900 : 0));
+  }
+
+  /** Shota after he overheats. */
+  setShirtless(on: boolean) {
+    this.shirtMat.color.set(on ? this.skin : (this.shirtMat.userData.colour as string));
+    this.trimMat.visible = !on;
+  }
+
+  setSled(on: boolean) {
+    this.sled.visible = on;
+  }
+
+  /** A name tag floating over their head (null removes it). Same text and colour: nothing to redraw. */
   setTag(text: string | null, colour?: string) {
+    const key = `${text}|${colour}`;
+    if (key === this.tagText) return;
+    this.tagText = key;
     if (this.tag) {
       this.root.remove(this.tag);
       this.tag.material.map?.dispose();
@@ -346,10 +426,41 @@ export class Person {
       this.armR.rotation.set(-1.15, 0, 0.45);
       this.armL.rotation.set(-1.05, 0, -0.35);
     }
+    const t = performance.now() / 1000;
+    switch (p.emote) {
+      case 'wave':
+        this.armR.rotation.set(-2.7, 0, -0.35 + Math.sin(t * 12) * 0.35);
+        break;
+      case 'point':
+        this.armR.rotation.set(-Math.PI / 2 - p.pitch, 0, 0.05);
+        break;
+      case 'shrug':
+        this.armL.rotation.set(-0.5, 0, 0.9);
+        this.armR.rotation.set(-0.5, 0, -0.9);
+        break;
+      case 'facepalm':
+        this.armR.rotation.set(-2.5, 0, 0.75);
+        break;
+      case 'dance':
+        this.body.position.y = Math.abs(Math.sin(t * 6)) * 0.08;
+        this.chest.rotation.y = Math.sin(t * 3) * 0.4;
+        this.armL.rotation.set(-2.6 + Math.sin(t * 6) * 0.5, 0, 0.3);
+        this.armR.rotation.set(-2.6 - Math.sin(t * 6) * 0.5, 0, -0.3);
+        break;
+      case 'five':
+        this.armR.rotation.set(-2.95, 0, -0.1);
+        break;
+      case 'hug':
+        this.armL.rotation.set(-1.45, 0, 0.5);
+        this.armR.rotation.set(-1.45, 0, -0.5);
+        break;
+    }
+    if (this.said && performance.now() > this.saidUntil) this.clearSaid();
     this.head.rotation.set(Math.max(-0.6, Math.min(0.6, p.phone ? -0.5 : p.pitch)) - this.chest.rotation.x, 0, 0);
   }
 
   dispose() {
+    this.clearSaid();
     this.setTag(null);
     for (const mat of this.mats) mat.dispose();
     this.faceTex.dispose();

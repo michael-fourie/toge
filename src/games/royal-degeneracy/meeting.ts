@@ -36,6 +36,7 @@ export class Meeting {
   private log = el('ul', 'rd-chatlog');
   private input = document.createElement('input');
   private last = '';
+  private powerBtn = document.createElement('button');
 
   constructor(
     parent: HTMLElement,
@@ -55,7 +56,9 @@ export class Meeting {
     });
     side.append(this.log, this.input);
     const main = el('div', 'rd-meetmain');
-    main.append(this.head, this.time, this.grid);
+    this.powerBtn.className = 'rd-btn hot small';
+    this.powerBtn.style.display = 'none';
+    main.append(this.head, this.time, this.powerBtn, this.grid);
     this.root.append(main, side);
     this.root.style.display = 'none';
     parent.append(this.root);
@@ -92,6 +95,14 @@ export class Meeting {
     if (this.typing) return;
     const again = focused ? this.grid.querySelector<HTMLElement>(`[data-vote="${focused}"]`) : null;
     (again && !(again as HTMLButtonElement).disabled ? again : this.grid.querySelector<HTMLButtonElement>('button:not([disabled])'))?.focus({ preventScroll: true });
+  }
+
+  /** Will's Campus Legend or a guest's Objection!: a button while it's usable (null hides it). */
+  setPower(label: string | null, use: () => void) {
+    this.powerBtn.style.display = label ? '' : 'none';
+    if (!label) return;
+    this.powerBtn.textContent = label;
+    this.powerBtn.onclick = use;
   }
 
   setTime(text: string) {
