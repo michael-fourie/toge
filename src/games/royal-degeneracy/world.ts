@@ -53,6 +53,7 @@ const LOOKS: Record<string, Look> = {
   feature: { color: '#d8b8b0', tex: 'brick' },
   trim: { color: '#f4f0e6' },
   rail: { color: '#efe9dc' },
+  banister: { color: '#7a4e2c' },
   glass: { color: '#3a4a78', glow: '#121a36', clear: true },
   skirting: { color: '#f3eee2' },
   ceiling: { color: '#f2ede2', tex: 'stipple' },
@@ -229,7 +230,11 @@ function faceMat(b: HBox, n: V, c: V): string {
   if (floors.has(b.mat)) {
     if (n[1] > 0.5) return b.mat;
     if (b.mat === 'grass' || b.floor === 0) return b.mat === 'grass' ? 'grass' : 'stone';
-    return 'ceiling';
+    if (n[1] < -0.5) return 'ceiling';
+    // A slab's edge: brick on the outside of the house, trim round a stair well.
+    const px = c[0] + n[0] * 0.3;
+    const pz = c[2] + n[2] * 0.3;
+    return px < 0 || px > WIDTH || pz < 0 || pz > DEPTH ? 'brick' : 'trim';
   }
   if (b.ramp) return n[1] > 0.3 ? b.mat : 'trim';
   // Windows: night glass from inside; from outside, a lit room's warm glow.
@@ -238,7 +243,9 @@ function faceMat(b: HBox, n: V, c: V): string {
     const out = p.x < 0 || p.x > WIDTH || p.z < 0 || p.z > DEPTH || !!roomAt(p)?.outside;
     return out ? 'window' : 'glass';
   }
-  if (b.mat === 'wall' || b.mat === 'brick') {
+  // A solid stair base or landing: wooden on top, painted like a wall on its sides.
+  if (b.mat === 'stair' && n[1] > 0.5) return 'stair';
+  if (b.mat === 'wall' || b.mat === 'brick' || b.mat === 'stair') {
     if (n[1] !== 0) return 'trim';
     // Probe at the face's own floor (a strip above a window is still that room, not the floor above).
     const probe = { x: c[0] + n[0] * 0.3, y: FLOOR_Y[b.floor] + 1.2, z: c[2] + n[2] * 0.3 };
@@ -314,7 +321,7 @@ function addBox(bld: Builder, b: HBox) {
 }
 
 /** A railing at hand height (porch, balconies, stair wells): drawn as a capped rail on spindles, not a slab. */
-const isBalustrade = (b: HBox) => b.mat === 'rail' && b.max.y - b.min.y > 0.7 && b.max.y - b.min.y < 1.15;
+const isBalustrade = (b: HBox) => (b.mat === 'rail' || b.mat === 'banister') && b.max.y - b.min.y > 0.7 && b.max.y - b.min.y < 1.3;
 
 function addBalustrade(bld: Builder, b: HBox) {
   const longX = b.max.x - b.min.x >= b.max.z - b.min.z;

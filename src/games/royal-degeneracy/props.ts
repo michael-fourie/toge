@@ -272,13 +272,16 @@ function furniture(k: Kit, b: HBox) {
     case 'hutch': {
       // A wooden hutch: cupboard below, glass shelves above, bottles lined along the top.
       k.box('wood', lo.x, y, lo.z, hi.x, y + 0.9, hi.z);
-      k.box('darkwood', lo.x, y + 0.9, lo.z, hi.x - 0.15, hi.y, hi.z);
+      // The glass-fronted top sits back against the wall it stands on.
+      const back = wallEnd(b, 'x');
+      k.box('darkwood', back < 0 ? lo.x : lo.x + 0.15, y + 0.9, lo.z, back < 0 ? hi.x - 0.15 : hi.x, hi.y, hi.z);
       const r = dice(5);
       const cols = ['bottleGreen', 'bottleClear', 'bottleBrown'];
       for (let z = lo.z + 0.08; z < hi.z - 0.05; z += 0.12) {
         const tall = 0.22 + r() * 0.14;
-        k.cyl(cols[Math.floor(r() * 3)], (lo.x + hi.x) / 2 - 0.05, hi.y, z, 0.035, tall);
-        k.cyl(cols[Math.floor(r() * 3)], (lo.x + hi.x) / 2 - 0.05, hi.y + tall, z, 0.012, 0.08);
+        const bx = (lo.x + hi.x) / 2 + (back < 0 ? -0.05 : 0.05);
+        k.cyl(cols[Math.floor(r() * 3)], bx, hi.y, z, 0.035, tall);
+        k.cyl(cols[Math.floor(r() * 3)], bx, hi.y + tall, z, 0.012, 0.08);
       }
       break;
     }
@@ -322,8 +325,8 @@ function clutter(k: Kit) {
   const f = (i: number) => FLOOR_Y[i];
   // Cans on the coffee table, the dining table and the floor by the couches.
   const cans: [number, number, number][] = [
-    [6, 0.42, 9.2], [6.3, 0.42, 9.5], [6.7, 0.42, 9.1], [2.2, 0.76, 7.5], [2.5, 0.76, 8.3], [7.3, 0, 11.3], [4.6, 0, 11.1], [1.9, 0, 11.2], [6.9, f(1) + 0.75, 5.7],
-    [5.2, f(1) + 0.75, 18.2], [8.1, f(2) + 0.5, 4.2], [3, 0.92, 1.8], [8.9, 0.92, 2.1],
+    [6, 0.42, 9.2], [6.3, 0.42, 9.5], [6.7, 0.42, 9.1], [0.5, 0.76, 7.6], [0.9, 0.76, 8.4], [7.3, 0, 11.3], [4.6, 0, 11.1], [2.5, 0, 11.6], [6.9, f(1) + 0.75, 5.7],
+    [5.2, f(1) + 0.75, 18.2], [8.1, f(2) + 0.5, 4.2], [4.2, 0.92, 4.95], [5.7, 0.92, 4.9],
   ];
   for (const [x, y, z] of cans) {
     k.cyl(r() < 0.5 ? 'can' : 'canRed', x, y, z, 0.033, 0.12, 8);
@@ -332,13 +335,13 @@ function clutter(k: Kit) {
   for (const [x, y, z, n] of [[6.5, 0.42, 9.6, 2], [4.2, 0, 2.8, 3], [6.2, f(1), 17.6, 1], [0.6, 0.92, 2.6, 1]] as [number, number, number, number][])
     for (let i = 0; i < n; i++) k.box('pizza', x - 0.2, y + i * 0.045, z - 0.2, x + 0.2, y + i * 0.045 + 0.04, z + 0.2);
   // Laundry piles in Xang's and Selby's rooms (chaos).
-  for (const [x, y, z] of [[6.4, f(1), 15.6], [7.2, f(1), 18.8], [1.8, f(1), 2.2], [2.8, f(1), 6.6], [5.9, f(1), 14.2]] as [number, number, number][]) {
+  for (const [x, y, z] of [[6.4, f(1), 15.6], [7.2, f(1), 18.8], [1.8, f(1), 2.2], [2.3, f(1), 5.3], [5.9, f(1), 14.2]] as [number, number, number][]) {
     k.box('laundry', x - 0.3, y, z - 0.25, x + 0.3, y + 0.12, z + 0.25);
     k.box(r() < 0.5 ? 'navy' : 'label', x - 0.15, y + 0.12, z - 0.12, x + 0.18, y + 0.2, z + 0.1);
   }
   // The traffic cone (nobody remembers where it came from).
-  k.cone('cone', 3.8, 0, 13.4, 0.17, 0.7);
-  k.box('cone', 3.6, 0, 13.2, 4, 0.04, 13.6);
+  k.cone('cone', 3.45, 0, 13.25, 0.17, 0.7);
+  k.box('cone', 3.25, 0, 13.05, 3.65, 0.04, 13.45);
   // Dev's room: a shag runner, a plant in a pot.
   k.box('rug', 5, f(1) + 0.002, 2.6, 5.7, f(1) + 0.02, 5.6);
   // Rugs, each with a border: the hall runner, under the coffee table, and one in most bedrooms.
@@ -586,7 +589,7 @@ export function buildProps(): { group: THREE.Group; owned: { dispose(): void }[]
   }, 0.75, 0.4, [0.13, 2.25, 9.2], Math.PI / 2, true);
   // Printed photos of the housemates along the top of the wall over the dining room's opening.
   const posters: [CharId, string][] = [['jung', 'Andrew 3-0'], ['dev', 'We’d go to bat for you DEVLIN'], ['xang', 'XANGUS!!!'], ['selby', 'Selby? Our Jayvon?'], ['wags', 'Records after?'], ['will', 'Campus Legend'], ['jj', 'CHORE CHART'], ['mikol', 'What bro.']];
-  posters.forEach(([c, cap], i) => sign(group, owned, poster(c, cap), 0.42, 0.34, [3.62, 2.3, 5.95 + i * 0.44], -Math.PI / 2));
+  posters.forEach(([c, cap], i) => sign(group, owned, poster(c, cap), 0.42, 0.34, [3.48, 2.3, 6.05 + i * 0.4], -Math.PI / 2));
   // Dev's blacklight Jimi Hendrix poster.
   sign(group, owned, (g, w, h) => {
     const grad = g.createLinearGradient(0, 0, w, h);

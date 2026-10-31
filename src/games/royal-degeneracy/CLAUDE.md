@@ -28,7 +28,7 @@ Lamp light is baked into the house's vertex colours (world.ts `bake`) as a multi
 dark. The bathroom mirror is a three.js Reflector that only renders near it; you appear in it on render layer 1.
 
 Doorways are 1 m wide, not 0.85 m: Gambol's collider is 0.8 m wide and has no step-up, so a real-width door snags.
-The house is 8.4 m wide. The stairs are a square spiral (straight flights, flat 90° landings); a stair well has to
+The house is 8.4 m wide. The stairs are a square spiral (straight flights, flat 90° landings: two turns up to floor 2, arriving facing the bathroom; the way to floor 3 starts beside it and doubles back on a half landing at 4.5 m); a stair well has to
 reach about 0.66 m past where a flight starts rising, or the collider's head catches the floor above.
 
 Read these first, in this order:

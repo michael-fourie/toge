@@ -3,8 +3,9 @@
 //
 // x runs left to right as you face the house from the street (0..WIDTH), z runs from the back wall (0) to the front
 // wall (DEPTH). The street is at +z. The stairs spiral up the left side with 90° turns, as the sketches show: from
-// the hall a few steps go left to a corner landing, the long flight climbs toward the back along the left wall,
-// then on floor 2 the next flight climbs left to a half landing and doubles back, climbing right into the top hall. Doors are 1 m (a touch wider than
+// the hall a few steps go left to a corner landing, the long flight climbs toward the back along the left wall, a
+// second corner, and a few steps right bring you up facing the bathroom door. The way on up starts right beside
+// them (a short wall between): a flight climbs left to a half landing and doubles back, climbing right into the top hall. Doors are 1 m (a touch wider than
 // the real 0.85 m: Gambol's collider is 0.8 m wide with no step-up, and a real doorway would snag it).
 
 import type { Box } from '../../shared/collision.ts';
@@ -33,7 +34,7 @@ export type Mat =
   | 'wood' | 'tile' | 'lino' | 'grass' | 'path' | 'porch' | 'stair' | 'stone'
   | 'wall' | 'brick' | 'trim' | 'glass' | 'ceiling' | 'rail' | 'fence' | 'neighbour' | 'tv'
   | 'bed' | 'desk' | 'couch' | 'leather' | 'table' | 'counter' | 'fridge' | 'toilet' | 'tub' | 'sink'
-  | 'radiator' | 'hutch' | 'shelf' | 'records' | 'beanbag' | 'bin' | 'junk' | 'invisible';
+  | 'radiator' | 'hutch' | 'shelf' | 'records' | 'beanbag' | 'bin' | 'junk' | 'invisible' | 'banister';
 
 export interface HBox extends Box {
   mat: Mat;
@@ -138,7 +139,7 @@ interface Gap {
  */
 function wall(floor: number, x0: number, z0: number, x1: number, z1: number, gaps: Gap[] = [], t = INT, mat: Mat = 'wall') {
   const y0 = floor === 0 ? -0.8 : FLOOR_Y[floor];
-  const y1 = FLOOR_Y[floor] + (floor === 2 ? CEILING[2] : FLOOR_Y[1]);
+  const y1 = floor === 2 ? FLOOR_Y[2] + CEILING[2] : FLOOR_Y[floor + 1] - SLAB;
   const axis: 'x' | 'z' = z0 === z1 ? 'x' : 'z';
   const a = axis === 'x' ? Math.min(x0, x1) : Math.min(z0, z1);
   const b = axis === 'x' ? Math.max(x0, x1) : Math.max(z0, z1);
@@ -271,7 +272,7 @@ box(0, 'rail', 4.35, 0, DEPTH, 4.45, 0.9, 22.2);
 wall(0, 0, 0, W, 0, [{ at: 1.9, kind: 'door', id: 'back' }, { at: 4.6, kind: 'window' }, { at: 6.9, kind: 'window' }], EXT, 'brick');
 wall(0, 0, DEPTH, W, DEPTH, [{ at: 1.7, kind: 'door', id: 'front' }, { at: 6.1, kind: 'window' }], EXT, 'brick');
 wall(0, 0, 0, 0, DEPTH, [{ at: 2.6, kind: 'window' }, { at: 7, kind: 'window' }, { at: 16.5, kind: 'window', w: 0.8 }], EXT, 'brick');
-wall(0, W, 0, W, DEPTH, [{ at: 2.6, kind: 'window' }, { at: 8.6, kind: 'window' }, { at: 16.3, kind: 'window' }], EXT, 'brick');
+wall(0, W, 0, W, DEPTH, [{ at: 2.6, kind: 'window' }, { at: 16.3, kind: 'window' }], EXT, 'brick');
 // The kitchen opens to the dining and living rooms around the TV block.
 wall(0, 0, 5.6, 1.2, 5.6);
 box(0, 'wall', 3.5, -0.8, 5.3, 6.1, FLOOR_Y[1], 5.9);
@@ -279,15 +280,20 @@ wall(0, 7.3, 5.6, W, 5.6);
 // The triangle wall off the TV block; the TV on its long face looks at the corner where the couches meet.
 const TRIANGLE: Prism = { floor: 0, pts: [[3.5, 5.9], [6.1, 5.9], [3.5, 9.3]], h: CEILING[0], tv: true };
 prism(TRIANGLE);
-// The stairs: a few steps left from the hall (A1), a corner landing, then the long flight toward the back (A2)
-// boxed in on the dining side. A2 starts at the landing's height, so it sits on a solid base. The well above A2
-// reaches 0.66 m past its foot, or your head would catch the floor above on the first steps.
+// The stairs: a few steps left from the hall (A1), a corner landing, the long flight toward the back (A2), a second
+// corner landing, and a few steps right (A3) up onto floor 2, facing the bathroom door. Each flight sits on a solid
+// base; beside A2 the space under floor 2 is filled in (it's floor-2 floor above). A wooden banister runs along A1
+// and the first landing.
 flight(0, 1.1, 12.65, 2.1, 13.65, 0, 0.7, 'x', -1);
 box(0, 'stair', 0.12, 0, 12.65, 1.1, 0.7, 13.65);
-box(0, 'stair', 0.12, 0, 9.65, 1.1, 0.7, 12.65);
-flight(0, 0.12, 9.65, 1.1, 12.65, 0.7, FLOOR_Y[1], 'z', -1);
-box(0, 'rail', 0.12, 0, 13.65, 2.1, 1.6, 13.72);
-wall(0, 1.25, 9.65, 1.25, 12.65, [], 0.1);
+box(0, 'stair', 0.12, 0, 10.65, 1.1, 0.7, 12.65);
+flight(0, 0.12, 10.65, 1.1, 12.65, 0.7, 2.1, 'z', -1);
+box(0, 'stair', 0.12, 0, 9.65, 1.3, 2.1, 10.65);
+box(0, 'stair', 1.3, 0, 9.65, 2.3, 2.1, 10.65);
+flight(0, 1.3, 9.65, 2.3, 10.65, 2.1, FLOOR_Y[1], 'x', 1);
+box(0, 'wall', 1.1, -0.8, 10.65, 2.1, FLOOR_Y[1] - SLAB, 12.65);
+box(0, 'banister', 1.1, 0, 13.65, 2.1, 1.25, 13.73);
+box(0, 'banister', 0.12, 0.7, 13.65, 1.1, 1.65, 13.73);
 wall(0, 3.9, 12.6, 3.9, DEPTH, [{ at: 5, kind: 'door', id: 'mikol' }]);
 wall(0, 3.9, 12.6, W, 12.6);
 
@@ -298,10 +304,11 @@ furn(0, 'fridge', 0.12, 0.4, 0.95, 1.2, 1.85);
 furn(0, 'counter', 0.12, 1.3, 0.75, 3.6, 0.92);
 furn(0, 'table', 5.9, 1.5, 7.3, 2.6, 0.76);
 furn(0, 'bin', 2.45, 0.15, 2.88, 0.65, 0.7);
-// Dining: the hutch with the bottles (and the bell), the long table, the empties by the stairs.
-furn(0, 'hutch', 0.12, 6, 0.6, 7.8, 1.9);
-furn(0, 'table', 1.75, 6.7, 2.85, 9.3, 0.76);
-furn(0, 'bin', 1.35, 11.2, 2, 11.85, 0.5);
+// Dining: the long table against the outside wall, the hutch with the bottles (and the bell) on the triangle wall
+// across from it, the empties by the kitchen opening.
+furn(0, 'table', 0.12, 6.6, 1.22, 9.2, 0.76);
+furn(0, 'hutch', 3.02, 6.9, 3.48, 8.7, 1.9);
+furn(0, 'bin', 2.9, 6.02, 3.45, 6.58, 0.5);
 // Living: the navy couch along the right, the black leather couch along Mikol's wall, the coffee table.
 furn(0, 'couch', 7.5, 6.9, W - 0.12, 10.9, 0.85);
 furn(0, 'leather', 4.3, 11.55, 7.4, 12.5, 0.85);
@@ -321,12 +328,18 @@ furn(0, 'shelf', 3.4, 19.4, 3.84, 19.86, 0.9);
 // climbs left from the landing to a half landing by the well, then flight D climbs right into the top hall. The
 // whole stair block is solid underneath, and railed where it meets the landing.
 
-/** The floor-2 stair block: flight C (front band, rising left), the half landing, flight D (back band, rising right). */
-const SB = { x0: 1.3, x1: 2.3, x2: 4.4, z0: 8.8, zD: 10.3, zC: 10.5, z1: 12.1 };
-const HALF = (FLOOR_Y[1] + FLOOR_Y[2]) / 2;
+/**
+ * The way up to floor 3, right beside the top of A3 (a short wall between them): flight C climbs left to a half
+ * landing over the first flight's well, then flight D doubles back and climbs right into the top hall. Under D and
+ * the back of the half landing it's solid; over the well the landing is a slab, with headroom for A2 below.
+ */
+const SB = { x0: 0.12, x1: 1.1, x2: 3.2, z0: 8.55, zD: 9.55, zA: 9.65, zA1: 10.65, zC: 10.75, z1: 11.75 };
+const HALF = 4.5;
 
-room('stairs2', 'the stairs', 1, 0, 9.65, 1.25, 13.34, 'stair');
-room('stairs2', 'the stairs', 1, SB.x0, SB.z0, SB.x2, SB.z1, 'stair');
+room('stairs2', 'the stairs', 1, SB.x0, SB.z0, SB.x1, SB.z1, 'stair');
+room('stairs2', 'the stairs', 1, SB.x1, SB.z0, SB.x2, SB.zA, 'stair');
+room('stairs2', 'the stairs', 1, SB.x1, SB.zA, 2.3, SB.zA1, 'stair');
+room('stairs2', 'the stairs', 1, SB.x1, SB.zA1, SB.x2, SB.z1, 'stair');
 room('selby', 'Selby’s room', 1, 0, 0, 4.05, 6.8);
 room('dev', 'Dev’s room', 1, 4.05, 0, W, 6.2);
 room('bath2', 'the bathroom', 1, 6.6, 6.2, W, 12.2, 'tile');
@@ -336,24 +349,26 @@ room('landing', 'the landing', 1, 0, 6.2, 6.6, 13.4);
 room('balcony', 'the covered balcony', 1, 0, -3.2, 4.05, 0, 'porch', true);
 room('frontbalcony', 'the front balcony', 1, 0, DEPTH, 4.4, 22.2, 'porch', true);
 
-// The slab, with the well over A1 and A2 cut out of it.
-slab(1, 'wood', -0.12, -0.12, W + 0.12, 9.65);
-slab(1, 'wood', 1.2, 9.65, W + 0.12, 13.34);
+// The slab, with the well over A2 and A3 cut out of it.
+slab(1, 'wood', -0.12, -0.12, W + 0.12, SB.zA);
+slab(1, 'wood', 2.3, SB.zA, W + 0.12, SB.zA1);
+slab(1, 'wood', SB.x1, SB.zA1, W + 0.12, 13.34);
 slab(1, 'wood', -0.12, 13.34, W + 0.12, DEPTH + 0.12);
 slab(1, 'porch', 0, -3.2, 4.05, -0.12);
 slab(1, 'porch', 0, DEPTH + 0.12, 4.4, 22.2);
-// Flight C, the half landing (on a solid base), and flight D over its own solid base.
+// Flight C, the half landing, flight D (each solid underneath where there's floor below).
 flight(1, SB.x1, SB.zC, SB.x2, SB.z1, FLOOR_Y[1], HALF, 'x', -1);
-box(1, 'stair', SB.x0, FLOOR_Y[1], SB.z0, SB.x1, HALF, SB.z1);
+box(1, 'stair', SB.x0, FLOOR_Y[1], SB.z0, SB.x1, HALF, SB.zA);
+box(1, 'stair', SB.x0, HALF - 0.12, SB.zA, SB.x1, HALF, SB.z1);
 box(1, 'wall', SB.x1, FLOOR_Y[1], SB.z0, SB.x2, HALF, SB.zD);
 flight(1, SB.x1, SB.z0, SB.x2, SB.zD, HALF, FLOOR_Y[2], 'x', 1);
-// The wall between the two flights, the wall on the well side, and the rails: along C's open side, round the well.
-box(1, 'wall', SB.x1, FLOOR_Y[1], SB.zD, SB.x2, FLOOR_Y[2] + 1, SB.zC);
-box(1, 'wall', SB.x0 - 0.05, FLOOR_Y[1], SB.z0, SB.x0, FLOOR_Y[2] + CEILING[2], SB.z1);
-// (C's rail stops short of its foot, so the way past it to Will's door stays wide.)
-box(1, 'rail', SB.x0, FLOOR_Y[1], SB.z1, 3.6, HALF + 1, SB.z1 + 0.08);
+// The short wall between A3 and C, the wall between A3 and D, the back wall, C's side wall, the banisters.
+box(1, 'wall', SB.x1, 2.1, SB.zA1, SB.x2, HALF + 1, SB.zC);
+box(1, 'wall', SB.x1, FLOOR_Y[1], SB.zD, SB.x2, FLOOR_Y[2] + 1, SB.zA);
 box(1, 'wall', SB.x0, FLOOR_Y[1], SB.z0 - 0.08, SB.x2, FLOOR_Y[2] + 1, SB.z0);
-box(1, 'rail', 1.2, FLOOR_Y[1], SB.z1, 1.3, FLOOR_Y[1] + 1, 13.34);
+box(1, 'wall', SB.x1, FLOOR_Y[1], SB.z1, SB.x2, HALF + 1, SB.z1 + 0.08);
+box(1, 'banister', SB.x0, HALF, SB.z1, SB.x1, HALF + 1, SB.z1 + 0.08);
+box(1, 'banister', SB.x1, FLOOR_Y[1], SB.z1 + 0.08, SB.x1 + 0.08, FLOOR_Y[1] + 1, 13.34);
 // Balcony railings and posts.
 box(1, 'rail', 0, FLOOR_Y[1], -3.2, 4.05, FLOOR_Y[1] + 1, -3.12);
 box(1, 'rail', -0.05, FLOOR_Y[1], -3.2, 0.05, FLOOR_Y[1] + 1, -0.12);
@@ -371,7 +386,7 @@ wall(1, W, 0, W, DEPTH, [{ at: 3, kind: 'window' }, { at: 9.6, kind: 'window', w
 wall(1, 0, 6.8, 4.05, 6.8, [{ at: 3.2, kind: 'door', id: 'selby' }]);
 wall(1, 4.05, 0, 4.05, 6.8);
 wall(1, 4.05, 6.2, W, 6.2, [{ at: 1.15, kind: 'door', id: 'dev' }]);
-wall(1, 6.6, 6.2, 6.6, 12.2, [{ at: 2.7, kind: 'door', id: 'bath2' }]);
+wall(1, 6.6, 6.2, 6.6, 12.2, [{ at: 3.95, kind: 'door', id: 'bath2' }]);
 wall(1, 4.95, 12.2, W, 12.2, [{ at: 0.75, kind: 'door', id: 'xang' }]);
 wall(1, 0, 13.4, 4.95, 13.4, [{ at: 4.2, kind: 'door', id: 'will' }]);
 wall(1, 4.95, 12.2, 4.95, DEPTH);
@@ -397,24 +412,25 @@ furn(1, 'radiator', 0.12, 15.8, 0.3, 17, 0.6);
 furn(1, 'bin', 3, -3.05, 3.8, -2.4, 0.7);
 
 // ---------------------------------------------------------------------------------------------
-// Floor 3: Jung (back), the bathroom (middle right), Wags (front). Flight D arrives into the top hall from the left;
+// Floor 3: Jung (back), the bathroom (middle right), Wags (front). Flight D arrives from the left into the top hall;
 // the eaves storage down the left is only reached through hatches in Jung's and Wags's rooms, never from the hall.
 
 room('stairs3', 'the stairs', 2, SB.x0, SB.z0, SB.x2, SB.z1, 'stair');
 room('jung', 'Jung’s room', 2, 2.1, 0, W, 6.5);
-room('jung', 'Jung’s room', 2, 2.1, 6.5, 4.4, 8.75);
+room('jung', 'Jung’s room', 2, 2.1, 6.5, 4.4, 8.45);
 room('bath3', 'the top bathroom', 2, 6.4, 6.5, W, 12.15, 'tile');
 room('hall3', 'the top hall', 2, 4.4, 6.5, 6.4, 12.15);
+room('hall3', 'the top hall', 2, SB.x2, 8.45, 4.4, 12.15);
 room('wags', 'Wags’s room', 2, 2.1, 12.15, W, DEPTH);
-room('eaves', 'the back eaves', 2, 0, 0, 2.1, 8.75, 'stair');
+room('eaves', 'the back eaves', 2, 0, 0, 2.1, 8.45, 'stair');
 room('eaves2', 'the front eaves', 2, 0, 12.15, 2.1, DEPTH, 'stair');
 
 slab(2, 'wood', -0.12, -0.12, W + 0.12, SB.z0);
-slab(2, 'wood', -0.12, SB.z0, SB.x0 - 0.05, SB.z1);
 slab(2, 'wood', SB.x2, SB.z0, W + 0.12, SB.z1);
 slab(2, 'wood', -0.12, SB.z1, W + 0.12, DEPTH + 0.12);
-// A rail where the stair well meets the top hall, past the top of flight D.
-box(2, 'rail', SB.x2 - 0.05, FLOOR_Y[2], SB.zD, SB.x2 + 0.05, FLOOR_Y[2] + 1, SB.z1);
+// Banisters round the stair well on the top floor, past the top of flight D.
+box(2, 'banister', SB.x2 - 0.04, FLOOR_Y[2], SB.zD, SB.x2 + 0.04, FLOOR_Y[2] + 1, SB.z1);
+box(2, 'banister', SB.x0, FLOOR_Y[2], SB.z1, SB.x2, FLOOR_Y[2] + 1, SB.z1 + 0.08);
 // The roof's underside (the ceiling).
 box(2, 'ceiling', -0.12, FLOOR_Y[2] + CEILING[2], -0.12, W + 0.12, FLOOR_Y[2] + CEILING[2] + 0.2, DEPTH + 0.12);
 
@@ -422,9 +438,9 @@ wall(2, 0, 0, W, 0, [{ at: 5.4, kind: 'window' }], EXT, 'brick');
 wall(2, 0, DEPTH, W, DEPTH, [{ at: 5, kind: 'window', w: 1.4 }], EXT, 'brick');
 wall(2, 0, 0, 0, DEPTH, [], EXT, 'brick');
 wall(2, W, 0, W, DEPTH, [{ at: 3.4, kind: 'window' }, { at: 9.4, kind: 'window', w: 0.7 }, { at: 16.4, kind: 'window' }], EXT, 'brick');
-wall(2, 2.1, 0, 2.1, 8.75, [{ at: 5.5, kind: 'hatch', id: 'hatch-back', w: 0.9 }]);
-wall(2, 0, 8.75, 4.4, 8.75);
-wall(2, 4.4, 6.5, 4.4, 8.75);
+wall(2, 2.1, 0, 2.1, 8.45, [{ at: 5.5, kind: 'hatch', id: 'hatch-back', w: 0.9 }]);
+wall(2, 0, 8.45, 4.4, 8.45);
+wall(2, 4.4, 6.5, 4.4, 8.45);
 wall(2, 4.4, 6.5, W, 6.5, [{ at: 0.65, kind: 'door', id: 'jung' }]);
 wall(2, 6.4, 6.5, 6.4, 12.2, [{ at: 4, kind: 'door', id: 'bath3' }]);
 wall(2, 0, 12.15, W, 12.15, [{ at: 5.05, kind: 'door', id: 'wags' }]);
@@ -440,12 +456,12 @@ furn(2, 'records', 3.8, 19.4, 5.9, 19.88, 0.8);
 furn(2, 'radiator', W - 0.3, 17.5, W - 0.12, 18.7, 0.6);
 decor(2, 'beanbag', 4.2, 16.4, 5, 17.2, 0.45);
 // Eaves junk: boxes against the outer wall, a path left along the inside.
-for (const z of [0.6, 2.4, 4.3, 6.4, 11, 13.2, 15.6, 17.8]) furn(2, 'junk', 0.12, z, 0.9, z + 0.9, 0.7 + (z % 1) * 0.4);
+for (const z of [0.6, 2.4, 4.3, 6.4, 13.2, 15.6, 17.8]) furn(2, 'junk', 0.12, z, 0.9, z + 0.9, 0.7 + (z % 1) * 0.4);
 
 // ---------------------------------------------------------------------------------------------
 // Spots
 
-spot('bell', 'bell', 'Bang the pot (call a house meeting)', 0.75, 1.3, 6.9);
+spot('bell', 'bell', 'Bang the pot (call a house meeting)', 3.25, 1.3, 7.2);
 spot('fridge', 'fridge', 'Look at the fridge (the case board)', 0.95, 1.2, 0.8);
 spot('router', 'router', 'the router', 3.62, 1.05, 19.63);
 // Two-person chores: one person at each end, holding E together (or Shota alone).
@@ -463,7 +479,7 @@ spot('socks-dev', 'chore', 'Pair the socks on Dev’s radiator', W - 0.21, 3.4, 
 spot('socks-will', 'chore', 'Pair the socks on Will’s radiator', 0.21, 3.4, 16.4, 'socks');
 spot('socks-wags', 'chore', 'Pair the socks on Wags’s radiator', W - 0.21, 6.2, 18.1, 'socks');
 spot('recycle-kitchen', 'chore', 'Sort the kitchen recycling', 2.66, 0.7, 0.4, 'recycling');
-spot('recycle-dining', 'chore', 'Sort the empties by the stairs', 1.68, 0.5, 11.5, 'recycling');
+spot('recycle-dining', 'chore', 'Sort the empties in the dining room', 3.17, 0.5, 6.3, 'recycling');
 spot('recycle-porch', 'chore', 'Sort the porch recycling', 3.85, 0.7, 21.65, 'recycling');
 spot('recycle-balcony', 'chore', 'Sort the balcony recycling', 3.4, 3.5, -2.7, 'recycling');
 spot('remote-sofa', 'chore', 'Find the remote in the sofa', 7.9, 0.5, 9.4, 'remote');
@@ -489,18 +505,18 @@ spot('sneak-gap', 'sneak', 'Climb in the kitchen window', -0.6, -0.2, 3.4, undef
 spot('laptop', 'laptop', 'Watch the Ring cam', 6.25, 0.5, 9.35);
 // The house's vices: rolling trays, bongs, the plate, the pill.
 const vice = (id: string, v: 'roll' | 'bong' | 'coke' | 'pill', name: string, x: number, y: number, z: number) => spots.push({ id, kind: 'vice', vice: v, name, pos: { x, y, z }, r: 0.28 });
-vice('roll-dining', 'roll', 'Roll a joint', 2.2, 0.82, 7.1);
+vice('roll-dining', 'roll', 'Roll a joint', 0.7, 0.82, 7.2);
 vice('roll-jung', 'roll', 'Roll a joint', 2.5, 6.4, 3.3);
 vice('bong-living', 'bong', 'the coffee-table bong', 6.8, 0.6, 9.05);
 vice('bong-xang', 'bong', 'Xang’s bong', 5.3, 3.75, 17.7);
 vice('bong-selby', 'bong', 'the Bike Stu bong', 3.7, 3.75, 4.1);
 vice('bong-mikol', 'bong', 'Mikol’s bong', 8.05, 0.95, 18.4);
 vice('coke', 'coke', 'Do a line off the plate', 5.75, 0.46, 9.6);
-vice('pill', 'pill', 'Take the mystery pill', 2.7, 0.8, 8.9);
+vice('pill', 'pill', 'Take the mystery pill', 0.8, 0.8, 8.8);
 // Search spots: where hidden clues land (hold E to dig through them).
 spot('s-kitchen-bin', 'search', 'the kitchen bin', 2.66, 0.7, 0.4);
 spot('s-kitchen-drawer', 'search', 'the junk drawer', 0.45, 0.9, 2.5);
-spot('s-hutch', 'search', 'the hutch cupboard', 0.4, 0.8, 7.2);
+spot('s-hutch', 'search', 'the hutch cupboard', 3.1, 0.8, 7.9);
 spot('s-sofa', 'search', 'the sofa cushions', 7.9, 0.5, 8.8);
 spot('s-leather', 'search', 'the leather couch cushions', 5.8, 0.5, 12);
 spot('s-mikol-bed', 'search', 'under Mikol’s bed', 7.6, 0.3, 14);

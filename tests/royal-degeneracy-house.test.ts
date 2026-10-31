@@ -72,22 +72,22 @@ const RIGHT = -Math.PI / 2;
 const BACK = 0;
 const FRONT = Math.PI;
 
-test('house: the stairs spiral up with right-angle turns, double back on floor 2, and come back down', () => {
-  // From the hall: a few steps left to the corner landing, then the long flight toward the back to floor 2.
-  const up1 = route({ x: 2.8, y: 0, z: 13.15 }, [[LEFT, 1], [BACK, 2.5]]);
+test('house: the stairs turn twice up to floor 2, then double back on a half landing up to floor 3, and back down', () => {
+  // From the hall: a few steps left, the long flight toward the back, then right up the last few steps.
+  const up1 = route({ x: 2.8, y: 0, z: 13.15 }, [[LEFT, 1], [BACK, 1.3], [RIGHT, 0.75]]);
   assert.equal(floorOf(up1.pos.y), 1, `floor 1 → 2 ends at ${JSON.stringify(up1.pos)}`);
-  assert.equal(roomAt(up1.pos)?.id, 'landing', 'arrives at the back of the well, by Selby’s door');
-  // Across the landing to the foot of flight C, up it (climbing left) to the half landing, then double back up
-  // flight D (climbing right) into the top hall.
-  const half = route(up1.pos, [[RIGHT, 1.4], [FRONT, 1.25], [LEFT, 1.5]]);
-  assert.ok(Math.abs(half.pos.y - (FLOOR_Y[1] + FLOOR_Y[2]) / 2) < 0.05, `the half landing is halfway up: ${JSON.stringify(half.pos)}`);
+  assert.equal(roomAt(up1.pos)?.id, 'landing');
+  assert.ok(Math.abs(up1.pos.z - 10.15) < 0.4, 'arrives facing the bathroom door');
+  // Round the short wall to the foot of flight C, up it (climbing left) to the half landing, then double back up D.
+  const half = route(up1.pos, [[RIGHT, 0.4], [FRONT, 0.4], [LEFT, 1.3]]);
+  assert.ok(Math.abs(half.pos.y - 4.5) < 0.05, `the half landing: ${JSON.stringify(half.pos)}`);
   const up2 = route(half.pos, [[BACK, 1], [RIGHT, 1.5]]);
   assert.equal(floorOf(up2.pos.y), 2, `floor 2 → 3 ends at ${JSON.stringify(up2.pos)}`);
   assert.equal(roomAt(up2.pos)?.id, 'hall3');
-  // And all the way back down: down D, round the half landing, down C, across the landing, down to the hall.
-  const down2 = route(up2.pos, [[LEFT, 1.6], [FRONT, 0.8], [RIGHT, 1.4]]);
+  // And all the way back down.
+  const down2 = route(up2.pos, [[LEFT, 1.8], [FRONT, 0.8], [RIGHT, 1.25]]);
   assert.equal(floorOf(down2.pos.y), 1, `down to floor 2 ends at ${JSON.stringify(down2.pos)}`);
-  const down = route(down2.pos, [[BACK, 1.2], [LEFT, 2], [FRONT, 2.2], [RIGHT, 1.5]]);
+  const down = route(down2.pos, [[BACK, 0.4], [LEFT, 1.4], [FRONT, 1.3], [RIGHT, 1.5]]);
   assert.equal(floorOf(down.pos.y), 0, `back down ends at ${JSON.stringify(down.pos)}`);
   assert.equal(roomAt(down.pos)?.id, 'hall');
 });
@@ -107,12 +107,14 @@ const MAGNETS: Vec3[] = [
   ),
   { x: 2.6, y: 0, z: 13.15 },
   { x: 0.62, y: 0.7, z: 13.15 },
-  { x: 0.62, y: FLOOR_Y[1], z: 9.25 },
-  { x: 0.62, y: FLOOR_Y[1], z: 7.6 },
-  { x: 4.9, y: FLOOR_Y[1], z: 11.3 },
-  { x: 1.8, y: (FLOOR_Y[1] + FLOOR_Y[2]) / 2, z: 11.3 },
-  { x: 1.8, y: (FLOOR_Y[1] + FLOOR_Y[2]) / 2, z: 9.55 },
-  { x: 4.9, y: FLOOR_Y[2], z: 9.55 },
+  { x: 0.62, y: 2.1, z: 10.15 },
+  { x: 2.8, y: FLOOR_Y[1], z: 10.15 },
+  { x: 3.7, y: FLOOR_Y[1], z: 11.25 },
+  // Up flight C (steep: people take it at a run, so the fill needs stepping stones).
+  ...[2.9, 2.3, 1.7, 1.2].map((x) => ({ x, y: FLOOR_Y[1] + ((3.2 - x) / 2.1) * 1.7, z: 11.25 })),
+  { x: 0.6, y: 4.5, z: 11.25 },
+  { x: 0.6, y: 4.5, z: 9.05 },
+  { x: 3.7, y: FLOOR_Y[2], z: 9.05 },
   { x: 1.7, y: 0, z: 23.9 },
   { x: 1.9, y: -0.75, z: -1.8 },
 ];
@@ -155,7 +157,7 @@ test('house: every room reaches every other on foot, and every chore and the bel
   const visited = [...seen.values()];
   for (const r of ROOMS) {
     const ok = visited.some((p) => floorOf(p.y) === r.floor && p.x > r.min.x && p.x < r.max.x && p.z > r.min.z && p.z < r.max.z);
-    assert.ok(ok, `nobody can walk into ${r.name}`);
+    assert.ok(ok, `nobody can walk into ${r.name} (floor ${r.floor}, ${JSON.stringify([r.min, r.max])})`);
   }
   for (const s of SPOTS) {
     const ok = visited.some((p) => Math.hypot(p.x - s.pos.x, p.y + 1.5 - s.pos.y, p.z - s.pos.z) < REACH);

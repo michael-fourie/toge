@@ -52,7 +52,8 @@ for (const d of DOORS) {
 }
 // The stairs down, as a chain: the top of the long flight (on the landing), its corner landing, the hall.
 const chain = [
-  { pos: { x: 0.62, y: FLOOR_Y[1], z: 9.2 }, rooms: ['landing', 'stairs2'] },
+  { pos: { x: 2.8, y: FLOOR_Y[1], z: 10.15 }, rooms: ['landing'] },
+  { pos: { x: 0.62, y: 2.1, z: 10.15 }, rooms: ['stairs1'] },
   { pos: { x: 0.62, y: 0.7, z: 13.15 }, rooms: ['stairs1'] },
   { pos: { x: 2.6, y: 0, z: 13.15 }, rooms: ['hall'] },
 ];
@@ -62,7 +63,7 @@ chain.forEach((c, i) => nodes.push({ ...c, exit: false, links: [i > 0 ? first + 
 nodes.push({ pos: { x: 4.85, y: FLOOR_Y[1], z: 11.7 }, rooms: ['landing'], exit: false, links: [] });
 
 /** Raccoons don't do stairs up: an invisible fence (for it alone) across the foot of the flight to the top floor. */
-const COON_FENCES: Box[] = [{ min: { x: 4.35, y: FLOOR_Y[1], z: 10.5 }, max: { x: 4.45, y: FLOOR_Y[1] + 1.2, z: 11.9 }, kind: 'wall' }];
+const COON_FENCES: Box[] = [{ min: { x: 3.2, y: FLOOR_Y[1], z: 10.75 }, max: { x: 3.3, y: FLOOR_Y[1] + 1.2, z: 11.75 }, kind: 'wall' }];
 
 /** Is the way from a to b clear (low furniture counts)? `wide`: clear for something as wide as a person. */
 function clear(a: Vec3, b: Vec3, wide = false): boolean {
