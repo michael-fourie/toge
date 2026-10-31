@@ -245,6 +245,10 @@ export class Person {
   private legR = new THREE.Group();
   private armL = new THREE.Group();
   private armR = new THREE.Group();
+  /** Forearms, hinged at the elbow (a positive x rotation bends them forward and up). */
+  private foreL = new THREE.Group();
+  private foreR = new THREE.Group();
+  private layer = 0;
   private faceCanvas = document.createElement('canvas');
   private faceTex: THREE.CanvasTexture;
   private face: Face = 'smile';
@@ -314,7 +318,13 @@ export class Person {
     ] as const) {
       arm.position.set(side * 0.235 * w, SHOULDER - HIP, 0);
       arm.add(part(geo.limb, shirt, 0.062, 0.12, 0.062, 0, -0.1, 0, true));
-      arm.add(part(geo.limb, skin, 0.05, 0.17, 0.05, 0, -0.34, 0, true));
+      // The forearm hangs from the elbow and ends in a hand (a mitt with a thumb).
+      const fore = side < 0 ? this.foreL : this.foreR;
+      fore.position.y = -0.22;
+      fore.add(part(geo.limb, skin, 0.048, 0.1, 0.048, 0, -0.1, 0, true));
+      fore.add(part(geo.ball, skin, 0.055, 0.07, 0.04, 0, -0.25, -0.005, true));
+      fore.add(part(geo.limb, skin, 0.018, 0.022, 0.018, side * -0.04, -0.22, -0.025));
+      arm.add(fore);
       this.chest.add(arm);
     }
     // Head: a big round head with a canvas face on the front, then hair, glasses and a hat.
@@ -421,9 +431,16 @@ export class Person {
     this.said = null;
   }
 
-  /** Puts every part on one render layer (you, in the mirror, live on layer 1). */
+  /** Puts every part on one render layer (you, in the mirror, live on layer 1; your own body, seen looking down, on 2). */
   setLayer(n: number) {
+    this.layer = n;
     this.root.traverse((o) => o.layers.set(n));
+  }
+
+  /** Your own body, seen from inside: no head (the camera's in it), arms only when your hands are free. */
+  setFirstPerson(arms: boolean) {
+    this.head.visible = false;
+    this.armL.visible = this.armR.visible = arms;
   }
 
   /** Seen through walls (Wallhack, Eavesdrop): drawn last, never hidden. */
@@ -459,20 +476,28 @@ export class Person {
     if (joint && !this.joint) {
       this.joint = new JointModel();
       this.joint.root.scale.setScalar(1.5);
+      this.joint.root.traverse((o) => o.layers.set(this.layer));
     }
-    if (bong && !this.bong) this.bong = new BongModel();
+    if (bong && !this.bong) {
+      this.bong = new BongModel();
+      this.bong.root.traverse((o) => o.layers.set(this.layer));
+    }
     if (this.joint) {
       this.joint.root.visible = joint;
       if (joint) {
-        const at = hit ? this.head : this.armR;
+        const at = hit ? this.head : this.foreR;
         if (this.joint.root.parent !== at) at.add(this.joint.root);
         if (hit) {
           this.joint.root.position.set(0.02, -0.06, -0.17);
           this.joint.root.rotation.set(0.15, -0.2, 0);
-          this.armR.rotation.set(2.2, 0, 0.6);
+          this.armR.rotation.set(0.9, 0, 0.35);
+          this.foreR.rotation.set(2.1, 0, 0);
         } else {
-          this.joint.root.position.set(0, -0.47, -0.02);
-          this.joint.root.rotation.set(0.4, 0, 0);
+          // Held low, elbow bent, the joint between the fingers pointing out.
+          this.armR.rotation.set(0.25, 0, -0.05);
+          this.foreR.rotation.set(1.1, 0, 0);
+          this.joint.root.position.set(0, -0.27, -0.03);
+          this.joint.root.rotation.set(-1.2, 0, 0);
         }
         this.joint.set(0.8, code === 2, hit ? 0.8 : 0.1);
       }
@@ -483,8 +508,10 @@ export class Person {
         if (this.bong.root.parent !== this.chest) this.chest.add(this.bong.root);
         this.bong.root.position.set(0.03, hit ? 0.02 : -0.12, -0.2);
         this.bong.root.rotation.set(hit ? 0.25 : 0, 0, 0);
-        this.armL.rotation.set(hit ? 1.25 : 0.9, 0, 0.25);
-        this.armR.rotation.set(hit ? 1.45 : 0.8, 0, -0.35);
+        this.armL.rotation.set(hit ? 0.9 : 0.5, 0, 0.25);
+        this.armR.rotation.set(hit ? 1.0 : 0.45, 0, -0.35);
+        this.foreL.rotation.set(1.0, 0, 0);
+        this.foreR.rotation.set(1.1, 0, 0);
         this.bong.set(1, hit ? 0.7 : 0, hit, dt);
       }
     }
@@ -540,6 +567,9 @@ export class Person {
     this.chest.rotation.set(0, 0, 0);
     this.armL.rotation.set(0, 0, 0.08);
     this.armR.rotation.set(0, 0, -0.08);
+    // Elbows: a touch of bend at rest, more as they swing.
+    this.foreL.rotation.set(0.15 + Math.max(0, -s) * 0.4, 0, 0);
+    this.foreR.rotation.set(0.15 + Math.max(0, s) * 0.4, 0, 0);
     if (p.dead || p.lying) {
       // Slumped on the floor, face up, arms out.
       this.body.rotation.x = Math.PI / 2;
@@ -566,38 +596,53 @@ export class Person {
       this.armR.rotation.x = s * 0.55;
     }
     // Arms and legs hang down: a positive x rotation swings them forward (the face is at -z).
-    if (p.point) this.armR.rotation.set(Math.PI / 2 + p.pitch, 0, 0.05);
+    if (p.point) {
+      this.armR.rotation.set(Math.PI / 2 + p.pitch, 0, 0.05);
+      this.foreR.rotation.set(0, 0, 0);
+    }
     if (p.phone) {
-      this.armR.rotation.set(1.15, 0, 0.45);
-      this.armL.rotation.set(1.05, 0, -0.35);
+      this.armR.rotation.set(0.55, 0, 0.3);
+      this.armL.rotation.set(0.5, 0, -0.25);
+      this.foreR.rotation.set(1.5, 0, 0);
+      this.foreL.rotation.set(1.45, 0, 0);
     }
     const t = performance.now() / 1000;
     switch (p.emote) {
       case 'wave':
-        this.armR.rotation.set(2.7, 0, -0.35 + Math.sin(t * 12) * 0.35);
+        this.armR.rotation.set(2.4, 0, -0.5);
+        this.foreR.rotation.set(0.5, 0, Math.sin(t * 12) * 0.5);
         break;
       case 'point':
         this.armR.rotation.set(Math.PI / 2 + p.pitch, 0, 0.05);
+        this.foreR.rotation.set(0, 0, 0);
         break;
       case 'shrug':
-        this.armL.rotation.set(0.5, 0, 0.9);
-        this.armR.rotation.set(0.5, 0, -0.9);
+        this.armL.rotation.set(0.2, 0, 0.5);
+        this.armR.rotation.set(0.2, 0, -0.5);
+        this.foreL.rotation.set(1.4, 0, 0.6);
+        this.foreR.rotation.set(1.4, 0, -0.6);
         break;
       case 'facepalm':
-        this.armR.rotation.set(2.5, 0, 0.75);
+        this.armR.rotation.set(1.2, 0, 0.45);
+        this.foreR.rotation.set(2.1, 0, 0);
         break;
       case 'dance':
         this.body.position.y = Math.abs(Math.sin(t * 6)) * 0.08;
         this.chest.rotation.y = Math.sin(t * 3) * 0.4;
-        this.armL.rotation.set(2.6 - Math.sin(t * 6) * 0.5, 0, 0.3);
-        this.armR.rotation.set(2.6 + Math.sin(t * 6) * 0.5, 0, -0.3);
+        this.armL.rotation.set(2.4 - Math.sin(t * 6) * 0.5, 0, 0.3);
+        this.armR.rotation.set(2.4 + Math.sin(t * 6) * 0.5, 0, -0.3);
+        this.foreL.rotation.set(0.8 + Math.sin(t * 6) * 0.4, 0, 0);
+        this.foreR.rotation.set(0.8 - Math.sin(t * 6) * 0.4, 0, 0);
         break;
       case 'five':
         this.armR.rotation.set(2.95, 0, -0.1);
+        this.foreR.rotation.set(0.1, 0, 0);
         break;
       case 'hug':
-        this.armL.rotation.set(1.45, 0, 0.5);
-        this.armR.rotation.set(1.45, 0, -0.5);
+        this.armL.rotation.set(1.4, 0, 0.6);
+        this.armR.rotation.set(1.4, 0, -0.6);
+        this.foreL.rotation.set(0.2, 0.9, 0);
+        this.foreR.rotation.set(0.2, -0.9, 0);
         break;
     }
     if (this.said && performance.now() > this.saidUntil) this.clearSaid();

@@ -287,6 +287,9 @@ export interface HeldState {
   toMouth: boolean;
   /** Walking: the hands bob. */
   walk: number;
+  /** Empty-handed gestures: reaching out to use something (0..1 through the reach, -1 none), rummaging (held E). */
+  reach: number;
+  rummage: boolean;
 }
 
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
@@ -387,11 +390,8 @@ export class HeldView {
   private hands: [Hand, Hand];
   private handL: THREE.Group;
   private handR: THREE.Group;
-  /** Forearms: bare skin at the wrist, then the sleeve, down to just off the bottom corner of the screen. */
-  private armL: THREE.Mesh;
-  private armR: THREE.Mesh;
-  private wristL: THREE.Mesh;
-  private wristR: THREE.Mesh;
+  /** Arms: upper arm, elbow, forearm (sleeve), and bare skin at the wrist, solved to the hand like a real arm. */
+  private arms: { upper: THREE.Mesh; elbow: THREE.Mesh; fore: THREE.Mesh; wrist: THREE.Mesh }[];
   private q = new THREE.Quaternion();
   private e = new THREE.Euler();
   private smoke: SmokeFx;
@@ -427,10 +427,11 @@ export class HeldView {
       s.add(out);
       return out;
     };
-    this.wristL = limb(skinMat, 0.021, 0.026);
-    this.wristR = limb(skinMat, 0.021, 0.026);
-    this.armL = limb(sleeveMat, 0.036, 0.046);
-    this.armR = limb(sleeveMat, 0.036, 0.046);
+    this.arms = [0, 1].map(() => {
+      const elbow = mesh(this.owned, new THREE.SphereGeometry(0.043, 12, 8), sleeveMat);
+      s.add(elbow);
+      return { upper: limb(sleeveMat, 0.044, 0.05), elbow, fore: limb(sleeveMat, 0.036, 0.043), wrist: limb(skinMat, 0.021, 0.027) };
+    });
     this.bong.root.scale.setScalar(0.8);
     s.add(this.bong.root, this.joint.root, this.lighter.root);
     this.smoke = new SmokeFx(s, 40);
@@ -443,8 +444,9 @@ export class HeldView {
     const show = (o: THREE.Object3D, on: boolean) => (o.visible = on);
     show(this.bong.root, h.item === 'bong');
     show(this.joint.root, h.item === 'joint');
-    show(this.handL, h.item !== 'none');
-    show(this.handR, h.item !== 'none');
+    const gesture = h.item === 'none' && (h.reach >= 0 || h.rummage);
+    show(this.handL, h.item !== 'none' || (gesture && h.rummage));
+    show(this.handR, h.item !== 'none' || gesture);
     let lighterOn = false;
     let lighterAt: THREE.Vector3 | null = null;
     if (h.item === 'bong') {
@@ -484,7 +486,7 @@ export class HeldView {
       }
     } else if (h.item === 'joint') {
       // Idle low in the right hand; lighting it, the tip to the lighter in your left; a drag, at your lips.
-      const want = h.toMouth ? [0.03, -0.06, -0.21, -0.45, -0.5, 0] : h.lighting ? [0.07, -0.12, -0.27, 0, 0.9, 0] : [0.16, -0.15, -0.38, 0.1, -0.6, 0];
+      const want = h.toMouth ? [0.035, -0.085, -0.2, -0.4, -0.45, 0] : h.lighting ? [0.07, -0.12, -0.27, 0, 0.9, 0] : [0.16, -0.15, -0.38, 0.1, -0.6, 0];
       this.jointPose = this.jointPose.map((v, i) => lerp(v, want[i], k));
       const [x, y, z, rx, ry, rz] = this.jointPose;
       this.joint.root.position.set(x, y + bob, z);
@@ -495,7 +497,8 @@ export class HeldView {
       const [hl, hr] = this.hands;
       hr.pose('pinch');
       this.handR.quaternion.copy(this.joint.root.quaternion).multiply(this.q.setFromEuler(this.e.set(0.2, 0, 0.85)));
-      this.handR.position.copy(this.joint.root.localToWorld(this.tmp.set(0.006, 0.022, 0.085)));
+      this.handR.position.copy(this.joint.root.localToWorld(this.tmp.set(0.006, h.toMouth ? -0.01 : 0.022, h.toMouth ? 0.05 : 0.085)));
+      if (h.toMouth) this.handR.position.y -= 0.035;
       const tip = this.joint.tip(new THREE.Vector3());
       this.handL.visible = h.lighting;
       if (h.lighting) {
@@ -513,34 +516,72 @@ export class HeldView {
         }
       }
     }
-    this.reach(this.wristL, this.armL, this.handL, -1);
-    this.reach(this.wristR, this.armR, this.handR, 1);
+    if (gesture) {
+      const [hl, hr] = this.hands;
+      if (h.rummage) {
+        // Both hands low in front, digging about.
+        hl.pose('rest');
+        hr.pose('grip');
+        const t = this.t * 7;
+        this.handR.rotation.set(0.3, 0.2, Math.PI / 2 + Math.sin(t) * 0.3);
+        this.handL.rotation.set(0.3, -0.2, -Math.PI / 2 - Math.cos(t) * 0.3);
+        this.handR.position.set(0.1 + Math.sin(t) * 0.04, -0.3 + Math.abs(Math.cos(t)) * 0.03, -0.42);
+        this.handL.position.set(-0.1 + Math.cos(t * 1.1) * 0.04, -0.31 + Math.abs(Math.sin(t)) * 0.03, -0.42);
+      } else {
+        // A hand goes out to whatever you're using, and comes back.
+        hr.pose('rest');
+        const e = Math.sin(Math.min(1, h.reach) * Math.PI);
+        this.handR.rotation.set(0.1, 0.35 - e * 0.3, 0.3 - e * 0.2);
+        this.handR.position.set(lerp(0.26, 0.11, e), lerp(-0.45, -0.17, e), lerp(-0.3, -0.62, e));
+      }
+    }
+    this.solveArm(this.arms[0], this.handL, -1);
+    this.solveArm(this.arms[1], this.handR, 1);
     this.lighter.root.visible = lighterOn;
     if (lighterAt) this.lighter.root.position.copy(lighterAt);
     this.lighter.set(lighterOn);
     this.smoke.update(dt);
   }
 
-  /** The forearm from the wrist back to its shoulder, off the bottom corner of the screen: bare skin, then the sleeve. */
-  private reach(wrist: THREE.Mesh, arm: THREE.Mesh, hand: THREE.Group, side: 1 | -1) {
-    wrist.visible = arm.visible = hand.visible;
-    if (!hand.visible) return;
+  /**
+   * An arm from the shoulder (just off the bottom corner of the screen) to the hand's wrist, bending at the elbow like
+   * a real one: a two-bone solve with the elbow pointing down and out.
+   */
+  private solveArm(arm: { upper: THREE.Mesh; elbow: THREE.Mesh; fore: THREE.Mesh; wrist: THREE.Mesh }, hand: THREE.Group, side: 1 | -1) {
+    const on = hand.visible;
+    arm.upper.visible = arm.elbow.visible = arm.fore.visible = arm.wrist.visible = on;
+    if (!on) return;
     hand.updateMatrixWorld(true);
-    const from = hand.localToWorld(Hand.WRIST.clone());
-    const d = this.tmp.set(side * 0.34, -0.62, 0.06).sub(from);
-    const len = d.length();
-    d.normalize();
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
-    wrist.position.copy(from);
-    wrist.quaternion.copy(q);
-    wrist.scale.set(1, 0.09, 1);
-    arm.position.copy(from).addScaledVector(d, 0.075);
-    arm.quaternion.copy(q);
-    arm.scale.set(1, Math.max(0.01, len - 0.075), 1);
+    const w = hand.localToWorld(Hand.WRIST.clone());
+    const sh = new THREE.Vector3(side * 0.24, -0.36, 0.1);
+    const U = 0.33;
+    const F = 0.33;
+    const toW = w.clone().sub(sh);
+    const d = Math.min(U + F - 0.002, Math.max(0.08, toW.length()));
+    const dir = toW.normalize();
+    const a = (U * U - F * F + d * d) / (2 * d);
+    const hgt = Math.sqrt(Math.max(0, U * U - a * a));
+    const pole = new THREE.Vector3(side * 0.9, -1, 0.25);
+    pole.sub(dir.clone().multiplyScalar(pole.dot(dir))).normalize();
+    const elbow = sh.clone().addScaledVector(dir, a).addScaledVector(pole, hgt);
+    const wrist = sh.clone().addScaledVector(dir, d);
+    const seg = (m: THREE.Mesh, from: THREE.Vector3, to: THREE.Vector3) => {
+      const v = to.clone().sub(from);
+      m.position.copy(from);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v.clone().normalize());
+      m.scale.set(1, Math.max(0.001, v.length()), 1);
+    };
+    seg(arm.upper, sh, elbow);
+    arm.elbow.position.copy(elbow);
+    // The forearm: sleeve to a hand's width short of the wrist, then bare skin.
+    const fdir = wrist.clone().sub(elbow);
+    const cuff = elbow.clone().addScaledVector(fdir, Math.max(0, 1 - 0.09 / Math.max(0.09, fdir.length())));
+    seg(arm.fore, elbow, cuff);
+    seg(arm.wrist, cuff.clone().addScaledVector(fdir.clone().normalize(), -0.01), wrist);
   }
 
   render(r: THREE.WebGLRenderer, aspect: number) {
-    if (!this.bong.root.visible && !this.joint.root.visible) return;
+    if (!this.handR.visible && !this.handL.visible) return;
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
     const auto = r.autoClear;

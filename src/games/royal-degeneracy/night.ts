@@ -38,6 +38,8 @@ const DOOR_CAM_Z = 20.3;
 const INTERP_MS = 100;
 const STEP_EVERY = 0.75;
 const SHOVE_RANGE = 1.5;
+/** How long a hand takes to reach out to something and come back. */
+const REACH_TIME = 0.45;
 const TORCH_POWER = 26;
 
 export interface SessionOpts {
@@ -215,6 +217,8 @@ export class NightSession {
   private replayCanvases: HTMLCanvasElement[] = [];
   /** You, as only the bathroom mirror sees you. */
   private self: Person;
+  /** Your own body, seen when you look down: headless, drawn only for your camera (layer 2), not in the mirror. */
+  private body: Person;
   /** What you've smoked, snorted or swallowed tonight (vices.ts). */
   private vibe = newVibe();
   private heartbeat = 0;
@@ -240,6 +244,8 @@ export class NightSession {
   private buzzStage = 0;
   private wasDown: string | null = null;
   private aidT = 0;
+  /** Your hand reaching out to whatever you just used (seconds left). */
+  private reachT = 0;
   /** Someone drew a moustache on you while you were down (it stays all night). */
   private doodled = false;
   private aidIn = 0;
@@ -316,6 +322,10 @@ export class NightSession {
       this.wrap.append(rotate);
     }
     this.self = new Person(lookFor(this.char, me.name), CAST[this.char].height);
+    this.body = new Person(lookFor(this.char, me.name), CAST[this.char].height);
+    this.body.setLayer(2);
+    this.camera.layers.enable(2);
+    this.world.scene.add(this.body.root);
     this.held = new HeldView(lookFor(this.char, me.name).skin, lookFor(this.char, me.name).shirt);
     this.smokeFx = new SmokeFx(this.world.scene, 220);
     this.self.setLayer(1);
@@ -990,11 +1000,24 @@ export class NightSession {
     }
     this.sendPose(dt, sitting);
     this.world.update(dt, this.camera.position, this.pub?.sab?.[0] !== 'power');
+    // Your body under you: a little behind your eyes, so looking down shows your legs and feet; arms when they're free.
+    const speed = Math.hypot(this.walker.vel.x, this.walker.vel.z);
+    const emote = EMOTES[performance.now() < this.emote.until ? this.emote.id : 0];
+    this.body.root.visible = !this.ghost && !this.down() && ph !== 'result' && ph !== 'over';
+    if (this.body.root.visible) {
+      const bx = -Math.sin(this.walker.yaw);
+      const bz = -Math.cos(this.walker.yaw);
+      this.body.root.position.set(this.walker.pos.x - bx * 0.2, this.walker.pos.y, this.walker.pos.z - bz * 0.2);
+      this.body.root.rotation.y = this.walker.yaw;
+      this.body.pose({ speed, crouch: this.walker.crouch, pitch: 0, sit: sitting, emote }, dt);
+      const free = heldCode(this.vibe, BONGS) === 0 && !this.chore && !this.rolling && !(this.hold && this.hold.t > 0) && !this.duoHeld && this.reachT <= 0;
+      this.body.setFirstPerson(free);
+    }
     if (this.world.mirror.visible) {
       this.self.root.visible = !this.ghost;
       this.self.root.position.set(this.walker.pos.x, this.walker.pos.y, this.walker.pos.z);
       this.self.root.rotation.y = this.walker.yaw;
-      this.self.pose({ speed: Math.hypot(this.walker.vel.x, this.walker.vel.z), crouch: this.walker.crouch, pitch: this.walker.pitch, phone: this.phone.open, emote: EMOTES[performance.now() < this.emote.until ? this.emote.id : 0] }, dt);
+      this.self.pose({ speed, crouch: this.walker.crouch, pitch: this.walker.pitch, sit: sitting, phone: this.phone.open, emote }, dt);
       this.self.hold(heldCode(this.vibe, BONGS), this.smoking, dt);
       this.self.setDoodle(this.doodled);
     } else this.self.root.visible = false;
@@ -1378,6 +1401,7 @@ export class NightSession {
       this.hud.setPrompt(prompt);
     }
     if (f.use && t) {
+      this.reachT = REACH_TIME;
       if (t.kind === 'door') this.o.toHost({ t: 'door', id: t.door.id });
       else if (t.kind === 'clue') {
         if (!lockOf(t.id)) {
@@ -1815,7 +1839,10 @@ export class NightSession {
       ripping: this.smoking && !!v.bong,
       toMouth: this.smoking,
       walk: Math.min(1, Math.hypot(this.walker.vel.x, this.walker.vel.z) / 3),
+      reach: this.reachT > 0 && inHand ? 1 - this.reachT / REACH_TIME : -1,
+      rummage: inHand && (!!(this.hold && this.hold.t > 0) || !!this.duoHeld),
     });
+    this.reachT = Math.max(0, this.reachT - dt);
     this.smokeFx.update(dt);
     // A bong in someone's hands isn't on its table; yours show your packed bowls.
     const held = new Set([...this.remotes.values()].filter((r) => r.h >= 3 && this.statusOf(r.id) === 'in').map((r) => BONGS[r.h - 3]));
@@ -2222,6 +2249,7 @@ export class NightSession {
     if (this.duoHeld) this.o.toHost({ t: 'duo', spot: this.duoHeld, on: false });
     this.syncNpcs([]);
     this.self.dispose();
+    this.body.dispose();
     this.powerUI.dispose();
     this.glows.dispose();
     this.sparkles.dispose();
