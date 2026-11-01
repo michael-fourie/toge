@@ -378,6 +378,14 @@ class Hand {
     this.thumb[0].rotation.set(0, swing, drop);
     this.thumb[1].rotation.set(0, bend, 0);
   }
+
+  /** Where the thumb tip meets the index fingertip, in the world (pose and place the hand first). */
+  pinch(out: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    const thumb = this.thumb[1].localToWorld(new THREE.Vector3(-0.022, 0, 0));
+    const index = this.fingers[0][2].localToWorld(new THREE.Vector3(0, 0, -0.015));
+    return out.addVectors(thumb, index).multiplyScalar(0.5);
+  }
 }
 
 /** Your own hands, in first person, drawn over the world. */
@@ -486,7 +494,7 @@ export class HeldView {
       }
     } else if (h.item === 'joint') {
       // Idle low in the right hand; lighting it, the tip to the lighter in your left; a drag, at your lips.
-      const want = h.toMouth ? [0.035, -0.085, -0.2, -0.4, -0.45, 0] : h.lighting ? [0.07, -0.12, -0.27, 0, 0.9, 0] : [0.16, -0.15, -0.38, 0.1, -0.6, 0];
+      const want = h.toMouth ? [0.03, -0.1, -0.24, -0.65, -0.45, 0] : h.lighting ? [0.07, -0.12, -0.27, 0, 0.9, 0] : [0.08, -0.1, -0.3, -0.35, 0.5, 0];
       this.jointPose = this.jointPose.map((v, i) => lerp(v, want[i], k));
       const [x, y, z, rx, ry, rz] = this.jointPose;
       this.joint.root.position.set(x, y + bob, z);
@@ -498,7 +506,9 @@ export class HeldView {
       hr.pose('pinch');
       this.handR.quaternion.copy(this.joint.root.quaternion).multiply(this.q.setFromEuler(this.e.set(0.2, 0, 0.85)));
       this.handR.position.copy(this.joint.root.localToWorld(this.tmp.set(0.006, h.toMouth ? -0.01 : 0.022, h.toMouth ? 0.05 : 0.085)));
-      if (h.toMouth) this.handR.position.y -= 0.035;
+      // Then slide the hand so the joint sits right in the pinch, a little up from the roach end.
+      const grip = this.joint.root.localToWorld(new THREE.Vector3(0, 0, -0.022));
+      this.handR.position.add(grip.sub(hr.pinch(this.tmp)));
       const tip = this.joint.tip(new THREE.Vector3());
       this.handL.visible = h.lighting;
       if (h.lighting) {
