@@ -31,7 +31,15 @@ a component or a page.
   gravel, crests, canyon), `tsukiyo` (night: bridge, tunnel), `momiji` (autumn), `sakura` (spring);
   circuits `monza` (3 laps), `spa`, `monaco` (2 laps); city `neonbay` (Neon Bay, live traffic).
   Track `Feature`s: gravel, canyon, bridge, tunnel, crest and `cut` (a gravel shortcut through gaps in the barrier).
-- **Cars** (`CarId`): pebble (starter), kitsune, bramble, shiro, vanta; 8 upgrade `PARTS`, levels 0-5.
+- **Cars** (`CarId`): pebble (starter), kitsune, bramble, shiro, tengu (twin-rotor coupe, pop-up lamps), vanta, and one
+  bike, raiden (`body: 'bike'`, `isBike`); 8 upgrade `PARTS`, levels 0-5.
+- **Bikes** run the same four-wheel physics on a narrow hidden `track` (1.2 m), with bike-sized wheel and engine inertia
+  and engine braking and a body three times steadier than its little box (`BIKE_*` in cars.ts; without it a barrel
+  spun it like a top), and no spoiler (the garage hides it; a code that carries one changes nothing).
+  The look is all client side: `bikemodel.ts` builds painted lofted shells (UVs like the car bodies, so paint jobs,
+  stripes and decals work), frame, fork, swingarm, wheels and a rider, and leans the model into turns by the cornering
+  force `pose(..., lat)` gets from racegame.ts. `root.userData.lean` is the leaning frame (the cockpit camera rides in
+  it, so the horizon tilts) and `root.userData.rider` is hidden from the rider's eye. Skid marks run down the middle.
 - **Cosmetics** (cosmetics.ts): 160 items in 11 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
   underglow, plates, plate frames/covers, exhaust tips), 5 rarities, won from 5 cases (Street, Night Run, Livery,
   Chrome, Legend) bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
@@ -92,7 +100,7 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
   post chain: clamp, bloom, film grade per theme (`Look.grade`), then tone mapping), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
-  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`), showroom.ts (the turntable; `place()` frames the car beside the rail; `showRider()` stands your driver by the
+  textures in carparts.ts, merged by material; bikes in bikemodel.ts; tune them in `/dev/cars.html`, `window.lab`), showroom.ts (the turntable; `place()` frames the car beside the rail; `showRider()` stands your driver by the
   driver's door, `focus('rider')` turns them to the camera), ridermodel.ts (the driver figure: ~70 primitives with cached
   geometry and materials, posed, a breathing idle; tune in `/dev/riders.html`, `window.lab`), riderportrait.ts (one
   offscreen renderer draws each driver to a cached PNG for the lobby; released when the lobby closes), riderui.ts (the
@@ -133,8 +141,10 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 
 ## Adding things
 
-- **A car:** a `CarId` + `CARS` entry (cars.ts) + a `DESIGNS` entry in `src/toge/client/carkits.ts`; tune the model in
-  `/dev/cars.html` (`window.lab`: `show(id|'all')`, `view(yaw, pitch, dist)`, `look({...})`, `spin(on)`).
+- **A car:** a `CarId` + `CARS` entry (cars.ts) + a `DESIGNS` entry in `src/toge/client/carkits.ts` (a bike: add it to
+  `BikeId` and build it in `bikemodel.ts` instead); tune the model in
+  `/dev/cars.html` (`window.lab`: `show(id|'all')`, `view(yaw, pitch, dist)`, `look({...})`, `spin(on)`, `pose(steer, lat)`
+  to steer and lean, `cockpit()` for the driver's or rider's eye).
 - **A track:** a `TrackId` + `TRACK_DEFS` entry + its `TRACK_LENGTH_KM` in garage.ts (the test checks it within 0.15 km,
   plus leg spacing and grades). A new `Theme` also needs `LOOKS` (toge/client/trackview.ts) and `LITTER` (tracktextures.ts).
 - **A mode:** there is no mode switch yet; the entry points are `RaceSetup` in toge/client/racegame.ts and the race protocol.

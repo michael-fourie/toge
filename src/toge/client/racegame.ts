@@ -1054,6 +1054,7 @@ export class RaceGame {
       c.wheels.map((w, i) => ({ y: wheelLocal(c, i).y, angle: w.angle })),
       c.steer,
       r.input.brake > 0.1 && c.gear >= 0,
+      c.w.y * forwardSpeed(c),
     );
   }
 
@@ -1094,11 +1095,12 @@ export class RaceGame {
       [0, 1, 2, 3].map((i) => ({ y: restY(i < 2 ? 0 : 1), angle: r.spin })),
       c.c.st,
       (c.c.f & CarFlag.Brake) !== 0,
+      c.c.w * Math.hypot(g.v.x, g.v.z),
     );
     r.bubble.visible = (c.c.f & CarFlag.Shield) !== 0;
     // Remote cars grab boxes on their own screens; take them here too so they vanish for us.
     for (const [i, box] of this.boxesNear(c.c.s)) if (Math.hypot(box.x - p.x, box.z - p.z) < box.r + 1) this.propView.takeBox(i, this.wallClock);
-    this.driftFx(r.model.root, sp.axleR, sp.track, sp.cg, (c.c.f & CarFlag.Drift) !== 0, (c.c.f >> CarFlag.LevelShift) & 3, (c.c.f & CarFlag.Boost) !== 0, g.v.x, g.v.z);
+    this.driftFx(r.model.root, sp.axleR, sp.bike ? 0 : sp.track, sp.cg, (c.c.f & CarFlag.Drift) !== 0, (c.c.f >> CarFlag.LevelShift) & 3, (c.c.f & CarFlag.Boost) !== 0, g.v.x, g.v.z);
     if (c.c.f & CarFlag.Skid && this.puffTick % 3 === 0) this.fx.puff(p.x, p.y - sp.cg, p.z, g.v.x, g.v.z, 0.6, (c.c.f & CarFlag.Offroad) !== 0);
   }
 
@@ -1127,9 +1129,12 @@ export class RaceGame {
     const root = r.model.root;
     const rx = Math.cos(yawOf(c));
     const rz = -Math.sin(yawOf(c));
+    const bike = c.spec.bike;
     c.wheels.forEach((w, i) => {
+      // A bike's two tyres each stand for a hidden pair: one mark down the middle, from the left of each pair.
+      if (bike && i % 2) return;
       const local = wheelLocal(c, i);
-      const wp = new THREE.Vector3(local.x, local.y - c.spec.radius, local.z).applyMatrix4(root.matrixWorld);
+      const wp = new THREE.Vector3(bike ? 0 : local.x, local.y - c.spec.radius, local.z).applyMatrix4(root.matrixWorld);
       // Marks once a tyre is well past its peak; smoke only in a real slide or burnout.
       const marking = w.contact && w.slip > 1.35 && sp > 2 && !soft(w.surf);
       const smoking = w.contact && w.slip > 1.8 && sp > 2 && !soft(w.surf);
@@ -1137,7 +1142,7 @@ export class RaceGame {
       this.fx.mark(idx * 4 + i, wp.x, wp.y, wp.z, rx, rz, 0.22, marking ? Math.min(1, (w.slip - 1.2) * 1.2) : 0);
       if ((smoking && this.puffTick % 3 === 0) || (dirt && this.puffTick % 4 === 0)) this.fx.puff(wp.x, wp.y, wp.z, c.v.x, c.v.z, Math.min(1.5, w.slip - 1.5), dirt);
     });
-    this.driftFx(root, c.spec.axleR, c.spec.track, c.spec.cg, c.drift !== 0, c.driftLevel, c.boost > 0, c.v.x, c.v.z);
+    this.driftFx(root, c.spec.axleR, bike ? 0 : c.spec.track, c.spec.cg, c.drift !== 0, c.driftLevel, c.boost > 0, c.v.x, c.v.z);
   }
 
   /** In a slipstream: faint air streaming past your car, thicker the deeper you're tucked in. */
@@ -1193,7 +1198,12 @@ export class RaceGame {
     const b = CARS[t.id];
     const back = this.controls.lookBack;
     const inside = this.cam === 'cockpit';
-    for (const [r, c] of this.cockpits) c.root.visible = inside && r === root;
+    for (const [r, c] of this.cockpits) {
+      c.root.visible = inside && r === root;
+      // From a bike's saddle you are the rider: hide them (bikemodel.ts).
+      const rider = r.userData.rider as THREE.Object3D | undefined;
+      if (rider) rider.visible = !c.root.visible;
+    }
     const nearPlane = inside ? 0.06 : 0.2;
     if (this.camera.near !== nearPlane) this.camera.near = nearPlane;
     if (inside) {
@@ -1251,14 +1261,17 @@ export class RaceGame {
    */
   private cockpitCamera(dt: number, t: CamTarget, speed: number, back: boolean) {
     const root = t.root;
+    // A bike's rider sits in its leaning frame (bikemodel.ts), so the view tilts with it; a car's is the root.
+    const seat = (root.userData.lean as THREE.Object3D | undefined) ?? root;
     let pit = this.cockpits.get(root);
     if (!pit) {
       pit = buildCockpit(t.id, t.spec);
-      root.add(pit.root);
+      seat.add(pit.root);
       this.cockpits.set(root, pit);
     }
     root.updateMatrixWorld();
     const q = root.quaternion;
+    const seatQ = seat.getWorldQuaternion(new THREE.Quaternion());
     const v = new THREE.Vector3(t.v.x, t.v.y, t.v.z);
     if (this.headRoot !== root) {
       this.headRoot = root;
@@ -1300,9 +1313,9 @@ export class RaceGame {
       boost: t.boost,
     });
     const eye = pit.eye.clone().add(new THREE.Vector3(pose.lat, pose.up, -pose.fwd));
-    this.camera.position.copy(eye.applyMatrix4(root.matrixWorld));
+    this.camera.position.copy(eye.applyMatrix4(seat.matrixWorld));
     const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(pose.pitch - 0.05, pose.yaw + (back ? Math.PI : 0), pose.roll, 'YXZ'));
-    this.camera.quaternion.copy(q).multiply(look);
+    this.camera.quaternion.copy(seatQ).multiply(look);
     this.camera.fov = 60 + pose.fov;
     pit.update(t.steer, t.rpm, speed * 3.6);
   }

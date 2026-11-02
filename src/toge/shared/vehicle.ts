@@ -633,7 +633,7 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
     } else {
       coupled = true;
       car.rpm = Math.max(sp.idle * 0.8, wheelRpm);
-      const engine = torqueAt(sp, car.rpm) * throttle - (1 - throttleIn) * (12 + car.rpm * 0.006) * (sp.cyl / 6 + 0.4);
+      const engine = torqueAt(sp, car.rpm) * throttle - (1 - throttleIn) * (12 + car.rpm * 0.006) * sp.engineDrag;
       driveT = engine * ratio * 0.9;
     }
   } else {

@@ -2,7 +2,7 @@
 // Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts); Driver (your character: riderui.ts). LB / RB walk every page in that order. The showroom fills
 // the window behind the glass rail, with your car framed in the free space and its card bottom right.
 
-import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, RIMS, RIM_COLORS, RIM_COLOR_NAMES, SPOILERS, STRIPES, TUNE_RANGE, type Tune, carSpec, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
+import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, RIMS, RIM_COLORS, RIM_COLOR_NAMES, SPOILERS, STRIPES, type BaseCar, TUNE_RANGE, type Tune, carSpec, isBike, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
 import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, payout, tunerCost } from '../shared/garage.ts';
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById } from '../shared/cosmetics.ts';
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
@@ -52,6 +52,8 @@ const write = (k: string, v: string) => {
 };
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
+/** "Bike" for two wheels (its RWD is a given), otherwise the driven wheels. */
+const driveLabel = (b: BaseCar) => (b.body === 'bike' ? 'Bike' : b.drive);
 
 export function classBadge(car: OwnedCar) {
   const r = rating(carSpec(car));
@@ -163,7 +165,7 @@ export const driveHub: Render = (root, ctx, screen) => {
         : '';
     $(root, '[data-card]').innerHTML = `
       ${ribbon}
-      <div class="tg-card-head"><div><small>${esc(b.maker)} · ${b.drive}</small><h2 class="tg-title">${esc(b.name)}</h2></div>${classBadge(c)}</div>
+      <div class="tg-card-head"><div><small>${esc(b.maker)} · ${driveLabel(b)}</small><h2 class="tg-title">${esc(b.name)}</h2></div>${classBadge(c)}</div>
       ${statBar('Speed', st.speed)}${statBar('Handling', st.handling)}${statBar('Acceleration', st.acceleration)}${statBar('Launch', st.launch)}${statBar('Braking', st.braking)}
       <dl class="tg-specs">
         <div><dt>Power</dt><dd class="tg-num">${Math.round(peakPower(sp).kw * 1.341)}<small>hp</small></dd></div>
@@ -251,7 +253,7 @@ export const driveHub: Render = (root, ctx, screen) => {
           return `<div class="tg-owned tg-cardbox ${sel ? 'on' : ''}" style="--paint:${hex(PAINTS[c.look.paint])}">
             <div class="tg-owned-name"><small>${esc(b.maker)}</small><b>${esc(b.name)}</b></div>
             ${classBadge(c)}
-            <div class="tg-owned-meta"><span>${b.drive}</span><span class="tg-up" style="--v:${levels / (PARTS.length * MAX_LEVEL)}"><i></i>${levels}/${PARTS.length * MAX_LEVEL} upgrades</span></div>
+            <div class="tg-owned-meta"><span>${driveLabel(b)}</span><span class="tg-up" style="--v:${levels / (PARTS.length * MAX_LEVEL)}"><i></i>${levels}/${PARTS.length * MAX_LEVEL} upgrades</span></div>
             <div class="tg-owned-act">
               ${sel ? '<span class="tg-tag">Driving</span>' : `<button class="tg-pill" data-select="${i}" ${i === 0 && !sel ? 'data-autofocus' : ''}>Drive</button>`}
               ${g.cars.length > 1 ? `<button class="tg-pill danger" data-sell="${i}">Sell ${money(b.price * 0.5)}</button>` : ''}
@@ -274,7 +276,7 @@ export const driveHub: Render = (root, ctx, screen) => {
         const owned = garage.g.cars.filter((c) => c.model === id).length;
         const looking = preview?.model === id;
         return `<div class="tg-deal tg-cardbox ${looking ? 'on' : ''}">
-          <div class="tg-deal-head"><div><small>${esc(b.maker)} · ${b.drive}</small><b class="tg-title">${esc(b.name)}</b></div>${classBadge(stock)}</div>
+          <div class="tg-deal-head"><div><small>${esc(b.maker)} · ${driveLabel(b)}</small><b class="tg-title">${esc(b.name)}</b></div>${classBadge(stock)}</div>
           <p>${esc(b.blurb)}</p>
           <div class="tg-deal-stats">${statBar('Speed', st.speed)}${statBar('Handling', st.handling)}${statBar('Accel', st.acceleration)}</div>
           <div class="tg-deal-foot">
@@ -352,7 +354,7 @@ export const driveHub: Render = (root, ctx, screen) => {
       </div>
       <div class="tg-group tg-cardbox">
         <h2 class="tg-h">Body</h2>
-        <div class="tg-field"><span class="tg-label">Spoiler</span>${pills('spoiler', SPOILERS)}</div>
+        ${isBike(viewed().model) ? '' : `<div class="tg-field"><span class="tg-label">Spoiler</span>${pills('spoiler', SPOILERS)}</div>`}
         <div class="tg-field"><span class="tg-label">Stripes</span>${pills('stripe', STRIPES)}</div>
         ${L.stripe ? `<div class="tg-swatches">${swatches('stripeColor', PAINTS, PAINT_NAMES)}</div>` : ''}
         <div class="tg-field"><span class="tg-label">Underglow</span></div>

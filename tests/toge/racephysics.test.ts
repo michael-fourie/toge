@@ -316,6 +316,17 @@ test('specs: upgrades make a car faster and raise its rating; classes span the c
   assert.ok(classes.size >= 4, [...classes].join());
 });
 
+test('bikes: the engine pulls on part throttle and a spoiler in the car code changes nothing', () => {
+  // Car-sized engine braking and inertia held the bike at 50 km/h on half throttle and slowed it after every hop.
+  const bike = carOn(flat, 'raiden');
+  assert.ok(bike.spec.bike && !carOn().spec.bike);
+  run(bike, { ...gas, throttle: 0.5 }, 12);
+  assert.ok(forwardSpeed(bike) > 25, `half throttle: ${(forwardSpeed(bike) * 3.6).toFixed(0)} km/h after 12 s`);
+  const winged = newOwnedCar('raiden');
+  winged.look.spoiler = 2;
+  assert.deepEqual(carSpec(winged), carSpec(newOwnedCar('raiden')));
+});
+
 test('after the finish line the car rolls to a stop and stays there, never backing up the road', () => {
   // The driver used to hold the foot brake past the line; at a standstill the automatic box took that as
   // "select reverse" and the car reversed back over the line. Every car, both as an AI rival and as you.
@@ -324,11 +335,14 @@ test('after the finish line the car rolls to a stop and stays there, never backi
     const car = carOn(t, id);
     const ai = newAi(0.8, 0);
     const inp: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
-    // Drive at the line at speed, so the car crosses it moving.
-    while (car.s < t.finishS + 1) {
+    // Drive at the line at speed, so the car crosses it moving. The AI steers the run-up: flat out with the wheel
+    // dead straight, the grid line clips the edge of the strip's ramp at 230 km/h and any car can land in the rail.
+    for (let time = 0; car.s < t.finishS + 1; time += TICK_DT) {
+      aiDrive(car, t, ai, TICK_DT, inp);
       inp.throttle = 1;
+      inp.brake = 0;
       stepCar(car, inp, t);
-      assert.ok(car.s < t.length, `${id}: never reached the line`);
+      assert.ok(time < 120, `${id}: never reached the line (s ${car.s.toFixed(0)})`);
     }
     const crossed = car.s;
     for (let i = 0; i < 10 * TICK_HZ; i++) {

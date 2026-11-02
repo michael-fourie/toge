@@ -1,10 +1,12 @@
 // Dev-only lab for the TŌGE car models: every car in a row (or one up close) under studio lights.
-// window.lab: show(id | 'all'), view(yawDeg, pitchDeg, dist), look({...}), spin(on).
+// window.lab: show(id | 'all'), view(yawDeg, pitchDeg, dist), look({...}), spin(on), pose(steer, lat) (a bike leans
+// with lat, m/s²), cockpit() (the driver's / rider's eye of the one car shown).
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { CAR_IDS, type CarId, type Look, carSpec, newOwnedCar } from '../src/toge/shared/cars.ts';
 import { type CarModel, buildCar } from '../src/toge/client/carmodel.ts';
+import { buildCockpit } from '../src/toge/client/cockpit.ts';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -114,5 +116,31 @@ requestAnimationFrame(frame);
     spinning = on;
   },
   render: () => renderer.render(scene, camera),
+  /** Steers every model shown and leans the bikes (lat: cornering force, m/s², + left); pose() repeats until settled. */
+  pose(steer = 0.2, lat = 0) {
+    for (const [i, m] of models.entries()) {
+      const sp = carSpec(newOwnedCar(current === 'all' ? CAR_IDS[i] : current));
+      for (let k = 0; k < 40; k++) m.pose([0, 1, 2, 3].map(() => ({ y: sp.radius - sp.cg, angle: 0 })), steer, false, lat);
+    }
+    renderer.render(scene, camera);
+  },
+  /** Looks out from the driver's seat of the one model shown (a bike's rider is hidden, as in the race). */
+  cockpit() {
+    if (current === 'all') return;
+    const m = models[0];
+    const seat = (m.root.userData.lean as THREE.Object3D | undefined) ?? m.root;
+    const pit = buildCockpit(current, carSpec(newOwnedCar(current)));
+    seat.add(pit.root);
+    const rider = m.root.userData.rider as THREE.Object3D | undefined;
+    if (rider) rider.visible = false;
+    scene.updateMatrixWorld(true);
+    camera.position.copy(pit.eye.clone().applyMatrix4(seat.matrixWorld));
+    camera.quaternion.copy(seat.getWorldQuaternion(new THREE.Quaternion())).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.05, 0, 0)));
+    camera.fov = 60;
+    camera.near = 0.06;
+    camera.updateProjectionMatrix();
+    pit.update(0, 6000, 120);
+    renderer.render(scene, camera);
+  },
 };
 show('all');
