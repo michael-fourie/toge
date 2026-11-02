@@ -12,8 +12,8 @@ import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
 // finish works unchanged. Only one lap's samples go in the spatial hash, and the renderer draws one lap
 // (lapView).
 
-export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco';
+export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -73,6 +73,8 @@ export interface TrackDef {
   tilt?: [number, number];
   /** Height of the sea or lake, if there is one (ground below it is under water). */
   water?: number;
+  /** Four lanes of two-way traffic to dodge (traffic.ts). */
+  traffic?: boolean;
   features?: Feature[];
 }
 
@@ -342,6 +344,28 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [560, 8, 195], [470, 8, 182], [445, 8, 215], [400, 8, 224], [340, 8, 224], [312, 8, 186], [270, 8, 180],
       [150, 8, 195], [55, 8, 215], [25, 8, 212], [5, 9, 185], [-5, 9, 100],
     ],
+  },
+  neonbay: {
+    id: 'neonbay',
+    name: 'Neon Bay',
+    tag: 'City at night · live traffic · harbour sweepers',
+    blurb: 'Downtown after dark on four lanes of open road, and the city is still driving on them. Block corners between the towers, a hump, then flat-out sweepers along the bay. Dodge the traffic.',
+    theme: 'city',
+    seed: 131,
+    width: 15,
+    relief: 70,
+    water: 52,
+    traffic: true,
+    points: [
+      [0, 120, 0], [0, 119, -170], [0, 118, -330], [9, 117, -361], [30, 116, -370],
+      [200, 114, -370], [330, 112, -372], [351, 111, -381], [360, 110, -402],
+      [360, 107, -560], [368, 105, -700], [400, 103, -790], [480, 101, -870], [620, 99, -895],
+      [700, 97, -900], [721, 96, -909], [730, 95, -930],
+      [730, 92, -1060], [722, 91, -1110], [690, 90, -1135],
+      [450, 87, -1135], [429, 86, -1144], [420, 85, -1165],
+      [420, 82, -1340], [440, 79, -1480], [530, 76, -1590], [700, 72, -1640], [860, 69, -1640], [960, 67, -1600], [1080, 65, -1600], [1200, 64, -1640],
+    ],
+    features: [{ kind: 'crest', at: 9, size: 1.6, len: 44 }],
   },
 };
 

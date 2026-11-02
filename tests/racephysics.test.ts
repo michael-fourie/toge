@@ -4,6 +4,7 @@ import { CAR_IDS, carSpec, newOwnedCar, rating, topSpeed } from '../src/shared/r
 import { aiDrive, newAi } from '../src/shared/race/driver.ts';
 import { TRACK_LENGTH_KM } from '../src/shared/race/garage.ts';
 import { SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../src/shared/race/track.ts';
+import { LANES, type Obstacle, TRAFFIC_KINDS, collideTraffic, getTraffic, newPose, trafficBetween, trafficPose, trafficS } from '../src/shared/race/traffic.ts';
 import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, stepCar } from '../src/shared/race/vehicle.ts';
 
 const TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
@@ -332,5 +333,61 @@ test('after the finish line the car rolls to a stop and stays there, never backi
     assert.ok(car.gear >= 0, `${id}: ended in reverse (gear ${car.gear})`);
     assert.ok(speedOf(car) < 0.5, `${id}: still moving at ${speedOf(car).toFixed(1)} m/s`);
     assert.ok(car.s > crossed, `${id}: rolled back over the line (s ${car.s.toFixed(1)} < ${crossed.toFixed(1)})`);
+  }
+});
+
+test('traffic: the same for everyone at the same moment, lanes never pile up, and clear of the grid', () => {
+  const t = getTrack('neonbay');
+  const tr = getTraffic(t)!;
+  assert.ok(tr.cars.length > 60, 'a city full of traffic');
+  // Another racer's copy of the track puts every car in the same place.
+  const other = getTraffic(buildTrack(TRACK_DEFS.neonbay))!;
+  const a = newPose();
+  const b = newPose();
+  for (const time of [-3, 0, 17.25, 140]) {
+    tr.cars.forEach((c, i) => {
+      trafficPose(t, tr, c, time, a);
+      trafficPose(t, other, other.cars[i], time, b);
+      assert.ok(Math.hypot(a.x - b.x, a.z - b.z) < 1e-9);
+    });
+    // Within a lane, never closer than nose to tail (with the loop's wrap).
+    for (let lane = 0; lane < 4; lane++) {
+      const ss = tr.cars.filter((c) => c.lane === lane).map((c) => trafficS(tr, c, time)).sort((x, y) => x - y);
+      for (let i = 0; i < ss.length; i++) {
+        const gap = i + 1 < ss.length ? ss[i + 1] - ss[i] : ss[0] + (tr.hi - tr.lo) - ss[i];
+        assert.ok(gap > TRAFFIC_KINDS.truck.len + 2, `lane ${lane} at ${time}: cars ${gap.toFixed(1)} m apart`);
+      }
+    }
+  }
+  for (const c of tr.cars) assert.ok(trafficS(tr, c, 0) > gridSlot(t, 7).s + 100);
+});
+
+test('traffic: hitting a car knocks you off it, and the AI gets every car through the city', () => {
+  const t = getTrack('neonbay');
+  const tr = getTraffic(t)!;
+  // Parked across a lane in front of an oncoming car: it shoves you back down the road.
+  const c = tr.cars.find((x) => LANES[x.lane].dir < 0)!;
+  const p = trafficPose(t, tr, c, 1, newPose());
+  const car = newCar(carSpec(newOwnedCar('pebble')), p.x + p.vx * 0.3, p.y, p.z + p.vz * 0.3, p.yaw + Math.PI / 2);
+  car.s = p.s;
+  for (let time = 1; time < 1.6; time += TICK_DT) collideTraffic(t, tr, car, time);
+  assert.ok(car.hit > 5, 'a real knock');
+  assert.ok(car.v.x * p.vx + car.v.z * p.vz > 0, 'pushed the way the traffic is going');
+  for (const model of CAR_IDS) {
+    const car = carOn(t, model);
+    const ai = newAi(0.9, 0);
+    const inp = { ...idle };
+    const near: Obstacle[] = [];
+    let time = 0;
+    let crashes = 0;
+    while (car.s < t.finishS && time < 400) {
+      aiDrive(car, t, ai, TICK_DT, inp, trafficBetween(tr, time, car.s - 10, car.s + 300, near));
+      stepCar(car, inp, t);
+      collideTraffic(t, tr, car, time);
+      if (car.hit > 12) crashes++;
+      time += TICK_DT;
+    }
+    assert.ok(car.s >= t.finishS, `${model} didn't get through the traffic (stuck at s=${car.s.toFixed(0)})`);
+    assert.ok(crashes <= 6, `${model}: ${crashes} big crashes in traffic`);
   }
 });

@@ -11,6 +11,8 @@ import { standings } from '../../shared/race/standings.ts';
 import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../../shared/race/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../../shared/race/vehicle.ts';
 import { PropView, shieldBubble } from './propview.ts';
+import { type Obstacle, type Traffic, collideTraffic, getTraffic, trafficBetween } from '../../shared/race/traffic.ts';
+import { TrafficView } from './trafficview.ts';
 import { rumble, setMenuNav } from '../pad.ts';
 import { esc } from '../menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
@@ -142,6 +144,11 @@ export class RaceGame {
   private audio: RaceAudio;
   private fx: Effects;
   private propView: PropView;
+  /** City traffic, and the race clock it runs on (seconds since GO; counts up to 0 during the countdown). */
+  private traffic: Traffic | null;
+  private trafficView: TrafficView | null = null;
+  private trafficTime = 0;
+  private obstacles: Obstacle[] = [];
   /** Your item slot: the roulette spinning until `rouletteUntil`, then the item and its uses. */
   private rouletteUntil = 0;
   private pending: Item | null = null;
@@ -201,6 +208,8 @@ export class RaceGame {
     this.post = new Post(this.renderer, this.view.scene, this.camera, this.view.grade);
     this.fx = new Effects(this.view.scene);
     this.propView = new PropView(this.view.scene, this.track);
+    this.traffic = getTraffic(this.track);
+    if (this.traffic) this.trafficView = new TrafficView(this.view.scene, this.track, this.traffic);
     this.hud = new RaceHud(setup.container, this.track);
     this.audio = new RaceAudio();
 
@@ -304,7 +313,7 @@ export class RaceGame {
 
   /** Night: every car lights the road ahead. */
   private headlights(root: THREE.Object3D, owned: OwnedCar) {
-    if (this.track.def.theme !== 'night') return;
+    if (this.track.def.theme !== 'night' && this.track.def.theme !== 'city') return;
     const b = CARS[owned.model];
     const cg = carSpec(owned).cg;
     const beam = new THREE.SpotLight(0xfff1d6, 650, 150, 0.55, 0.6, 2);
@@ -673,9 +682,12 @@ export class RaceGame {
       myInput.handbrake = c.handbrake;
       myInput.drift = c.drift;
     }
+    // Traffic runs on the race clock, the same for everyone online.
+    this.trafficTime = this.phase === 'countdown' ? -Math.max(0, this.countdown) : this.trafficTime + TICK_DT;
+    const traffic = this.traffic;
     for (const r of this.rivals) {
       if (this.phase === 'countdown') Object.assign(r.input, { steer: 0, throttle: Math.random() < 0.02 ? 1 : r.input.throttle * 0.95, brake: 1, handbrake: 1 });
-      else aiDrive(r.car, t, r.ai!, TICK_DT, r.input);
+      else aiDrive(r.car, t, r.ai!, TICK_DT, r.input, traffic ? trafficBetween(traffic, this.trafficTime, r.car.s - 10, r.car.s + 300, this.obstacles) : undefined);
     }
     // Step
     for (const r of [me, ...this.rivals]) {
@@ -690,6 +702,7 @@ export class RaceGame {
     const all = [me, ...this.rivals];
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) collideCars(all[i].car, all[j].car, true);
     for (const r of this.remotes.values()) collideCars(me.car, r.ghost, false);
+    if (traffic) for (const r of all) collideTraffic(t, traffic, r.car, this.trafficTime);
     if (me.car.hit > 2.5) {
       this.audio.impact(me.car.hit);
       rumble(Math.min(1, me.car.hit / 10), 0.5, 180);
@@ -739,6 +752,7 @@ export class RaceGame {
   private go() {
     if (this.phase !== 'countdown') return;
     this.phase = 'racing';
+    this.trafficTime = 0;
     this.audio.beep(true);
     this.hud.countdown('GO!');
     setTimeout(() => this.hud.countdown(null), 900);
@@ -953,6 +967,7 @@ export class RaceGame {
       this.tyreEffects(r, r === me ? 0 : 1 + this.rivals.indexOf(r));
     }
     for (const r of this.remotes.values()) this.poseRemote(r, now, dt);
+    this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT);
     const view = this.camTarget();
     this.updateCamera(dt, view);
     this.view.follow(this.camera.position.x, view.root.position.y, this.camera.position.z, now);
@@ -1191,6 +1206,7 @@ export class RaceGame {
     for (const r of [this.me, ...this.rivals]) r.model.dispose();
     for (const r of this.remotes.values()) r.model.dispose();
     this.fx.dispose();
+    this.trafficView?.dispose();
     this.cometGeo.dispose();
     this.cometMat.dispose();
     this.view.dispose();

@@ -8,6 +8,7 @@
 import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, arcadeMaxYaw, forwardSpeed, resetCar, speedOf, steerLimit } from './vehicle.ts';
 import { SAMPLE, type Track, pointAt } from './track.ts';
 import { firstPropFrom, isSolid } from './props.ts';
+import { LANES, type Obstacle } from './traffic.ts';
 
 const G = 9.81;
 /** Share of the tyres' peak grip that's usable mid-corner once load transfer is counted. */
@@ -23,9 +24,12 @@ export interface Ai {
   lane: number;
   stuck: number;
   wrongWay: number;
+  /** The line it's taking round traffic, and for how much longer. */
+  dodge: number;
+  dodgeFor: number;
 }
 
-export const newAi = (skill: number, lane: number): Ai => ({ skill, lane, stuck: 0, wrongWay: 0 });
+export const newAi = (skill: number, lane: number): Ai => ({ skill, lane, stuck: 0, wrongWay: 0, dodge: 0, dodgeFor: 0 });
 
 function curvAt(t: Track, s: number): number {
   const i = Math.max(0, Math.min(t.n - 1, Math.round(s / SAMPLE)));
@@ -65,8 +69,74 @@ export function targetSpeed(car: Car, t: Track, skill: number): number {
   return best;
 }
 
-/** Fills `out` with the AI's controls for this tick (and resets the car if it's hopelessly stuck). */
-export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput): DriveInput {
+/** Two cars this far apart across the road (m) or less are in each other's way. */
+const CLEAR = 2.9;
+/** How far ahead (s) the AI looks out for traffic. */
+const TRAFFIC_LOOK = 4;
+/** How quickly (m/s) the AI can move across the road. */
+const SWERVE = 2.5;
+/** Once it picks a line round traffic it holds it this long (s), so it doesn't weave. */
+const DODGE_HOLD = 0.8;
+
+/** Seconds until a car on line `d` reaches traffic in the way (Infinity if none), and the slowest car on that line it would be following. */
+function wayAhead(car: Car, d: number, v: number, traffic: Obstacle[]): { at: number; follow: number } {
+  let at = Infinity;
+  let follow = Infinity;
+  for (const o of traffic) {
+    if (Math.abs(o.d - d) >= CLEAR) continue;
+    const gap = o.s - car.s;
+    const reach = o.len / 2 + 2.5;
+    if (gap < -reach) continue;
+    // Alongside now blocks the line whatever the speeds; ahead, only if we're catching it.
+    const closing = v - o.v;
+    if (gap > reach && closing < 0.5) continue;
+    const tc = gap > reach ? (gap - reach) / closing : 0;
+    if (tc > TRAFFIC_LOOK) continue;
+    at = Math.min(at, tc);
+    if (o.v > 0) follow = Math.min(follow, o.v);
+  }
+  return { at, follow };
+}
+
+/**
+ * Traffic in the way of a car aiming at offset `off`: the line it takes instead (the nearest one that's clear
+ * for the next few seconds, or else the one with the most time to spare) and, if even that one is about to
+ * be blocked by a slower car going its way, that car's speed to sit behind.
+ */
+function dodge(car: Car, t: Track, ai: Ai, off: number, v: number, dt: number, traffic: Obstacle[]): { off: number; follow: number } {
+  ai.dodgeFor = Math.max(0, ai.dodgeFor - dt);
+  const want = ai.dodgeFor > 0 ? ai.dodge : off;
+  const here = wayAhead(car, want, v, traffic);
+  if (here.at === Infinity) return { off: want, follow: Infinity };
+  const limit = t.half - 1.2;
+  const lines = [off, ...LANES.map((l) => l.d)].filter((d) => Math.abs(d) <= limit);
+  let best = want;
+  let bestAt = here.at;
+  let bestFollow = here.follow;
+  // Clear beats nearly clear; between equals, the smaller swerve, and our own side of the road.
+  const score = (d: number, at: number) => Math.min(at, TRAFFIC_LOOK + 1) - Math.abs(d - car.d) * 0.08 - (d > 0 ? 0.4 : 0);
+  // A line past a car alongside (or about to be) can't be reached: you'd have to drive through it.
+  const passable = (d: number) => wayAhead(car, d, v, traffic).at > Math.abs(d - car.d) / SWERVE + 0.8;
+  for (const d of lines) {
+    if (LANES.some((l) => (l.d - car.d) * (l.d - d) < 0 && !passable(l.d))) continue;
+    const w = wayAhead(car, d, v, traffic);
+    if (score(d, w.at) > score(best, bestAt)) {
+      best = d;
+      bestAt = w.at;
+      bestFollow = w.follow;
+    }
+  }
+  ai.dodge = best;
+  ai.dodgeFor = DODGE_HOLD;
+  // Boxed in: sit behind a slower car going our way; with one coming at us, brake to drop back behind whatever's alongside.
+  return { off: best, follow: bestAt >= 1.6 ? Infinity : bestFollow < Infinity ? bestFollow : 0 };
+}
+
+/**
+ * Fills `out` with the AI's controls for this tick (and resets the car if it's hopelessly stuck). `traffic`
+ * is the city traffic near the car, if there is any.
+ */
+export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput, traffic?: Obstacle[]): DriveInput {
   const sp = car.spec;
   const v = forwardSpeed(car);
   const ld = Math.max(9, Math.min(42, 6 + v * 0.55));
@@ -78,6 +148,8 @@ export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput)
     const p = t.props[i];
     if (isSolid(p.kind) && Math.abs(p.d - off) < 3.2) off = p.d > 0 ? p.d - 3.4 : p.d + 3.4;
   }
+  let follow = Infinity;
+  if (traffic?.length) ({ off, follow } = dodge(car, t, ai, off, v, dt, traffic));
   const target = pointAt(t, ahead, off);
 
   // Car frame from its quaternion: forward = q·(0,0,-1), right = q·(1,0,0) (xz only).
@@ -102,7 +174,7 @@ export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput)
   // Airborne: hold it straight and wait for the landing.
   if (!car.wheels.some((w) => w.contact)) out.steer = 0;
 
-  const want = targetSpeed(car, t, ai.skill);
+  const want = Math.min(targetSpeed(car, t, ai.skill), follow > 0 ? follow + 2 : 0);
   const err = want - v;
   out.handbrake = 0;
   if (err > 0) {

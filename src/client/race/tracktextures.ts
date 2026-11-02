@@ -134,6 +134,7 @@ const LITTER: Record<Theme, { colors: string[]; n: number; sand?: string }> = {
   desert: { colors: ['#a0613a', '#b98a5e', '#7a4a2e'], n: 600, sand: 'rgba(190,128,82,' },
   autumn: { colors: ['#c4471e', '#e07a26', '#e8ad2e', '#9e2a1a', '#6b4a24'], n: 1700 },
   spring: { colors: ['#f6c3d3', '#fbdbe6', '#ee9fb8', '#ffffff'], n: 1500 },
+  city: { colors: ['#3a3a3c', '#55524c', '#26272a'], n: 500 },
 };
 
 /**
@@ -274,6 +275,8 @@ export function asphalt(theme: Theme, seed: number, aniso: number): Surface {
   const yellow = theme !== 'coast' && theme !== 'desert';
   if (yellow) line(W / 2 - lw / 2, 0, lw, H, '#e8a321');
   else for (let y = 0; y < H; y += pxPerM * 8) line(W / 2 - lw / 2, y, lw, pxPerM * 3, '#e8e6dc');
+  // City streets have four lanes: dashed white lines between each pair.
+  if (theme === 'city') for (const lx of [R0 + (R1 - R0) / 4, R0 + ((R1 - R0) * 3) / 4]) for (let y = 0; y < H; y += pxPerM * 12) line(lx - lw / 2, y, lw, pxPerM * 5, '#e8e6dc');
   // Worn paint: chips of asphalt showing through every line.
   for (const lx of [R0 + 10, R1 - 10 - lw, W / 2 - lw / 2])
     for (let i = 0; i < 260; i++) {
@@ -628,6 +631,94 @@ export function vendingFront(seed: number, brand: string): THREE.CanvasTexture {
   g.fillRect(70, 172, 44, 12);
   g.fillStyle = '#0d0d0d';
   g.fillRect(14, 214, W - 28, 28);
+  const tex = new THREE.CanvasTexture(g.canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * City towers: a curtain wall, 4 bays by 4 floors (TOWER_W x TOWER_H m) of glass between mullions and
+ * spandrels. The colour map is near white (each tower's colour tints it); the emissive map lights about
+ * half the offices, whole floors at a time now and then, in cool and warm whites.
+ */
+export const TOWER_W = 14;
+export const TOWER_H = 14;
+export function towerFacade(seed: number): { map: THREE.CanvasTexture; glow: THREE.CanvasTexture } {
+  const W = 512;
+  const H = 512;
+  const rnd = mulberry(seed + 77);
+  const c = canvas(W, H);
+  const e = canvas(W, H);
+  c.fillStyle = '#d8d8d8';
+  c.fillRect(0, 0, W, H);
+  e.fillStyle = '#000';
+  e.fillRect(0, 0, W, H);
+  const bay = W / 8;
+  const floor = H / 4;
+  for (let f = 0; f < 4; f++) {
+    const lit = rnd() < 0.25 ? 1 : rnd() < 0.3 ? 0 : 0.5;
+    const tone = rnd() < 0.6 ? '#dfe9ff' : '#ffd9a0';
+    for (let b = 0; b < 8; b++) {
+      const x = b * bay + 3;
+      const y = f * floor + floor * 0.2;
+      const w = bay - 6;
+      const h = floor * 0.72;
+      const glass = c.createLinearGradient(x, y, x + w, y + h);
+      glass.addColorStop(0, '#2c3846');
+      glass.addColorStop(0.6, '#4a5a6c');
+      glass.addColorStop(1, '#1c242e');
+      c.fillStyle = glass;
+      c.fillRect(x, y, w, h);
+      if (rnd() < lit) {
+        e.fillStyle = tone;
+        e.globalAlpha = 0.55 + rnd() * 0.45;
+        e.fillRect(x, y, w, h);
+        // Blinds half down, a desk lamp in the corner.
+        e.globalAlpha = 1;
+        e.fillStyle = 'rgba(0,0,0,0.55)';
+        e.fillRect(x, y, w, h * rnd() * 0.5);
+      }
+    }
+  }
+  const map = new THREE.CanvasTexture(c.canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const glow = new THREE.CanvasTexture(e.canvas);
+  glow.colorSpace = THREE.SRGBColorSpace;
+  for (const t of [map, glow]) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 8;
+  }
+  return { map, glow };
+}
+
+/** Upright neon signs, NEON_SIGNS of them side by side: glowing letters stacked down a dark board with a coloured rim. */
+export const NEON_SIGNS = 8;
+export function neonSigns(): THREE.CanvasTexture {
+  const CW = 128;
+  const H = 512;
+  const g = canvas(CW * NEON_SIGNS, H);
+  const words = ['RAMEN', 'HOTEL', 'BAR', 'KARAOKE', 'SUSHI', 'ARCADE', '24H', 'GARAGE'];
+  const colours = ['#ff2d7a', '#29e0ff', '#ffd23a', '#b04dff', '#ff5a1f', '#39ff8a', '#ff2d2d', '#4d7dff'];
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, CW * NEON_SIGNS, H);
+  words.forEach((word, i) => {
+    const x = i * CW;
+    const col = colours[i];
+    g.fillStyle = '#07070a';
+    g.fillRect(x + 8, 8, CW - 16, H - 16);
+    g.strokeStyle = col;
+    g.lineWidth = 6;
+    g.shadowColor = col;
+    g.shadowBlur = 14;
+    g.strokeRect(x + 14, 14, CW - 28, H - 28);
+    g.fillStyle = col;
+    const step = (H - 60) / word.length;
+    g.font = `bold ${Math.min(76, step * 0.9)}px sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    for (let k = 0; k < word.length; k++) g.fillText(word[k], x + CW / 2, 30 + step * (k + 0.5));
+    g.shadowBlur = 0;
+  });
   const tex = new THREE.CanvasTexture(g.canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
