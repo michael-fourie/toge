@@ -1,265 +1,128 @@
 # CLAUDE.md
 
-Atrous: a browser multiplayer movement shooter. Think CS:GO Combat Surf with bhop, surf, slide and wallrun, AWP-only, on Ghibli-style sky islands. It's a prototype that will evolve a lot. Player-facing docs are in README.md
+This repo (`atrous`, private, default branch `master`) is **Gambol**: a browser game site for a group of friends.
+The home page is a console-style **game chooser** with these channels:
 
-The site is a **game chooser** (menu/games.ts: a console-style channel grid; channel 1 Gambol, channel 2 **TŌGE**, the mountain racing game). Everything below "Priorities" is about Gambol, the shooter; TŌGE has its own section, "TŌGE (racing)", further down. Both games share the router, accounts and the Worker.
+1. **Gambol**: a multiplayer movement shooter. Think CS:GO Combat Surf with bhop, surf, slide, wallrun and a
+   grapple, on Ghibli-style sky islands. Modes: Practice (bots), Battle (FFA/teams), King of the Hill, Battle Royale,
+   and co-op zombie Survival in the Foundry. ("Atrous" was the shooter's working title; you'll still see it in names
+   like `atrous.inventory`.)
+2. **TŌGE**: mountain-pass and circuit racing against AI or friends, with a garage economy.
+3. **Plug-in games** (`src/games/`): SNAP!, Royal Degeneracy, and anything friends add.
 
-**Other games are plug-ins:** a folder in `src/games/<id>/` with a `channel.ts` (a `GameChannel`) shows up on the menu by itself (`src/games/registry.ts`, `import.meta.glob`). They run in the `play` screen (`menu/play.ts`) with a `GameApi`, and get online rooms from the generic `PartyRoom` Durable Object (`server/party.ts`, `partyroom.ts`; `/ws?game=party&kind=<id>`, `/api/parties?game=<id>`). Working on one: read `src/games/CLAUDE.md` (agent rules) and `docs/ADDING_A_GAME.md`. `_template` is the starting point.
+It's a prototype that changes a lot. Player-facing docs: `README.md`.
 
-## Priorities (in order)
+## Read the CLAUDE.md for the area you're touching
+
+| Area | Guide |
+|---|---|
+| Shooter rules, physics, maps, game modes (`src/shared`) | `src/shared/CLAUDE.md` |
+| Browser: menu, rendering, viewmodel, mobile, browser verification (`src/client`) | `src/client/CLAUDE.md` |
+| Worker, Durable Objects, netcode, accounts, security rules (`src/server`) | `src/server/CLAUDE.md` |
+| TŌGE racing, all of it | `src/shared/race/CLAUDE.md` (and `src/client/race/CLAUDE.md`) |
+| Adding a new game to the chooser | `src/games/CLAUDE.md` + `docs/ADDING_A_GAME.md` |
+| Royal Degeneracy | `src/games/royal-degeneracy/CLAUDE.md` |
+| Tests | `tests/CLAUDE.md` |
+
+## Architecture
+
+```
+browser (Vite-built SPA, TypeScript + three.js WebGL)
+  src/client/main.ts ── menu router ──┬─ Gambol:  client/game.ts  (128 Hz local sim, render, net.ts)
+                                      ├─ TŌGE:    client/race/racegame.ts (120 Hz car sim, racenet.ts)
+                                      └─ plug-ins: menu/play.ts mounts src/games/<id>/channel.ts
+        │  imports pure rules from src/shared (also used by the server)
+        │
+        │ HTTPS /api/*  +  WebSocket /ws
+        ▼
+Cloudflare Worker  src/server/worker.ts  (one Worker also serves dist/ as static assets)
+  ├─ Directory DO   lobby codes and lists ("all", "race", "party:<id>")
+  ├─ LobbyRoom DO   one per shooter match: lobby.ts (20 Hz tick) + survival.ts / workshop.ts / royale.ts
+  ├─ RaceRoom DO    one per TŌGE race: race.ts
+  ├─ PartyRoom DO   one per plug-in game room: party.ts (roster + relay only)
+  └─ Accounts DO    users, sessions, the shooter stash (coins, items, XP), the TŌGE garage
+```
+
+- **`src/shared` is the contract.** Physics, maps, game-mode rules, the economy and the wire protocol are pure,
+  deterministic TypeScript (no three.js, no DOM) used by both sides. Put logic there and test it there.
+- **Authority:** movement and hit detection are client-side (prototype shortcuts; the server sanity-checks them).
+  Match flow, zombies, Survival/Royale state, race timing and every coin/XP payout for signed-in players are
+  server-side. Guests keep their stash/garage in localStorage and run the same shared rules locally.
+- **Rendering:** plain `THREE.WebGLRenderer` everywhere, toon materials and canvas-painted textures in the shooter,
+  a bloom/grade post chain in TŌGE. A WebGPU rewrite was merged and then reverted (too slow): don't bring it back.
+- **Hosting:** Cloudflare Workers + Durable Objects on the free plan (`wrangler.jsonc`, `docs/DEPLOYMENT.md`).
+  Branch pushes get Cloudflare preview builds.
+
+## Repo layout
+
+```
+src/shared/   pure rules for client + server (shooter); race/ = TŌGE
+src/client/   the browser: menu/, the shooter (game.ts and friends), weapon/, race/ (TŌGE)
+src/server/   the Cloudflare Worker and Durable Objects
+src/games/    plug-in games for the chooser (registry.ts finds <id>/channel.ts; _template/ to start)
+tests/        node:test files, run by an explicit list in package.json
+dev/          dev-only labs served by Vite: viewmodel.html (guns/hands), cars.html (TŌGE car models)
+docs/         ADDING_A_GAME, DEPLOYMENT, FOUNDRY (Survival map), MAP_PLAN (Windward), MENU_PLAN, SECURITY
+public/       _headers (security headers), models/ (optional awp.glb, see README)
+wrangler.jsonc  Worker config: assets, Durable Object bindings, migrations, previews
+```
+
+## Commands
+
+```bash
+npm ci             # install (Node 20+, 22 recommended)
+npm run dev        # Vite + Cloudflare plugin: client and Worker/Durable Objects locally on :5173
+npm test           # node:test via tsx; files are listed explicitly in package.json
+npm run typecheck  # tsc for client+shared (tsconfig.json) and for server+shared with Workers types (tsconfig.worker.json)
+npm run build      # typecheck + vite build -> dist/
+npm run smoke      # tests/lobby.smoke.ts against a running server (BASE=https://...)
+npm run deploy     # build + wrangler deploy (Michael's Cloudflare account; don't run it unless asked)
+```
+
+Vite is pinned to 6 for the Cloudflare plugin; TypeScript is 5.9. Development is mostly on Windows: npm scripts don't
+expand globs, so add each new test file to the `test` script by name.
+
+## Priorities for the shooter (in order)
 
 1. **Momentum is sacred.** Movement must feel like CS:GO bhop. Never add anything that eats speed on its own: no air friction, no friction on the jump tick, no "redirect" mechanics. Shot-recoil push was removed for exactly this. Air jumps were removed once too and are back as the double jump and wall kick: they only raise vertical speed or add push, never touch horizontal momentum (tests in the "Air jumps" block).
 2. **Keep it simple.** Small files, plain code, few dependencies. Delete dead code rather than leaving it switched off. If a feature is off by default and nobody uses it, remove it.
 3. **Fun and silly.** Chibi anime snipers with streaming scarves and X_X faces when killed, flung corpses, YEET popups. Keep that tone.
 4. **Ghibli look.** Soft cel shading, warm painterly palette, and procedural textures (no image assets). Gameplay readability comes first: floors, walls, cover, pads, slide ramps and surf ramps must each look distinct.
 
-## Commands
-
-```bash
-npm run dev        # Vite + Cloudflare plugin: client and Worker/Durable Objects locally (:5173)
-npm test           # node:test via tsx; files are listed explicitly in package.json
-npm run typecheck  # tsc --noEmit for client+shared, and for src/server with Workers types (strict)
-npm run build      # typecheck + vite build -> dist/
-npm run deploy     # build + wrangler deploy to Cloudflare (docs/DEPLOYMENT.md)
-npm run smoke      # tests/lobby.smoke.ts against a running server
-npx knip           # dead-code sweep; should report nothing
-```
-
-Environment: Node **20+** (Wrangler needs it; 22 recommended). Vite is still pinned to 6 for the Cloudflare plugin. TypeScript is 5.9. Development is on Windows: npm scripts don't expand globs, so add each new test file to the `test` script by name.
-
-## Layout
-
-```
-src/shared/   runs on client AND server. No three.js, no DOM. Deterministic.
-  constants.ts  every tunable: TICK_DT, NET, PLAYER, MOVE (CS:GO values in Hammer units), WEAPON
-  math.ts       tiny {x,y,z} helpers (yaw 0 looks down -Z, three.js convention)
-  movement.ts   stepPlayer(): the 128 Hz player sim (bhop, air-strafe, slide, wallrun, pads); launchTo()
-  zombie.ts     Survival zombie AI + physics (chase, claw, hop, detour, pounce); the server runs it. Optional `Brain` steers it (rooms/doors, window sieges)
-  collision.ts  AABB boxes + wedge ramps + non-solid Triggers: move-and-slide, probes, raycasts
-  map.ts        the "Windward" map as data (boxes, triggers, decor, spawns), built from helpers; one half mirrored. `MapData.survival` carries a Survival layout
-  foundry.ts    the "Foundry" Survival map (night factory) on three levels: the main building, the Undercroft cellars (y -6) and the two-storey North Wing (upper floor y 5) joined by stairs, ramps and the Skybridge; walls with doorway/window gaps (at any height), rooms (with floor/ceil; `ARCHES` = open links), doors, barricades, wall guns, box spots, stations, the power switch, scythe parts + workbench, the Tinker's Workbench, the Skyline roof surf (hatch door, pad, chute lids, the vent spot), the Duck Shrine secret, `PROPS` (where the client dresses the new rooms). layout.ts = its types; skyline.ts = the roof rule (roofClock, stranded)
-  contraptions.ts  Survival contraptions (Bloons-style towers bought with coins): the catalogue, WORKSHOP limits/tuning, placeProblem (shared by the client's ghost and the server), contraptionDamage
-  modifiers.ts  Survival round modifiers (every 3rd round: rush, double, smog, bighead, moon, tiny), modFor()
-  rustworks.ts  "Rustworks", the abandoned-foundry Battle map (one half authored, mirrored; spawns are generated by farthest-point sampling over standable spots)
-  summit.ts     "Summit", the snowy-mountain-top Battle map (same recipe; open edges drop to killY; reuses rustworks.ts's spawnSpots; CABLEWAYS = where the decorative cable cars run)
-  dunevillage.ts  "Dune Village", the desert-town Battle map (same recipe; reuses rustworks.ts's `spawnSpots`); `WELL` is the plaza well the renderer dresses
-  crown.ts      "Crown", the King of the Hill map: a hill plateau in the middle (CROWN_ZONE), a team base at each end; `koth.teamSpawns` are spread over each team's whole half (`spawnSpots` filtered to that side, at least 22 m from the hill; Tide's mirror Sunset's), main lane / bluff / gorge-surf approaches; tests/crown.test.ts
-  koth.ts       King of the Hill rules (pure): zone test, capture/retake/drain, contested, owner clock, overtime, win; tests/koth.test.ts (incl. the server)
-  wildmere.ts   "Wildmere", the ~500 m Battle Royale island (not mirrored): rows of thick ground slab with the gorge cut out, `hill()` mesas with ramps, `home()` = house + a loot spot per storey/roof, seeded trees/boulders/field loot, `royale.loot` spots, spawns farthest-point sampled; tests/wildmere.test.ts
-  royale.ts     Battle Royale rules (pure): ROYALE tunables, PHASES (zone waits/shrinks/dps), planZone/stepZone, loot table (rollLoot, rarity, foundRounds/crateRounds), findLoot (the F prompt); tests/royale.test.ts (incl. the server)
-  maps.ts       BATTLE_MAPS (Windward, Rustworks, Summit, Dune Village) + mapFor(mode, map, koth, br): the host picks a map or Random (resolved on the host's client and sent as `map=`); Practice is Windward, Survival is the Foundry, King of the Hill Crown, Battle Royale Wildmere
-  colliders.ts  the boxes each mover bumps into (players / zombies / bullets differ: shut doors, window boards, invisible window bars); rebuilt when a door or board changes
-  nav.ts        rooms-and-doorways graph: routes zombies between rooms, ranks who to chase; `roomAt` picks the most specific of stacked rooms; siege.ts = the Brain for window break-ins (and finishing a doorway before re-deciding)
-  weapons.ts    the nine guns (stats, Pack-a-Punch twin, prices, box pool; every gun can be punched); interact.ts = the shared "press F" rules (findUse: doors, wall guns, box, stations, perks, revives) + kill points
-  perks.ts      Survival perks beyond Juggernog: Swift Mend (fast revive), Zephyr Fizz (MoveInput.speedMult on the ground), Second Wind (self revive, used up)
-  spawn.ts      pickSpawn(): random good spawn (far from, and out of sight of, living players; not recently used)
-  protocol.ts   JSON wire types (ClientMsg / ServerMsg), StateFlag bits
-src/server/   Cloudflare Worker: worker.ts (routing), room.ts (LobbyRoom Durable Object, one per match),
-              directory.ts (Directory DO: codes + lobby list), accounts.ts + accountStore.ts (Accounts DO: username/password accounts and sessions), lobby.ts (game logic: 20 Hz snapshots, kills, respawns),
-              survival.ts (rounds, window break-ins, zombie sim, claws, HP regen, game over), workshop.ts (contraptions: build/scrap, limits, running them against the horde), royale.ts (Battle Royale: warmup, zone + its damage, loot, kits, health/shields, last one standing)
-              Survival also owns everything with a price, server-authoritative and reset with the run: per-player `wallet` (points, Juggernog, two gun slots), doors, window boards, the Mystery Box. Clients send `use {kind,id}` (the server re-checks with `findUse`) and `equip`; the owner hears `me` (points, guns, which slots start full), everyone hears `world` (open doors, boards per window, box state), others see `shot.w/up`.
-src/client/
-  main.ts       boots the menu router; loading screen; starts a Game (practice or online)
-  menu/         one file per screen (title = the Fortnite-style home with the character in the middle, host, join, lobby room, help, settings = sensitivity + rebindable keys, inventory = items tab + Character tab, store, account) + router.ts, ui.ts,
-                skirmish.ts (the animated island backdrop)
-  settings.ts   saved player settings (name, sensitivity, auto-bhop) in localStorage
-  game.ts       the Game: loop, fixed-tick sim + render interpolation, weapon state, remotes, net, camera
-  achievements.ts  feats (360, no-scope, headshot, ...) + streaks/multi-kills; pure, unit-tested
-  horde.ts      Survival zombies on the client: snapshot interpolation, zombie avatars, corpses
-  workshop.ts   the Tinker's Workbench on the client: the build menu (workshop.css), placement mode (ghost, click builds, right-click/Esc cancels), coins spent/refunded; contraptions.ts = the models, the bench, their effects
-  rustworld.ts  renders Rustworks by box.kind (afternoon sun, Foundry textures with an emissive lift, chimneys, rubble); its tests are tests/rustworks.test.ts
-  summitworld.ts  renders Summit by box.kind (cold morning, snow/cliff/ice/piste/log textures in summittextures.ts, pines on trunks, snowfall, cable cars, a mountainside under the cloud sea); its tests are tests/summit.test.ts
-  duneworld.ts  renders Dune Village by box.kind (low sun, sand/sandstone/plaster, rippled dune ramps, turquoise tile surf, palms, awnings, dust); dunetextures.ts; tests in tests/dunevillage.test.ts
-  touch.ts      phones/tablets: IS_TOUCH ((hover: none) and (pointer: coarse), or ?touch=1), adds html.touch + the rotate-your-phone card, fullscreen on play. touch.css holds every mobile style, all under html.touch, so desktop never changes
-  touchcontrols.ts  Fortnite-style controls (floating left joystick, right-side swipe look, FIRE that aims while held + a left FIRE, jump/slide/scope/grapple/grenade/reload/swap/use/scores/pause); they drive Input's touch methods (press/release/look/setFire/setScope/stick), so game logic is shared
-  royale.ts     Battle Royale on the client (RoyaleView: phase, zone, loot, shield, grenades, who we spectate); royalefx.ts draws the zone wall + next ring and the loot (baked gun models up close, rarity beams far off); royalehud.ts + royale.css: banner, minimap, shield bar, storm tint, spectate line; royaleworld.ts renders Wildmere (static boxes merged per material, instanced canopies, a shadow that follows you)
-  hill.ts       King of the Hill on the client: HillFx (the zone's ring, wall of light, capture arc, gem) and HillHud (team clocks, hill dial, who's on it, status line); hill.css
-  world.ts      renders Windward by box.kind (Crown uses it too) (+ sky, clouds, scenery). textures.ts = procedural canvas textures
-  foundryworld.ts  renders the Foundry at night: static boxes merged into ~9 meshes (shaded per storey), floors per room clipped to their slabs, faked lamp light, doors, planks, box, stations; foundrytextures.ts, foundrybox.ts (wall-gun plates, Mystery Box, plush), foundrydecor.ts (the new rooms' props and oddities: mannequins, ghost, gear and clock, ducks, soot sprites, graffiti; two merged meshes + a few movers)
-  loadout.ts    the guns we carry and their ammo (the server owns *which* guns; ammo is counted here)
-  viewmodel.ts  first-person gun + hands for any gun; the gun's animation (weapon/guns.ts) says where the hands go
-  weapon/       rig.ts (GunRig/GunAnim/Plan, easing, builders), guns.ts (8 guns: model + fire/reload animation each; the AWP's bolt animation too), awp.ts (procedural AWP + optional GLB loader/fitter), hands.ts (Arm)
-  grenade.ts    (shared) grenade physics, blast targets (line of sight) and the no-slowdown shove; client grenadefx.ts / nadehud.ts draw it; the thrower reports 'boom', the server validates and kills
-  night.ts      the night palette, stars and moon (used by foundryworld.ts); usehud.ts = points + the F prompt; jugmachine.ts / punchmachine.ts draw the two stations
-  rope.ts       grapple rope + hook meshes
-  killcam.ts    Trail (rolling per-player poses) + replay timing; game.ts records everyone and replays your death from the killer's eyes
-  speedfx.ts    wind streaks overlay that scale with speed (hud.ts owns it); sfx.setWind adds the rushing-wind loop
-  items.ts + inventory.ts (src/shared) loot: rarities (CSGO colours/names), the three cases, every item (rifle paints, knives, wearables), the dice (`rollCase`), gear codes
-                (equipped ids sent to the server as `gear=` and relayed in `PlayerInfo.gear`, validated by `decodeGear`), and the pure stash rules (coins, buy/open, equip, sell).
-                shared/stash.ts is every stash action as one type (`applyStash`: cases, sell, equip, Plinko, Blackjack, Crash) with the server's dice and clock for accounts.
-                client/inventoryStore.ts: signed in, the stash lives in the Accounts DO (`/api/stash`, server/stashStore.ts, the browser's old one adopted once with coins capped at `STASH_IMPORT_COINS`); guests keep it in localStorage and run the same rules there; menu/casino.ts (tabs: cases.ts case reel, plinko.ts, blackjack.ts, crash.ts kite; rules in shared/casino.ts incl. `crashPoint` (P(snap ≥ m) = 0.99/m, so every cash-out target returns 99%), tests/casino.test.ts), menu/inventory.ts, menu/itemIcon.ts (renders each item once to a PNG); knife.ts + wear.ts build the models;
-                avatar.ts / viewmodel.ts show the equipped gear. Currency is Coins: kills pay (COIN in items.ts). Tests: loot.test.ts.
-  skin.ts (src/shared) skin spec: option lists, presets, seeded default, encode/decode ('3.0.1.3.0.0.x', validated on the server). client/skinStore.ts saves it; menu/skin.ts (mountSkinEditor, used by the inventory's Character tab) + skinPreview.ts are the picker.
-  avatar.ts     chibi anime players (look = chosen skin, else seeded from name+colour, ink outlines, canvas faces), a zombie variant
-                (poseZombie) + flung corpses. hud.ts, input.ts, net.ts, sfx.ts (synth audio)
-dev/viewmodel.html  dev-only lab for tuning the rifle/hands (Vite serves it; not part of the build)
-public/models/      optional awp.glb (see README)
-tests/        foundry.test.ts (spots clear, windows, zombies from every window reach every room) + foundrylevels.test.ts (walks between levels, stacked rooms, secrets, door gating), survivalplus.test.ts (boss, perks, downed/revive, Pack-a-Punch on every gun, Max Ammo), survivalfun.test.ts (power, Gale Scythe, jobs, modifiers, the roof never hurts), skyline.test.ts (roof surf routes, the roof clock and vents), contraptions.test.ts (workbench, placement, limits, each contraption), movement.test.ts + slide.test.ts (map-agnostic physics), map.test.ts (ramps + every Windward route), rustworks.test.ts / summit.test.ts (the other arenas),
-              zombie.test.ts (zombie AI, incl. every zombie spawn reaching the players), achievements.test.ts
-              lobby.smoke.ts runs manually against a server
-docs/         MAP_PLAN.md (map design), MENU_PLAN.md (menu UX), DEPLOYMENT.md (free hosting + prod multiplayer plan)
-```
-
-## How things work
-
-**Movement (`movement.ts`)** is a port of Source `gamemovement`, ticked at 128 Hz.
-- Order per tick: check jump *before* friction (a jump leaves the ground, so no friction that tick), then friction and accel, or air-accel with the 50 u/s cap (CS has 30; raised so bhop climbs faster, hard clamp 70 m/s), or slide, or wallrun.
-- Gravity is split half before and half after the move.
-- After the move, ground is classified: walkable means `normal.y >= 0.7`, and the snap-down is 18u.
-- `MOVE` is mutable on purpose; the `` ` `` lil-gui panel edits it live. Every tunable belongs in `constants.ts`, not as a magic number in logic.
-- Events come back as `s.events` bit flags (`Ev`) and drive sfx and camera effects.
-- The grapple (E) is also in `stepPlayer` (it can also hook a player from `input.grappleTargets` and zip to them, following them; `findGrapple` is shared with the HUD so the READY chip is exact) (`fireGrapple` / `pullGrapple`): a ray along the look direction, range `MOVE.grappleRange` (40 m: about the width of the centre island, so one pull crosses a lane gap but not the map). While attached it raises your speed along the rope up to `grappleSpeed` (a "set at least", like a gate, so it never slows a rope aimed where you're heading), skips ground friction, and lets go on arrival, on Space (keeping all speed), when something blocks the line, or after `grappleMaxTime`. Cooldown after release. `MoveInput` carries `pitch` and `grapplePressed` for it; the anchor travels in the state message (`g`) so others see the rope.
-- Triggers are applied after the move. A wind gate (`boost`) raises speed along whichever way you cross it (±its direction; standing still, the way you face); a puffball (`bounce`) raises upward speed to `up` and horizontal speed along your current heading to `push` (standing still, it's straight up). Both only ever *raise* velocity ("set at least"), so they can't cost momentum and need no cooldowns. Keep it that way.
-
-**Collision (`collision.ts`)**
-- The world is a list of `Box`: axis-aligned boxes, plus wedges when `box.ramp` is set.
-- Ramps of kind `'ramp'` are walkable slide slopes; kind `'surf'` is steeper than 45°, so you're airborne on it and ClipVelocity keeps your tangential speed.
-- Moves are sub-stepped at `MAX_STEP` so high speeds never tunnel.
-- Hitscan uses `rayWorld` / `rayBox` / `raySphere`.
-
-**Map (`map.ts`)**
-- Build geometry with the helpers: `box`, `span`, `wedge`, `surfFrame`, `padTo`, `shrine`, and `house` (multi-storey: walls with windows/doors, alternating stair ramps through floor holes, roof hatch + parapet, optional balcony; depth along Z must be ≥ 10). Build boosters with `gate` (wind gate) and `puff` (puffball: throw height + forward push).
-- Box kinds: `hook` (a tiny floating brass ring the grapple snaps to from ~8° off your aim; rendered in `world.ts`, no solid mesh), `floor` (grass island with a rock underside), `branch` (bark limb, no underside), `wall`, `trunk`, `cover`, `pad`, and `ramp`/`surf` for wedges. `decor` is visual only, e.g. the canopy.
-- Use aimed pads (`padTo`) for branches and overhung ledges: the launch is computed from the live gravity, so retuning doesn't break them. Puffballs throw you forward, so they can hop you onto a ledge you're running at, if it's far enough away that you clear its edge on the way up (test it). Mind wind gates along a puff's flight path: they'll catch you.
-- Ramps have no step-up: you can only walk onto one from its low end, so leave a clear landing in front of it (`house` does).
-- Author one half; `mirror()` rotates it 180° for the other side.
-- A new `BoxKind` needs rendering in `world.ts`.
-- After map changes, check:
-  - `map.test.ts`: spawns, every pad landing, and a scripted traversal of every route. Map-specific tests live only there.
-  - that practice bots still get around and find you (bots use `map.spawns`; tests/bot.test.ts is map-agnostic).
-  - `docs/MAP_PLAN.md`.
-
-The Survival map is its own file (`foundry.ts`); its rules and checklist are in `docs/FOUNDRY.md`.
-
-**Game types**: a lobby is `'battle'` (FFA or two teams) or `'survival'`, chosen on the Host screen and sent with `host` (`teams=1` in the socket query).
-- Battle matches end at `KILL_LIMIT` (30) kills, a player's or a team's total (`shared/teams.ts`, tests in `teams.test.ts`). The server sends `matchOver`, freezes scores for `MATCH_OVER_SECONDS`, then `matchStart` zeroes them and respawns everyone. Teams: joiners fill the smaller side, `team` switches yours, the host's `shuffle` randomises; `color` becomes the team colour, no friendly fire (shots, grenades). The lobby room draws the two-column picker.
-- Survival is co-op (no friendly fire; the client only hit-tests zombies). `Survival` (server) owns rounds: intermission → active → (all cleared: revive + heal, next round) or (everyone down: game over → post-game board, shared/postgame.ts; restarts at round 1 when all present players send 'again' or after SURVIVAL.gameOverSeconds). Dead players stay down until the round ends.
-- Going down (Survival): at 0 hp `Survival.goDown` instead of a kill. Downed players stay `alive` with `info.down`, can't move (lobby ignores their `state`), shoot or use, and the horde ignores them. Teammates hold F (`use` kind 'revive', resent every 0.2 s; a gap over 0.5 s restarts it) for `SURVIVAL.reviveTime` (Swift Mend: `mendReviveTime`); Second Wind gets you up after `selfRevive` and is spent; otherwise you bleed out after `bleedOut` (a normal kill, dead until the round ends). Messages: `downed` / `reviving` / `revived`. A cleared round gets everyone up. Everyone down or dead is game over.
-- Power / Gale Scythe / Skyline / contraptions / jobs / modifiers (Survival): see docs/FOUNDRY.md "Moving parts". The Skyline roof is never lethal: zombies can't get up (lids always solid for them, roof players aren't targets) and standing about up there gets you vented back into the Hall (client-side, `roofClock`).
-- Contraptions (Survival): F at the Tinker's Workbench (Office) opens a menu; pick one, place its ghost, a click spends **coins** (a guest's client-side; a signed-in player's are charged by the server through `Lobby.bank` once the spot checks out) and sends `build`. The server (`workshop.ts`) re-validates with the shared `placeProblem`, enforces `WORKSHOP` limits, runs them at 20 Hz through `Survival.hurt(..., by)` and sends `contraptions` (full list, also to joiners) / `cfx` (effects) / `refund`. Goo slows zombies only (`Zombie.goo`). `world` carries `power`, `parts`, `scythe`; `findUse` gets them in `UseCtx`. Zombie jobs (`JOBS`, `pickJob`) travel as `NetZombie.j` and are dressed by client/jobwear.ts; `WaveInfo.mod` drives the client side of modifiers (Horde.mod for size/heads, `MoveInput.gravMult` for Moon Shift, fog for Smog). client/scythe.ts is the scythe model (viewmodel `setScythe`, Avatar `holdScythe`), scythefx.ts the swing ring and Stoker embers. Tests: survivalfun.test.ts, skyline.test.ts.
-- Max Ammo (Survival): `Survival.maybeDrop` on a zombie's death rolls `SURVIVAL.maxAmmoChance` (1 %), at most one horde drop per `maxAmmoEveryRounds` (4) rounds; the boss always drops one. `drop` / `maxAmmo` / `dropGone` messages; a living, standing player within `pickupRange` grabs it, and every client then `Loadout.refill()`s. client/drops.ts draws the crate.
-- The boss (Survival): every `BOSS.every` rounds one big zombie (`createBoss`, `bossStats`: health by tier and player count) breaks in first; `ZombieFlag.Boss` + `hp` (0..1) in the snapshot for the bar; the client draws and hit-tests it `BOSS.scale` bigger; `zombieDied.boss` pays everyone the boss coins.
-- Levels (kept in the stash as `Inv.xp`, like coins; the server pays an account's): shared/levels.ts has the XP table (`XP`) and the curve (`levelOf`, `xpToNext`). `Game.gainXp` adds XP for online kills, finished matches/wins, Survival rounds, the boss and finished runs, and tallies it per source; client/xpcard.ts draws the after-game card (Battle: `xp-overlay` under the winner banner until `matchStart`; Survival: inside the post-game board) and the home screen's level badge. Practice earns nothing. Tests: levels.test.ts.
-- Coins (COIN in items.ts): Battle 10 per kill and 50 for a win; Survival 10 per cleared round and 50 per boss, to everyone in the lobby. Practice pays a guest 1 per bot killed. Signed-in players are paid by the server (`Lobby.pay` → `Lobby.bank` → the Accounts DO; the same amounts the client floats up, which only shows them); guests pay themselves. Keep the two in step when changing a reward.
-- Zombies are server-authoritative: `stepHorde` at 60 Hz, sent as `snapshot.zombies`. They spawn in the yard at a boarded window (`gate`), the front one tears a board every `SURVIVAL.tearTime`, and once the window is clear they climb in and chase through the room graph (`nav.ts`; keep obstacles hoppable ≤1.3 m or narrow, `foundry.test.ts` walks a zombie from every window to a grid of points in every room). Shots are client-detected and sanity-checked: `shoot.hits` lists the zombies each pellet hit and the server computes damage from the gun it knows you hold. Tuning lives in `SURVIVAL`, `ZOMBIE` and `weapons.ts`.
-- The Foundry (docs/FOUNDRY.md): doors (`layout.doors`) and window boards are the only changing geometry; `buildColliders` makes three lists (move / zombie / shot) and both sides rebuild them from `world` messages. Press F: the client shows `findUse`'s prompt, sends `use`, the server re-runs `findUse` before acting. Hold F at a window repairs (rate-limited). Guns: `weapons.ts` has all numbers; `gunStats(id, punched)` is the single source (Pack-a-Punch = `PUNCH` multipliers). Add a gun = a WeaponDef + a builder and `GunAnim` in `weapon/guns.ts` (see "Verifying" for the viewmodel lab).
-- Battle maps: Windward, Rustworks, Summit and Dune Village. The Host screen offers each plus Random; the server validates `map` (Battle only), tells everyone in `joined.map`, and the lobby list shows it. A new Battle map = a MapData + an entry in `BATTLE_MAPS` + a renderer (see rustworld.ts) + a map test file.
-- King of the Hill (Battle format, `koth=1`; the room forces teams on and the map to Crown): the server counts living players per team inside `map.koth.zone` every tick, runs `stepKoth`, sends the state as `snapshot.koth`, and ends the match (`matchOver` with the team) when a clock reaches `KOTH.holdToWin`; kills never end it. Respawns use `pickSpawn` over your team's list (far from enemies, out of their sight, not recently used per team: `Lobby.teamRecent`). Overwatch rules: capture alone (faster with up to 3), contested freezes progress, an abandoned capture drains, the owners' clock runs even while contested, and a win waits in overtime while the enemy is on the hill or has a capture going. Tuning is `KOTH` in koth.ts.
-- Battle Royale (Battle format, `br=1`; the room forces FFA and the map to Wildmere; `joined.br` / `royale` messages carry `RoyaleInfo`). The server's `Royale` (server/royale.ts) owns it: a warmup with respawns (`ROYALE.warmupSolo`, shortened to `warmupCrowd` by company, never under `joinGrace` after a join), then `Lobby.startMatch` goes live: fresh loot, a planned zone, everyone respawned at spread-out spawns with the Sparrow and `foundRounds` (mag + `spare` of its reserve). Live: no respawns (`respawnAt = Infinity`), late joiners spectate. Health is `Member.hp` (100) plus a kit shield; shots are client-detected and checked like Battle, damage = the held gun's `damage` × pellets on the victim (`shoot.ph`) × `headMult` on a headshot; knife and grenades do `ROYALE.knifeDamage` / `nadeDamage`. Ammo is counted on the server too (`kit.rounds`, mag + spare per slot): an empty gun's shot is dropped, not relayed. Loot: `use` kind `'loot'` (server re-runs `findLoot`), `loot` / `looted` / `ammo` messages; a third gun swaps the held one onto the floor with its rounds; the dead drop their guns. Zone: `stepZone` every tick, sent as `snapshot.zone`; outside costs `dps` (ignores shields), paid every `zoneTick`, cause `'zone'`. Last one alive → `Lobby.finish({id})` (solo run: `{id: -1}`), the next match after `MATCH_OVER_SECONDS`. The client sends `sync` when its Game opens (loot and kit sent while it sat in the lobby room). Coins/XP: kills as Battle, a win `COIN.royaleWin` + `XP.royaleWin`.
-- Mobile: play is landscape (a portrait phone gets a rotate card). On touch, Input.touchMode replaces pointer lock ("locked" = playing), mouse events are ignored, the renderer caps pixel ratio at 1.5, and HUD bits move out from under the thumbs (touch.css). Never change desktop CSS or input paths for mobile: scope it under html.touch / IS_TOUCH.
-- Practice and Battle are still AWP-only (`Loadout` with endless reserve), except Battle Royale (found guns, limited ammo).
-- Practice bots (shared/bot.ts, tests/bot.test.ts): the menu's Practice screen picks `BotLevel` (saved in settings) and `Game` gets `bots`. Each bot is a `PlayerState` stepped by the real `stepPlayer` at the tick (`Game.updateBots`, own accumulator, runs while you're dead); `thinkBot` gives its keys, aim and shots (reaction, turn rate, spread, fire rate, strafe/hop, head aim per `BOT[level]`). Difficulty also comes from: a wider first shot that settles while you stay in its sights, more spread the faster you move (`AI.dodgeSpeed`), `BOT_SPAWN_GRACE` (3 s) after you respawn, and `BOT_VOLLEY_GAP` (only one bot fires per 1.2 s, enforced in `Game.updateBots`). They walk on `botBoxes` (pads made plain floor) with no triggers, check ledges before stepping, sidestep obstacles, and when they haven't seen you for `relocate` seconds they reappear at a `flankSpot` (sightline to you, out of your view, apart from other bots), since they can't path between islands. Shots are `shotHits` against you; a laser + glint (`poseBot`) shows who's aiming. Falls respawn quietly.
-
-**Feats** (`achievements.ts`): the shot's context is captured at fire time (`lastHit`), and scored when the kill is confirmed (immediately offline, on `kill`/`zombieDied` online). Feats from one kill stack into one combo popup (`hud.feats`) + `sfx.feats`. Streak resets on death.
-
-**Menu**
-- Each screen in `menu/` is a function that renders into a root element. `router.ts` uses history, so browser Back, ← Back and Esc all match.
-- The lobby room is client-side only: the server drops you into the match on join, and the room screen just shows the live roster before you enter.
-
-**Netcode (deliberate prototype shortcuts)**
-- Movement is **client-authoritative**: clients send state at 20 Hz (only when it changed) and the server relays 20 Hz snapshots.
-- Remote players render 100 ms in the past, interpolated.
-- Hits are detected on the client (favour the shooter). The server only sanity-checks distance and uses `WEAPON.fireCooldown` as a rate limit.
-- The planned upgrade path: send inputs instead, run the shared `stepPlayer` on the server, and add prediction plus reconciliation. Keep `src/shared` deterministic so that path stays open.
-- Hosting and production multiplayer: see `docs/DEPLOYMENT.md`. Phase 0 is your own PC plus a Cloudflare quick tunnel; Phase 1 is an Oracle Always Free VM.
-
-**Rendering**
-- One WebGL renderer with Neutral tone mapping. The world renders first, then the depth buffer is cleared and the viewmodel's own scene renders on top, so the gun never clips into walls.
-- Shared toon ramp: `toonRamp()`. World palette: `PALETTE` in `world.ts`.
-
-**Viewmodel**
-- Everything lives in "view" space (scaled by `VIEW_SCALE`).
-- Gun space is metres with the barrel along -Z and the bolt on +X. Animations use `seg`/`hold` keyframe helpers over a normalised timeline.
-- A GLB at `public/models/awp.glb` is auto-fitted, and its nodes matching `/bolt|reloader|charging|handle/` and `/mag/` are reparented into the animated pivots.
-- Tune the pose in `/dev/viewmodel.html` (`lab.GUN_POS`, `lab.paused`, `lab.step(s)`).
-- Sights (`weapon/sights.ts`): every gun but the AWP gets iron sights (rear notch + front post with a fibre dot) and a red-dot sight, fitted to its model at load (`buildSights` scans the mesh tops so the sight line clears the whole gun). Punched guns show the red dot, others the irons. The aim-down-sights pose is computed from them (`ironAds` / `dotAds`) so the sight sits exactly on the screen centre; there is no hand-tuned `ads` pose any more. While aiming, the HUD crosshair hides (`hud.setScoped(_, sights)`) and the punch glow rings fade.
+TŌGE's equivalent ("realistic sim with an arcade layer on top") is in `src/shared/race/CLAUDE.md`.
 
 ## Conventions
 
-- Units are metres and seconds, Y up. CS values are written as `250 * U` with Hammer units (`U = 0.0254`) so they trace back to the cvar.
-- TypeScript is strict. Match the surrounding style: short doc comments that explain *why*, and named constants.
-- No new dependencies without a strong reason. Current runtime deps: `three`, `lil-gui`. The Worker runs on Cloudflare (wrangler, @cloudflare/vite-plugin are dev deps).
-- Every movement or physics change gets a test. In particular, momentum must be preserved (see the "Momentum" block in `movement.test.ts`).
-- Prefer small exact edits. When several agents or sessions work in parallel, give each one clear file ownership and keep each test area in its own file.
-- Don't commit unless asked. The remote is `origin` → github.com/michael-fourie/atrous (private), default branch `master`.
+- Units are metres and seconds, Y up, yaw 0 looks down -Z (three.js convention). CS values are written as `250 * U` with Hammer units (`U = 0.0254`) so they trace back to the cvar.
+- TypeScript is strict (`noUnused*` on). Match the surrounding style: short doc comments that explain *why*, and named constants. Every tunable lives in a constants block (`constants.ts`, `SURVIVAL`, `KOTH`, `ROYALE`, `ARCADE`, …), not as a magic number in logic.
+- No new dependencies without a strong reason. Runtime deps are `three` and `lil-gui`; wrangler and @cloudflare/vite-plugin are dev deps.
+- Every movement or physics change gets a test (shooter and TŌGE alike).
+- Never trust the client for anything that pays or decides a result; never put player names into HTML strings. Details: `src/server/CLAUDE.md`.
+- Mobile styles and input live under `html.touch` / `IS_TOUCH` only; desktop paths never change for mobile.
+- **Line endings are mixed.** Some files are CRLF (this file, `src/shared/race/*`, `src/client/race/*`, `worker.ts`, `wrangler.jsonc`, `package-lock.json`, …), most are LF. Keep each file's existing endings: tools that rewrite text (e.g. Python text mode) silently convert CRLF to LF and make whole-file diffs. Check with `git ls-files --eol <file>`.
 
-**Knife (key 2 with one gun, key 3 with two; keys 1/2 return to your guns)**: LMB stabs a ray of `KNIFE.range` and one hit kills (or `KNIFE.zombieDamage` on a zombie). It sends `shoot` with `knife: true` (and `hits: [{z}]` for a zombie), which the server checks for reach, rate-limits with `KNIFE.cooldown`, and does not relay as a gun shot. The held weapon travels in `StateFlag.Knife`; the ViewModel's `holdKnife`/`stab` and the Avatar's `holdKnife` draw it. It never touches velocity.
+## Contributing
+
+Several people (and their Claudes) work on this at once. To keep that smooth:
+
+1. **Branch from `master`**, one feature per branch, and open a PR against `master`. Michael reviews and merges. Don't push to `master` directly and don't commit unless the person you're working for asks.
+2. **Stay in your lane.** Give each parallel task clear file ownership; keep each test area in its own file. A new plug-in game stays inside its own `src/games/<id>/` folder (see `src/games/CLAUDE.md`).
+3. **Before opening a PR:** `npm test` and `npm run typecheck` green, and for anything visual, check it in the browser (`src/client/CLAUDE.md`, "Verifying in the browser"). Cloudflare also builds a preview for every branch.
+4. **Keep the docs true.** If you change how something works, update the CLAUDE.md for that area in the same PR, and the design docs in `docs/` for maps, menus, deployment or security.
+5. Prefer small, exact edits over rewrites; delete dead code instead of leaving it switched off.
 
 ## Status and known gaps
 
 A playable prototype covering practice and online lobbies. Everything listed in README works and is covered by tests or was checked in the browser. Known gaps, roughly in priority order:
 
-- **Guests' loot is client-side:** a signed-in player's stash (coins, items, XP, the Casino's dice) lives on the server; a guest's lives in localStorage and is as trustworthy as their browser. It's only ever theirs, but their Workbench builds can't be checked for payment, so contraptions stay capped (`WORKSHOP.perPlayer` / `perLobby`, a build cooldown). Kills are still client-detected (see Netcode), so a cheat client can still farm kills, and with them coins.
-- **Security:** see `docs/SECURITY.md` for what's checked where and what's left.
-- **Netcode is a prototype:** client-authoritative movement, client-side hit detection, JSON messages. The upgrade path is under Netcode above and in `docs/DEPLOYMENT.md`.
-- **Deployment:** Cloudflare Worker + Durable Objects on the free plan, see `docs/DEPLOYMENT.md`. Next: Google sign-in + D1 player stats, reconnection tokens.
+- **Guests' loot is client-side:** a signed-in player's stash (coins, items, XP, the Casino's dice) lives on the server; a guest's lives in localStorage and is as trustworthy as their browser. Their Workbench builds can't be checked for payment, so contraptions stay capped (`WORKSHOP.perPlayer` / `perLobby`, a build cooldown). Kills are still client-detected, so a cheat client can farm kills, and with them coins.
+- **Security:** see `docs/SECURITY.md` for what's checked where and what's left (e.g. equipped `gear=` is validated but not checked against ownership; no `script-src` CSP).
+- **Netcode is a prototype:** client-authoritative movement, client-side hit detection, JSON messages. The upgrade path is in `src/server/CLAUDE.md`.
+- **Accounts** are username/password only (Google sign-in was considered and dropped). Next ideas: D1 player stats, reconnection tokens.
 - **Lobby room:** while you sit in the room, your bean is already in the live match, idle at spawn. The fix is a server "ready" flag.
 - **Real AWP model:** the GLB loader has never run against the real Sketchfab file. That file needs a manual download (see README).
 - **Viewmodel:** during the bolt cycle the right hand covers the knob.
-- **Survival:** zombies navigate rooms and doorways (not a navmesh): straight lines inside a room with hops and detours, so a tall wide obstacle can trap them (the room-sweep test guards it). A lone player can camp behind a shut door while zombies queue at it. No insta-kill drops yet. Practice has no Survival mode yet; host a lobby alone to play it solo.
-- **Feats are local:** only the shooter sees the combo popup and the feat title in their killfeed. Everyone else sees a plain "sniped" row. Sending feats in `shoot` would fix that.
-- **knip** (latest) needs Node 20+, and older versions crash against TypeScript 5.9, so the dead-code sweep can't run on Node 18.
-- **Map:**
-  - Grass tufts aren't scattered on ramps.
-  - House interiors are tested by scripted walks but have had little visual review.
-  - Every box is its own mesh (~360 meshes). Merge static geometry by material if frame rate becomes an issue.
-- **Tooling:** the Cloudflare Vite plugin is on Vite 6; Vite 8 is possible now that Node 20+ is required.
-
-Design docs in `docs/` describe the current map and menu. Update them when you change those areas.
-
-## TŌGE (racing)
-
-Realistic driving, not arcade: change the physics only with a test, and keep `tests/racephysics.test.ts` green (it drives every car down every track with the AI).
-
-```
-src/shared/race/
-  track.ts     the tracks as data (TRACK_DEFS: control points, width, theme, relief, tilt) and the ground: a sampled
-               centreline, the road's banked plane out to `edge`, then a blend into procedural hills (every nearby stretch
-               of road contributes, so hairpins stay seamless). heightAt / groundAt / locate (with a hint, so a car never
-               jumps to a parallel leg) / pointAt / gridSlot. Built once per id (getTrack).
-  vehicle.ts   the car: rigid body + 4 raycast wheels, SUB=4 substeps per 120 Hz tick. Suspension (spring, damper, ARB,
-               bump stop), tyres (Pacejka-style curve on normalised combined slip, relaxation lengths, low-speed damping),
-               drivetrain (torque curve, clutch slip at launch, auto/manual box, LSD, AWD split, engine braking, engine
-               inertia through the gears), aero, ABS/TCS/steering assist, body scraping, barrier impulses, collideCars.
-  cars.ts      the catalogue (CARS), upgrades (PARTS, levels 0-5), looks, tuning, encode/decodeCar (the wire code), carSpec()
-               (everything -> physics numbers), torqueAt, rating (PI + class), stats (garage bars).
-  garage.ts    money, owned cars, crates (the gamble), payouts, applyAction (every garage change; run by the server for
-               accounts and by the client for guests).
-  standings.ts race order (finishers by time, then progress); the place readout and the leaderboard both use it.
-               Lap races pass laps × lap length + distance into the lap as `progress`.
-  driver.ts    AI: pure pursuit on a corner-cutting line; target speed from the tightest bend in braking range; picks a
-               clear lane round city traffic.
-  traffic.ts   city traffic (tracks with `traffic: true`): four lanes, two each way, every car's place a pure function
-               of the race clock (seconds since GO), so it's identical for every racer with nothing on the wire.
-               collideTraffic bumps a car off it; trafficview.ts draws it (instanced, lamps that bloom).
-  protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings.
-src/server/race.ts (Race: lobby -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
-  garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`). Race lobbies use the Directory instance 'race'
-  (`/api/races`); sockets are `/ws?game=race`.
-src/client/race/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), tracktextures.ts
-  (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
-  post chain: clamp, bloom, film grade per theme (`Look.grade`), then tone mapping), carmodel.ts
-  (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
-  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`), showroom.ts, hub.ts (the garage screen `drive`), lobby.ts (`drivelobby`), hud.ts (incl. the top-left leaderboard and the name tags over
-  other cars, hidden behind hills), input.ts
-  (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
-  garageStore.ts, racenet.ts, race.css.
-src/client/pad.ts  gamepads for every menu (spatial focus moves, A/B/LB/RB) and for driving (readPad, padAxis, rumble).
-```
-
-- Rendering is plain WebGL (`THREE.WebGLRenderer`) through `Post` (post.ts), ACES tone mapping, one sun shadow map that follows the camera, instanced and tiled scenery. Bloom thresholds are high by day (the sky itself is bright) and low at night, so lamps and emissives must be brighter than white to glow: keep car lamps, reflectors and signs well above 1. Watch triangle counts (`__race.renderer.info`): forests dominate. A car is ~30k triangles in ~40 draw calls.
-- Never add or remove a light mid-race: three.js recompiles every lit shader when the light count changes (a multi-second freeze). Keep the light in the scene from the start and change its intensity (see the comet light in racegame.ts).
-- Driving is client-authoritative like the shooter; the server times the race, sanity-checks finish times and pays signed-in racers (guests credit themselves from `results`).
-- A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts.
-- Circuits (`laps` on the TrackDef: Monza, Spa, Monaco) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
-- In dev, `window.__race` is the running race. To let the AI drive yours: `const { aiDrive, newAi } = await import('/src/shared/race/driver.ts'); const ai = newAi(0.9, 0); __race.controls.poll = function (dt) { aiDrive(__race.me.car, __race.track, ai, dt, this.input); }`.
-
-## Verifying in the browser
-
-- Gun models and animations: open `/dev/viewmodel` (dev server), pick a gun, press fire / reload / draw; right mouse aims. `window.lab` has `pick(id, punched)`, `step(seconds)` and `reload(empty)` for scripted screenshots.
-- In dev, `window.__game` is the running Game. To skip the menu, create one directly: `const { Game } = await import('/src/client/game.ts'); app.innerHTML = ''; new Game({ container: app, name: 'x', onExit() {} })`.
-- Set `g.input.locked = true; g.hud.setPaused(false)` to play without pointer lock.
-- Automation tabs are often **hidden**, which pauses rAF. Drive frames yourself: `let T = performance.now(); g.last = T; for (...) { T += 1000/60; g.frame(T); }`.
-- Simulate keys with `document.dispatchEvent(new KeyboardEvent('keydown', {code: 'KeyW'}))`.
-- **HMR gotcha:** after a hot update, the page uses `module.ts?t=…`, which is a different module instance from a fresh `import('/src/...')` in the console. State you inject (e.g. pushing boxes into `MAP`) won't reach the game. Reload the page first, or reach in through `window.__game`.
-- An exception during `buildWorld` leaves the loading screen up forever. Check the console.
+- **Survival:** zombies navigate rooms and doorways (not a navmesh), so a tall wide obstacle can trap them (the room-sweep test guards it). A lone player can camp behind a shut door while zombies queue at it. No insta-kill drops yet. Practice has no Survival mode; host a lobby alone to play it solo.
+- **Feats are local:** only the shooter sees the combo popup and the feat title in their killfeed. Sending feats in `shoot` would fix that.
+- **Windward rendering:** every box is its own mesh (the Foundry and Wildmere already merge per material). Merge it too if frame rate becomes an issue. Grass tufts aren't scattered on ramps; house interiors have had little visual review.
+- **Tooling:** the Cloudflare Vite plugin is on Vite 6; Vite 8 is possible now that Node 20+ is required. There is no dead-code tool configured (knip was used once; it isn't installed).
