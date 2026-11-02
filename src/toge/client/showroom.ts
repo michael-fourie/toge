@@ -66,6 +66,10 @@ export class Showroom {
   private ro: ResizeObserver;
   private post: Post;
   private own: { dispose(): void }[] = [];
+  /** Where on the canvas the car sits (fractions of its width and height); see place(). */
+  private fx = 0.5;
+  private fy = 0.5;
+  private zoom = 1;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -158,6 +162,19 @@ export class Showroom {
     this.model = m;
   }
 
+  /**
+   * Frame the car at (x, y), fractions of the canvas from its top left, so a canvas that fills the window can keep
+   * the car in the space beside a panel. Shifts the view, not the camera, so the angle stays the same. `zoom` < 1
+   * shrinks the car to fit a short strip (phones).
+   */
+  place(x: number, y: number, zoom = 1) {
+    if (Math.abs(x - this.fx) < 1e-3 && Math.abs(y - this.fy) < 1e-3 && Math.abs(zoom - this.zoom) < 1e-3) return;
+    this.fx = x;
+    this.fy = y;
+    this.zoom = zoom;
+    this.resize();
+  }
+
   private down = (e: PointerEvent) => {
     this.dragging = true;
     this.canvas.setPointerCapture?.(e.pointerId);
@@ -175,10 +192,13 @@ export class Showroom {
     this.renderer.setSize(r.width, r.height, false);
     this.post.setSize(r.width, r.height);
     this.camera.aspect = r.width / r.height;
-    // Pull back on narrow screens so the whole car fits.
-    const d = this.camera.aspect < 1.2 ? 11 : 9;
+    // Pull back on narrow screens so the whole car fits (the free space beside a panel is narrower than the canvas).
+    const free = this.camera.aspect * Math.min(this.fx, 1 - this.fx) * 2;
+    const d = free < 1.2 ? 11 : 9;
     this.camera.position.set(d * 0.7, 2.2, d * 0.7);
     this.camera.lookAt(0, 0.5, 0);
+    this.camera.zoom = this.zoom;
+    this.camera.setViewOffset(r.width, r.height, -(this.fx - 0.5) * r.width, -(this.fy - 0.5) * r.height, r.width, r.height);
     this.camera.updateProjectionMatrix();
   }
 

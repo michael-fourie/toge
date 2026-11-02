@@ -19,6 +19,7 @@ It's a prototype that changes a lot. Player-facing docs: `README.md`.
 | Gambol: shooter rules, physics, maps, game modes (`src/gambol/shared`) | `src/gambol/shared/CLAUDE.md` |
 | Gambol in the browser: rendering, viewmodel, HUD, its menu screens, mobile, browser verification (`src/gambol/client`) | `src/gambol/client/CLAUDE.md` |
 | TŌGE racing, all of it (`src/toge`) | `src/toge/CLAUDE.md` (and `src/toge/client/CLAUDE.md`) |
+| TŌGE's look: menus, brand, colours, type, components | `src/toge/DESIGN.md` (the design system; follow it for any TŌGE screen) |
 | Site shell in the browser: boot, router, game chooser, account screen, pad, touch (`src/client`) | `src/client/CLAUDE.md` |
 | Code shared by several games (`src/shared`) | `src/shared/CLAUDE.md` |
 | Worker, Durable Objects, netcode, accounts, security rules: every game's server (`src/server`, `src/*/server`) | `src/server/CLAUDE.md` |

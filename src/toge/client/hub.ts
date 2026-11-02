@@ -1,10 +1,10 @@
-// TŌGE's home: the garage. Tabs (LB / RB on a controller): Race (solo, host, join), Garage (your cars),
-// Upgrades (crates: the gamble), Paint & Tune, Locker and Cases (cosmetics, cosmeticsui.ts), Dealer. The showroom and a Forza-style car card stay
-// beside whichever tab is open.
+// TŌGE's home: the garage. Four tabs (DESIGN.md §6): Race; Garage (My cars, Dealer); Performance (Upgrades,
+// Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts). LB / RB walk every page in that order. The showroom fills
+// the window behind the glass rail, with your car framed in the free space and its card bottom right.
 
 import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, RIMS, RIM_COLORS, RIM_COLOR_NAMES, SPOILERS, STRIPES, TUNE_RANGE, type Tune, carSpec, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
-import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, tunerCost } from '../shared/garage.ts';
-import { type CaseId, type CosSlot, COS_SLOTS, cosById, cosCaseById } from '../shared/cosmetics.ts';
+import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, payout, tunerCost } from '../shared/garage.ts';
+import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById } from '../shared/cosmetics.ts';
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
@@ -14,18 +14,22 @@ import { garage } from './garageStore.ts';
 import { money } from './hud.ts';
 import { raceNet } from './racenet.ts';
 import { Showroom } from './showroom.ts';
+import { ICON, LOGO } from './brand.ts';
+import { TRACK_IDS, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
 import './race.css';
+import './hub.css';
 
-type Tab = 'race' | 'garage' | 'upgrades' | 'paint' | 'locker' | 'cases' | 'dealer';
-const TABS: [Tab, string][] = [
-  ['race', 'Race'],
-  ['garage', 'Garage'],
-  ['upgrades', 'Upgrades'],
-  ['paint', 'Paint & Tune'],
-  ['locker', 'Locker'],
-  ['cases', 'Cases'],
-  ['dealer', 'Dealer'],
+type Page = 'race' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases';
+type TabId = 'race' | 'garage' | 'perf' | 'style';
+const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
+  { id: 'race', label: 'Race', pages: [['race', 'Race']] },
+  { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['dealer', 'Dealer']] },
+  { id: 'perf', label: 'Performance', pages: [['upgrades', 'Upgrades'], ['tuning', 'Tuning']] },
+  { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['cases', 'Cases']] },
 ];
+/** Every page in LB / RB order. */
+const PAGES: Page[] = TABS.flatMap((t) => t.pages.map(([p]) => p));
+const tabOf = (p: Page) => TABS.find((t) => t.pages.some(([q]) => q === p))!;
 
 const TRACK_KEY = 'atrous.track';
 const RIVALS_KEY = 'atrous.rivals';
@@ -46,18 +50,25 @@ const write = (k: string, v: string) => {
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
-function classBadge(car: OwnedCar) {
+export function classBadge(car: OwnedCar) {
   const r = rating(carSpec(car));
   return `<span class="tg-class" style="--c:${CLASS_COLORS[r.cls]}"><b>${r.cls}</b>${r.pi}</span>`;
 }
 
+/** A 10-segment stat bar. */
+const statBar = (label: string, v: number) =>
+  `<div class="tg-stat"><span>${label}</span><i style="--v:${v}"></i><em class="tg-num">${v.toFixed(1)}</em></div>`;
+
 export const driveHub: Render = (root, ctx, screen) => {
-  let tab: Tab = (TABS.find(([t]) => t === screen.dtab)?.[0] as Tab) ?? 'race';
+  let page: Page = PAGES.find((p) => p === screen.dtab) ?? 'race';
+  /** The page each tab opens on (the last one you looked at). */
+  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint' };
+  lastPage[tabOf(page).id] = page;
   let track = (read(TRACK_KEY, 'koripass') in TRACK_DEFS ? read(TRACK_KEY, 'koripass') : 'koripass') as TrackId;
   let rivals = Number(read(RIVALS_KEY, '5'));
   let status = screen.notice ?? '';
   let draft: { look: Look; tune: Tune } | null = null;
-  /** A dealer car being looked at (shown in the showroom and on the card until you leave the tab). */
+  /** A dealer car being looked at (shown in the showroom and on the card until you leave the page). */
   let preview: OwnedCar | null = null;
   /** Locker: the slot being browsed, and a not-yet-owned item being tried on in the showroom. */
   let lockerSlot: CosSlot = 'paint';
@@ -68,20 +79,24 @@ export const driveHub: Render = (root, ctx, screen) => {
 
   root.innerHTML = `
     <main class="tg" aria-label="TŌGE garage">
+      <canvas class="tg-showroom" aria-label="Your car. Drag to spin it."></canvas>
       <header class="tg-top">
-        <button class="tg-home" data-home aria-label="Back to the game menu">◀ Menu</button>
-        <div class="tg-logo" aria-hidden="true">TŌGE</div>
+        <button class="tg-home" data-home aria-label="Back to the game menu">${ICON.back}</button>
+        ${LOGO}
         <nav class="tg-tabs" role="tablist" aria-label="Garage sections">
           <span class="tg-bumper" aria-hidden="true">LB</span>
-          ${TABS.map(([t, label]) => `<button role="tab" data-tab="${t}">${esc(label)}</button>`).join('')}
+          ${TABS.map((t) => `<button role="tab" data-tab="${t.id}">${esc(t.label)}</button>`).join('')}
           <span class="tg-bumper" aria-hidden="true">RB</span>
         </nav>
-        <div class="tg-wallet"><b data-money></b><small data-who></small></div>
+        <div class="tg-wallet"><b class="tg-num" data-money></b><button class="tg-who" data-who></button></div>
       </header>
       <section class="tg-body">
-        <div class="tg-panel" data-panel></div>
+        <div class="tg-rail">
+          <nav class="tg-subtabs" role="tablist" aria-label="Pages" data-subtabs></nav>
+          <div class="tg-panel" data-panel></div>
+        </div>
         <div class="tg-stage">
-          <canvas class="tg-showroom" aria-label="Your car"></canvas>
+          <div class="tg-stage-name" aria-hidden="true" data-stage-name></div>
           <div class="tg-card" data-card></div>
         </div>
       </section>
@@ -89,6 +104,21 @@ export const driveHub: Render = (root, ctx, screen) => {
     </main>`;
   const showroom = new Showroom($<HTMLCanvasElement>(root, '.tg-showroom'));
   let shown = '';
+
+  /** Frame the car in the space right of the rail (or under the top bar on a phone). */
+  const frameCar = () => {
+    const rail = root.querySelector<HTMLElement>('.tg-rail');
+    const stage = root.querySelector<HTMLElement>('.tg-stage');
+    if (!rail || !stage) return;
+    const r = rail.getBoundingClientRect();
+    const s = stage.getBoundingClientRect();
+    const W = innerWidth;
+    const H = innerHeight;
+    if (W > 900) showroom.place((r.right + W) / 2 / W, (s.top + s.bottom * 0.84) / 2 / H);
+    else showroom.place(0.5, (s.top + s.bottom) / 2 / H, Math.min(1, ((s.bottom - s.top) / H) * 1.6));
+  };
+  const ro = new ResizeObserver(frameCar);
+  ro.observe(root.querySelector('.tg')!);
 
   const car = () => current(garage.g);
   /** The car as shown: the saved one with any unsaved paint/tune edits. */
@@ -100,11 +130,18 @@ export const driveHub: Render = (root, ctx, screen) => {
 
   const drawTop = () => {
     $(root, '[data-money]').textContent = money(garage.g.money);
-    $(root, '[data-who]').textContent = account.user ? `${account.user} · ${garage.g.wins} wins` : 'Guest · sign in to keep your garage';
+    $(root, '[data-who]').innerHTML = account.user
+      ? `${ICON.user}<span>${esc(account.user)}</span><small>${garage.g.wins} wins</small>`
+      : `${ICON.user}<span>Guest</span><small>Sign in to keep your garage</small>`;
+    const tab = tabOf(page);
     root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => {
-      b.setAttribute('aria-selected', String(b.dataset.tab === tab));
-      b.classList.toggle('on', b.dataset.tab === tab);
+      b.setAttribute('aria-selected', String(b.dataset.tab === tab.id));
+      b.classList.toggle('on', b.dataset.tab === tab.id);
     });
+    const sub = $(root, '[data-subtabs]');
+    sub.hidden = tab.pages.length < 2;
+    sub.innerHTML = tab.pages.map(([p, label]) => `<button role="tab" data-page="${p}" aria-selected="${p === page}" class="${p === page ? 'on' : ''}">${esc(label)}</button>`).join('');
+    sub.querySelectorAll<HTMLElement>('[data-page]').forEach((b) => b.addEventListener('click', () => switchPage(b.dataset.page as Page)));
   };
 
   const drawCard = () => {
@@ -112,16 +149,22 @@ export const driveHub: Render = (root, ctx, screen) => {
     const sp = carSpec(c);
     const b = CARS[c.model];
     const st = stats(sp);
-    const bar = (label: string, v: number) => `<div class="tg-stat"><span>${label}</span><i><b style="width:${v * 10}%"></b></i><em>${v.toFixed(1)}</em></div>`;
+    const ribbon = preview
+      ? `<p class="tg-card-ribbon">Dealer · ${b.price ? money(b.price) : 'Free'}</p>`
+      : trying
+        ? `<p class="tg-card-ribbon cyan">Trying on · ${esc(cosById(trying)?.name ?? '')}</p>`
+        : '';
     $(root, '[data-card]').innerHTML = `
-      <div class="tg-card-head"><div><small>${esc(b.maker)}</small><h2>${esc(b.name)}</h2></div>${classBadge(c)}</div>
-      ${bar('Speed', st.speed)}${bar('Handling', st.handling)}${bar('Acceleration', st.acceleration)}${bar('Launch', st.launch)}${bar('Braking', st.braking)}
+      ${ribbon}
+      <div class="tg-card-head"><div><small>${esc(b.maker)} · ${b.drive}</small><h2 class="tg-title">${esc(b.name)}</h2></div>${classBadge(c)}</div>
+      ${statBar('Speed', st.speed)}${statBar('Handling', st.handling)}${statBar('Acceleration', st.acceleration)}${statBar('Launch', st.launch)}${statBar('Braking', st.braking)}
       <dl class="tg-specs">
-        <div><dt>Power</dt><dd>${Math.round(peakPower(sp).kw * 1.341)} hp</dd></div>
-        <div><dt>Weight</dt><dd>${Math.round(sp.mass)} kg</dd></div>
-        <div><dt>Drive</dt><dd>${b.drive}</dd></div>
-        <div><dt>Top speed</dt><dd>${Math.round(topSpeed(sp) * 3.6)} km/h</dd></div>
-      </dl>`;
+        <div><dt>Power</dt><dd class="tg-num">${Math.round(peakPower(sp).kw * 1.341)}<small>hp</small></dd></div>
+        <div><dt>Weight</dt><dd class="tg-num">${Math.round(sp.mass)}<small>kg</small></dd></div>
+        <div><dt>Top speed</dt><dd class="tg-num">${Math.round(topSpeed(sp) * 3.6)}<small>km/h</small></dd></div>
+      </dl>
+      <p class="tg-card-hint">${ICON.spin} Drag or right stick to spin</p>`;
+    $(root, '[data-stage-name]').innerHTML = `<small>${esc(b.maker)}</small>${esc(b.name)}`;
     const key = JSON.stringify([c.model, c.look, c.cos, c.plate]);
     if (key !== shown) {
       shown = key;
@@ -129,64 +172,120 @@ export const driveHub: Render = (root, ctx, screen) => {
     }
   };
 
-  // --- tab bodies --------------------------------------------------------------------------------
+  // --- page bodies -------------------------------------------------------------------------------
 
-  const raceTab = () => `
-    <h2 class="tg-h">Choose a track</h2>
+  const statusLine = () => `<p class="tg-status" role="status" data-status>${esc(status)}</p>`;
+
+  const racePage = () => {
+    const d = TRACK_DEFS[track];
+    const prize = payout(1, rivals + 1, track, true);
+    return `
+    <section class="tg-hero" style="${trackStyle(track)}">
+      <span class="tg-hero-art" aria-hidden="true"></span>
+      <div class="tg-hero-map">${trackMap(track)}</div>
+      <div class="tg-hero-copy">
+        <small class="tg-eyebrow">${esc(trackKind(track))}</small>
+        <h1 class="tg-display">${esc(d.name)}</h1>
+        <p>${esc(d.tag)}</p>
+      </div>
+      <dl class="tg-hero-facts">
+        <div><dt>Distance</dt><dd class="tg-num">${TRACK_LENGTH_KM[track]}<small>km</small></dd></div>
+        <div><dt>Win pays</dt><dd class="tg-num gold">${money(prize)}</dd></div>
+      </dl>
+    </section>
+    <div class="tg-launch">
+      <div class="tg-seg" role="group" aria-label="Rivals">
+        <span class="tg-label">Rivals</span>
+        ${[0, 3, 5, 7].map((n) => `<button class="tg-pill" data-rivals="${n}" aria-pressed="${n === rivals}">${n}</button>`).join('')}
+      </div>
+      <button class="tg-go" data-solo data-autofocus>${ICON.flag}Race solo</button>
+    </div>
+    <p class="tg-blurb">${esc(d.blurb)}</p>
+    <h2 class="tg-h">Tracks <small>${TRACK_IDS.length}</small></h2>
     <div class="tg-tracks">
-      ${(Object.keys(TRACK_DEFS) as TrackId[])
-        .map((id) => {
-          const d = TRACK_DEFS[id];
-          return `<button class="tg-track ${id}" data-track="${id}" aria-pressed="${id === track}">
-            <b>${esc(d.name)}</b><small>${esc(d.tag)} · ${TRACK_LENGTH_KM[id]} km</small><p>${esc(d.blurb)}</p></button>`;
-        })
-        .join('')}
+      ${TRACK_IDS.map((id) => trackTile(id, `data-track="${id}" aria-pressed="${id === track}" aria-label="${esc(TRACK_DEFS[id].name)}"`)).join('')}
     </div>
-    <h2 class="tg-h">Solo</h2>
-    <div class="tg-row">
-      <span class="tg-label">Rivals</span>
-      ${[0, 3, 5, 7].map((n) => `<button class="tg-pill" data-rivals="${n}" aria-pressed="${n === rivals}">${n}</button>`).join('')}
-      <button class="tg-go" data-solo data-autofocus>Race solo ▸</button>
+    <h2 class="tg-h">Online <small>up to 8 racers</small></h2>
+    <div class="tg-online tg-cardbox">
+      <div class="tg-online-row">
+        <button class="tg-go alt" data-host>Host a race</button>
+        <span class="tg-or">or</span>
+        <label class="tg-code"><span class="sr-only">Race code</span><input data-code maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" /></label>
+        <button class="tg-pill" data-join>Join</button>
+      </div>
+      <ul class="tg-lobbies" data-lobbies><li class="muted">Looking for open races…</li></ul>
     </div>
-    <h2 class="tg-h">Online</h2>
-    <div class="tg-row">
-      <button class="tg-go alt" data-host>Host a race</button>
-      <label class="tg-code"><span class="sr-only">Race code</span><input data-code maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" /></label>
-      <button class="tg-go alt" data-join>Join</button>
-    </div>
-    <ul class="tg-lobbies" data-lobbies><li class="muted">Looking for open races…</li></ul>
-    <p class="tg-status" role="status" data-status>${esc(status)}</p>`;
+    ${statusLine()}`;
+  };
 
-  const garageTab = () => `
-    <h2 class="tg-h">Your cars <small>${garage.g.cars.length} owned</small></h2>
+  const garagePage = () => {
+    const g = garage.g;
+    const rate = g.races ? Math.round((g.wins / g.races) * 100) : 0;
+    return `
+    <dl class="tg-profile">
+      <div><dt>Races</dt><dd class="tg-num">${g.races}</dd></div>
+      <div><dt>Wins</dt><dd class="tg-num">${g.wins}</dd></div>
+      <div><dt>Win rate</dt><dd class="tg-num">${rate}<small>%</small></dd></div>
+      <div><dt>Cosmetics</dt><dd class="tg-num">${g.cos.length}<small>/${COS_ITEMS.length}</small></dd></div>
+    </dl>
+    <h2 class="tg-h">Your cars <small>${g.cars.length} owned</small></h2>
     <div class="tg-cars">
-      ${garage.g.cars
+      ${g.cars
         .map((c, i) => {
           const b = CARS[c.model];
           const levels = PARTS.reduce((a, p) => a + c.up[p], 0);
-          const sel = i === garage.g.sel;
-          return `<div class="tg-owned ${sel ? 'on' : ''}">
-            <i class="tg-swatch" style="background:${hex(PAINTS[c.look.paint])}"></i>
-            <div><b>${esc(b.name)}</b><small>${levels} upgrade levels · ${b.drive}</small></div>
+          const sel = i === g.sel;
+          return `<div class="tg-owned tg-cardbox ${sel ? 'on' : ''}" style="--paint:${hex(PAINTS[c.look.paint])}">
+            <div class="tg-owned-name"><small>${esc(b.maker)}</small><b>${esc(b.name)}</b></div>
             ${classBadge(c)}
-            ${sel ? '<span class="tg-tag">Driving</span>' : `<button class="tg-pill" data-select="${i}">Drive</button>`}
-            ${garage.g.cars.length > 1 ? `<button class="tg-pill danger" data-sell="${i}">Sell ${money(b.price * 0.5)}</button>` : ''}
+            <div class="tg-owned-meta"><span>${b.drive}</span><span class="tg-up" style="--v:${levels / (PARTS.length * MAX_LEVEL)}"><i></i>${levels}/${PARTS.length * MAX_LEVEL} upgrades</span></div>
+            <div class="tg-owned-act">
+              ${sel ? '<span class="tg-tag">Driving</span>' : `<button class="tg-pill" data-select="${i}" ${i === 0 && !sel ? 'data-autofocus' : ''}>Drive</button>`}
+              ${g.cars.length > 1 ? `<button class="tg-pill danger" data-sell="${i}">Sell ${money(b.price * 0.5)}</button>` : ''}
+            </div>
           </div>`;
         })
         .join('')}
     </div>
-    <p class="tg-muted">Races: ${garage.g.races} · Wins: ${garage.g.wins}</p>
-    <p class="tg-status" role="status" data-status>${esc(status)}</p>`;
+    <p class="tg-muted">Want more? Buy cars in the <button class="tg-link" data-goto="dealer">Dealer</button>.</p>
+    ${statusLine()}`;
+  };
 
-  const upgradesTab = () => {
+  const dealerPage = () => `
+    <p class="tg-lede">New cars come stock. Win upgrade crates to build them up.</p>
+    <div class="tg-dealer">
+      ${CAR_IDS.map((id, n) => {
+        const b = CARS[id];
+        const stock = newOwnedCar(id);
+        const st = stats(carSpec(stock));
+        const owned = garage.g.cars.filter((c) => c.model === id).length;
+        const looking = preview?.model === id;
+        return `<div class="tg-deal tg-cardbox ${looking ? 'on' : ''}">
+          <div class="tg-deal-head"><div><small>${esc(b.maker)} · ${b.drive}</small><b class="tg-title">${esc(b.name)}</b></div>${classBadge(stock)}</div>
+          <p>${esc(b.blurb)}</p>
+          <div class="tg-deal-stats">${statBar('Speed', st.speed)}${statBar('Handling', st.handling)}${statBar('Accel', st.acceleration)}</div>
+          <div class="tg-deal-foot">
+            <span class="tg-price tg-num">${b.price ? money(b.price) : 'Free'}</span>
+            ${owned ? `<span class="tg-tag">Owned ×${owned}</span>` : ''}
+            <button class="tg-pill" data-preview="${id}" aria-pressed="${looking}" ${n === 0 ? 'data-autofocus' : ''}>View</button>
+            <button class="tg-go small" data-buy="${id}" ${garage.g.money < b.price ? 'disabled' : ''}>Buy</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    ${statusLine()}`;
+
+  const upgradesPage = () => {
     const c = car();
+    const total = PARTS.reduce((a, p) => a + c.up[p], 0);
     return `
-      <h2 class="tg-h">Upgrade crates <small>for your ${esc(CARS[c.model].name)}</small></h2>
-      <button class="tg-crate" data-crate="mystery" data-autofocus ${garage.g.money < MYSTERY_COST ? 'disabled' : ''}>
+      <p class="tg-lede">Upgrading your <b>${esc(CARS[c.model].name)}</b> · ${total}/${PARTS.length * MAX_LEVEL} levels</p>
+      <button class="tg-crate tg-cardbox" data-crate="mystery" data-autofocus ${garage.g.money < MYSTERY_COST ? 'disabled' : ''}>
         <span class="tg-crate-box" aria-hidden="true">?</span>
-        <span><b>${CRATES.mystery.name} · ${money(MYSTERY_COST)}</b><small>${esc(CRATES.mystery.blurb)}</small></span>
+        <span class="tg-crate-copy"><small class="tg-eyebrow">The gamble</small><b class="tg-title">${esc(CRATES.mystery.name)}</b><small>${esc(CRATES.mystery.blurb)}</small></span>
+        <span class="tg-crate-price tg-num">${money(MYSTERY_COST)}</span>
       </button>
-      <p class="tg-muted">${esc(CRATES.tuner.blurb)}</p>
+      <h2 class="tg-h">Parts <small>${esc(CRATES.tuner.blurb)}</small></h2>
       <div class="tg-parts">
         ${PARTS.map((p) => {
           const lvl = c.up[p];
@@ -196,66 +295,62 @@ export const driveHub: Render = (root, ctx, screen) => {
             <span class="tg-part-icon" aria-hidden="true">${PART_INFO[p].icon}</span>
             <div><b>${PART_INFO[p].name}</b><small>${esc(PART_INFO[p].effect)}</small></div>
             <span class="tg-pips" aria-label="Level ${lvl} of ${MAX_LEVEL}">${Array.from({ length: MAX_LEVEL }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</span>
-            <button class="tg-pill" data-crate="tuner" data-part="${p}" ${maxed || garage.g.money < cost ? 'disabled' : ''}>${maxed ? 'Maxed' : `Tuner crate ${money(cost)}`}</button>
+            <button class="tg-pill" data-crate="tuner" data-part="${p}" ${maxed || garage.g.money < cost ? 'disabled' : ''}>${maxed ? 'Maxed' : money(cost)}</button>
           </div>`;
         }).join('')}
       </div>
-      <p class="tg-status" role="status" data-status>${esc(status)}</p>`;
+      ${statusLine()}`;
   };
 
-  const paintTab = () => {
+  const tuneText = (k: keyof Tune, val: number) => (k === 'ride' ? `${val > 0 ? '+' : ''}${Math.round(val * 100)} cm` : k === 'bias' ? `${Math.round(val * 100)}% front` : k === 'diff' ? `${Math.round(val * 100)}%` : `×${val.toFixed(2)}`);
+
+  const tuningPage = () => {
     const v = viewed();
-    const L = v.look;
-    const swatches = (key: keyof Look, colors: number[], names: string[]) =>
-      colors.map((col, i) => `<button class="tg-sw" data-look="${key}" data-v="${i}" aria-pressed="${L[key] === i}" title="${esc(names[i])}" aria-label="${esc(names[i])}" style="--sw:${hex(col)}"></button>`).join('');
-    const pills = (key: keyof Look, labels: readonly string[]) => labels.map((l, i) => `<button class="tg-pill" data-look="${key}" data-v="${i}" aria-pressed="${L[key] === i}">${esc(l)}</button>`).join('');
     const sliders = (Object.keys(TUNE_RANGE) as (keyof Tune)[])
-      .map((k) => {
+      .map((k, i) => {
         const r = TUNE_RANGE[k];
         const val = v.tune[k];
-        const shown = k === 'ride' ? `${val > 0 ? '+' : ''}${Math.round(val * 100)} cm` : k === 'bias' ? `${Math.round(val * 100)}% front` : k === 'diff' ? `${Math.round(val * 100)}%` : `×${val.toFixed(2)}`;
-        return `<label class="tg-slider"><span>${esc(r.label)}</span><input type="range" data-tune="${k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${val}" /><output>${shown}</output></label>`;
+        return `<label class="tg-slider"><span>${esc(r.label)}</span><input type="range" data-tune="${k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${val}" ${i === 0 ? 'data-autofocus' : ''} /><output class="tg-num">${tuneText(k, val)}</output></label>`;
       })
       .join('');
     return `
-      <h2 class="tg-h">Paint</h2>
-      <div class="tg-swatches">${swatches('paint', PAINTS, PAINT_NAMES)}</div>
-      <div class="tg-row">${pills('finish', FINISHES)}</div>
-      <h2 class="tg-h">Wheels</h2>
-      <div class="tg-row">${pills('rims', RIMS)}</div>
-      <div class="tg-swatches">${swatches('rimColor', RIM_COLORS, RIM_COLOR_NAMES)}</div>
-      <h2 class="tg-h">Body</h2>
-      <div class="tg-row"><span class="tg-label">Spoiler</span>${pills('spoiler', SPOILERS)}</div>
-      <div class="tg-row"><span class="tg-label">Stripes</span>${pills('stripe', STRIPES)}</div>
-      ${L.stripe ? `<div class="tg-swatches">${swatches('stripeColor', PAINTS, PAINT_NAMES)}</div>` : ''}
-      <div class="tg-row"><span class="tg-label">Underglow</span></div>
-      <div class="tg-swatches">${swatches('glow', GLOWS, GLOW_NAMES)}</div>
-      <h2 class="tg-h">Tuning <small>a wing adds downforce (and drag)</small></h2>
-      <div class="tg-sliders">${sliders}</div>
-      <p class="tg-status" role="status" data-status>${esc(status)}</p>`;
+      <p class="tg-lede">Set up your <b>${esc(CARS[car().model].name)}</b>. Changes save as you go; the card shows the effect.</p>
+      <div class="tg-sliders tg-cardbox">${sliders}</div>
+      <p class="tg-muted">A wing (Style → Paint → Spoiler) adds downforce, and drag.</p>
+      ${statusLine()}`;
   };
 
-  const dealerTab = () => `
-    <h2 class="tg-h">Dealer <small>new cars come stock; win crates to upgrade them</small></h2>
-    <div class="tg-dealer">
-      ${CAR_IDS.map((id) => {
-        const b = CARS[id];
-        const stock = newOwnedCar(id);
-        const owned = garage.g.cars.filter((c) => c.model === id).length;
-        return `<div class="tg-deal">
-          <div class="tg-deal-head"><div><small>${esc(b.maker)}</small><b>${esc(b.name)}</b></div>${classBadge(stock)}</div>
-          <p>${esc(b.blurb)}</p>
-          <div class="tg-row"><span class="tg-price">${b.price ? money(b.price) : 'Free'}</span>${owned ? `<span class="tg-tag">Owned ×${owned}</span>` : ''}
-          <button class="tg-pill" data-preview="${id}">Look</button>
-          <button class="tg-go small" data-buy="${id}" ${garage.g.money < b.price ? 'disabled' : ''}>Buy</button></div>
-        </div>`;
-      }).join('')}
-    </div>
-    <p class="tg-status" role="status" data-status>${esc(status)}</p>`;
+  const paintPage = () => {
+    const L = viewed().look;
+    const swatches = (key: keyof Look, colors: number[], names: string[]) =>
+      colors.map((col, i) => `<button class="tg-sw" data-look="${key}" data-v="${i}" aria-pressed="${L[key] === i}" title="${esc(names[i])}" aria-label="${esc(names[i])}" style="--sw:${hex(col)}"></button>`).join('');
+    const pills = (key: keyof Look, labels: readonly string[]) => `<div class="tg-seg">${labels.map((l, i) => `<button class="tg-pill" data-look="${key}" data-v="${i}" aria-pressed="${L[key] === i}">${esc(l)}</button>`).join('')}</div>`;
+    return `
+      <p class="tg-lede">Free to change, any time. Rarer looks live in the <button class="tg-link" data-goto="locker">Locker</button>.</p>
+      <div class="tg-group tg-cardbox">
+        <h2 class="tg-h">Paint <small>${esc(PAINT_NAMES[L.paint])}</small></h2>
+        <div class="tg-swatches">${swatches('paint', PAINTS, PAINT_NAMES)}</div>
+        ${pills('finish', FINISHES)}
+      </div>
+      <div class="tg-group tg-cardbox">
+        <h2 class="tg-h">Wheels</h2>
+        ${pills('rims', RIMS)}
+        <div class="tg-swatches">${swatches('rimColor', RIM_COLORS, RIM_COLOR_NAMES)}</div>
+      </div>
+      <div class="tg-group tg-cardbox">
+        <h2 class="tg-h">Body</h2>
+        <div class="tg-field"><span class="tg-label">Spoiler</span>${pills('spoiler', SPOILERS)}</div>
+        <div class="tg-field"><span class="tg-label">Stripes</span>${pills('stripe', STRIPES)}</div>
+        ${L.stripe ? `<div class="tg-swatches">${swatches('stripeColor', PAINTS, PAINT_NAMES)}</div>` : ''}
+        <div class="tg-field"><span class="tg-label">Underglow</span></div>
+        <div class="tg-swatches">${swatches('glow', GLOWS, GLOW_NAMES)}</div>
+      </div>
+      ${statusLine()}`;
+  };
 
-  const lockerBody = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
-  const casesBody = () => casesTab(garage.g, status);
-  const BODIES: Record<Tab, () => string> = { race: raceTab, garage: garageTab, upgrades: upgradesTab, paint: paintTab, locker: lockerBody, cases: casesBody, dealer: dealerTab };
+  const lockerPage = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
+  const casesPage = () => casesTab(garage.g, status);
+  const BODIES: Record<Page, () => string> = { race: racePage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -263,12 +358,13 @@ export const driveHub: Render = (root, ctx, screen) => {
     const focusKey = keepFocus ? focusId(document.activeElement) : null;
     drawTop();
     const panel = $(root, '[data-panel]');
-    panel.innerHTML = BODIES[tab]();
+    panel.dataset.page = page;
+    panel.innerHTML = BODIES[page]();
     wire(panel);
     drawCard();
     const again = focusKey && panel.querySelector<HTMLElement>(focusKey);
     if (again) again.focus({ preventScroll: true });
-    if (tab === 'race') void refreshLobbies();
+    if (page === 'race') void refreshLobbies();
   };
 
   const setStatus = (text: string) => {
@@ -277,20 +373,26 @@ export const driveHub: Render = (root, ctx, screen) => {
     if (el) el.textContent = text;
   };
 
-  const switchTab = (t: Tab) => {
-    if (t === tab) return;
+  const switchPage = (p: Page) => {
+    if (p === page) return;
     flushDraft();
     preview = null;
     trying = null;
-    tab = t;
+    page = p;
+    lastPage[tabOf(p).id] = p;
     status = '';
-    history.replaceState({ ...(history.state ?? {}), dtab: t }, '');
+    history.replaceState({ ...(history.state ?? {}), dtab: p }, '');
+    const panel = $(root, '[data-panel]');
     draw(false);
-    $(root, '[data-panel]').scrollTop = 0;
+    panel.scrollTop = 0;
+    panel.classList.remove('enter');
+    void panel.offsetWidth; // restart the slide-in
+    panel.classList.add('enter');
     root.querySelector<HTMLElement>('[data-panel] [data-autofocus], [data-panel] button:not([disabled]), [data-panel] input')?.focus({ preventScroll: true });
   };
 
   const wire = (panel: HTMLElement) => {
+    panel.querySelectorAll<HTMLElement>('[data-goto]').forEach((b) => b.addEventListener('click', () => switchPage(b.dataset.goto as Page)));
     panel.querySelectorAll<HTMLElement>('[data-track]').forEach((b) =>
       b.addEventListener('click', () => {
         track = b.dataset.track as TrackId;
@@ -335,24 +437,23 @@ export const driveHub: Render = (root, ctx, screen) => {
     panel.querySelectorAll<HTMLInputElement>('[data-tune]').forEach((inp) =>
       inp.addEventListener('input', () => {
         const d = (draft ??= { look: { ...car().look }, tune: { ...car().tune } });
-        d.tune[inp.dataset.tune as keyof Tune] = Number(inp.value);
+        const k = inp.dataset.tune as keyof Tune;
+        d.tune[k] = Number(inp.value);
         scheduleSave();
         // Just the readout and the card; redrawing the slider would drop the drag.
-        const out = inp.nextElementSibling as HTMLOutputElement;
-        const k = inp.dataset.tune as keyof Tune;
-        const v = Number(inp.value);
-        out.textContent = k === 'ride' ? `${v > 0 ? '+' : ''}${Math.round(v * 100)} cm` : k === 'bias' ? `${Math.round(v * 100)}% front` : k === 'diff' ? `${Math.round(v * 100)}%` : `×${v.toFixed(2)}`;
+        (inp.nextElementSibling as HTMLOutputElement).textContent = tuneText(k, Number(inp.value));
         drawCard();
       }),
     );
     panel.querySelectorAll<HTMLElement>('[data-preview]').forEach((b) =>
       b.addEventListener('click', () => {
-        preview = newOwnedCar(b.dataset.preview as (typeof CAR_IDS)[number], 0);
-        drawCard();
+        const id = b.dataset.preview as (typeof CAR_IDS)[number];
+        preview = preview?.model === id ? null : newOwnedCar(id, 0);
+        draw();
       }),
     );
     // Cosmetics: cases and the locker.
-    if (tab === 'cases') wireCases(panel, garage.g);
+    if (page === 'cases') wireCases(panel, garage.g);
     panel.querySelectorAll<HTMLElement>('[data-case-open]').forEach((b) => b.addEventListener('click', () => void openCase(b.dataset.caseOpen as CaseId)));
     panel.querySelectorAll<HTMLElement>('[data-slot]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -387,7 +488,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     panel.querySelectorAll<HTMLElement>('[data-buy]').forEach((b) =>
       b.addEventListener('click', () => {
         const id = b.dataset.buy as (typeof CAR_IDS)[number];
-        void act({ a: 'buy', model: id, paint: Math.floor(Math.random() * PAINTS.length) }).then(() => setStatus(`The ${CARS[id].name} is yours. It's in your garage.`));
+        void act({ a: 'buy', model: id, paint: Math.floor(Math.random() * PAINTS.length) }).then((r) => r !== null && setStatus(`The ${CARS[id].name} is yours. It's in My cars.`));
       }),
     );
   };
@@ -455,7 +556,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     const target = WIN * tileW + tileW / 2 - reel.clientWidth / 2 + (Math.random() - 0.5) * (tileW * 0.6);
     strip.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${-target}px)` }], { duration: 4200, easing: 'cubic-bezier(0.12, 0.7, 0.12, 1)', fill: 'forwards' }).finished.then(() => {
       $(modal, '.tg-reel-result').innerHTML = `<b class="${won.tone}">${won.icon} ${esc(won.text)}</b>`;
-      $(modal, 'h2').textContent = res.kind === 'jackpot' ? 'JACKPOT!' : 'Upgrade!';
+      $(modal, 'h2').textContent = res.kind === 'jackpot' ? 'JACKPOT!' : 'Upgrade';
       const ok = $<HTMLButtonElement>(modal, '[data-ok]');
       ok.hidden = false;
       ok.focus();
@@ -493,7 +594,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     modal.hidden = true;
     modal.innerHTML = '';
     draw(false);
-    root.querySelector<HTMLElement>('[data-crate="mystery"]')?.focus();
+    root.querySelector<HTMLElement>('[data-crate="mystery"], [data-case-open]')?.focus();
   };
 
   // --- online ------------------------------------------------------------------------------------
@@ -523,7 +624,7 @@ export const driveHub: Render = (root, ctx, screen) => {
   const refreshLobbies = async () => {
     clearTimeout(listTimer);
     const list = root.querySelector('[data-lobbies]');
-    if (!list || tab !== 'race') return;
+    if (!list || page !== 'race') return;
     try {
       const lobbies = await raceNet.lobbies();
       if (!root.querySelector('[data-lobbies]')) return;
@@ -531,7 +632,7 @@ export const driveHub: Render = (root, ctx, screen) => {
         ? lobbies
             .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s ${l.mode === 'trial' ? 'time trial' : 'race'} · ${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${l.phase === 'lobby' ? '' : ' · racing'}</span><button class="tg-pill" data-joincode="${esc(l.code)}" ${l.players >= l.max ? 'disabled' : ''}>${l.players >= l.max ? 'Full' : 'Join'}</button></li>`)
             .join('')
-        : `<li class="muted">No open races. Host one!</li>`;
+        : `<li class="muted">No open races right now. Host one and share the code.</li>`;
       list.querySelectorAll<HTMLElement>('[data-joincode]').forEach((b) => b.addEventListener('click', () => connect(b.dataset.joincode!)));
     } catch {
       list.innerHTML = `<li class="muted">Can't reach the game server${import.meta.env.DEV ? ' (is <code>npm run dev</code> running?)' : ''}. Solo races still work.</li>`;
@@ -541,14 +642,20 @@ export const driveHub: Render = (root, ctx, screen) => {
 
   // --- events ------------------------------------------------------------------------------------
 
-  root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab as Tab)));
+  root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => b.addEventListener('click', () => switchPage(lastPage[b.dataset.tab as TabId])));
   $(root, '[data-home]').addEventListener('click', () => ctx.go({ name: 'games' }));
+  $(root, '[data-who]').addEventListener('click', () => ctx.go({ name: 'account' }));
   const onPadTab = (e: Event) => {
     if (!root.querySelector<HTMLElement>('[data-modal]')!.hidden) return;
-    const i = TABS.findIndex(([t]) => t === tab);
-    switchTab(TABS[(i + (e as CustomEvent<number>).detail + TABS.length) % TABS.length][0]);
+    const i = PAGES.indexOf(page);
+    switchPage(PAGES[(i + (e as CustomEvent<number>).detail + PAGES.length) % PAGES.length]);
   };
   addEventListener('padtab', onPadTab);
+  // Start: the Race page's main action.
+  const onPadStart = () => {
+    if (root.querySelector<HTMLElement>('[data-modal]')!.hidden && page === 'race') root.querySelector<HTMLElement>('[data-solo]')?.click();
+  };
+  addEventListener('padstart', onPadStart);
   // Esc / B closes the crate reel before it backs out of the screen.
   const onKey = (e: KeyboardEvent) => {
     const modal = root.querySelector<HTMLElement>('[data-modal]')!;
@@ -565,6 +672,7 @@ export const driveHub: Render = (root, ctx, screen) => {
   const offAccount = account.onChange(() => drawTop());
   void garage.refresh();
   draw(false);
+  frameCar();
   root.querySelector<HTMLElement>('[data-panel] [data-autofocus]')?.focus({ preventScroll: true });
 
   return () => {
@@ -573,7 +681,9 @@ export const driveHub: Render = (root, ctx, screen) => {
     offNet?.();
     offGarage();
     offAccount();
+    ro.disconnect();
     removeEventListener('padtab', onPadTab);
+    removeEventListener('padstart', onPadStart);
     removeEventListener('keydown', onKey, true);
     showroom.dispose();
   };
@@ -582,15 +692,12 @@ export const driveHub: Render = (root, ctx, screen) => {
 /** A selector that finds "the same control" after a redraw, so focus survives it. */
 function focusId(el: Element | null): string | null {
   if (!(el instanceof HTMLElement) || !el.closest('[data-panel]')) return null;
-  for (const attr of ['data-track', 'data-rivals', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos']) {
-    const v = el.getAttribute(attr);
-    if (v !== null) {
-      const look = el.getAttribute('data-look');
-      return look ? `[data-look="${look}"][data-v="${el.getAttribute('data-v')}"]` : `[${attr}="${v}"]`;
-    }
-  }
   const look = el.getAttribute('data-look');
   if (look) return `[data-look="${look}"][data-v="${el.getAttribute('data-v')}"]`;
+  for (const attr of ['data-track', 'data-rivals', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos']) {
+    const v = el.getAttribute(attr);
+    if (v !== null) return `[${attr}="${v}"]`;
+  }
   for (const attr of ['data-solo', 'data-host', 'data-join', 'data-code']) if (el.hasAttribute(attr)) return `[${attr}]`;
   return null;
 }
