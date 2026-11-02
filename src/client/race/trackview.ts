@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import { CUT_HALF, SAMPLE, SHOULDER, type Theme, type Track, dirtFrom, fbm, heightAt, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../../shared/race/track.ts';
+import { CUT_HALF, SAMPLE, SHOULDER, type Theme, type Track, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../../shared/race/track.ts';
 import type { Grade } from './post.ts';
 import { FACADE_H, FACADE_W, ROAD_TILE, asphalt, banner, facade, gravel, ground, mulberry, roofTiles, stone, vendingFront } from './tracktextures.ts';
 
@@ -68,7 +68,8 @@ export interface TrackView {
   dispose(): void;
 }
 
-export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackView {
+export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): TrackView {
+  const t = lapView(road); // a circuit is drawn once round
   const look = LOOKS[t.def.theme];
   const scene = new THREE.Scene();
   const disposables: { dispose(): void }[] = [];
@@ -481,8 +482,8 @@ export function buildTrackView(t: Track, renderer: THREE.WebGLRenderer): TrackVi
     scene.add(poles);
   }
 
-  // --- Start and finish gantries, with a chequered line across the road at the finish.
-  gantry(scene, t, t.startS, 'START', false, keep);
+  // --- Start and finish gantries, with a chequered line across the road at the finish (one line on a circuit).
+  if (!t.lap) gantry(scene, t, t.startS, 'START', false, keep);
   gantry(scene, t, t.finishS, 'FINISH', true, keep);
 
   // --- Forests and rocks

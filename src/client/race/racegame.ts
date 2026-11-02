@@ -8,7 +8,7 @@ import { type Ai, aiDrive, newAi } from '../../shared/race/driver.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../../shared/race/powerups.ts';
 import { CarFlag, type NetCar, type RaceServerMsg, type Racer } from '../../shared/race/protocol.ts';
 import { standings } from '../../shared/race/standings.ts';
-import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, pointAt } from '../../shared/race/track.ts';
+import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../../shared/race/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../../shared/race/vehicle.ts';
 import { PropView, shieldBubble } from './propview.ts';
 import { rumble, setMenuNav } from '../pad.ts';
@@ -161,6 +161,9 @@ export class RaceGame {
   private countdown: number;
   private lastBeep = 99;
   private time = 0;
+  /** The lap you're on (circuits) and when you started it. */
+  private lap = 1;
+  private lapStart = 0;
   private acc = 0;
   private last = performance.now();
   private raf = 0;
@@ -712,6 +715,11 @@ export class RaceGame {
     // Clock and finishing
     if (live && me.finished === null) this.time += TICK_DT;
     if (live && me.finished === null && me.car.s >= t.finishS) this.finish();
+    if (live && me.finished === null && t.lap && lapOf(t, me.car.s) > this.lap) {
+      this.lap = lapOf(t, me.car.s);
+      this.hud.banner(this.lap === t.def.laps ? 'Final lap' : `Lap ${this.lap}/${t.def.laps}`, `Last lap ${fmtTime(this.time - this.lapStart)}`, 2200);
+      this.lapStart = this.time;
+    }
     for (const r of this.rivals) if (r.finished === null && this.phase === 'racing' && r.car.s >= t.finishS) r.finished = this.time;
     // Network
     if (this.setup.online && (live || this.phase === 'countdown' || this.phase === 'finished')) {
@@ -1110,6 +1118,8 @@ export class RaceGame {
       place: order.findIndex((e) => e.who.me) + 1,
       field: order.length,
       time: me.finished ?? this.time,
+      lap: me.finished !== null ? this.track.def.laps ?? 0 : lapOf(this.track, c.s),
+      laps: this.track.def.laps ?? 0,
       abs: c.absOn,
       tcs: c.tcsOn,
       wrongWay: this.phase === 'racing' && tangentDot < -0.3 && speedOf(c) > 3,

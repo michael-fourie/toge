@@ -112,8 +112,8 @@ export function payout(place: number, field: number, track: TrackId, solo: boole
   return Math.round((base * share * (solo ? SOLO_SHARE : 1)) / 10) * 10;
 }
 
-/** Rough lengths (km) so payouts don't need the track built; tests check they stay close. */
-export const TRACK_LENGTH_KM: Record<TrackId, number> = { koripass: 5.3, saltwind: 3.6, redmesa: 4.1, tsukiyo: 5.1, momiji: 3.2, sakura: 4.2 };
+/** Rough race distances (km; every lap of a circuit) so payouts don't need the track built; tests check they stay close. */
+export const TRACK_LENGTH_KM: Record<TrackId, number> = { koripass: 5.3, saltwind: 3.6, redmesa: 4.1, tsukiyo: 5.1, momiji: 3.2, sakura: 4.2, monza: 5.6, spa: 5.2, monaco: 5.0 };
 
 // ---------------------------------------------------------------------------------------------
 // Everything you can do to a garage, as one action type (the server's API and the guest's local store)

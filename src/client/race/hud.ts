@@ -43,6 +43,9 @@ export interface HudState {
   place: number;
   field: number;
   time: number;
+  /** The lap you're on, out of `laps` (0 on a point-to-point road). */
+  lap: number;
+  laps: number;
   abs: boolean;
   tcs: boolean;
   wrongWay: boolean;
@@ -93,6 +96,7 @@ export class RaceHud {
       <div class="rh-top">
         <div class="rh-pos"><b data-el="place">–</b><small data-el="field"></small></div>
         <div class="rh-time" data-el="time">0:00.000</div>
+        <div class="rh-lap" data-el="lap" hidden></div>
       </div>
       <ol class="rh-board" data-el="board" aria-label="Standings"></ol>
       <div class="rh-tags" data-el="tags" aria-hidden="true"></div>
@@ -153,6 +157,8 @@ export class RaceHud {
     this.el.place.textContent = h.place ? ordinal(h.place) : '–';
     this.el.field.textContent = `/ ${h.field}`;
     this.el.time.textContent = fmtTime(Math.max(0, h.time));
+    this.el.lap.hidden = !h.laps;
+    if (h.laps) this.el.lap.textContent = `Lap ${h.lap}/${h.laps}`;
     this.el.speed.textContent = String(Math.round(h.speed * 3.6));
     this.el.gear.textContent = h.gear < 0 ? 'R' : h.gear === 0 ? 'N' : String(h.gear);
     this.el.gear.classList.toggle('shift', h.rpm > h.redline * 0.93);
