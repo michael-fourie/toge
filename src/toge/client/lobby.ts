@@ -4,19 +4,21 @@
 
 import { CARS, CLASS_COLORS, PAINTS, carSpec, decodeCar, encodeCar, rating } from '../shared/cars.ts';
 import { current } from '../shared/garage.ts';
-import { CAR_RULES, PHYSICS, RACE, RACE_MODES, type CarRule, type RaceMode, type RaceServerMsg } from '../shared/protocol.ts';
+import { CAR_RULES, PHYSICS, RACE, RACE_MODES, ghostMode, modeTracks, type CarRule, type RaceMode, type RaceServerMsg } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { $, copy, esc, playerName } from '../../client/menu/ui.ts';
 import { garage } from './garageStore.ts';
 import { raceNet } from './racenet.ts';
 import { ICON, LOGO } from './brand.ts';
-import { TRACK_IDS, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
+import { trackClimb, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { encodeRider } from '../shared/rider.ts';
 import { PORTRAIT, releasePortraits, riderPortrait } from './riderportrait.ts';
 import './race.css';
 import './hub.css';
+
+const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb' };
 
 /** A racer's face for the grid list: their portrait, cropped to the head. */
 const face = (rider: string) => {
@@ -70,13 +72,13 @@ export const driveLobby: Render = (root, ctx, screen) => {
       })
       .join('');
     const canPick = isHost && room.phase === 'lobby';
-    const tracks = TRACK_IDS.map((id) => trackTile(id, `data-pick="${id}" aria-pressed="${id === room.track}" aria-label="${esc(TRACK_DEFS[id].name)}" ${canPick ? '' : 'disabled'}`)).join('');
+    const tracks = modeTracks(room.mode).map((id) => trackTile(id, `data-pick="${id}" aria-pressed="${id === room.track}" aria-label="${esc(TRACK_DEFS[id].name)}" ${canPick ? '' : 'disabled'}`)).join('');
     const modes = (Object.keys(RACE_MODES) as RaceMode[])
       .map((id) => `<button class="tg-mode" data-mode="${id}" aria-pressed="${id === room.mode}" ${canPick ? '' : 'disabled'}><b>${esc(RACE_MODES[id].name)}</b><small>${esc(RACE_MODES[id].blurb)}</small></button>`)
       .join('');
-    // A time trial's car rule: own cars, one spec car for everyone, or everyone's car maxed out.
+    // A time trial's or hill climb's car rule: own cars, one spec car for everyone, or everyone's car maxed out.
     const rules =
-      room.mode === 'trial'
+      ghostMode(room.mode)
         ? `<h2 class="tg-h">Cars</h2><div class="tg-modes">${(Object.keys(CAR_RULES) as CarRule[])
             .map((id) => `<button class="tg-mode" data-rule="${id}" aria-pressed="${id === room.cars}" ${canPick ? '' : 'disabled'}><b>${esc(CAR_RULES[id].name)}</b><small>${esc(CAR_RULES[id].blurb)}</small></button>`)
             .join('')}</div>`
@@ -88,7 +90,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const state =
       room.phase === 'lobby'
         ? isHost
-          ? `<button class="tg-go" data-start data-autofocus>${ICON.flag}${room.mode === 'trial' ? 'Start time trial' : 'Start race'}</button><span class="tg-muted">${room.racers.length < 2 ? 'Share the code, or start now and race the clock.' : `${room.racers.length} racers on the grid.`}</span>`
+          ? `<button class="tg-go" data-start data-autofocus>${ICON.flag}${START[room.mode]}</button><span class="tg-muted">${room.racers.length < 2 ? 'Share the code, or start now and race the clock.' : `${room.racers.length} racers on the grid.`}</span>`
           : `<span class="tg-muted">Waiting for the host to start…</span>`
         : `<span class="tg-muted">A race is under way. You'll line up for the next one.</span>`;
     const d = TRACK_DEFS[room.track];
@@ -97,7 +99,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
-          <div class="tg-lobby-title">${room.mode === 'trial' ? 'Time trial' : 'Race'} lobby${room.physics ? ' · Physics' : ''}</div>
+          <div class="tg-lobby-title">${RACE_MODES[room.mode].name} lobby${room.physics ? ' · Physics' : ''}</div>
           <div class="tg-roomcode"><small>Race<br />code</small><b class="tg-bigcode">${esc(room.code)}</b></div>
         </header>
         <section class="tg-lobby-body">
@@ -110,7 +112,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
                 <h1 class="tg-display">${esc(d.name)}</h1>
                 <p>${esc(d.tag)}</p>
               </div>
-              <dl class="tg-hero-facts"><div><dt>Distance</dt><dd class="tg-num">${TRACK_LENGTH_KM[room.track]}<small>km</small></dd></div></dl>
+              <dl class="tg-hero-facts"><div><dt>Distance</dt><dd class="tg-num">${TRACK_LENGTH_KM[room.track]}<small>km</small></dd></div>${d.climb ? `<div><dt>Climb</dt><dd class="tg-num">${trackClimb(room.track)}<small>m</small></dd></div>` : ''}</dl>
             </section>
             <h2 class="tg-h">Mode ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${modes}</div>

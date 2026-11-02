@@ -328,8 +328,9 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): Trac
         const idx: number[] = [];
         for (let k = i; k <= j; k++) {
           const r = run[k];
-          const from = dirtFrom(t, r);
           const to = t.rail + r + 1.2 * Math.min(1, r);
+          // dirtFrom is Infinity under 5 cm of runoff (this strip starts at 2 cm): pinch it shut there, not off to infinity.
+          const from = Math.min(dirtFrom(t, r), to);
           for (const d of [side * from, side * to]) {
             pos.push(t.x[k] - t.tz[k] * d, t.y[k] - t.bank[k] * d + 0.04, t.z[k] + t.tx[k] * d);
             uvs.push(d === side * from ? 0.03 : 0.03 + (to - from) / 14, (k * SAMPLE) / ROAD_TILE);
@@ -592,7 +593,8 @@ function gantry(scene: THREE.Scene, t: Track, s: number, text: string, chequer: 
   scene.add(g);
 }
 
-/** Trees (pines up the mountain, cypress and round pines by the sea) and boulders, instanced per 400 m tile. */
+/** Trees (pines up the mountain, cypress and round pines by the sea) and boulders, instanced per 400 m tile. A hill
+ * climb's forest is thicker and closer. */
 function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T) {
   const theme = t.def.theme;
   const tree = keep(theme === 'alpine' || theme === 'night' ? pineGeometry() : theme === 'coast' ? coastTreeGeometry() : theme === 'desert' ? cactusGeometry() : mapleGeometry());
@@ -608,6 +610,9 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
   // Every tree a little different in shade and hue, even in a plain green forest.
   const jitter = new THREE.Color();
   const TILE = 400;
+  // A hill climb's forest crowds right up to the barrier, with more boulders tumbled beside the road.
+  const climb = !!t.def.climb;
+  const near = climb ? 3.5 : 9;
   const here = newLoc();
   const q = new THREE.Quaternion();
   const v = new THREE.Vector3();
@@ -622,9 +627,9 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
           const px = x + rng() * 10;
           const pz = z + rng() * 10;
           const rd = roadDistance(t, px, pz);
-          if (rd < t.edge + 9) continue;
-          if (rd < t.edgeMax + 9 && Math.abs(locate(t, px, pz, -1, here).d) < railOf(t, here.i, here.d) + 9) continue; // not in the runoff
-          const forest = fbm(px / 140, pz / 140, t.def.seed + 11, 3) + (look.forest ?? (theme === 'alpine' ? 0.15 : -0.05));
+          if (rd < t.edge + near) continue;
+          if (rd < t.edgeMax + near && Math.abs(locate(t, px, pz, -1, here).d) < railOf(t, here.i, here.d) + near) continue; // not in the runoff
+          const forest = fbm(px / 140, pz / 140, t.def.seed + 11, 3) + (look.forest ?? (theme === 'alpine' ? 0.15 : -0.05)) + (climb ? 0.2 : 0);
           const h = heightAt(t, px, pz);
           if (t.def.water !== undefined && h < t.def.water + 2.5) continue;
           const slope = Math.abs(heightAt(t, px + 2, pz) - h) + Math.abs(heightAt(t, px, pz + 2) - h);
@@ -633,7 +638,7 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
             const sc = 0.75 + rng() * 0.7;
             q.setFromAxisAngle(up, rng() * Math.PI * 2);
             trees.push(new THREE.Matrix4().compose(v.set(px, h - 0.2, pz), q, s.set(sc, sc * (0.85 + rng() * 0.4), sc)));
-          } else if (rng() < 0.02 + (slope > 2.5 ? 0.06 : 0)) {
+          } else if (rng() < 0.02 + (slope > 2.5 ? 0.06 : 0) + (climb && rd < 60 ? 0.12 : 0)) {
             const sc = 0.5 + rng() * 2.2;
             q.setFromEuler(new THREE.Euler(rng(), rng() * 6, rng()));
             rocks.push(new THREE.Matrix4().compose(v.set(px, h - sc * 0.3, pz), q, s.set(sc, sc * 0.7, sc)));

@@ -1,9 +1,11 @@
 // Draws the road's props: spinning mystery boxes (gone for a few seconds once taken), launch ramps, hay
-// bales, barrels, cones that go flying when hit, oil slicks, and shield bubbles.
+// bales, barrels, cones that go flying when hit, a hill climb's boulders and rocks (instanced: a few draw calls
+// for the whole mountain), oil slicks, and shield bubbles.
 
 import * as THREE from 'three';
 import { POWER } from '../shared/powerups.ts';
 import { type Track, heightAt, newLoc, pointAt, locate, roadY } from '../shared/track.ts';
+import { mulberry, stone } from './tracktextures.ts';
 
 export interface Slick {
   x: number;
@@ -67,8 +69,42 @@ export class PropView {
         this.group.add(m);
       }
     });
+    this.rockfall(track, keep);
     const rampMat = keep(new THREE.MeshStandardMaterial({ map: keep(rampTexture()), roughness: 0.7, side: THREE.DoubleSide }));
     for (const r of track.ramps) this.group.add(rampMesh(track, r.s, r.d, r.len, r.w, keep, rampMat));
+  }
+
+  /**
+   * Boulders and rocks: three lumpy stone shapes, each an InstancedMesh over every stone that uses it. A stone's
+   * collision circle is its radius at road height, so the mesh is that wide there and sunk a little into the road.
+   */
+  private rockfall(track: Track, keep: <T extends { dispose(): void }>(x: T) => T) {
+    const stones = track.props.filter((p) => p.kind === 'boulder' || p.kind === 'rock');
+    if (!stones.length) return;
+    const tex = stone(track.def.seed + 3);
+    for (const t of Object.values(tex)) keep(t);
+    tex.map.colorSpace = THREE.SRGBColorSpace;
+    const mat = keep(new THREE.MeshStandardMaterial({ color: 0x9a948c, ...tex, roughness: 1, flatShading: true }));
+    const shapes = [0, 1, 2].map((k) => keep(boulderGeometry(track.def.seed * 7 + k)));
+    const lists: THREE.Matrix4[][] = [[], [], []];
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const v = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    stones.forEach((p, i) => {
+      const r = p.r;
+      const tall = p.kind === 'boulder' ? 0.95 : 0.65;
+      q.setFromEuler(e.set(0, p.yaw, 0));
+      lists[i % 3].push(new THREE.Matrix4().compose(v.set(p.x, p.y + r * tall * 0.55, p.z), q, sc.set(r * 1.05, r * tall, r * 1.05)));
+    });
+    lists.forEach((list, k) => {
+      if (!list.length) return;
+      const im = new THREE.InstancedMesh(shapes[k], mat, list.length);
+      list.forEach((m, i) => im.setMatrixAt(i, m));
+      im.castShadow = im.receiveShadow = true;
+      im.computeBoundingSphere();
+      this.group.add(im);
+    });
   }
 
   /** Time trial: no items, so no boxes. */
@@ -274,4 +310,26 @@ function rampTexture() {
       g.fillRect(0, i * 8, 64, 8);
     }
   });
+}
+
+/** A lumpy stone about 1 m in radius, flat underneath: a subdivided icosahedron pushed about by seeded noise. */
+function boulderGeometry(seed: number): THREE.BufferGeometry {
+  const rnd = mulberry(seed);
+  const g = new THREE.IcosahedronGeometry(1, 2);
+  const p = g.getAttribute('position');
+  // A few random bulges and flat faces, shared by every vertex that sits at the same point.
+  const lumps = Array.from({ length: 7 }, () => {
+    const d = new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize();
+    return { d, k: (rnd() - 0.4) * 0.45 };
+  });
+  const n = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    n.set(p.getX(i), p.getY(i), p.getZ(i)).normalize();
+    let r = 1;
+    for (const l of lumps) r += l.k * Math.max(0, n.dot(l.d)) ** 3;
+    const y = Math.max(-0.75, n.y * r);
+    p.setXYZ(i, n.x * r, y, n.z * r);
+  }
+  g.computeVertexNormals();
+  return g;
 }

@@ -143,10 +143,12 @@ export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput,
   const ahead = car.s + ld;
   const lean = Math.max(-(t.half - 1.4), Math.min(t.half - 1.4, curvAt(t, ahead + 10) * 240));
   let off = Math.max(-(t.half - 1.2), Math.min(t.half - 1.2, ai.lane + lean));
-  // Steer round bales and barrels coming up on our line (cones it just drives through).
+  // Steer round bales, barrels, boulders and rocks coming up on our line (cones it just drives through).
   for (let i = firstPropFrom(t.props, car.s); i < t.props.length && t.props[i].s < car.s + ld + 25; i++) {
     const p = t.props[i];
-    if (isSolid(p.kind) && Math.abs(p.d - off) < 3.2) off = p.d > 0 ? p.d - 3.4 : p.d + 3.4;
+    if (!isSolid(p.kind)) continue;
+    const clear = Math.max(3.2, p.r + 2.1);
+    if (Math.abs(p.d - off) < clear) off = p.d > 0 ? p.d - clear - 0.2 : p.d + clear + 0.2;
   }
   let follow = Infinity;
   if (traffic?.length) ({ off, follow } = dodge(car, t, ai, off, v, dt, traffic));

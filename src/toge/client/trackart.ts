@@ -16,13 +16,21 @@ export const THEME_ART: Record<Theme, { sky: [string, string]; accent: string }>
   city: { sky: ['#0a0718', '#3a1748'], accent: '#ff3d9a' },
 };
 
-export const TRACK_IDS = Object.keys(TRACK_DEFS) as TrackId[];
+/** The tracks you race solo or in a race / time trial lobby (hill-climb roads only run in a lobby's Hill climb). */
+export const TRACK_IDS = (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => !TRACK_DEFS[id].climb);
+
+/** How far a road climbs from start to finish (m; negative = a descent). */
+export const trackClimb = (id: TrackId) => {
+  const p = TRACK_DEFS[id].points;
+  return Math.round(p[p.length - 1][1] - p[0][1]);
+};
 
 /** What kind of road it is, for the eyebrow over the name. */
 export function trackKind(id: TrackId): string {
   const d = TRACK_DEFS[id];
   if (d.traffic) return 'City · live traffic';
   if (d.laps) return `Circuit · ${d.laps} laps`;
+  if (d.climb) return `Hill climb · ${trackClimb(id)} m up`;
   return 'Mountain pass';
 }
 
@@ -80,5 +88,5 @@ export function trackTile(id: TrackId, attrs: string): string {
   const d = TRACK_DEFS[id];
   return `<button class="tg-track ${d.theme}" style="${trackStyle(id)}" ${attrs}>
     <span class="tg-track-art" aria-hidden="true"></span>${trackMap(id)}
-    <b>${esc(d.name)}</b><small>${d.laps ? `${d.laps} laps · ` : ''}${TRACK_LENGTH_KM[id]} km</small></button>`;
+    <b>${esc(d.name)}</b><small>${d.laps ? `${d.laps} laps · ` : ''}${TRACK_LENGTH_KM[id]} km${d.climb ? ` · ${trackClimb(id)} m up` : ''}</small></button>`;
 }

@@ -1,9 +1,10 @@
 // Things on the road: mystery item boxes, launch ramps, hay bales and barrels to steer round, cone chicanes
-// to smash through. Placed from the track's seed, so every racer gets the same layout.
+// to smash through; on a hill climb, boulders and rocks fallen onto the road's edges. Placed from the track's
+// seed, so every racer gets the same layout.
 
 import { type Track, SAMPLE, pointAt, roadY, newLoc, locate } from './track.ts';
 
-export type PropKind = 'box' | 'ramp' | 'bale' | 'barrel' | 'cone';
+export type PropKind = 'box' | 'ramp' | 'bale' | 'barrel' | 'cone' | 'boulder' | 'rock';
 
 export interface Prop {
   kind: PropKind;
@@ -14,7 +15,7 @@ export interface Prop {
   y: number;
   z: number;
   yaw: number;
-  /** Collision radius (boxes, bales, barrels, cones). */
+  /** Collision radius (boxes, bales, barrels, cones; each boulder and rock its own size). */
   r: number;
 }
 
@@ -27,9 +28,9 @@ export interface Ramp {
   h: number;
 }
 
-export const PROP_RADIUS: Record<PropKind, number> = { box: 1.3, ramp: 0, bale: 0.8, barrel: 0.48, cone: 0.28 };
-/** Bales and barrels stop you; cones and boxes don't. */
-export const isSolid = (k: PropKind) => k === 'bale' || k === 'barrel';
+export const PROP_RADIUS: Record<PropKind, number> = { box: 1.3, ramp: 0, bale: 0.8, barrel: 0.48, cone: 0.28, boulder: 1.8, rock: 0.6 };
+/** Bales, barrels, boulders and rocks stop you; cones and boxes don't. */
+export const isSolid = (k: PropKind) => k === 'bale' || k === 'barrel' || k === 'boulder' || k === 'rock';
 export const RAMP = { len: 5.5, w: 3.2, h: 1.15 };
 
 function mulberry(seed: number) {
@@ -44,6 +45,7 @@ function mulberry(seed: number) {
 
 /** Lays out a track's props (sorted by `s`) and its ramps. */
 export function placeProps(t: Track): { props: Prop[]; ramps: Ramp[] } {
+  if (t.def.climb) return { props: placeRockfall(t), ramps: [] };
   const rng = mulberry(t.def.seed * 31 + 7);
   const props: Prop[] = [];
   const ramps: Ramp[] = [];
@@ -112,6 +114,62 @@ export function placeProps(t: Track): { props: Prop[]; ramps: Ramp[] } {
   }
   props.sort((a, b) => a.s - b.s);
   return { props, ramps };
+}
+
+/** The narrowest the road gets between a fallen boulder or rock and the far edge of the asphalt (m). */
+export const ROCKFALL_GAP = 5.2;
+
+/**
+ * A hill climb's rockfall: every 60-130 m a boulder (1.4-2.1 m) bitten into one edge of the road, or a scatter
+ * of two or three rocks, always leaving ROCKFALL_GAP of clear tarmac. Kept off the grid, the finish, jumps and
+ * the tightest hairpins (a boulder on the apex of a 20 m hairpin is a wall, not a challenge).
+ */
+function placeRockfall(t: Track): Prop[] {
+  const rng = mulberry(t.def.seed * 53 + 11);
+  const props: Prop[] = [];
+  const loc = newLoc();
+  const add = (kind: PropKind, s: number, d: number, r: number) => {
+    const p = pointAt(t, s, d);
+    locate(t, p.x, p.z, p.i, loc);
+    props.push({ kind, s, d, x: p.x, y: roadY(t, loc), z: p.z, yaw: rng() * Math.PI * 2, r });
+  };
+  const tight = (s0: number, s1: number) => {
+    for (let s = s0; s <= s1; s += SAMPLE) if (Math.abs(t.curv[Math.min(t.n - 1, Math.round(s / SAMPLE))]) > 1 / 32) return true;
+    return false;
+  };
+  const busy = (s0: number, s1: number) =>
+    s0 < t.startS + 140 || s1 > t.finishS - 120 || tight(s0 - 20, s1 + 20) || t.crests.some((c) => s1 > c.s - c.len - 30 && s0 < c.s + c.len + 50);
+  let s = t.startS + 160;
+  let side = rng() < 0.5 ? -1 : 1;
+  while (s < t.finishS - 120) {
+    if (busy(s, s + 6)) {
+      s += 20;
+      continue;
+    }
+    // Mostly alternate sides, so you weave up the hill.
+    if (rng() < 0.75) side = -side;
+    // Never nearer the far edge than this: ROCKFALL_GAP of clear tarmac between a stone of radius r and it.
+    const most = (r: number) => r - t.half + ROCKFALL_GAP;
+    if (rng() < 0.6) {
+      const r = 1.4 + rng() * 0.7;
+      // Its centre near the edge, some pushed further out into the lane.
+      add('boulder', s, side * Math.max(most(r), t.half - r * (0.3 + rng() * 0.7)), r);
+      // Often a stone broken off it, on the verge side.
+      if (rng() < 0.5) {
+        const rr = 0.45 + rng() * 0.2;
+        add('rock', s + r + 1 + rng() * 2, side * Math.max(most(rr), t.half - 0.3), rr);
+      }
+    } else {
+      const n = 2 + Math.floor(rng() * 2);
+      for (let i = 0; i < n; i++) {
+        const r = 0.45 + rng() * 0.35;
+        add('rock', s + i * (2.2 + rng() * 2.5), side * Math.max(most(r), t.half - r * 0.3 - rng() * 1.8), r);
+      }
+    }
+    s += 60 + rng() * 70;
+  }
+  props.sort((a, b) => a.s - b.s);
+  return props;
 }
 
 /** Index of the first prop at or past distance `s` (props are sorted). */
