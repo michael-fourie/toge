@@ -17,6 +17,9 @@ Physics runs client-side only; the AI's target speed reads `ARCADE.grip`, so riv
   circuits `monza` (3 laps), `spa`, `monaco` (2 laps); city `neonbay` (Neon Bay, live traffic).
   Track `Feature`s: gravel, canyon, bridge, tunnel, crest and `cut` (a gravel shortcut through gaps in the barrier).
 - **Cars** (`CarId`): pebble (starter), kitsune, bramble, shiro, vanta; 8 upgrade `PARTS`, levels 0-5.
+- **Cosmetics** (cosmetics.ts): 160 items in 11 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
+  underglow, plates, plate frames/covers, exhaust tips), 5 rarities, won from 5 cases (Street, Night Run, Livery,
+  Chrome, Legend) bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
 - **Solo**: 0/3/5/7 AI rivals (hub.ts, saved as `atrous.rivals`) picked near your PI with your upgrades; you start mid-pack.
 - **Online**: Directory instance `"race"`, sockets `/ws?game=race`, up to `RACE.maxPlayers` (8).
 
@@ -37,7 +40,10 @@ src/shared/race/
   cars.ts      the catalogue (CARS), upgrades (PARTS, levels 0-5), looks, tuning, encode/decodeCar (the wire code), carSpec()
                (everything -> physics numbers), torqueAt, rating (PI + class), stats (garage bars).
   garage.ts    money, owned cars, crates (the gamble), payouts, applyAction (every garage change; run by the server for
-               accounts and by the client for guests).
+               accounts and by the client for guests). Also cosmetic cases (`case`, duplicates refund by rarity), `equip`,
+               `plate`, and ownedCarCode (strips cosmetics an account doesn't own from a race code).
+  cosmetics.ts the cosmetics catalogue (CATALOG per slot, APPEND ONLY: the wire code is each slot's index), cases + odds,
+               rollCosCase, CosKit (what a car wears), encode/decodeKit (the optional last segment of a car code).
   standings.ts race order (finishers by time, then progress); the place readout and the leaderboard both use it.
                Lap races pass laps × lap length + distance into the lap as `progress`.
   driver.ts    AI: pure pursuit on a corner-cutting line; target speed from the tightest bend in braking range; picks a
@@ -89,5 +95,8 @@ src/client/pad.ts  gamepads for every menu (spatial focus moves, A/B/LB/RB) and 
 - **A mode:** there is no mode switch yet; the entry points are `RaceSetup` in client/race/racegame.ts and the race protocol.
 - **Economy** (garage.ts): every garage change is an `applyAction` (server for accounts, client for guests). Prize =
   `payout()`; solo pays less and at most once per `SOLO_GAP_MS`.
+- **A cosmetic:** append it to its slot's list in `CATALOG` (cosmetics.ts) with a rarity and its cases; a new pattern or
+  decal kind also needs a painter in client/race/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
+  type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
 
-Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `pad`, `headcam` in `tests/`.
+Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `pad`, `headcam`, `cosmetics` in `tests/`.

@@ -3,7 +3,8 @@
 // runs it for signed-in players (their garage lives in the Accounts Durable Object), the client runs the
 // same code against localStorage for guests.
 
-import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part, type Tune, cleanCar, cleanLook, cleanTune, isCarId, newOwnedCar } from './cars.ts';
+import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part, type Tune, cleanCar, cleanLook, cleanTune, decodeCar, encodeCar, isCarId, newOwnedCar } from './cars.ts';
+import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, rollCosCase } from './cosmetics.ts';
 import type { TrackId } from './track.ts';
 import { TRACK_DEFS } from './track.ts';
 
@@ -19,9 +20,11 @@ export interface Garage {
   wins: number;
   /** When a solo race last paid out (ms), so payouts can't be spammed. */
   lastReward: number;
+  /** Cosmetic item ids won from cases (cosmetics.ts), each once. */
+  cos: string[];
 }
 
-export const newGarage = (): Garage => ({ money: START_MONEY, cars: [newOwnedCar('pebble', 0)], sel: 0, races: 0, wins: 0, lastReward: 0 });
+export const newGarage = (): Garage => ({ money: START_MONEY, cars: [newOwnedCar('pebble', 0)], sel: 0, races: 0, wins: 0, lastReward: 0, cos: [] });
 
 /** Anything (stored JSON, a request body) to a valid garage. */
 export function cleanGarage(x: unknown): Garage {
@@ -35,6 +38,10 @@ export function cleanGarage(x: unknown): Garage {
   g.races = whole(o.races);
   g.wins = whole(o.wins);
   g.lastReward = whole(o.lastReward);
+  g.cos = Array.isArray(o.cos) ? [...new Set(o.cos.filter((id) => cosById(id)))].slice(0, COS_ITEMS.length) as string[] : [];
+  // A car can only wear what the garage owns.
+  const owned = new Set(g.cos);
+  for (const c of g.cars) for (const s of COS_SLOTS) if (c.cos[s] && !owned.has(c.cos[s]!)) delete c.cos[s];
   return g;
 }
 
@@ -93,6 +100,39 @@ function openCrate(g: Garage, kind: CrateKind, part: Part | undefined, rnd: () =
 }
 
 // ---------------------------------------------------------------------------------------------
+// Cosmetic cases: pay, roll (the server's dice for accounts), keep it, or get money back for a duplicate.
+
+export interface CaseDrop {
+  id: string;
+  /** Already owned: nothing new, `refund` paid back instead. */
+  dup: boolean;
+  refund: number;
+}
+
+function openCase(g: Garage, id: CaseId, rnd: () => number): { g: Garage; drop: CaseDrop } | { error: string } {
+  const box = cosCaseById(id);
+  if (!box) return { error: 'No such case.' };
+  if (g.money < box.price) return { error: 'Not enough money.' };
+  const item = rollCosCase(box.id, rnd);
+  const next = structuredClone(g);
+  next.money -= box.price;
+  const dup = next.cos.includes(item.id);
+  const refund = dup ? RARITY[item.rarity].refund : 0;
+  if (dup) next.money += refund;
+  else next.cos.push(item.id);
+  return { g: next, drop: { id: item.id, dup, refund } };
+}
+
+/** A race code with any cosmetic the garage doesn't own taken off (the server runs this on accounts' cars). */
+export function ownedCarCode(code: string, g: Garage): string {
+  const car = decodeCar(code);
+  if (!car) return code;
+  const owned = new Set(g.cos);
+  for (const s of COS_SLOTS) if (car.cos[s] && !owned.has(car.cos[s]!)) delete car.cos[s];
+  return encodeCar(car);
+}
+
+// ---------------------------------------------------------------------------------------------
 // Race payouts
 
 const PLACE_SHARE = [1, 0.7, 0.52, 0.42, 0.35, 0.3, 0.27, 0.25];
@@ -124,9 +164,12 @@ export type GarageAction =
   | { a: 'select'; i: number }
   | { a: 'style'; i: number; look: Look; tune: Tune }
   | { a: 'sell'; i: number }
-  | { a: 'solo'; track: TrackId; place: number; field: number };
+  | { a: 'solo'; track: TrackId; place: number; field: number }
+  | { a: 'case'; id: CaseId }
+  | { a: 'equip'; i: number; slot: CosSlot; id: string | null }
+  | { a: 'plate'; i: number; text: string };
 
-export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; paid?: number } | { ok: false; error: string };
+export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number } | { ok: false; error: string };
 
 /** Selling gives back this share of the car's price. */
 export const SELL_SHARE = 0.5;
@@ -180,6 +223,28 @@ export function applyAction(g: Garage, act: GarageAction, rnd: () => number, now
       const place = Math.max(0, Math.min(field, Math.floor(Number(act.place)) || 0));
       const paid = payout(place, field, act.track, true);
       return { ok: true, g: { ...award(g, paid, place === 1 && field > 1), lastReward: now }, paid };
+    }
+    case 'case': {
+      const r = openCase(g, act.id, rnd);
+      return 'error' in r ? { ok: false, error: r.error } : { ok: true, g: r.g, drop: r.drop };
+    }
+    case 'equip': {
+      if (!Number.isInteger(act.i) || act.i < 0 || act.i >= g.cars.length) return { ok: false, error: 'No such car.' };
+      if (!COS_SLOTS.includes(act.slot)) return { ok: false, error: 'No such slot.' };
+      if (act.id !== null) {
+        if (cosById(act.id)?.slot !== act.slot) return { ok: false, error: 'That doesn\'t go there.' };
+        if (!g.cos.includes(act.id)) return { ok: false, error: 'You don\'t own that yet.' };
+      }
+      const next = structuredClone(g);
+      if (act.id === null) delete next.cars[act.i].cos[act.slot];
+      else next.cars[act.i].cos[act.slot] = act.id;
+      return { ok: true, g: next };
+    }
+    case 'plate': {
+      if (!Number.isInteger(act.i) || act.i < 0 || act.i >= g.cars.length) return { ok: false, error: 'No such car.' };
+      const next = structuredClone(g);
+      next.cars[act.i].plate = cleanPlate(act.text);
+      return { ok: true, g: next };
     }
   }
   return { ok: false, error: 'Bad request.' };

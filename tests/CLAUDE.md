@@ -5,7 +5,7 @@ where npm scripts don't expand globs). A new `tests/<name>.test.ts` does nothing
 `tests/lobby.smoke.ts` is not in the list: `npm run smoke` runs it against a live server (`BASE=https://…`).
 
 Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs). On master both are green
-(445 tests as of 2026-11-02).
+(461 tests as of 2026-11-02).
 
 ## Patterns
 
@@ -26,6 +26,6 @@ Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs
 | survival, survivalplus, survivalfun, contraptions | Survival rules, perks, boss, revive, power, scythe, contraptions |
 | koth, teams, royale, bot, spawn, weapons, grenade | match modes, bots, guns |
 | accounts, security, loot, casino, levels, skin | accounts, server-side economy, input validation, stash rules |
-| racephysics, garage, raceroom, standings, raceinput, pad, headcam | TŌGE: every car down every track with the AI, economy, race server, cockpit camera head |
+| racephysics, garage, raceroom, standings, raceinput, pad, headcam, cosmetics | TŌGE: every car down every track with the AI, economy, cosmetics and cases, race server, cockpit camera head |
 | party, snap, royal-degeneracy-* | plug-in game rooms and the plug-in games |
 | achievements, killcam, speedfx, postgame, input, loadout | client-side pure logic (feats, replay timing, HUD maths, key handling, ammo) |

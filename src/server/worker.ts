@@ -5,6 +5,7 @@ import type { PartyRoom } from './partyroom.ts';
 import { isGameId } from '../shared/party.ts';
 import type { LobbyRoom } from './room.ts';
 import type { GarageAction } from '../shared/race/garage.ts';
+import { CAR_CODE_MAX } from '../shared/race/cars.ts';
 import type { StashAction } from '../shared/stash.ts';
 
 export { Accounts } from './accounts.ts';
@@ -113,8 +114,11 @@ async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, ur
     code = fresh;
     room = env.RACE.getByName(code, { locationHint: regionHint(req.cf) });
   }
+  // An account's car only shows the cosmetics it owns (guests' are only checked to exist, by the room).
+  let car = (url.searchParams.get('car') ?? '').slice(0, CAR_CODE_MAX);
+  if (user) car = await env.ACCOUNTS.getByName('all').raceCar(name, car);
   const target = new URL(req.url);
-  target.search = new URLSearchParams({ code, name, user: user ? '1' : '', car: (url.searchParams.get('car') ?? '').slice(0, 64) }).toString();
+  target.search = new URLSearchParams({ code, name, user: user ? '1' : '', car }).toString();
   return room.fetch(new Request(target, req));
 }
 

@@ -24,7 +24,7 @@ This folder is typechecked by `tsconfig.worker.json` (Workers types, no DOM). It
   name (a guest using an account's name plays as `"name (guest)"`). With `code=` the Directory must know it; without
   one, `dir.allocate(ip)` makes a code and the room is created near the host (`locationHint`).
 - The Worker **rebuilds** the query it forwards. Shooter rooms get `code, name, user, mode (battle|survival), teams,
-  map, koth, br, skin (≤24 chars), gear (≤120)`; race rooms get `car`. A new socket parameter must be added here.
+  map, koth, br, skin (≤24 chars), gear (≤120)`; race rooms get `car` (≤ `CAR_CODE_MAX` = 128 chars, cosmetics checked against an account's garage). A new socket parameter must be added here.
 - Refusals go through `refuse()`: accept, send `{t:'error'}`, close.
 - POST bodies go through `jsonBody` (POST only, `application/json`, same origin, size cap). There are no CORS headers:
   the API is same-origin only. Static-page security headers are in `public/_headers`.
@@ -80,6 +80,9 @@ shooter) and the server sanity-checks distance and fire rate.
   salt, constant-time compare; unknown names still hash (no timing leak); 5 misses lock a name for 30 s.
 - Session token: 64 hex chars in an HttpOnly, SameSite=Lax cookie, 30 days, not sliding. Only `sha256(token)` is
   stored (`s:<hash>`). Users are `u:<lowercase name>`, stash `i:<user>` / `t:<user>`, garage `g:<user>`.
+- TŌGE cosmetic cases are a garage action like crates: the server rolls with `secureRandom` (crypto, garageStore.ts),
+  charges, grants or refunds. `Accounts.raceCar(name, code)` strips cosmetics an account doesn't own from its race car
+  code; the Worker runs it on `car=` when an account joins a race, RaceRoom on every `{t:'car'}` from an account.
 - Guests keep stash and garage in localStorage and run the same pure rules (`applyStash` in `shared/stash.ts`,
   `applyAction` in `shared/race/garage.ts`). Signed in, the server runs them with its own dice and clock.
 - Paying: shooter rooms call `Lobby.pay` → `Accounts.reward` (only for `client.user`; killing your own second tab pays

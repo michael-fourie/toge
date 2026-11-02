@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { CAR_CODE_MAX } from '../shared/race/cars.ts';
 import { RACE, type RaceClientMsg } from '../shared/race/protocol.ts';
 import { Limiter } from './limiter.ts';
 import { Race, type RaceClient, sendTo } from './race.ts';
@@ -36,7 +37,14 @@ export class RaceRoom extends DurableObject<Env> {
     ws.addEventListener('message', (e) => {
       if (typeof e.data !== 'string' || e.data.length > MAX_MESSAGE_BYTES || !this.flood.take(String(client.id))) return;
       try {
-        this.race?.handle(client, JSON.parse(e.data) as RaceClientMsg);
+        const msg = JSON.parse(e.data) as RaceClientMsg;
+        // A signed-in racer's new car is checked against their garage first (cosmetics they don't own come off).
+        if (client.user && msg && msg.t === 'car' && typeof msg.car === 'string') {
+          const accounts = this.env.ACCOUNTS.getByName('all');
+          void accounts.raceCar(client.name, msg.car.slice(0, CAR_CODE_MAX)).then((car) => this.race?.handle(client, { t: 'car', car }));
+          return;
+        }
+        this.race?.handle(client, msg);
       } catch {
         // malformed JSON: ignore
       }
