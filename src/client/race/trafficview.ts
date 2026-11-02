@@ -10,6 +10,8 @@ import { TRAFFIC_KINDS, type Traffic, type TrafficKind, newPose, trafficPose } f
 const PAINT = [0xf2f2f0, 0xf2f2f0, 0xe8e8e4, 0xa9b0b8, 0x9aa3ad, 0x1a1c20, 0x23262b, 0x1e3a6e, 0x8a1c22, 0x2f4a3a, 0xc9b48a, 0x3b6fb6];
 /** Trucks: white or silver boxes. */
 const TRUCK_PAINT = [0xf4f4f2, 0xe6e6e2, 0xb8bec4];
+/** Traffic further than this from the camera isn't drawn (m). */
+const TRAFFIC_DRAW = 800;
 
 /** A box from (x0, y0, z0) to (x1, y1, z1), tinted; `taper` pulls its top in (a cabin). */
 function box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, rgb: number, taper = 0): THREE.BufferGeometry {
@@ -108,7 +110,7 @@ function shape(kind: TrafficKind): { body: THREE.BufferGeometry; lamps: THREE.Bu
 }
 
 export class TrafficView {
-  private meshes: { kind: TrafficKind; body: THREE.InstancedMesh; lamps: THREE.InstancedMesh; cars: number[] }[] = [];
+  private meshes: { kind: TrafficKind; body: THREE.InstancedMesh; lamps: THREE.InstancedMesh; cars: number[]; colors: Record<number, THREE.Color> }[] = [];
   private disposables: { dispose(): void }[] = [];
   private pose = newPose();
   private m4 = new THREE.Matrix4();
@@ -126,7 +128,6 @@ export class TrafficView {
     // Brighter than white, so they bloom at night.
     const lampMat = new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(9, 9, 9), side: THREE.DoubleSide });
     this.disposables.push(bodyMat, lampMat);
-    const paint = new THREE.Color();
     for (const kind of Object.keys(TRAFFIC_KINDS) as TrafficKind[]) {
       const cars = traffic.cars.flatMap((c, i) => (c.kind === kind ? [i] : []));
       if (!cars.length) continue;
@@ -134,33 +135,45 @@ export class TrafficView {
       this.disposables.push(body, lamps);
       const bm = new THREE.InstancedMesh(body, bodyMat, cars.length);
       const lm = new THREE.InstancedMesh(lamps, lampMat, cars.length);
+      const colors: Record<number, THREE.Color> = {};
       cars.forEach((ci, k) => {
         const p = traffic.cars[ci].paint;
-        bm.setColorAt(k, paint.setHex(kind === 'truck' ? TRUCK_PAINT[p % TRUCK_PAINT.length] : PAINT[p % PAINT.length]));
+        colors[ci] = new THREE.Color(kind === 'truck' ? TRUCK_PAINT[p % TRUCK_PAINT.length] : PAINT[p % PAINT.length]);
+        bm.setColorAt(k, colors[ci]);
       });
       bm.castShadow = true;
       bm.receiveShadow = true;
       // They move all over the map: skip the per-mesh culling (bounding spheres would go stale).
       bm.frustumCulled = lm.frustumCulled = false;
       scene.add(bm, lm);
-      this.meshes.push({ kind, body: bm, lamps: lm, cars });
+      this.meshes.push({ kind, body: bm, lamps: lm, cars, colors });
     }
   }
 
-  /** Poses every car at `time` on the race clock. */
-  update(time: number) {
+  /**
+   * Poses every car at `time` on the race clock, and draws only those within TRAFFIC_DRAW of (cx, cz) (the camera):
+   * the rest of the city's traffic is a few pixels in the haze at most, and was costing a full draw every frame.
+   */
+  update(time: number, cx = 0, cz = 0) {
     const { pose, m4, q, v, one, up, track, traffic } = this;
-    for (const m of this.meshes)
-      m.cars.forEach((ci, k) => {
+    const far2 = TRAFFIC_DRAW * TRAFFIC_DRAW;
+    for (const m of this.meshes) {
+      let n = 0;
+      for (const ci of m.cars) {
         trafficPose(track, traffic, traffic.cars[ci], time, pose);
+        if ((pose.x - cx) ** 2 + (pose.z - cz) ** 2 > far2) continue;
         q.setFromAxisAngle(up, pose.yaw);
         m4.compose(v.set(pose.x, pose.y, pose.z), q, one);
-        m.body.setMatrixAt(k, m4);
-        m.lamps.setMatrixAt(k, m4);
-      });
-    for (const m of this.meshes) {
+        m.body.setMatrixAt(n, m4);
+        m.lamps.setMatrixAt(n, m4);
+        // Instances are packed, so each slot takes its car's paint with it.
+        m.body.setColorAt(n, m.colors[ci]);
+        n++;
+      }
+      m.body.count = m.lamps.count = n;
       m.body.instanceMatrix.needsUpdate = true;
       m.lamps.instanceMatrix.needsUpdate = true;
+      if (m.body.instanceColor) m.body.instanceColor.needsUpdate = true;
     }
   }
 

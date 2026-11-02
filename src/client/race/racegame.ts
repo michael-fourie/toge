@@ -65,6 +65,8 @@ const SOLO_COUNTDOWN = 3.5;
 const TAG_NEAR = 120;
 const TAG_FAR = 280;
 const TAG_CHECK = 6;
+/** Adaptive resolution (racegame.adaptResolution): frame-time thresholds (ms), how long they must hold (s), the step and floor. */
+const RES = { slowMs: 22, slowFor: 1.5, fastMs: 15, fastFor: 6, step: 0.15, min: 0.55, settle: 4 };
 
 const RIVAL_NAMES = ['Haruki', 'Mika', 'Bunta', 'Rin', 'Kenji', 'Sora', 'Aiko', 'Daichi'];
 
@@ -197,6 +199,12 @@ export class RaceGame {
   private readonly trial: boolean;
   private acc = 0;
   private last = performance.now();
+  /** Full-quality pixel ratio, and the adaptive share of it in use (see adaptResolution). */
+  private basePixelRatio = Math.min(devicePixelRatio, 1.75);
+  resScale = 1;
+  private frameMs = 16;
+  private slowSince = 0;
+  private fastSince = 0;
   private raf = 0;
   private paused = false;
   private sendAcc = 0;
@@ -223,7 +231,7 @@ export class RaceGame {
     this.track = getTrack(setup.track);
     this.trial = setup.online?.mode === 'trial';
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+    this.renderer.setPixelRatio(this.basePixelRatio * this.resScale);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -657,7 +665,38 @@ export class RaceGame {
       this.updateComets();
     }
     this.render(dt, Math.min(1, this.acc / TICK_DT));
+    this.adaptResolution(dt);
   };
+
+  /**
+   * Adaptive resolution: the post chain (multisampled HDR, bloom, grade) costs per pixel, so a laptop that can't
+   * keep up renders fewer of them. After RES.slowFor seconds averaging slower than RES.slowMs a frame, drop the
+   * render scale a step (never under RES.min); after RES.fastFor seconds faster than RES.fastMs, raise it back.
+   * A machine that keeps up never leaves full resolution.
+   */
+  private adaptResolution(dt: number) {
+    if (dt <= 0 || this.paused) return;
+    this.frameMs += (dt * 1000 - this.frameMs) * 0.05;
+    const now = this.wallClock;
+    // The first seconds compile shaders and stutter: that's no reason to drop the resolution.
+    if (now < RES.settle) {
+      this.slowSince = this.fastSince = now;
+      return;
+    }
+    const slow = this.frameMs > RES.slowMs;
+    const fast = this.frameMs < RES.fastMs;
+    if (!slow) this.slowSince = now;
+    if (!fast) this.fastSince = now;
+    let next = this.resScale;
+    if (now - this.slowSince > RES.slowFor && this.resScale > RES.min) next = Math.max(RES.min, this.resScale - RES.step);
+    else if (now - this.fastSince > RES.fastFor && this.resScale < 1) next = Math.min(1, this.resScale + RES.step / 2);
+    next = Math.round(next * 100) / 100; // steps of 0.15 / 0.075 must land back on exactly 1
+    if (next === this.resScale) return;
+    this.resScale = next;
+    this.slowSince = this.fastSince = now;
+    this.renderer.setPixelRatio(this.basePixelRatio * next);
+    this.resize();
+  }
   private padHelpShown = false;
 
   private action(a: string) {
@@ -1010,7 +1049,7 @@ export class RaceGame {
       this.tyreEffects(r, r === me ? 0 : 1 + this.rivals.indexOf(r));
     }
     for (const r of this.remotes.values()) this.poseRemote(r, now, dt);
-    this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT);
+    this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera.position.x, this.camera.position.z);
     const view = this.camTarget();
     this.updateCamera(dt, view);
     this.view.follow(this.camera.position.x, view.root.position.y, this.camera.position.z, now);
@@ -1290,15 +1329,19 @@ export class RaceGame {
       this.tagHidden.set(id, seen);
     }
     if (seen.hidden) return null;
-    const w = this.setup.container.clientWidth || innerWidth;
-    const h = this.setup.container.clientHeight || innerHeight;
     const alpha = 1 - Math.min(1, Math.max(0, (dist - TAG_NEAR) / (TAG_FAR - TAG_NEAR)));
-    return { x: (ndc.x * 0.5 + 0.5) * w, y: (-ndc.y * 0.5 + 0.5) * h, alpha };
+    return { x: (ndc.x * 0.5 + 0.5) * this.viewW, y: (-ndc.y * 0.5 + 0.5) * this.viewH, alpha };
   }
+
+  /** The view's size, kept from the last resize: reading it per name tag after the HUD's DOM writes forced a layout every frame. */
+  private viewW = innerWidth;
+  private viewH = innerHeight;
 
   private resize = () => {
     const w = this.setup.container.clientWidth || innerWidth;
     const h = this.setup.container.clientHeight || innerHeight;
+    this.viewW = w;
+    this.viewH = h;
     this.renderer.setSize(w, h);
     this.post.setSize(w, h);
     this.camera.aspect = w / h;

@@ -226,42 +226,54 @@ export class RaceHud {
       }
   }
 
+  /** The dial's still parts (track, redline band, numbers) for one redline, drawn once: only the arc and needle move. */
+  private tachFace: { redline: number; canvas: HTMLCanvasElement; grad: CanvasGradient } | null = null;
+
   private drawTach(h: HudState) {
     const g = this.tach.getContext('2d')!;
     const W = 260;
     const cx = W / 2;
     const cy = W / 2;
     const R = 112;
-    g.clearRect(0, 0, W, W);
     const maxRpm = Math.ceil((h.redline + 500) / 1000) * 1000;
     const a0 = Math.PI * 0.75;
     const a1 = Math.PI * 2.25;
     const ang = (rpm: number) => a0 + (a1 - a0) * Math.min(1, Math.max(0, rpm / maxRpm));
+    if (this.tachFace?.redline !== h.redline) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = W;
+      const f = canvas.getContext('2d')!;
+      f.lineCap = 'round';
+      f.lineWidth = 10;
+      f.strokeStyle = 'rgba(255,255,255,0.12)';
+      f.beginPath();
+      f.arc(cx, cy, R, a0, a1);
+      f.stroke();
+      f.strokeStyle = 'rgba(255,60,60,0.85)';
+      f.beginPath();
+      f.arc(cx, cy, R, ang(h.redline), a1);
+      f.stroke();
+      f.fillStyle = 'rgba(255,255,255,0.75)';
+      f.font = '600 15px system-ui, sans-serif';
+      f.textAlign = 'center';
+      f.textBaseline = 'middle';
+      for (let k = 0; k <= maxRpm / 1000; k++) {
+        const a = ang(k * 1000);
+        f.fillText(String(k), cx + Math.cos(a) * (R - 26), cy + Math.sin(a) * (R - 26));
+      }
+      const grad = g.createLinearGradient(0, W, W, 0);
+      grad.addColorStop(0, '#38d1ff');
+      grad.addColorStop(1, '#fff');
+      this.tachFace = { redline: h.redline, canvas, grad };
+    }
+    g.clearRect(0, 0, W, W);
+    g.drawImage(this.tachFace.canvas, 0, 0);
     g.lineCap = 'round';
     g.lineWidth = 10;
-    g.strokeStyle = 'rgba(255,255,255,0.12)';
-    g.beginPath();
-    g.arc(cx, cy, R, a0, a1);
-    g.stroke();
-    g.strokeStyle = 'rgba(255,60,60,0.85)';
-    g.beginPath();
-    g.arc(cx, cy, R, ang(h.redline), a1);
-    g.stroke();
-    const grad = g.createLinearGradient(0, W, W, 0);
-    grad.addColorStop(0, '#38d1ff');
-    grad.addColorStop(1, '#fff');
-    g.strokeStyle = h.rpm > h.redline * 0.93 ? '#ff4a3d' : grad;
+    g.strokeStyle = h.rpm > h.redline * 0.93 ? '#ff4a3d' : this.tachFace.grad;
     g.beginPath();
     g.arc(cx, cy, R, a0, ang(h.rpm));
     g.stroke();
-    g.fillStyle = 'rgba(255,255,255,0.75)';
-    g.font = '600 15px system-ui, sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    for (let k = 0; k <= maxRpm / 1000; k++) {
-      const a = ang(k * 1000);
-      g.fillText(String(k), cx + Math.cos(a) * (R - 26), cy + Math.sin(a) * (R - 26));
-    }
     const a = ang(h.rpm);
     g.strokeStyle = '#ff5a3c';
     g.lineWidth = 4;
@@ -270,6 +282,8 @@ export class RaceHud {
     g.lineTo(cx + Math.cos(a) * (R - 6), cy + Math.sin(a) * (R - 6));
     g.stroke();
   }
+
+  private roadPath: Path2D | null = null;
 
   private drawMap(h: HudState) {
     const g = this.map.getContext('2d')!;
@@ -296,9 +310,12 @@ export class RaceHud {
       g.lineCap = 'round';
       g.strokeStyle = 'rgba(255,255,255,0.18)';
       g.lineWidth = 34;
-      g.beginPath();
-      for (let i = 0; i < t.n; i += 6) (i ? g.lineTo(t.x[i], t.z[i]) : g.moveTo(t.x[i], t.z[i]));
-      g.stroke();
+      // The whole road, faint (built once: re-tracing every point each frame was most of the map's cost).
+      if (!this.roadPath) {
+        this.roadPath = new Path2D();
+        for (let i = 0; i < t.n; i += 6) (i ? this.roadPath.lineTo(t.x[i], t.z[i]) : this.roadPath.moveTo(t.x[i], t.z[i]));
+      }
+      g.stroke(this.roadPath);
       g.strokeStyle = 'rgba(255,255,255,0.85)';
       g.lineWidth = 18;
       g.beginPath();
@@ -322,12 +339,24 @@ export class RaceHud {
     g.restore();
   }
 
+  /** One dot per racer, kept between frames: rebuilding them every frame cost a style and layout pass each time. */
+  private stripDots: HTMLElement[] = [];
+
   private drawStrip(dots: Dot[]) {
     const t = this.track;
     const span = t.finishS - t.startS;
-    this.el.strip.innerHTML = dots
-      .map((d) => `<i class="${d.me ? 'me' : ''}" style="top:${Math.min(100, Math.max(0, ((d.s - t.startS) / span) * 100)).toFixed(2)}%;background:${d.me ? '#fff' : d.color}"></i>`)
-      .join('');
+    const box = this.el.strip;
+    while (this.stripDots.length < dots.length) this.stripDots.push(box.appendChild(document.createElement('i')));
+    while (this.stripDots.length > dots.length) this.stripDots.pop()!.remove();
+    dots.forEach((d, i) => {
+      const el = this.stripDots[i];
+      const cls = d.me ? 'me' : '';
+      if (el.className !== cls) el.className = cls;
+      const bg = d.me ? '#fff' : d.color;
+      if (el.dataset.bg !== bg) el.style.background = el.dataset.bg = bg;
+      const top = `${Math.min(100, Math.max(0, ((d.s - t.startS) / span) * 100)).toFixed(1)}%`;
+      if (el.style.top !== top) el.style.top = top;
+    });
   }
 
   /** A panel of buttons (pause menu, results). Returns the panel element. */
