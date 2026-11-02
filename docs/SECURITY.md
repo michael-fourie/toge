@@ -22,6 +22,12 @@ player sees is decided or checked by the server; anything the server can't check
 - **Guests** keep the stash in localStorage and run the same rules in the browser. It's only ever their own. Practice
   bots pay guests only.
 - **TŌGE's garage** already worked this way for accounts. A race prize is now paid once per account per race.
+  - Cosmetic cases (`{a:'case'}` on `/api/garage`) are rolled on the server with `crypto.getRandomValues`, paid for
+    and granted (or refunded as a duplicate) in the same write. `equip` refuses items the garage doesn't own or that
+    belong in another slot, and a stored garage never wears an item it doesn't own (`cleanGarage`).
+  - What other racers see: an account's race car code has unowned cosmetics stripped by the Accounts DO, at join (the
+    Worker) and on every `car` message (RaceRoom). Guests' codes are only checked to name real items. Plate text is
+    `[A-Z0-9 ]`, at most 8 characters, and is only ever drawn on a canvas.
 
 ## Input from clients
 
