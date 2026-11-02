@@ -96,7 +96,7 @@ Every home screen is the same frame:
 
 ```
 ┌ top bar ───────────────────────────────────────────────────────────────────────┐
-│ ◀  [峠] TŌGE   LB  RACE  GARAGE  PERFORMANCE  STYLE  RB         $57,500  ◉ Name │
+│ ◀  [峠] TŌGE  LB  RACE  GARAGE  PERFORMANCE  STYLE  DRIVER  SETTINGS  RB  $57,500 ◉ │
 ├──────────────────────────────┬──────────────────────────────────────────────────┤
 │ rail (glass, scrolls)        │                                                  │
 │  sub-tabs (if the tab has    │          the showroom: your car, full bleed,     │
@@ -111,26 +111,31 @@ Every home screen is the same frame:
   framed into the free space (`Showroom.place()`), so it's never hidden behind the rail.
 - The rail is `--tg-rail` wide (560 px, shrinking on small screens), scrolls on its own, and keeps the page's main
   action visible without scrolling.
-- The car card sits bottom right and always describes the car on the turntable (a dealer car or a try-on included).
+- The car card sits bottom right and always describes the car on the turntable (a dealer car or a try-on included);
+  on the Driver page it describes your driver instead.
+- Your driver stands on the turntable by the driver's door on every page. The Driver page turns the platform so they
+  face the camera and walks in close; dragging then turns the driver, not the car.
 - Under 900 px the rail goes full width under a short showroom strip and the card hides.
 - Spacing scale: 4, 8, 12, 16, 24, 32, 48. Gutters are 16 px on phones and up to 40 px on desktop.
 
 ## 6. Information architecture
 
-Four top tabs; a tab with more than one page shows sub-tabs at the top of the rail.
+Six top tabs; a tab with more than one page shows sub-tabs at the top of the rail.
 
 | Tab | Pages | What lives there |
 | --- | --- | --- |
 | **Race** | (one page) | The selected track as a hero with its map, rivals and *Race solo*; the track grid; Online (host, join by code, open races). |
 | **Garage** | My cars · Dealer | Your cars (drive, sell) and driver stats; buying new cars. |
 | **Performance** | Upgrades · Tuning | Upgrade crates per part; the tuning sliders. |
-| **Style** | Paint · Locker · Cases | Free paint/wheels/body/glass and trim; cosmetics you own (equip, try on, plates); buying cases. |
+| **Style** | Paint · Locker · Cases | Free paint/wheels/body/glass and trim (cars only for the body and glass options); cosmetics you own (equip, try on, plates); buying cases. |
+| **Driver** | (one page) | Your character (riderui.ts): body, face, hair, top, bottoms, gear, pose, all free; Randomise. The showroom walks in to the driver and the card describes them. |
+| **Settings** | (one page) | Device settings (settingsui.ts), saved in this browser: Graphics High / Low as two option cards (`.tg-gfx`). Michael asked for it as its own tab (2026-11-02). |
 
 Page ids (`dtab` in history, `Page` in hub.ts) are `race`, `garage`, `dealer`, `upgrades`, `tuning`, `paint`,
-`locker`, `cases`. Keep them stable: they're restored on reload.
+`locker`, `cases`, `driver`, `settings`. Keep them stable: they're restored on reload.
 
 **Adding a page:** add it to `PAGES` in hub.ts under the right tab and give it a body function. Add a new top tab only
-if the page fits none of the four; the bar shouldn't grow past five.
+if the page fits none of the six; the bar is full at six, so a new page goes under one of them.
 
 ## 7. Components
 
@@ -152,6 +157,10 @@ All in hub.css (cosmetics-specific ones, `.cz-*`, in cosmetics.css).
 | Status line | `.tg-status` | `role="status"`, gold; one per page, at the bottom of the rail. |
 | Track tile | `.tg-track` | Theme sky + painted backdrop + track map; selected = cyan frame. |
 | Modal | `.tg-modal` + `[data-nav-scope]` | Reels and confirmations. Esc / B closes when it's safe. |
+| Mode card | `.tg-modes` > `.tg-mode` | The lobby's big choices: mode (Race, Time trial, Hill climb) and the car rule. Name + one-line blurb; selected = cyan frame. The track grid under it shows only the tracks the mode runs (a Hill climb: its mountain). |
+| Crew | `.tg-crew` > `.tg-crew-m` | The lobby's row of drivers (portraits from riderportrait.ts) on a lit floor, name and car under each; yours is gold. |
+| Option card | `.tg-gfx` > `.tg-gfx-opt` | A big either/or with a list of what each choice means (Settings → Graphics). Picked = cyan frame + `aria-pressed`. |
+| Face | `.tg-face` | A racer's head cropped from their portrait, ringed in their car's paint. Grid rows. |
 
 ## 8. Motion
 
@@ -165,7 +174,7 @@ All in hub.css (cosmetics-specific ones, `.cz-*`, in cosmetics.css).
 - Every interactive thing is a real `<button>` / `<input>`; the pad's spatial navigation (src/client/pad.ts) walks
   them by position, so keep layouts on a clear grid.
 - Focus is a **3 px cyan ring with a glow**, bigger in pad mode (`html.pad`). Never remove it.
-- **LB / RB** walk the pages in order (Race → My cars → Dealer → Upgrades → Tuning → Paint → Locker → Cases); the
+- **LB / RB** walk the pages in order (Race → My cars → Dealer → Upgrades → Tuning → Paint → Locker → Cases → Driver → Settings); the
   top tab follows. Start (Menu) is the page's main action where one exists.
 - Each page marks its first sensible control `data-autofocus`.
 - Text on glass must hit 4.5:1 against `--tg-ink-1`. `--tg-dim` on ink-1 passes; `--tg-faint` is only for disabled.

@@ -25,6 +25,7 @@ export class RaceRoom extends DurableObject<Env> {
       ws,
       name: (url.searchParams.get('name') ?? '').slice(0, 16).trim() || 'driver',
       car: url.searchParams.get('car') ?? '',
+      rider: url.searchParams.get('rider') ?? '',
       user: url.searchParams.get('user') === '1',
     };
     const race = this.open(code);
@@ -63,7 +64,7 @@ export class RaceRoom extends DurableObject<Env> {
     const accounts = this.env.ACCOUNTS.getByName('all');
     this.race ??= new Race(
       code,
-      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, phase: r.phase, players: r.members.size, max: RACE.maxPlayers })),
+      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, physics: r.physics, phase: r.phase, players: r.members.size, max: RACE.maxPlayers })),
       (r) => {
         this.race = null;
         this.ctx.waitUntil(dir.remove(r.code));

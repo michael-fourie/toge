@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Race, type RaceClient } from '../../src/toge/server/race.ts';
-import { RACE, type RaceServerMsg, type ResultRow } from '../../src/toge/shared/protocol.ts';
+import { RACE, cleanMode, ghostMode, type RaceServerMsg, type ResultRow } from '../../src/toge/shared/protocol.ts';
 import { payout } from '../../src/toge/shared/garage.ts';
 import { MAX_LEVEL, PARTS, decodeCar, defaultTune, myRaceCar, newOwnedCar, raceCars } from '../../src/toge/shared/cars.ts';
 
@@ -14,7 +14,7 @@ function room() {
   const race = new Race('ABCD', () => {}, () => (empty = true), (rows, users) => paid.push({ rows, users }), () => now, false);
   const join = (id: number, user = false): RaceClient => {
     inbox.set(id, []);
-    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: 'shiro.0.1.0.0.0.0.1.00000000', user };
+    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: 'shiro.0.1.0.0.0.0.1.00000000', rider: '', user };
     race.add(c);
     return c;
   };
@@ -185,6 +185,40 @@ test('time trial: only the host switches to it, it brings up the ring, has no it
   );
 });
 
+test('hill climb: it runs only on the mountain, cars are solid but throw nothing, the car rule applies, and leaving it comes back down', () => {
+  assert.equal(ghostMode('climb'), false, 'hill climb cars are solid: you bump and draft them');
+  assert.equal(cleanMode('climb'), true);
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  r.race.handle(a, { t: 'track', track: 'karasu' });
+  assert.equal(r.race.track, 'koripass', 'a race never runs on the hill climb');
+  r.race.handle(a, { t: 'mode', mode: 'climb' });
+  assert.equal(r.race.mode, 'climb');
+  assert.equal(r.race.track, 'karasu', 'switching to a hill climb puts its mountain up');
+  r.race.handle(a, { t: 'track', track: 'kodama' });
+  assert.equal(r.race.track, 'karasu', 'a hill climb only runs up a hill-climb road');
+  r.race.handle(a, { t: 'track', track: 'constructor' as 'karasu' });
+  assert.equal(r.race.track, 'karasu', 'junk tracks are ignored');
+  r.race.handle(a, { t: 'cars', cars: 'maxed' });
+  r.start(a, b);
+  const ld = r.last(2, 'load');
+  assert.ok(ld && ld.t === 'load' && ld.mode === 'climb' && ld.track === 'karasu' && ld.rule === 'maxed');
+  for (const p of PARTS) assert.equal(decodeCar(ld.cars[1])!.up[p], MAX_LEVEL, 'the car rule works like a time trial');
+  r.advance(RACE.countdownMs + 100);
+  r.race.handle(a, { t: 'item', kind: 'oil', p: [0, 0, 0] });
+  assert.ok(!r.last(2, 'item'), 'no items on the hill');
+  r.advance(100_000);
+  r.race.handle(b, { t: 'finish', time: 140.4 });
+  r.race.handle(a, { t: 'finish', time: 139.9 });
+  const res = r.last(2, 'results');
+  assert.ok(res && res.t === 'results' && res.mode === 'climb');
+  assert.deepEqual(res.rows.map((x) => [x.id, x.place]), [[1, 1], [2, 2]]);
+  r.advance(RACE.resultsSeconds * 1000 + 100);
+  r.race.handle(a, { t: 'mode', mode: 'race' });
+  assert.equal(r.race.track, 'koripass', 'back to a race: back down to the passes');
+});
+
 /** A room whose spec-car dice land on `pick`, with three racers in three different cars. */
 function trialRoom(pick: number) {
   const inbox = new Map<number, RaceServerMsg[]>();
@@ -192,7 +226,7 @@ function trialRoom(pick: number) {
   const cars = { 1: 'pebble.3.0.0.0.0.0.1.10000000', 2: 'kitsune.5.1.2.0.0.0.1.32104050', 3: 'vanta.7.2.1.0.1.0.1.55555555' } as Record<number, string>;
   const clients = [1, 2, 3].map((id) => {
     inbox.set(id, []);
-    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: cars[id], user: false };
+    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: cars[id], rider: '', user: false };
     race.add(c);
     return c;
   });

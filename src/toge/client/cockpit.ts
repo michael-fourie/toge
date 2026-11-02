@@ -6,7 +6,7 @@
 // Built in the car root's frame (the CG; front is -Z) and parented to the car's root, so it rides with it.
 
 import * as THREE from 'three';
-import { CARS, type CarId, type CarSpec } from '../shared/cars.ts';
+import { CARS, type CarId, type CarSpec, isBike } from '../shared/cars.ts';
 import { DESIGNS } from './carkits.ts';
 import { curve } from './carloft.ts';
 
@@ -76,7 +76,84 @@ function strut(a: THREE.Vector3, b: THREE.Vector3, w: number, d: number, mat: TH
   return m;
 }
 
+/** Two dials (tach left, speedo right) facing `eye`, with needles; returns the needle spinners. */
+function gauges(parent: THREE.Object3D, face: THREE.Material, needleMat: THREE.Material, centre: THREE.Vector3, eye: THREE.Vector3, gap: number, r: number) {
+  const needles: THREE.Object3D[] = [];
+  for (const [i, side] of [-1, 1].entries()) {
+    const geo = new THREE.CircleGeometry(r, 32);
+    const uv = geo.attributes.uv;
+    for (let k = 0; k < uv.count; k++) uv.setX(k, uv.getX(k) * 0.5 + i * 0.5);
+    const disc = new THREE.Mesh(geo, face);
+    disc.position.copy(centre).add(new THREE.Vector3(side * gap, 0, 0));
+    disc.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(eye, disc.position, UP));
+    parent.add(disc);
+    const pivot = new THREE.Group();
+    pivot.position.copy(disc.position);
+    pivot.quaternion.copy(disc.quaternion);
+    pivot.translateZ(0.002);
+    const n = new THREE.Mesh(new THREE.BoxGeometry(0.004, r * 0.86, 0.001), needleMat);
+    n.position.y = r * 0.34;
+    const spin = new THREE.Group();
+    spin.add(n);
+    pivot.add(spin);
+    parent.add(pivot);
+    needles.push(spin);
+  }
+  return needles;
+}
+
+function setNeedles(needles: THREE.Object3D[], spec: CarSpec, rpm: number, kmh: number) {
+  const revFull = Math.ceil(spec.redline / 1000) + 1;
+  needles[0].rotation.z = -(Math.PI * 0.25 + Math.min(1, rpm / 1000 / revFull) * SWEEP) + Math.PI;
+  needles[1].rotation.z = -(Math.PI * 0.25 + Math.min(1, kmh / MAX_KMH) * SWEEP) + Math.PI;
+}
+
+/**
+ * A bike's rider's eye: tucked in behind the screen, chin over the tank. The bike itself is the view (fairing,
+ * screen, tank, the bars turning with the fork; the rider is hidden), so this adds only the clocks on the top
+ * yoke. Built in the bike's leaning frame (bikemodel.ts), so the horizon tilts as it leans.
+ */
+function buildBikeCockpit(id: CarId, spec: CarSpec): Cockpit {
+  const b = CARS[id];
+  const zF = -b.wheelbase / 2;
+  const root = new THREE.Group();
+  const inner = new THREE.Group();
+  inner.position.set(0, -spec.cg, (spec.axleR - spec.axleF) / 2);
+  root.add(inner);
+  const own: { dispose(): void }[] = [];
+  const tex = dialTexture(spec.redline);
+  const face = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.8, roughness: 0.4 });
+  const needleMat = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xff5a1f, emissiveIntensity: 1.6 });
+  const housing = new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.8 });
+  own.push(tex, face, needleMat, housing);
+  const eye = new THREE.Vector3(0, 1.17, zF + 0.86);
+  const centre = new THREE.Vector3(0, 1.0, zF + 0.53);
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.11, 0.06), housing);
+  box.position.copy(centre).add(new THREE.Vector3(0, -0.01, -0.03));
+  box.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(eye, box.position, UP));
+  inner.add(box);
+  const needles = gauges(inner, face, needleMat, centre.clone().add(new THREE.Vector3(0, 0, 0.005)), eye, 0.06, 0.05);
+  inner.traverse((m) => {
+    if (m instanceof THREE.Mesh) {
+      m.castShadow = false;
+      own.push(m.geometry);
+    }
+  });
+  return {
+    root,
+    eye: eye.clone().add(inner.position),
+    update(_steer, rpm, kmh) {
+      setNeedles(needles, spec, rpm, kmh);
+    },
+    dispose() {
+      root.removeFromParent();
+      for (const x of own) x.dispose();
+    },
+  };
+}
+
 export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
+  if (isBike(id)) return buildBikeCockpit(id, spec);
   const b = CARS[id];
   const d = DESIGNS[id];
   const L = b.length;
@@ -149,27 +226,7 @@ export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
   const gaugeZ = gz - 0.16;
   const eyeLocal = new THREE.Vector3(ex, ey, ez);
   const faceEye = (o: THREE.Object3D) => o.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(eyeLocal, o.position, UP));
-  const needles: THREE.Object3D[] = [];
-  for (const [i, side] of [-1, 1].entries()) {
-    const gx = ex + side * 0.075;
-    const geo = new THREE.CircleGeometry(0.058, 32);
-    const uv = geo.attributes.uv;
-    for (let k = 0; k < uv.count; k++) uv.setX(k, uv.getX(k) * 0.5 + i * 0.5);
-    const disc = add(new THREE.Mesh(geo, face));
-    disc.position.set(gx, gaugeY, gaugeZ);
-    faceEye(disc);
-    const pivot = new THREE.Group();
-    pivot.position.copy(disc.position);
-    pivot.quaternion.copy(disc.quaternion);
-    pivot.translateZ(0.002);
-    const n = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.05, 0.001), needleMat);
-    n.position.y = 0.02;
-    const spin = new THREE.Group();
-    spin.add(n);
-    pivot.add(spin);
-    inner.add(pivot);
-    needles.push(spin);
-  }
+  const needles = gauges(inner, face, needleMat, new THREE.Vector3(ex, gaugeY, gaugeZ), eyeLocal, 0.075, 0.058);
 
   // Steering wheel: rim, three spokes and a hub on a column that rises toward the driver, its face tipped up.
   const wheel = new THREE.Group();
@@ -262,9 +319,7 @@ export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
     eye: new THREE.Vector3(ex, ey + dy, ez + dz),
     update(steer, rpm, kmh) {
       spin.rotation.z = -Math.max(-WHEEL_LOCK, Math.min(WHEEL_LOCK, steer * STEER_RATIO));
-      const revFull = Math.ceil(spec.redline / 1000) + 1;
-      needles[0].rotation.z = -(Math.PI * 0.25 + Math.min(1, rpm / 1000 / revFull) * SWEEP) + Math.PI;
-      needles[1].rotation.z = -(Math.PI * 0.25 + Math.min(1, kmh / MAX_KMH) * SWEEP) + Math.PI;
+      setNeedles(needles, spec, rpm, kmh);
     },
     dispose() {
       root.removeFromParent();

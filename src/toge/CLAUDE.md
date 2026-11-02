@@ -30,7 +30,7 @@ the keyboard brake ramps in at 14/s, the throttle at 5/s.
 
 ## Menus and brand
 
-The home screens (hub.ts: tabs Race, Garage, Performance, Style), the race lobby (lobby.ts) and cosmetics
+The home screens (hub.ts: tabs Race, Garage, Performance, Style, Driver, Settings), the race lobby (lobby.ts) and cosmetics
 (cosmeticsui.ts) follow the design system in **`src/toge/DESIGN.md`**: the brand, colour roles (red acts, cyan selects,
 gold pays), type, the screen anatomy, the tab map and the components. Its tokens and components are in
 `src/toge/client/hub.css`; reuse them rather than styling a new screen from scratch, and update DESIGN.md when you add
@@ -40,17 +40,35 @@ a component or a page.
 
 - **Tracks** (`TrackId` in track.ts): passes `koripass` (alpine), `saltwind` (coast), `redmesa` (desert rally:
   gravel, crests, canyon), `tsukiyo` (night: bridge, tunnel), `momiji` (autumn), `sakura` (spring);
-  circuits `monza` (3 laps), `spa`, `monaco` (2 laps); city `neonbay` (Neon Bay, live traffic).
-  Track `Feature`s: gravel, canyon, bridge, tunnel, crest and `cut` (a gravel shortcut through gaps in the barrier).
-- **Cars** (`CarId`): pebble (starter), kitsune, bramble, shiro, vanta; 8 upgrade `PARTS`, levels 0-5.
+  circuits `monza` (3 laps), `spa`, `monaco` (2 laps), `kodama` (the time trial's ring); city `neonbay` (Neon Bay, live
+  traffic); hill climb `karasu` (Karasu Peak: uphill, 4.1 km and 336 m up, narrow, `climb: true`, only in a Hill climb lobby).
+  Track `Feature`s: gravel, canyon, bridge, tunnel, crest, `cut` (a gravel shortcut through gaps in the barrier) and
+  `bumps` (heaved tarmac between two control points; the grade test skips them, like crests).
+- **Cars** (`CarId`): pebble (starter), kitsune, bramble, shiro, tengu (twin-rotor coupe, pop-up lamps), vanta, and one
+  bike, raiden (`body: 'bike'`, `isBike`); 8 upgrade `PARTS`, levels 0-5.
+- **Bikes** run the same four-wheel physics on a narrow hidden `track` (1.2 m), with bike-sized wheel and engine inertia
+  and engine braking and a body three times steadier than its little box (`BIKE_*` in cars.ts; without it a barrel
+  spun it like a top), and no spoiler (the garage hides it; a code that carries one changes nothing).
+  The look is all client side: `bikemodel.ts` builds painted lofted shells (UVs like the car bodies, so paint jobs,
+  stripes and decals work), frame, fork, swingarm and wheels, and leans the model into turns by the cornering
+  force `pose(..., lat)` gets from racegame.ts. `root.userData.lean` is the leaning frame (the cockpit camera rides in
+  it, so the horizon tilts) and `root.userData.rider` is hidden from the rider's eye. Skid marks run down the middle.
+  The rider is a driver from `ridermodel.ts` (`buildRider(r, { ride: true })`, the `RIDE` pose): your own driver,
+  each online rival's from `Racer.rider`, a seeded `randomRider` per AI. `buildCar(owned, rider)` passes it on; the
+  showroom passes `null` (empty saddle, your driver stands beside it). Rider meshes are shared page-wide, so the bike
+  never merges or disposes them.
 - **Free looks** (`Look` in cars.ts, the Style → Paint page): paint (18), finish, rims (6 designs, 7 colours), spoiler,
-  stripes, underglow, then the body options: window `tint`, `roof` and `hood` (body colour / black / carbon), `trim`
+  stripes, underglow, then the body options (cars only; the garage hides them for bikes): window `tint`, `roof` and `hood` (body colour / black / carbon), `trim`
   (window seals and door handles), `mirrors` and front `lip`. Every list is append-only (codes store indexes). A car
   code always carries the first eight look values; the body options go on the end only when one is off its default,
   so a car without them keeps its old code (`decodeCar` takes either; the 8-digit upgrades segment marks the end).
 - **Cosmetics** (cosmetics.ts): 160 items in 11 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
   underglow, plates, plate frames/covers, exhaust tips), 5 rarities, won from 5 cases (Street, Night Run, Livery,
   Chrome, Legend) bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
+- **Drivers** (rider.ts): your character, Tokyo street-drift style. 23 fields (build, height, skin, face, 12 hair styles,
+  8 tops from tees to souvenir jackets and long coats with a kanji back print, bottoms, shoes, headwear, eyewear, masks,
+  neck pieces, gloves, 5 poses), all free, saved in the garage (`rider`, the `rider` action). Your driver stands by your car
+  in the showroom (the Driver tab walks the camera in), and the lobby shows every racer's driver in the Crew row.
 - **Solo**: 0/3/5/7 AI rivals (hub.ts, saved as `atrous.rivals`) picked near your PI with your upgrades; you start mid-pack.
 - **Online**: Directory instance `"race"`, sockets `/ws?game=race`, up to `RACE.maxPlayers` (8).
 
@@ -82,11 +100,31 @@ src/toge/shared/
   traffic.ts   city traffic (tracks with `traffic: true`): four lanes, two each way, every car's place a pure function
                of the race clock (seconds since GO), so it's identical for every racer with nothing on the wire.
                collideTraffic bumps a car off it; trafficview.ts draws it (instanced, lamps that bloom).
+  drift.ts     drift scoring (the meter: slides score by speed × slip angle, linked slides build a ×4 combo that banks
+               after DRIFT.chainGap, a crash or spin loses it) and the bonus money for drifting and item use (`driftPay`,
+               `itemPay`, caps). garage.ts `raceBonus` adds it to every prize, solo and online; the server clamps it.
   powerups.ts  items from mystery boxes (`Item`: turbo/triple/oil/shield/shock/comet), `POWER` tuning, `rollItem` with
                catch-up odds; oil/shock/comet are relayed as the `item` message.
+  draft.ts     slipstreaming: `wakeOf` (a cone up to `DRAFT.range` behind any car going your way at speed), `stepDraft`
+               (eases `car.draft`, which cuts aero drag and pulls you on the gas in vehicle.ts; tucked in for `DRAFT.charge`
+               s arms a slingshot that fires as a short boost when you pull out). Run per tick in racegame.ts `slipstream()`
+               for you and the AI against every car incl. online poses; off in time trials. Nothing on the wire.
+  damage.ts    Physics mode (crash damage, off unless the host or the solo Race page turns it on): every knock is
+               delta-V (`car.crash`, recorded in vehicle.ts with where it hit), damage = DAMAGE.scale × (dv − threshold)^power,
+               dented zones (front/rear/left/right) cost power and pull the steering (`damagedInput`). At 1 the car is
+               wrecked: racegame.ts `crashes()`/`wreck()` blow it up and respawn it DAMAGE.respawnBack m back with a grace.
+               Online: zones ride `NetCar.dm`, explosions the `wreck` message (room relays only with `physics` on).
+               toge/client/damageview.ts draws it: CarDents (moves the body's own vertices, flat normals in the creases),
+               Blasts (fireball, black cloud, instanced debris, a flash light that only exists with the mode on), smokeFrom.
   props.ts     seeded track props (`placeProps`): mystery boxes, ramps, bales, barrels, cones. Not on circuits; Neon Bay
-               gets boxes only. toge/client/propview.ts draws props, oil slicks, the shield bubble.
-  protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial).
+               gets boxes only. A `climb` track gets rockfall instead (`placeRockfall`): boulders and rocks, each its own
+               radius, bitten into the road's edges, always leaving `ROCKFALL_GAP` of clear tarmac; solid, and the AI
+               steers round them by their radius. toge/client/propview.ts draws props, oil slicks, the shield bubble.
+  rider.ts     your driver: RIDER_FIELDS (APPEND ONLY, like the cosmetics catalogue: a code is one base-36 digit per field,
+               after `r1.`; shorter old codes fill the new fields with 0), encode/decode/cleanRider, randomRider. Racers carry
+               the code as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the default).
+  protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
+               climb), ghostMode (time trial only), cleanMode (no items + car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.
@@ -94,7 +132,7 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
   post chain: clamp, bloom, film grade per theme (`Look.grade`), then tone mapping), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
-  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`, `lab.info()` for draw
+  textures in carparts.ts, merged by material; bikes in bikemodel.ts; tune them in `/dev/cars.html`, `window.lab`, `lab.info()` for draw
   calls and triangles). The glass is see-through (`GLASS` per tint in carparts.ts; cosmetic tints are too), so every
   car has a cabin behind it: the greenhouse loft drawn again from inside (`MAT.liner`, back faces, glass faces skipped),
   a dark cabin floor (the lower body's top inside the greenhouse), dash, wheel and bucket seats (`cabinParts`), a rear
@@ -106,7 +144,11 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   bulb and shield, chrome rim, glass), since a flush one sits behind the paint; slit lamps are a housing with projectors
   under a clear cover; tail lamps are a dark red lens (`MAT.redLens`) with lit elements (`tailLamp`). Lamp glow is
   global: `setLampLevel` (carparts.ts) scales every registered lamp material (`lamp()`; cosmetic lamp tints too). The
-  race sets `LAMP_NIGHT` on night and city tracks and `LAMP_DAY` otherwise, so headlamps don't blaze white by day. showroom.ts (the turntable; `place()` frames the car beside the rail), hub.ts (the home screen `drive`: tabs and pages,
+  race sets `LAMP_NIGHT` on night and city tracks and `LAMP_DAY` otherwise, so headlamps don't blaze white by day. showroom.ts (the turntable; `place()` frames the car beside the rail; `showRider()` stands your driver by the
+  driver's door, `focus('rider')` turns them to the camera), ridermodel.ts (the driver figure: ~70 primitives with cached
+  geometry and materials, posed, a breathing idle; tune in `/dev/riders.html`, `window.lab`), riderportrait.ts (one
+  offscreen renderer draws each driver to a cached PNG for the lobby; released when the lobby closes), riderui.ts (the
+  Driver page), settingsui.ts (the Settings page: graphics), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
   styled by hub.css), lobby.ts (`drivelobby`), trackart.ts (track tiles and maps for the menus), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
@@ -125,12 +167,27 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   with a blank placeholder map so nothing recompiles when it arrives. The images are generated by `dev/backdrops.py`
   (numpy + Pillow; ours, no licences): change a theme there and re-run it. Their haze and the band below the horizon are the
   theme's fog colour, so keep them in step if you change `fog` in LOOKS.
+- **Graphics High / Low** (the Settings tab, settingsui.ts; the choice is site-wide, `src/client/graphics.ts`, saved per
+  device as `atrous.graphics`, read when a race or showroom is built). Low is for laptops: pixel ratio 1, no MSAA, no
+  shadow map, no `Post` chain (it renders straight to the screen), every MeshStandard/Physical swapped for a Lambert (Phong
+  for clear coat) copy only while the frame draws (lowgfx.ts `drawLow`, so game code keeps mutating its own materials),
+  no sky clouds, half the trees and none past 400 m (the same rng rolls, so the rest of the scene doesn't move), a
+  brighter hemisphere fill (`LOW_FILL`) for the lost environment light, and a 60 fps cap (30 in the showroom). Measured on
+  Kori Pass at 1440×900 @2x: 834 → 540 draw calls, 1.7 M → 1.0 M triangles, ~9× less GPU time per frame. Switching
+  rebuilds the showroom on a fresh canvas.
 - Never add or remove a light mid-race: three.js recompiles every lit shader when the light count changes (a multi-second freeze). Keep the light in the scene from the start and change its intensity (see the comet light in racegame.ts).
 - Online start: `start` sends `load`; each client builds the track, draws its first frames (shader compiles) and says `ready`. The room counts down (`countdown`, RACE.countdownMs) once every racer is ready, or after RACE.loadTimeoutMs without the stragglers; a straggler who loads later is sent the time left, or `go` at once. Until the countdown, cars sit `held` on the grid (racegame.ts) with a "Waiting for racers" banner. Race and Time trial both work this way.
 - Driving is client-authoritative like the shooter; the server times the race, sanity-checks finish times and pays signed-in racers (guests credit themselves from `results`).
+- **Drift and item bonus:** racegame.ts runs your `DriftMeter` each tick (the HUD shows the live combo over the spark readout and the banked total in the top bar) and counts your item uses (a gold `+$` pops by the item slot). Online it sends `drift` (the total) as each combo banks and before `finish`, and `used` for turbos and shields; the room counts relayed attack items itself, caps drift by its own clock, and puts `drift` + `bonus` on each `ResultRow` (`prize` includes the bonus). Solo sends `drift` + `uses` with the `solo` action. Time trials pay drift but not items. Limits are in docs/SECURITY.md.
 - A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts.
 - Circuits (`laps` on the TrackDef: Monza, Spa, Monaco) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
 - Time trial (`mode: 'trial'` on the room, picked by the host in the lobby; switching to it puts up Kodama Ring, the short circuit built for it): the other racers' cars are see-through ghosts (`ghostly()` in carmodel.ts) and never collide, there are no item boxes and the server drops `item` messages. Clients send their best lap with `finish` (shown only, never paid on); the results add each racer's gap to the winner and best lap.
+- Hill climb (`mode: 'climb'`): solid cars (you bump and draft each other, and take damage with Physics on), but like the
+  time trial no items and the host's car rule (`cleanMode()`), run only on `climb` tracks (`modeTracks`; the server ignores any other pick, and leaving the mode puts Kōri
+  Pass back up). One map so far, Karasu Peak: bumpy forest climb, a hairpin ladder up the face, a crest, a gravel shelf,
+  rockfall, a twisty last kilometre to the summit. Its forest grows right up to the barrier (`climb` in trackview.ts
+  `scatter`). Not in the solo list (`TRACK_IDS` in trackart.ts leaves climb tracks out). A second hill climb = another
+  TrackDef with `climb: true` (uphill, grades < 12% outside `bumps`/crests).
 - Cameras (C / Ⓨ cycles, saved as `atrous.raceCam`): chase, near, cockpit, hood, bumper. Cockpit = the driver's eye: `cockpit.ts`
   builds each car's interior (dash, gauges, wheel, pillars, headliner) from its DESIGNS roof line, right-hand drive, parented to
   the car's root; `headcam.ts` is the head on a damped-spring neck, pushed by the car's acceleration (taken from its velocity, so
@@ -142,16 +199,23 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 
 ## Adding things
 
-- **A car:** a `CarId` + `CARS` entry (cars.ts) + a `DESIGNS` entry in `src/toge/client/carkits.ts`; tune the model in
-  `/dev/cars.html` (`window.lab`: `show(id|'all')`, `view(yaw, pitch, dist)`, `look({...})`, `spin(on)`).
+- **A car:** a `CarId` + `CARS` entry (cars.ts) + a `DESIGNS` entry in `src/toge/client/carkits.ts` (a bike: add it to
+  `BikeId` and build it in `bikemodel.ts` instead); tune the model in
+  `/dev/cars.html` (`window.lab`: `show(id|'all')`, `view(yaw, pitch, dist)`, `look({...})`, `spin(on)`, `pose(steer, lat)`
+  to steer and lean, `cockpit()` for the driver's or rider's eye).
 - **A track:** a `TrackId` + `TRACK_DEFS` entry + its `TRACK_LENGTH_KM` in garage.ts (the test checks it within 0.15 km,
   plus leg spacing and grades). A new `Theme` also needs `LOOKS` (toge/client/trackview.ts) and `LITTER` (tracktextures.ts).
-- **A mode:** there is no mode switch yet; the entry points are `RaceSetup` in toge/client/racegame.ts and the race protocol.
+- **A mode:** a `RaceMode` + `RACE_MODES` entry + `MODE_TRACK` (protocol.ts); the server's `mode` / `track` handling in
+  race.ts, the lobby's labels (lobby.ts `START`, hub.ts open-lobby list) and `RaceSetup.online.mode` in racegame.ts. The
+  Physics switch (`physics` on the room, `PHYSICS` in protocol.ts) is separate and works with every mode.
 - **Economy** (garage.ts): every garage change is an `applyAction` (server for accounts, client for guests). Prize =
   `payout()`; solo pays less and at most once per `SOLO_GAP_MS`.
+- **A driver option:** append to its field's `options` (and `colors`) in rider.ts, or append a new field to `RIDER_FIELDS`
+  (it decodes as 0 from old codes, so make 0 the plain choice); draw it in ridermodel.ts and check it in `/dev/riders.html`
+  (`lab.vary('hair')`, `lab.random(8)`). Keep every field under 36 options.
 - **A cosmetic:** append it to its slot's list in `CATALOG` (cosmetics.ts) with a rarity and its cases; a new pattern or
   decal kind also needs a painter in toge/client/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `headcam`, `cosmetics` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider`, `damage` in `tests/toge/`
 (`pad` is in `tests/`: the gamepad code is the site's).

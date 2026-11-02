@@ -4,8 +4,11 @@
 import { type CosKit, cleanKit, cleanPlate, decodeKit, encodeKit } from './cosmetics.ts';
 import type { CarRule } from './protocol.ts';
 
-export type CarId = 'pebble' | 'kitsune' | 'bramble' | 'shiro' | 'vanta';
-export type Body = 'hatch' | 'coupe' | 'muscle' | 'super';
+export type CarId = 'pebble' | 'kitsune' | 'bramble' | 'shiro' | BikeId | 'tengu' | 'vanta';
+/** The two-wheelers (CARS entries with `body: 'bike'`). */
+export type BikeId = 'raiden';
+/** `bike`: two wheels in line. The physics still runs four (a narrow hidden track, see `track`); the model leans. */
+export type Body = 'hatch' | 'coupe' | 'muscle' | 'super' | 'bike';
 export type Drive = 'FWD' | 'RWD' | 'AWD';
 
 export interface BaseCar {
@@ -21,6 +24,7 @@ export interface BaseCar {
   mass: number; // kg
   frontWeight: number; // static share on the front axle
   wheelbase: number;
+  /** Physics track (m). A bike's is a stand-in: two hidden pairs of contact patches that keep it upright. */
   track: number;
   length: number;
   width: number;
@@ -78,6 +82,22 @@ export const CARS: Record<CarId, BaseCar> = {
     gears: [3.62, 2.18, 1.54, 1.21, 1.0, 0.81], final: 3.7, reverse: 3.3,
     grip: 1.15, brake: 2600, bias: 0.63, cdA: 0.64, clA: 0.36, aeroFront: 0.45, freq: 2.0, steer: 0.6,
   },
+  raiden: {
+    id: 'raiden', name: 'Raiden 1000R', maker: 'Ikazuchi', price: 42000, body: 'bike', drive: 'RWD',
+    blurb: 'A litre superbike. Featherweight, screams to 13,000 rpm and leans through bends a car has to brake for.',
+    mass: 290, frontWeight: 0.52, wheelbase: 1.42, track: 1.2, length: 2.08, width: 0.74, height: 1.18, cg: 0.5, radius: 0.31,
+    torque: 70, peakRpm: 9800, redline: 13500, idle: 1300, cyl: 4,
+    gears: [2.6, 2.0, 1.65, 1.42, 1.27, 1.16], final: 5.4, reverse: 2.6,
+    grip: 1.14, brake: 400, bias: 0.72, cdA: 0.32, clA: 0, aeroFront: 0.5, freq: 2.2, steer: 0.5,
+  },
+  tengu: {
+    id: 'tengu', name: 'Tengu 13B', maker: 'Kazahaya', price: 36000, body: 'coupe', drive: 'RWD',
+    blurb: 'Twin-rotor lightweight with pop-up lamps. Revs to nine grand and dances on the throttle. Born for the mountain.',
+    mass: 1240, frontWeight: 0.5, wheelbase: 2.43, track: 1.5, length: 4.3, width: 1.76, height: 1.24, cg: 0.45, radius: 0.32,
+    torque: 345, peakRpm: 6800, redline: 9000, idle: 1000, cyl: 2,
+    gears: [3.48, 2.02, 1.39, 1.0, 0.72], final: 4.3, reverse: 3.2,
+    grip: 1.19, brake: 2500, bias: 0.6, cdA: 0.6, clA: 0.5, aeroFront: 0.46, freq: 2.15, steer: 0.62,
+  },
   vanta: {
     id: 'vanta', name: 'Vanta V10', maker: 'Corvaro', price: 65000, body: 'super', drive: 'RWD',
     blurb: 'Mid-engined, ten cylinders, ground-effect floor. Terrifying, then addictive.',
@@ -90,6 +110,8 @@ export const CARS: Record<CarId, BaseCar> = {
 
 export const CAR_IDS = Object.keys(CARS) as CarId[];
 export const isCarId = (x: unknown): x is CarId => typeof x === 'string' && x in CARS;
+/** Two wheels: the garage hides the spoiler, the model leans, the cockpit is a rider's view over the tank. */
+export const isBike = (id: CarId): id is BikeId => CARS[id].body === 'bike';
 
 // ---------------------------------------------------------------------------------------------
 // Upgrades (won from crates), looks and tuning
@@ -328,6 +350,8 @@ export function myRaceCar(rule: CarRule, code: string | undefined, mine: OwnedCa
 
 export interface CarSpec {
   id: CarId;
+  /** A motorcycle (see `isBike`). */
+  bike: boolean;
   drive: Drive;
   awdFront: number;
   mass: number;
@@ -356,6 +380,8 @@ export interface CarSpec {
   redline: number;
   idle: number;
   engineInertia: number;
+  /** Engine braking (pumping and friction) scale: bigger engines drag harder off the throttle. */
+  engineDrag: number;
   gears: number[];
   final: number;
   reverse: number;
@@ -375,6 +401,11 @@ const SUSP_REST = 0.3;
 const SUSP_TRAVEL = 0.2;
 const DAMPING = 0.42; // damping ratio
 const CLEARANCE = 0.13;
+/** Bikes (kg·m²): each hidden wheel's share of a real one, and the engine's rotating mass. */
+const BIKE_WHEEL_INERTIA = 0.35;
+const BIKE_ENGINE_INERTIA = 0.04;
+const BIKE_ENGINE_DRAG = 0.3;
+const BIKE_INERTIA = 3;
 
 export function carSpec(car: OwnedCar): CarSpec {
   const b = CARS[car.model];
@@ -397,21 +428,30 @@ export function carSpec(car: OwnedCar): CarSpec {
     mountY[a] = -cg + b.radius + SUSP_REST - static0;
   }
   const arbScale = 1 + 0.15 * u.suspension;
-  const wing = car.look.spoiler === 2;
-  const duck = car.look.spoiler === 1;
+  // Bikes have no spoiler (the garage hides it), so a code that carries one changes nothing.
+  const bike = b.body === 'bike';
+  const wing = !bike && car.look.spoiler === 2;
+  const duck = !bike && car.look.spoiler === 1;
   const H = b.height;
   return {
     id: b.id,
+    bike,
     drive: b.drive,
     awdFront: b.awdFront ?? 0.4,
     mass,
-    inertia: [(mass / 12) * (H * H + b.length * b.length) * 0.85, (mass / 12) * (b.width ** 2 + b.length ** 2) * 0.85, (mass / 12) * (b.width ** 2 + H * H) * 0.9],
+    // A bike's box is tiny, so a nudge on its nose (a barrel, another car) spun it like a top: give it the steadiness
+    // of the rider and the arcade layer's balance (BIKE_INERTIA).
+    inertia: [(mass / 12) * (H * H + b.length * b.length) * 0.85, (mass / 12) * (b.width ** 2 + b.length ** 2) * 0.85, (mass / 12) * (b.width ** 2 + H * H) * 0.9].map(
+      (i) => i * (bike ? BIKE_INERTIA : 1),
+    ) as [number, number, number],
     axleF,
     axleR,
     track: b.track,
     cg,
     radius: b.radius,
-    wheelInertia: 1.1 + b.radius * 1.2,
+    // A bike's four hidden contact patches share two light wheels, and a litre four's crank is a fraction of a
+    // car engine's: with car-sized inertia it took seconds to spin the rear back up after a hop or a landing.
+    wheelInertia: bike ? BIKE_WHEEL_INERTIA : 1.1 + b.radius * 1.2,
     rest: SUSP_REST,
     travel: SUSP_TRAVEL,
     k,
@@ -425,7 +465,9 @@ export function carSpec(car: OwnedCar): CarSpec {
     peakRpm: b.peakRpm,
     redline: b.redline,
     idle: b.idle,
-    engineInertia: 0.12 + b.cyl * 0.012,
+    engineInertia: bike ? BIKE_ENGINE_INERTIA : 0.12 + b.cyl * 0.012,
+    // A litre bike engine is a third the size of the cars': car-sized drag held it at 50 km/h on half throttle.
+    engineDrag: (b.cyl / 6 + 0.4) * (bike ? BIKE_ENGINE_DRAG : 1),
     gears: b.gears,
     final: b.final * t.final,
     reverse: b.reverse,

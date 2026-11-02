@@ -13,6 +13,7 @@
 
 import { type CarSpec, torqueAt } from './cars.ts';
 import { type Ground, type Loc, type Surface, type Track, groundAt, heightAt, locate, newGround, newLoc, onCut, pointAt, railAt } from './track.ts';
+import { DRAFT } from './draft.ts';
 import { firstPropFrom, isSolid } from './props.ts';
 
 export const TICK_HZ = 120;
@@ -129,6 +130,14 @@ export interface Car {
   hit: number;
   /** Hardest the body slammed into the ground this tick (landing a jump), m/s. */
   land: number;
+  /**
+   * The hardest knock this tick as the change in the car's own velocity (m/s): delta-V, the number crash
+   * severity is measured by, so a light car hit by a heavy one feels it more. Where it landed (body space,
+   * from the CG) and which way it pushed (body space, unit, pointing into the car). damage.ts turns it into damage.
+   */
+  crash: number;
+  crashP: V3;
+  crashN: V3;
   absOn: boolean;
   tcsOn: boolean;
   tcsCut: number;
@@ -145,6 +154,11 @@ export interface Car {
   /** Seconds of boost left (mini-turbos, items) and how hard it pushes (m/s^2). */
   boost: number;
   boostPower: number;
+  /** Slipstream (draft.ts): how strongly the car sits in another's wake (0-1, eased), seconds tucked in
+   *  toward the slingshot, and how long a charged slingshot stays ready after pulling out. */
+  draft: number;
+  draftCharge: number;
+  draftArmed: number;
   /** Lateral tyre grip scale (drifting lets the tyres slide). */
   latGrip: number;
   /** Spinning out (hit by oil or a shockwave): seconds left, and which way. */
@@ -194,6 +208,9 @@ export function newCar(spec: CarSpec, x: number, y: number, z: number, yaw: numb
     d: 0,
     hit: 0,
     land: 0,
+    crash: 0,
+    crashP: { x: 0, y: 0, z: 0 },
+    crashN: { x: 0, y: 0, z: 0 },
     absOn: false,
     tcsOn: false,
     tcsCut: 0,
@@ -206,6 +223,9 @@ export function newCar(spec: CarSpec, x: number, y: number, z: number, yaw: numb
     driftLevel: 0,
     boost: 0,
     boostPower: 0,
+    draft: 0,
+    draftCharge: 0,
+    draftArmed: 0,
     latGrip: 1,
     spin: 0,
     spinDir: 1,
@@ -234,6 +254,7 @@ export function resetCar(car: Car, t: Track, s = car.s, d = 0) {
   car.upsideDown = 0;
   car.drift = 0;
   car.boost = 0;
+  car.draft = car.draftCharge = car.draftArmed = 0;
   car.latGrip = 1;
   car.spin = 0;
   for (const w of car.wheels) Object.assign(w, newWheel());
@@ -275,6 +296,7 @@ export function stepCar(car: Car, input: DriveInput, t: Track, assists: Assists 
   const sp = car.spec;
   car.hit = 0;
   car.land = 0;
+  car.crash = 0;
   car.touched.length = 0;
   if (car.spin > 0) {
     // Spinning out: no say in the matter until it's over.
@@ -483,7 +505,11 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
       v.z += fz * car.boostPower * dt;
     }
   }
-  void throttle;
+  // Slipstream: the car ahead's wake pulls you along while you're on the gas.
+  if (car.draft > 0 && grounded && throttle > 0.5) {
+    v.x += fx * DRAFT.pull * car.draft * dt;
+    v.z += fz * DRAFT.pull * car.draft * dt;
+  }
 }
 
 /**
@@ -630,7 +656,7 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
     } else {
       coupled = true;
       car.rpm = Math.max(sp.idle * 0.8, wheelRpm);
-      const engine = torqueAt(sp, car.rpm) * throttle - (1 - throttleIn) * (12 + car.rpm * 0.006) * (sp.cyl / 6 + 0.4);
+      const engine = torqueAt(sp, car.rpm) * throttle - (1 - throttleIn) * (12 + car.rpm * 0.006) * sp.engineDrag;
       driveT = engine * ratio * 0.9;
     }
   } else {
@@ -779,7 +805,8 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
   // --- Aero
   const v = car.v;
   const speed = Math.hypot(v.x, v.y, v.z);
-  const drag = 0.5 * RHO * sp.cdA * speed;
+  // Another car's wake (slipstream) takes some of the drag away.
+  const drag = 0.5 * RHO * sp.cdA * speed * (1 - DRAFT.dragCut * car.draft);
   Fx -= drag * v.x;
   Fy -= drag * v.y;
   Fz -= drag * v.z;
@@ -965,6 +992,16 @@ function barrier(car: Car, t: Track) {
   }
   impulse(car, nx * j + fx, 0, nz * j + fz, wx, 0, wz);
   car.hit = Math.max(car.hit, -vn);
+  noteCrash(car, j, wx, wz, nx, nz);
+}
+
+/** Keeps the tick's hardest knock (impulse `j` along world `n` at offset `r` from the CG) for crash damage. */
+function noteCrash(car: Car, j: number, rx: number, rz: number, nx: number, nz: number) {
+  const dv = j / car.spec.mass;
+  if (dv <= car.crash) return;
+  car.crash = dv;
+  rotInv(car.q, rx, 0, rz, car.crashP);
+  rotInv(car.q, nx, 0, nz, car.crashN);
 }
 
 /** Spins the car out for `seconds` (oil, a shockwave), unless it's already spinning. */
@@ -1017,6 +1054,8 @@ function props(car: Car, t: Track) {
       const j = (-(1 + RESTITUTION) * vn) / invMassAt(car, rx, 0, rz, nx, 0, nz);
       impulse(car, nx * j, 0, nz * j, rx, 0, rz);
       car.hit = Math.max(car.hit, -vn);
+      // Bales and barrels give: they crumple instead of the car (half the knock counts).
+      noteCrash(car, j * 0.5, rx, rz, nx, nz);
     }
   }
 }
@@ -1070,6 +1109,8 @@ export function collideCars(a: Car, b: Car, bMovable: boolean) {
       if (bMovable) impulse(b, nx * j, 0, nz * j, rbx, 0, rbz);
       a.hit = Math.max(a.hit, -vn);
       b.hit = Math.max(b.hit, -vn);
+      noteCrash(a, j, rax, raz, -nx, -nz);
+      noteCrash(b, j, rbx, rbz, nx, nz);
     }
 }
 

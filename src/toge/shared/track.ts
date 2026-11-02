@@ -13,7 +13,7 @@ import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -26,7 +26,12 @@ export type Feature =
   | { kind: 'gravel' | 'canyon' | 'bridge' | 'tunnel'; from: number; to: number; size?: number }
   | { kind: 'crest'; at: number; size: number; len: number }
   /** A shortcut: a gravel track from distance `s0` along the road to `s1`, through gaps in the barrier. */
-  | { kind: 'cut'; s0: number; s1: number };
+  | { kind: 'cut'; s0: number; s1: number }
+  /**
+   * Broken, heaved tarmac between two control points: a run of bumps up to `size` metres high, a few car
+   * lengths apart and never evenly spaced, that unsettle the car and lift it light over the crests.
+   */
+  | { kind: 'bumps'; from: number; to: number; size: number };
 
 /** A shortcut's path, sampled every SAMPLE metres. */
 export interface Cut {
@@ -75,6 +80,11 @@ export interface TrackDef {
   water?: number;
   /** Four lanes of two-way traffic to dodge (traffic.ts). */
   traffic?: boolean;
+  /**
+   * A hill climb (the lobby's Hill climb mode): an uphill run with no item boxes, ramps or cones; boulders and
+   * rocks lie on the road's edges instead (props.ts), and the forest crowds right up to the barrier.
+   */
+  climb?: boolean;
   features?: Feature[];
 }
 
@@ -124,6 +134,8 @@ export interface Track {
   spans: Span[];
   /** Jumps: where they peak along the road and how long they are (m). */
   crests: { s: number; len: number }[];
+  /** Stretches of bumpy road (from `bumps` features), where the grade jumps about on purpose. */
+  bumps: { s0: number; s1: number }[];
   /** 1 where the road is gravel. */
   gravel: Uint8Array;
   cuts: Cut[];
@@ -363,6 +375,34 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [203, 62, 165], [133, 61, 156], [70, 61, 167], [23, 60, 148], [3, 60, 101], [0, 60, 47],
     ],
   },
+  // The hill climb (the lobby's Hill climb mode): uphill all the way, narrow, rough and crowded by the forest.
+  karasu: {
+    id: 'karasu',
+    name: 'Karasu Peak',
+    tag: 'Hill climb · uphill · boulders · broken tarmac',
+    blurb: 'One run up the mountain where the crow-winged tengu live: a bumpy forest climb, a ladder of hairpins up the face, boulders fallen on the road, a gravel shelf above the trees and a twisting last kilometre to the summit.',
+    theme: 'alpine',
+    seed: 211,
+    width: 9,
+    relief: 360,
+    climb: true,
+    points: [
+      [0, 100, 0], [5, 112, -140], [-40, 124, -260], [-20, 136, -380], [60, 146, -470], [200, 158, -500],
+      [420, 180, -520], [480, 184, -545], [490, 186, -590], [440, 190, -620],
+      [200, 212, -630], [120, 216, -625], [60, 218, -670], [120, 222, -720],
+      [380, 246, -730], [520, 258, -780], [580, 270, -900], [520, 282, -1020], [580, 294, -1140],
+      [560, 302, -1260], [460, 312, -1340], [320, 324, -1360], [180, 336, -1380], [40, 348, -1360],
+      [-30, 352, -1400], [-20, 356, -1460], [40, 360, -1480],
+      [200, 374, -1480], [340, 388, -1500], [420, 398, -1560], [420, 410, -1680], [360, 420, -1780], [380, 430, -1880], [400, 436, -1960],
+    ],
+    features: [
+      { kind: 'bumps', from: 0, to: 4, size: 0.32 },
+      { kind: 'bumps', from: 15, to: 19, size: 0.26 },
+      { kind: 'crest', at: 17, size: 1.4, len: 36 },
+      { kind: 'gravel', from: 19, to: 23 },
+      { kind: 'bumps', from: 28, to: 32, size: 0.3 },
+    ],
+  },
   neonbay: {
     id: 'neonbay',
     name: 'Neon Bay',
@@ -581,6 +621,7 @@ export function buildTrack(def: TrackDef): Track {
   // Crests go on after smoothing so they stay sharp enough to fly off.
   const spans: Span[] = [];
   const crests: { s: number; len: number }[] = [];
+  const bumps: { s0: number; s1: number }[] = [];
   for (const f of def.features ?? []) {
     if (f.kind === 'crest') {
       const at = nearestS(pts[f.at]);
@@ -588,6 +629,20 @@ export function buildTrack(def: TrackDef): Track {
       for (let i = 0; i < n; i++) {
         const u = (i * SAMPLE - at) / (f.len / 2);
         if (Math.abs(u) < 1) y[i] += (f.size * (1 + Math.cos(Math.PI * u))) / 2;
+      }
+    } else if (f.kind === 'bumps') {
+      const a = nearestS(pts[f.from]);
+      const b = nearestS(pts[f.to]);
+      const s0 = Math.min(a, b);
+      const s1 = Math.max(a, b);
+      bumps.push({ s0, s1 });
+      // Two out-of-step waves (14 m and 23 m) and a slow swell of their size: heaves that never repeat evenly,
+      // easing in and out over the first and last 30 m.
+      for (let i = Math.floor(s0 / SAMPLE); i <= Math.min(n - 1, Math.ceil(s1 / SAMPLE)); i++) {
+        const u = i * SAMPLE;
+        const w = smoothstep(s0, s0 + 30, u) * (1 - smoothstep(s1 - 30, s1, u));
+        const swell = 0.6 + 0.4 * Math.sin(u / 37 + def.seed);
+        y[i] += f.size * w * swell * (0.62 * Math.sin((u * 2 * Math.PI) / 14) + 0.38 * Math.sin((u * 2 * Math.PI) / 23 + 1.3));
       }
     } else if (f.kind === 'cut') continue;
     else {
@@ -731,6 +786,7 @@ export function buildTrack(def: TrackDef): Track {
     bounds: { x0: bx0, x1: bx1, z0: bz0, z1: bz1 },
     spans,
     crests,
+    bumps,
     gravel,
     props: [],
     ramps: [],

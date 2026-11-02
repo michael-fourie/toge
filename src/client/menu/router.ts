@@ -44,7 +44,9 @@ export interface Ctx {
 export interface DriveOpts {
   track: TrackId;
   rivals?: number;
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string> };
+  /** Solo: Physics mode (crash damage). Online it comes with the race. */
+  physics?: boolean;
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean };
 }
 
 /** Renders into `root`; may return a cleanup that runs when the screen is left. */

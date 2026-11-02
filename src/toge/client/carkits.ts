@@ -3,7 +3,7 @@
 // `top`, `dip` and `roof` are × the car's height, `floor` is metres above the ground.
 
 import * as THREE from 'three';
-import type { BaseCar, CarId } from '../shared/cars.ts';
+import type { BaseCar, BikeId, CarId } from '../shared/cars.ts';
 import { type Section, centreTop, endZ, heightAt, surface, zAt } from './carloft.ts';
 import { MAT, rbox } from './carparts.ts';
 
@@ -186,7 +186,8 @@ function exhaust(k: Kit, x: number, y: number, r: number, mirror: boolean, sides
 // ---------------------------------------------------------------------------------------------
 // The cars
 
-export const DESIGNS: Record<CarId, Design> = {
+/** Every four-wheeled model's design. Bikes are built by bikemodel.ts instead. */
+export const DESIGNS: Record<Exclude<CarId, BikeId>, Design> = {
   // A kei bean with big round eyes and a smile. Loves you back.
   pebble: {
     top: [[0, 0.36], [0.05, 0.46], [0.12, 0.5], [0.183, 0.52], [0.27, 0.56], [0.6, 0.58], [0.85, 0.6], [0.95, 0.6], [1, 0.5]],
@@ -346,6 +347,52 @@ export const DESIGNS: Record<CarId, Design> = {
       k.put(rbox(k.W * 1.86, 0.12, 0.14, 0.05), MAT.trim, [0, 0.26, k.rear(0, 0.26) - 0.05]);
       k.put(rbox(k.W * 1.2, 0.05, 0.08, 0.02), MAT.carbon, [0, 0.17, k.rear(0, 0.2) - 0.02]);
       exhaust(k, k.W * 0.42, 0.26, 0.055, true);
+    },
+  },
+
+  // A twin-rotor lightweight: a long low nose with pop-up lamps standing up, a glass bubble canopy, a lip
+  // and a wide grin of an intake, and a slim lamp band across the tail.
+  tengu: {
+    top: [[0, 0.3], [0.05, 0.44], [0.12, 0.51], [0.22, 0.55], [0.32, 0.56], [0.42, 0.57], [0.62, 0.6], [0.8, 0.64], [0.95, 0.63], [1, 0.54]],
+    dip: [[0, 0], [0.08, 0.05], [0.18, 0.07], [0.32, 0.03], [0.4, 0], [0.7, 0], [0.82, 0.03], [1, 0]],
+    floor: [[0, 0.26], [0.05, 0.17], [0.1, 0.14], [0.9, 0.14], [0.96, 0.19], [1, 0.3]],
+    roof: [[0.38, 0.565], [0.45, 0.82], [0.52, 0.985], [0.64, 1], [0.74, 0.92], [0.86, 0.66]],
+    roofF: 0.52, roofR: 0.64, bPillar: 0, cPillar: 0.7, cabin: 0.8, cabTumble: 0.26,
+    waist: 0.05, flareF: 0.09, flareR: 0.11, nose: [0.13, 0.6], tail: [0.05, 0.88], tumble: 0.11, rb: 0.06, rt: 0.13,
+    plate: 'KAZE 13B', plateY: 0.46,
+    kit(k) {
+      // Pop-up lamps, up: a painted pod on a dark hinge each side, a lens in its face.
+      const pt = 0.085;
+      for (const x of [0.58]) {
+        const px = x * k.W;
+        const py = k.height(pt, px);
+        const pz = k.z(pt);
+        k.put(rbox(0.3, 0.14, 0.09, 0.03), k.paint, [px, py + 0.07, pz], [-0.08, 0, 0], true);
+        k.put(rbox(0.26, 0.02, 0.1, 0.008), MAT.trim, [px, py + 0.005, pz + 0.02], [0, 0, 0], true);
+        k.put(rbox(0.25, 0.09, 0.01, 0.02), MAT.gloss, [px, py + 0.075, pz - 0.047], [-0.08, 0, 0], true);
+        for (const dx of [-0.06, 0.06]) k.put(new THREE.CircleGeometry(0.04, 18), MAT.head, [px + dx, py + 0.075, pz - 0.054], [Math.PI, 0, 0], true);
+      }
+      // Turn signals in the bumper corners, a wide intake grin and a carbon lip.
+      const iy = 0.27;
+      k.put(rbox(k.W * 1.1, 0.12, 0.12, 0.05), MAT.grille, [0, iy, k.front(0, iy) + 0.05]);
+      for (const x of [0.78]) k.put(rbox(0.16, 0.05, 0.05, 0.02), MAT.amber, [x * k.W, iy + 0.03, k.front(x * k.W, iy + 0.03) + 0.02], [0, 0.35, 0], true);
+      k.put(rbox(k.W * 1.86, 0.02, 0.16, 0.008), MAT.carbon, [0, 0.15, k.front(0, 0.18) + 0.03]);
+      // A NACA duct on the hood and a gill behind each front wheel.
+      k.put(rbox(0.16, 0.012, 0.3, 0.02), MAT.grille, [0, k.top(0.24) + 0.003, k.z(0.24)], [0.05, 0, 0]);
+      const gt = k.tF + 0.12;
+      const g = k.side(gt, 0.55);
+      for (let i = 0; i < 3; i++) k.put(rbox(0.02, 0.09, 0.03, 0.008), MAT.grille, [g.x + 0.004, g.y, g.z + i * 0.05 - 0.05], [0, 0, 0], true);
+      // Tail: a thin lamp band in a dark panel, a round lamp at each end, the bumper and twin pipes.
+      const ty = k.top(0.99) - 0.09;
+      const tw = k.body.half(0.99, 0.8) * 0.94;
+      k.put(rbox(tw * 2, 0.08, 0.04, 0.02), MAT.gloss, [0, ty, k.rear(0, ty) - 0.012]);
+      k.put(rbox(tw * 1.9, 0.016, 0.03, 0.006), k.tail, [0, ty + 0.018, k.rear(0, ty) + 0.004]);
+      for (const x of [0.78]) {
+        const z = k.rear(x * k.W, ty);
+        k.put(new THREE.TorusGeometry(0.045, 0.014, 8, 24), k.tail, [x * k.W, ty - 0.01, z + 0.012], [0, 0, 0], true);
+      }
+      k.put(rbox(k.W * 1.84, 0.12, 0.14, 0.05), MAT.trim, [0, 0.26, k.rear(0, 0.26) - 0.05]);
+      exhaust(k, k.W * 0.3, 0.22, 0.05, true);
     },
   },
 

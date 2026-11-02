@@ -150,7 +150,9 @@ async function drive(opts: DriveOpts) {
     track: opts.track,
     name: playerName(),
     car: current(garage.g),
+    rider: garage.g.rider,
     rivals: opts.rivals,
+    physics: opts.physics,
     online: opts.online,
     onExit: (to, notice) => {
       game = null;

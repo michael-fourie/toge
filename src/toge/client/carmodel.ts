@@ -4,7 +4,9 @@
 // merged by material at the end. The model's origin is the centre of gravity, like the physics.
 
 import * as THREE from 'three';
-import { CARS, type CarSpec, GLOWS, type OwnedCar, carSpec } from '../shared/cars.ts';
+import { CARS, type CarSpec, GLOWS, type OwnedCar, carSpec, isBike } from '../shared/cars.ts';
+import { buildBike } from './bikemodel.ts';
+import { type Rider, defaultRider } from '../shared/rider.ts';
 import { DESIGNS, type Design, type Kit, makeKitHelpers } from './carkits.ts';
 import { type Section, centreTop, curve, loft, smooth, surface, zAt } from './carloft.ts';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -314,14 +316,21 @@ function ribbon(pts: THREE.Vector3[], side: THREE.Vector3, width: number): THREE
 
 export interface CarModel {
   root: THREE.Group;
-  /** Turns the wheels and suspension and the brake lights. Positions are body-space wheel centres. */
-  pose(wheels: { y: number; angle: number }[], steer: number, braking: boolean): void;
+  /** The body (everything but the wheels), offset from the CG by its position; its meshes are the car's own (crash dents). */
+  body: THREE.Group;
+  /**
+   * Turns the wheels and suspension and the brake lights. Positions are body-space wheel centres. `lat` is the
+   * cornering force (m/s², + to the left): bikes lean with it, cars ignore it.
+   */
+  pose(wheels: { y: number; angle: number }[], steer: number, braking: boolean, lat?: number): void;
   dispose(): void;
 }
 
-export function buildCar(owned: OwnedCar): CarModel {
+/** `rider`: who sits on a bike (null: nobody; the showroom stands them beside it). Cars keep their drivers inside. */
+export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()): CarModel {
+  if (isBike(owned.model)) return buildBike(owned, rider);
   const b = CARS[owned.model];
-  const d = DESIGNS[owned.model];
+  const d = DESIGNS[owned.model as keyof typeof DESIGNS];
   const sp = carSpec(owned);
   const look = owned.look;
   const L = b.length;
@@ -467,6 +476,7 @@ export function buildCar(owned: OwnedCar): CarModel {
 
   return {
     root,
+    body,
     pose(ws, steer, braking) {
       wheels.forEach((w, i) => {
         const front = i < 2;

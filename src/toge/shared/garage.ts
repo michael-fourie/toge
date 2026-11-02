@@ -5,6 +5,9 @@
 
 import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part, type Tune, cleanCar, cleanLook, cleanTune, decodeCar, encodeCar, isCarId, newOwnedCar } from './cars.ts';
 import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, rollCosCase } from './cosmetics.ts';
+import { clampDrift, driftPay, itemPay } from './drift.ts';
+import type { Item } from './powerups.ts';
+import { type Rider, cleanRider, defaultRider } from './rider.ts';
 import type { TrackId } from './track.ts';
 import { TRACK_DEFS } from './track.ts';
 
@@ -22,9 +25,11 @@ export interface Garage {
   lastReward: number;
   /** Cosmetic item ids won from cases (cosmetics.ts), each once. */
   cos: string[];
+  /** Your driver (rider.ts): stands by your car at home and with your crew in a lobby. Free to change. */
+  rider: Rider;
 }
 
-export const newGarage = (): Garage => ({ money: START_MONEY, cars: [newOwnedCar('pebble', 0)], sel: 0, races: 0, wins: 0, lastReward: 0, cos: [] });
+export const newGarage = (): Garage => ({ money: START_MONEY, cars: [newOwnedCar('pebble', 0)], sel: 0, races: 0, wins: 0, lastReward: 0, cos: [], rider: defaultRider() });
 
 /** Anything (stored JSON, a request body) to a valid garage. */
 export function cleanGarage(x: unknown): Garage {
@@ -39,6 +44,7 @@ export function cleanGarage(x: unknown): Garage {
   g.wins = whole(o.wins);
   g.lastReward = whole(o.lastReward);
   g.cos = Array.isArray(o.cos) ? [...new Set(o.cos.filter((id) => cosById(id)))].slice(0, COS_ITEMS.length) as string[] : [];
+  g.rider = cleanRider(o.rider);
   // A car can only wear what the garage owns.
   const owned = new Set(g.cos);
   for (const c of g.cars) for (const s of COS_SLOTS) if (c.cos[s] && !owned.has(c.cos[s]!)) delete c.cos[s];
@@ -141,6 +147,8 @@ const TIME_TRIAL_SHARE = 0.3;
 /** Solo races (against AI) pay this share, and at most once per this many ms. */
 export const SOLO_SHARE = 0.6;
 export const SOLO_GAP_MS = 45_000;
+/** Longest solo race the drift clamp allows for (s). */
+const SOLO_MAX_SECONDS = 600;
 
 /** What a finish pays: by place, a bit more for a bigger field and a longer road. `place` is 1-based, 0 = DNF. */
 export function payout(place: number, field: number, track: TrackId, solo: boolean): number {
@@ -152,8 +160,18 @@ export function payout(place: number, field: number, track: TrackId, solo: boole
   return Math.round((base * share * (solo ? SOLO_SHARE : 1)) / 10) * 10;
 }
 
+/**
+ * The bonus on top of the place prize: drift points (already clamped to the race clock) and item uses. Solo races
+ * pay their usual share of it. Paid to finishers and DNFs alike.
+ */
+export function raceBonus(drift: number, uses: Partial<Record<Item, number>>, track: TrackId, solo: boolean): { drift: number; items: number } {
+  const share = solo ? SOLO_SHARE : 1;
+  const r10 = (n: number) => Math.round((n * share) / 10) * 10;
+  return { drift: r10(driftPay(drift, TRACK_LENGTH_KM[track])), items: r10(itemPay(uses)) };
+}
+
 /** Rough race distances (km; every lap of a circuit) so payouts don't need the track built; tests check they stay close. */
-export const TRACK_LENGTH_KM: Record<TrackId, number> = { koripass: 5.3, saltwind: 3.6, redmesa: 4.1, tsukiyo: 5.1, momiji: 3.2, sakura: 4.2, monza: 5.6, spa: 5.2, monaco: 5.0, neonbay: 3.2, kodama: 4.4 };
+export const TRACK_LENGTH_KM: Record<TrackId, number> = { koripass: 5.3, saltwind: 3.6, redmesa: 4.1, tsukiyo: 5.1, momiji: 3.2, sakura: 4.2, monza: 5.6, spa: 5.2, monaco: 5.0, neonbay: 3.2, kodama: 4.4, karasu: 4.1 };
 
 // ---------------------------------------------------------------------------------------------
 // Everything you can do to a garage, as one action type (the server's API and the guest's local store)
@@ -164,12 +182,14 @@ export type GarageAction =
   | { a: 'select'; i: number }
   | { a: 'style'; i: number; look: Look; tune: Tune }
   | { a: 'sell'; i: number }
-  | { a: 'solo'; track: TrackId; place: number; field: number }
+  /** `drift`: drift points banked; `uses`: items used, per kind (both client-reported, clamped). */
+  | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number; uses?: Partial<Record<Item, number>> }
   | { a: 'case'; id: CaseId }
   | { a: 'equip'; i: number; slot: CosSlot; id: string | null }
-  | { a: 'plate'; i: number; text: string };
+  | { a: 'plate'; i: number; text: string }
+  | { a: 'rider'; rider: Rider };
 
-export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number } | { ok: false; error: string };
+export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number; bonus?: { drift: number; items: number } } | { ok: false; error: string };
 
 /** Selling gives back this share of the car's price. */
 export const SELL_SHARE = 0.5;
@@ -221,8 +241,10 @@ export function applyAction(g: Garage, act: GarageAction, rnd: () => number, now
       if (now - g.lastReward < SOLO_GAP_MS) return { ok: false, error: 'Too soon.' };
       const field = Math.max(1, Math.min(8, Math.floor(Number(act.field)) || 1));
       const place = Math.max(0, Math.min(field, Math.floor(Number(act.place)) || 0));
-      const paid = payout(place, field, act.track, true);
-      return { ok: true, g: { ...award(g, paid, place === 1 && field > 1), lastReward: now }, paid };
+      // Nothing times a solo race on the server, so drift is clamped to the longest race (and driftPay caps it per km).
+      const bonus = raceBonus(clampDrift(act.drift, SOLO_MAX_SECONDS), act.uses ?? {}, act.track, true);
+      const paid = payout(place, field, act.track, true) + bonus.drift + bonus.items;
+      return { ok: true, g: { ...award(g, paid, place === 1 && field > 1), lastReward: now }, paid, bonus };
     }
     case 'case': {
       const r = openCase(g, act.id, rnd);
@@ -246,6 +268,8 @@ export function applyAction(g: Garage, act: GarageAction, rnd: () => number, now
       next.cars[act.i].plate = cleanPlate(act.text);
       return { ok: true, g: next };
     }
+    case 'rider':
+      return { ok: true, g: { ...g, rider: cleanRider(act.rider) } };
   }
   return { ok: false, error: 'Bad request.' };
 }

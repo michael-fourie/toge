@@ -47,7 +47,7 @@ account screen, pad, touch setup, menu kit) is `src/client/` (guide: `src/client
 - The lobby room is client-side only: the server drops you into the match on join, and the room screen just shows the live roster before you enter.
 
 **Rendering**
-- One `THREE.WebGLRenderer` (created in game.ts; pixel ratio capped at 2, 1.5 on touch; PCF soft shadows; `autoClear = false`), no post-processing in the shooter. A WebGPU/PBR rewrite was tried (PR #1) and reverted on 2026-10-29 because it was too slow: don't reintroduce WebGPU.
+- One `THREE.WebGLRenderer` (created in game.ts; pixel ratio capped at 2, 1.5 on touch; PCF soft shadows; `autoClear = false`; on Low graphics, the site setting from src/client/graphics.ts picked in TŌGE's Settings tab: pixel ratio 1, no MSAA, no shadows, 60 fps cap), no post-processing in the shooter. A WebGPU/PBR rewrite was tried (PR #1) and reverted on 2026-10-29 because it was too slow: don't reintroduce WebGPU.
 - The world builder is picked per mode/map in game.ts: `buildFoundry` (Survival), `buildWildmere` (Battle Royale), `buildRustworks` / `buildSummit` / `buildDuneVillage`, else `buildWorld` (Windward, Crown).
 - Materials are `MeshToonMaterial` with the shared `toonRamp()` gradient; textures are painted on canvases at load (textures.ts and the per-map *textures.ts). The only optional asset is `public/models/awp.glb`.
 - Performance: Windward makes one mesh per box; the Foundry and Wildmere merge static geometry per material (`mergeGeometries`) and use `InstancedMesh` for repeated scenery. Do the same for any new big map.

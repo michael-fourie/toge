@@ -1,11 +1,17 @@
 // TŌGE's home: the garage. Four tabs (DESIGN.md §6): Race; Garage (My cars, Dealer); Performance (Upgrades,
-// Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts). LB / RB walk every page in that order. The showroom fills
+// Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts); Driver (your character: riderui.ts); Settings (graphics:
+// settingsui.ts). LB / RB walk every page in that order. The showroom fills
 // the window behind the glass rail, with your car framed in the free space and its card bottom right.
 
-import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, HOODS, LIPS, MIRRORS, RIMS, RIM_COLORS, RIM_COLOR_NAMES, ROOFS, SPOILERS, STRIPES, TINTS, TRIMS, TUNE_RANGE, type Tune, carSpec, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
+import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, HOODS, LIPS, MIRRORS, RIMS, RIM_COLORS, RIM_COLOR_NAMES, ROOFS, SPOILERS, STRIPES, TINTS, TRIMS, type BaseCar, TUNE_RANGE, type Tune, carSpec, isBike, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
 import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, payout, tunerCost } from '../shared/garage.ts';
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById } from '../shared/cosmetics.ts';
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
+import { type Rider, type RiderKey, RIDER_KEYS, defaultRider, encodeRider, randomRider } from '../shared/rider.ts';
+import { driverCard, driverTab } from './riderui.ts';
+import { PHYSICS } from '../shared/protocol.ts';
+import { settingsTab } from './settingsui.ts';
+import { type Graphics, graphics, setGraphics } from '../../client/graphics.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
 import type { Render } from '../../client/menu/router.ts';
@@ -19,13 +25,15 @@ import { TRACK_IDS, trackKind, trackMap, trackStyle, trackTile } from './trackar
 import './race.css';
 import './hub.css';
 
-type Page = 'race' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases';
-type TabId = 'race' | 'garage' | 'perf' | 'style';
+type Page = 'race' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'settings';
+type TabId = 'race' | 'garage' | 'perf' | 'style' | 'driver' | 'settings';
 const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
   { id: 'race', label: 'Race', pages: [['race', 'Race']] },
   { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['dealer', 'Dealer']] },
   { id: 'perf', label: 'Performance', pages: [['upgrades', 'Upgrades'], ['tuning', 'Tuning']] },
   { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['cases', 'Cases']] },
+  { id: 'driver', label: 'Driver', pages: [['driver', 'Driver']] },
+  { id: 'settings', label: 'Settings', pages: [['settings', 'Settings']] },
 ];
 /** Every page in LB / RB order. */
 const PAGES: Page[] = TABS.flatMap((t) => t.pages.map(([p]) => p));
@@ -33,6 +41,8 @@ const tabOf = (p: Page) => TABS.find((t) => t.pages.some(([q]) => q === p))!;
 
 const TRACK_KEY = 'atrous.track';
 const RIVALS_KEY = 'atrous.rivals';
+/** Physics mode (crash damage) for solo races, on or off. */
+const PHYSICS_KEY = 'atrous.physics';
 const read = (k: string, d: string) => {
   try {
     return localStorage.getItem(k) ?? d;
@@ -49,6 +59,8 @@ const write = (k: string, v: string) => {
 };
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
+/** "Bike" for two wheels (its RWD is a given), otherwise the driven wheels. */
+const driveLabel = (b: BaseCar) => (b.body === 'bike' ? 'Bike' : b.drive);
 
 export function classBadge(car: OwnedCar) {
   const r = rating(carSpec(car));
@@ -62,10 +74,11 @@ const statBar = (label: string, v: number) =>
 export const driveHub: Render = (root, ctx, screen) => {
   let page: Page = PAGES.find((p) => p === screen.dtab) ?? 'race';
   /** The page each tab opens on (the last one you looked at). */
-  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint' };
+  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint', driver: 'driver', settings: 'settings' };
   lastPage[tabOf(page).id] = page;
   let track = (read(TRACK_KEY, 'koripass') in TRACK_DEFS ? read(TRACK_KEY, 'koripass') : 'koripass') as TrackId;
   let rivals = Number(read(RIVALS_KEY, '5'));
+  let physics = read(PHYSICS_KEY, '0') === '1';
   let status = screen.notice ?? '';
   let draft: { look: Look; tune: Tune } | null = null;
   /** A dealer car being looked at (shown in the showroom and on the card until you leave the page). */
@@ -73,6 +86,9 @@ export const driveHub: Render = (root, ctx, screen) => {
   /** Locker: the slot being browsed, and a not-yet-owned item being tried on in the showroom. */
   let lockerSlot: CosSlot = 'paint';
   let trying: string | null = null;
+  /** Driver edits not saved yet (they save a moment after the last change, like paint). */
+  let riderDraft: Rider | null = null;
+  let riderTimer = 0;
   let saveTimer = 0;
   let listTimer = 0;
   let busy = false;
@@ -102,7 +118,7 @@ export const driveHub: Render = (root, ctx, screen) => {
       </section>
       <div class="tg-modal" data-modal hidden></div>
     </main>`;
-  const showroom = new Showroom($<HTMLCanvasElement>(root, '.tg-showroom'));
+  let showroom = new Showroom($<HTMLCanvasElement>(root, '.tg-showroom'));
   let shown = '';
 
   /** Frame the car in the space right of the rail (or under the top bar on a phone). */
@@ -120,6 +136,17 @@ export const driveHub: Render = (root, ctx, screen) => {
   const ro = new ResizeObserver(frameCar);
   ro.observe(root.querySelector('.tg')!);
 
+  /** A new showroom on a fresh canvas (the renderer's options, like anti-aliasing, are fixed when it's made). */
+  const rebuildShowroom = () => {
+    const old = $<HTMLCanvasElement>(root, '.tg-showroom');
+    const fresh = old.cloneNode() as HTMLCanvasElement;
+    showroom.dispose();
+    old.replaceWith(fresh);
+    showroom = new Showroom(fresh);
+    shown = '';
+    frameCar();
+  };
+
   const car = () => current(garage.g);
   /** The car as shown: the saved one with any unsaved paint/tune edits. */
   const viewed = (): OwnedCar => {
@@ -127,6 +154,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     const c = draft ? { ...car(), look: draft.look, tune: draft.tune } : car();
     return trying ? { ...c, cos: { ...c.cos, [lockerSlot]: trying } } : c;
   };
+  const viewedRider = (): Rider => riderDraft ?? garage.g.rider;
 
   const drawTop = () => {
     $(root, '[data-money]').textContent = money(garage.g.money);
@@ -156,7 +184,7 @@ export const driveHub: Render = (root, ctx, screen) => {
         : '';
     $(root, '[data-card]').innerHTML = `
       ${ribbon}
-      <div class="tg-card-head"><div><small>${esc(b.maker)} · ${b.drive}</small><h2 class="tg-title">${esc(b.name)}</h2></div>${classBadge(c)}</div>
+      <div class="tg-card-head"><div><small>${esc(b.maker)} · ${driveLabel(b)}</small><h2 class="tg-title">${esc(b.name)}</h2></div>${classBadge(c)}</div>
       ${statBar('Speed', st.speed)}${statBar('Handling', st.handling)}${statBar('Acceleration', st.acceleration)}${statBar('Launch', st.launch)}${statBar('Braking', st.braking)}
       <dl class="tg-specs">
         <div><dt>Power</dt><dd class="tg-num">${Math.round(peakPower(sp).kw * 1.341)}<small>hp</small></dd></div>
@@ -165,6 +193,12 @@ export const driveHub: Render = (root, ctx, screen) => {
       </dl>
       <p class="tg-card-hint">${ICON.spin} Drag or right stick to spin</p>`;
     $(root, '[data-stage-name]').innerHTML = `<small>${esc(b.maker)}</small>${esc(b.name)}`;
+    showroom.showRider(viewedRider());
+    showroom.focus(page === 'driver' ? 'rider' : 'car');
+    if (page === 'driver') {
+      $(root, '[data-card]').innerHTML = driverCard(viewedRider(), account.user ?? playerName());
+      $(root, '[data-stage-name]').innerHTML = `<small>Driver</small>${esc(account.user ?? playerName())}`;
+    }
     const key = JSON.stringify([c.model, c.look, c.cos, c.plate]);
     if (key !== shown) {
       shown = key;
@@ -197,6 +231,10 @@ export const driveHub: Render = (root, ctx, screen) => {
       <div class="tg-seg" role="group" aria-label="Rivals">
         <span class="tg-label">Rivals</span>
         ${[0, 3, 5, 7].map((n) => `<button class="tg-pill" data-rivals="${n}" aria-pressed="${n === rivals}">${n}</button>`).join('')}
+      </div>
+      <div class="tg-seg" role="group" aria-label="${esc(PHYSICS.name)}" title="${esc(PHYSICS.on.blurb)}">
+        <span class="tg-label">${esc(PHYSICS.name)}</span>
+        ${[false, true].map((on) => `<button class="tg-pill" data-physics="${on ? 1 : 0}" aria-pressed="${on === physics}">${on ? 'On' : 'Off'}</button>`).join('')}
       </div>
       <button class="tg-go" data-solo data-autofocus>${ICON.flag}Race solo</button>
     </div>
@@ -238,7 +276,7 @@ export const driveHub: Render = (root, ctx, screen) => {
           return `<div class="tg-owned tg-cardbox ${sel ? 'on' : ''}" style="--paint:${hex(PAINTS[c.look.paint])}">
             <div class="tg-owned-name"><small>${esc(b.maker)}</small><b>${esc(b.name)}</b></div>
             ${classBadge(c)}
-            <div class="tg-owned-meta"><span>${b.drive}</span><span class="tg-up" style="--v:${levels / (PARTS.length * MAX_LEVEL)}"><i></i>${levels}/${PARTS.length * MAX_LEVEL} upgrades</span></div>
+            <div class="tg-owned-meta"><span>${driveLabel(b)}</span><span class="tg-up" style="--v:${levels / (PARTS.length * MAX_LEVEL)}"><i></i>${levels}/${PARTS.length * MAX_LEVEL} upgrades</span></div>
             <div class="tg-owned-act">
               ${sel ? '<span class="tg-tag">Driving</span>' : `<button class="tg-pill" data-select="${i}" ${i === 0 && !sel ? 'data-autofocus' : ''}>Drive</button>`}
               ${g.cars.length > 1 ? `<button class="tg-pill danger" data-sell="${i}">Sell ${money(b.price * 0.5)}</button>` : ''}
@@ -261,7 +299,7 @@ export const driveHub: Render = (root, ctx, screen) => {
         const owned = garage.g.cars.filter((c) => c.model === id).length;
         const looking = preview?.model === id;
         return `<div class="tg-deal tg-cardbox ${looking ? 'on' : ''}">
-          <div class="tg-deal-head"><div><small>${esc(b.maker)} · ${b.drive}</small><b class="tg-title">${esc(b.name)}</b></div>${classBadge(stock)}</div>
+          <div class="tg-deal-head"><div><small>${esc(b.maker)} · ${driveLabel(b)}</small><b class="tg-title">${esc(b.name)}</b></div>${classBadge(stock)}</div>
           <p>${esc(b.blurb)}</p>
           <div class="tg-deal-stats">${statBar('Speed', st.speed)}${statBar('Handling', st.handling)}${statBar('Accel', st.acceleration)}</div>
           <div class="tg-deal-foot">
@@ -339,27 +377,29 @@ export const driveHub: Render = (root, ctx, screen) => {
       </div>
       <div class="tg-group tg-cardbox">
         <h2 class="tg-h">Body</h2>
-        <div class="tg-field"><span class="tg-label">Spoiler</span>${pills('spoiler', SPOILERS)}</div>
+        ${isBike(viewed().model) ? '' : `<div class="tg-field"><span class="tg-label">Spoiler</span>${pills('spoiler', SPOILERS)}</div>
         <div class="tg-field"><span class="tg-label">Front lip</span>${pills('lip', LIPS)}</div>
         <div class="tg-field"><span class="tg-label">Hood</span>${pills('hood', HOODS)}</div>
-        <div class="tg-field"><span class="tg-label">Roof</span>${pills('roof', ROOFS)}</div>
+        <div class="tg-field"><span class="tg-label">Roof</span>${pills('roof', ROOFS)}</div>`}
         <div class="tg-field"><span class="tg-label">Stripes</span>${pills('stripe', STRIPES)}</div>
         ${L.stripe ? `<div class="tg-swatches">${swatches('stripeColor', PAINTS, PAINT_NAMES)}</div>` : ''}
         <div class="tg-field"><span class="tg-label">Underglow</span></div>
         <div class="tg-swatches">${swatches('glow', GLOWS, GLOW_NAMES)}</div>
       </div>
-      <div class="tg-group tg-cardbox">
+      ${isBike(viewed().model) ? '' : `<div class="tg-group tg-cardbox">
         <h2 class="tg-h">Glass and trim</h2>
         <div class="tg-field"><span class="tg-label">Window tint</span>${pills('tint', TINTS)}</div>
         <div class="tg-field"><span class="tg-label">Trim</span>${pills('trim', TRIMS)}</div>
         <div class="tg-field"><span class="tg-label">Mirrors</span>${pills('mirrors', MIRRORS)}</div>
-      </div>
+      </div>`}
       ${statusLine()}`;
   };
 
   const lockerPage = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
   const casesPage = () => casesTab(garage.g, status);
-  const BODIES: Record<Page, () => string> = { race: racePage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage };
+  const driverPage = () => driverTab(viewedRider(), status);
+  const settingsPage = () => settingsTab(graphics(), status);
+  const BODIES: Record<Page, () => string> = { race: racePage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, settings: settingsPage };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -416,7 +456,14 @@ export const driveHub: Render = (root, ctx, screen) => {
         draw();
       }),
     );
-    panel.querySelector('[data-solo]')?.addEventListener('click', () => ctx.drive({ track, rivals }));
+    panel.querySelectorAll<HTMLElement>('[data-physics]').forEach((b) =>
+      b.addEventListener('click', () => {
+        physics = b.dataset.physics === '1';
+        write(PHYSICS_KEY, physics ? '1' : '0');
+        draw();
+      }),
+    );
+    panel.querySelector('[data-solo]')?.addEventListener('click', () => ctx.drive({ track, rivals, physics }));
     panel.querySelector('[data-host]')?.addEventListener('click', () => connect(null));
     const code = panel.querySelector<HTMLInputElement>('[data-code]');
     code?.addEventListener('input', () => (code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '')));
@@ -461,6 +508,31 @@ export const driveHub: Render = (root, ctx, screen) => {
         draw();
       }),
     );
+    panel.querySelectorAll<HTMLElement>('[data-graphics]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const g = b.dataset.graphics as Graphics;
+        if (g === graphics()) return;
+        setGraphics(g);
+        rebuildShowroom();
+        status = g === 'low' ? 'Low graphics on. Your next race uses it too.' : 'High graphics on. Your next race uses it too.';
+        draw();
+      }),
+    );
+    // Your driver: every pick shows at once and saves a moment later.
+    const setRider = (r: Rider) => {
+      riderDraft = r;
+      clearTimeout(riderTimer);
+      riderTimer = window.setTimeout(flushRider, 700);
+      draw();
+    };
+    panel.querySelectorAll<HTMLElement>('[data-rider]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const k = b.dataset.rider as RiderKey;
+        if (RIDER_KEYS.includes(k)) setRider({ ...viewedRider(), [k]: Number(b.dataset.v) });
+      }),
+    );
+    panel.querySelector('[data-rider-random]')?.addEventListener('click', () => setRider(randomRider()));
+    panel.querySelector('[data-rider-reset]')?.addEventListener('click', () => setRider(defaultRider()));
     // Cosmetics: cases and the locker.
     if (page === 'cases') wireCases(panel, garage.g);
     panel.querySelectorAll<HTMLElement>('[data-case-open]').forEach((b) => b.addEventListener('click', () => void openCase(b.dataset.caseOpen as CaseId)));
@@ -516,7 +588,16 @@ export const driveHub: Render = (root, ctx, screen) => {
     clearTimeout(saveTimer);
     saveTimer = window.setTimeout(flushDraft, 700);
   };
+  const flushRider = () => {
+    clearTimeout(riderTimer);
+    if (!riderDraft) return;
+    const r = riderDraft;
+    void garage.act({ a: 'rider', rider: r }).then(() => {
+      if (riderDraft === r) riderDraft = null;
+    });
+  };
   const flushDraft = () => {
+    flushRider();
     clearTimeout(saveTimer);
     if (!draft) return;
     const d = draft;
@@ -626,8 +707,9 @@ export const driveHub: Render = (root, ctx, screen) => {
       }
     });
     const enc = encodeCar(car());
-    if (code) raceNet.join(playerName(), enc, code);
-    else raceNet.host(playerName(), enc);
+    const rider = encodeRider(viewedRider());
+    if (code) raceNet.join(playerName(), enc, rider, code);
+    else raceNet.host(playerName(), enc, rider);
   };
 
   const refreshLobbies = async () => {
@@ -639,7 +721,7 @@ export const driveHub: Render = (root, ctx, screen) => {
       if (!root.querySelector('[data-lobbies]')) return;
       list.innerHTML = lobbies.length
         ? lobbies
-            .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s ${l.mode === 'trial' ? 'time trial' : 'race'} · ${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${l.phase === 'lobby' ? '' : ' · racing'}</span><button class="tg-pill" data-joincode="${esc(l.code)}" ${l.players >= l.max ? 'disabled' : ''}>${l.players >= l.max ? 'Full' : 'Join'}</button></li>`)
+            .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s ${l.mode === 'trial' ? 'time trial' : l.mode === 'climb' ? 'hill climb' : 'race'}${l.physics ? ' · physics' : ''} · ${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${l.phase === 'lobby' ? '' : ' · racing'}</span><button class="tg-pill" data-joincode="${esc(l.code)}" ${l.players >= l.max ? 'disabled' : ''}>${l.players >= l.max ? 'Full' : 'Join'}</button></li>`)
             .join('')
         : `<li class="muted">No open races right now. Host one and share the code.</li>`;
       list.querySelectorAll<HTMLElement>('[data-joincode]').forEach((b) => b.addEventListener('click', () => connect(b.dataset.joincode!)));
@@ -703,10 +785,12 @@ function focusId(el: Element | null): string | null {
   if (!(el instanceof HTMLElement) || !el.closest('[data-panel]')) return null;
   const look = el.getAttribute('data-look');
   if (look) return `[data-look="${look}"][data-v="${el.getAttribute('data-v')}"]`;
-  for (const attr of ['data-track', 'data-rivals', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos']) {
+  const rider = el.getAttribute('data-rider');
+  if (rider) return `[data-rider="${rider}"][data-v="${el.getAttribute('data-v')}"]`;
+  for (const attr of ['data-track', 'data-rivals', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }
-  for (const attr of ['data-solo', 'data-host', 'data-join', 'data-code']) if (el.hasAttribute(attr)) return `[${attr}]`;
+  for (const attr of ['data-solo', 'data-host', 'data-join', 'data-code', 'data-rider-random', 'data-rider-reset']) if (el.hasAttribute(attr)) return `[${attr}]`;
   return null;
 }

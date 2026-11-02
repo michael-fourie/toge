@@ -1567,6 +1567,46 @@ html:not(.pad) .tg-bumper {
   min-width: 260px;
 }
 
+/* Settings: the graphics choice, two option cards (cyan frame on the one picked) */
+.tg-gfx {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.tg-gfx-opt {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 14px 16px;
+  text-align: left;
+  border-radius: 6px;
+  border: 1px solid var(--tg-line-2);
+  background: var(--tg-ink-2);
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.tg-gfx-opt:hover {
+  background: var(--tg-ink-3);
+}
+.tg-gfx-opt[aria-pressed='true'] {
+  border-color: var(--tg-cyan);
+  box-shadow: inset 0 0 0 1px var(--tg-cyan);
+}
+.tg-gfx-opt[aria-pressed='true'] .tg-title {
+  color: var(--tg-cyan);
+}
+.tg-gfx-opt small {
+  color: var(--tg-dim);
+}
+.tg-gfx-opt ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--tg-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 /* ============================================================================================
    Small screens
    ============================================================================================ */
@@ -1630,4 +1670,122 @@ html:not(.pad) .tg-bumper {
   .tg-hero-map {
     width: 110px;
   }
+}
+
+/* ============================================================================================
+   Driver (riderui.ts) and the lobby crew (lobby.ts)
+   ============================================================================================ */
+.tg-rider-actions {
+  margin: 0 0 12px;
+}
+.tg-rider-group .tg-label small {
+  margin-left: 6px;
+  font: 500 12px/1 var(--tg-body);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--tg-cyan);
+}
+.tg-rider-group .tg-pill {
+  min-height: 34px;
+}
+.tg-rider-specs dd {
+  font: italic 800 18px/1.1 var(--tg-display);
+  text-transform: uppercase;
+}
+
+/* The crew: every racer's driver in a row on a lit floor. Portraits are 160 × 320 PNGs (riderportrait.ts). */
+.tg-crew {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  min-height: 250px;
+  margin: 4px 0 6px;
+  padding: 10px 8px 0;
+  border-radius: var(--tg-radius);
+  background:
+    radial-gradient(60% 34% at 50% 88%, rgba(56, 201, 255, 0.22), transparent 70%),
+    radial-gradient(40% 60% at 50% 100%, rgba(255, 61, 154, 0.14), transparent 70%),
+    linear-gradient(180deg, rgba(18, 25, 38, 0.2), rgba(18, 25, 38, 0.85));
+  box-shadow: inset 0 0 0 1px var(--tg-line);
+  overflow: hidden;
+}
+.tg-crew::after {
+  /* the floor line */
+  content: '';
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 44px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--tg-line-2), transparent);
+}
+.tg-crew-m {
+  position: relative;
+  z-index: 1;
+  flex: 0 1 clamp(60px, calc(100% / max(var(--n), 4)), 120px);
+  display: grid;
+  justify-items: center;
+  margin: 0 -2px;
+  animation: tg-crew-in 0.24s var(--tg-ease) both;
+}
+.tg-crew-m img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: 2px;
+  filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.5));
+}
+.tg-crew-none {
+  display: block;
+  width: 100%;
+  aspect-ratio: 160 / 320;
+}
+.tg-crew-m figcaption {
+  display: grid;
+  justify-items: center;
+  width: 100%;
+  padding: 0 4px 8px;
+  text-align: center;
+}
+.tg-crew-m b {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: italic 800 16px/1.1 var(--tg-display);
+  text-transform: uppercase;
+}
+.tg-crew-m small {
+  font-size: 11px;
+  color: var(--tg-dim);
+  white-space: nowrap;
+}
+.tg-crew-m.me b {
+  color: var(--tg-gold);
+}
+@keyframes tg-crew-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tg-crew-m {
+    animation: none;
+  }
+}
+/* A racer's head in the grid list, cropped from their portrait, on a ring of their car's paint. */
+.tg-face {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background-color: var(--tg-ink-3);
+  background-size: 190% auto;
+  background-position: 54% 4%;
+  background-repeat: no-repeat;
+  box-shadow:
+    0 0 0 2px var(--paint),
+    0 0 0 3px var(--tg-ink-1);
 }

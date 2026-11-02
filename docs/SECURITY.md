@@ -57,6 +57,12 @@ player sees is decided or checked by the server; anything the server can't check
   hit checks.
 - **TŌGE solo races** are paid from what the client reports (at most once per `SOLO_GAP_MS`); online finish times are
   checked against the server's clock within a window.
+- **TŌGE drift and item bonuses** (`src/toge/shared/drift.ts`) are scored on the client, since driving is. The server
+  bounds them: online, a racer's drift total is capped at `DRIFT_MAX_RATE` × seconds since GO (only while racing,
+  never after finishing), and item uses are counted by the room itself (attack items as it relays them, turbos and
+  shields from rate-limited `used` messages, none in a time trial). Either way drifting pays at most `DRIFT.payPerKm`
+  per km of race and items at most `ITEM_PAY_CAP`, both well under a win; solo pays its usual share and is still
+  limited to one payout per `SOLO_GAP_MS`. A cheat client can max both caps, not exceed them.
 - **Plug-in games** (`PartyRoom`) relay players' messages unopened: each game must validate what it receives and
   render names with `textContent`.
 - **No full Content-Security-Policy** yet (only `frame-ancestors`): a `script-src` policy needs a pass over inline

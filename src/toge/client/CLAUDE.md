@@ -7,6 +7,8 @@ The whole TŌGE guide (physics, tracks, cars, server, rendering rules, how to ad
 The rules that bite most often in this folder:
 
 - Plain `THREE.WebGLRenderer` through `Post` (post.ts: bloom, film grade per theme, ACES). No WebGPU.
+- Low graphics (Settings tab; `lowGraphics()` from src/client/graphics.ts) must stay cheap: no shadows, no post chain,
+  Lambert/Phong stand-ins for PBR (lowgfx.ts). A new effect either skips itself on Low or costs next to nothing.
 - Never add or remove a light mid-race (every lit shader recompiles: a multi-second freeze). Add it at load and change its intensity.
 - At night bloom only catches values above 1: lamps, reflectors and signs must be brighter than white.
 - Watch triangle counts with `__race.renderer.info`; forests dominate, a car is ~30k triangles in ~40 draw calls.

@@ -75,7 +75,11 @@ export interface TrackView {
   dispose(): void;
 }
 
-export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): TrackView {
+/** `low`: Low graphics (src/client/graphics.ts): no shadow casting, no clouds, half the forest, brighter fill light. */
+/** How much brighter the fill light is on Low, standing in for the environment light Lambert doesn't get. */
+const LOW_FILL = 2.4;
+
+export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low = false): TrackView {
   const t = lapView(road); // a circuit is drawn once round
   const look = LOOKS[t.def.theme];
   const scene = new THREE.Scene();
@@ -90,6 +94,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): Trac
   u.rayleigh.value = look.rayleigh;
   u.mieCoefficient.value = look.moon ? 0.004 : 0.0025; // less glare round the sun
   if (look.clouds) [u.cloudCoverage.value, u.cloudDensity.value] = look.clouds;
+  if (low) u.cloudCoverage.value = 0; // the clouds are a per-pixel noise loop over half the screen
   u.mieDirectionalG.value = 0.8;
   const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - look.sun[0]), THREE.MathUtils.degToRad(look.sun[1]));
   u.sunPosition.value.copy(sunDir);
@@ -140,7 +145,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): Trac
   const sun = new THREE.DirectionalLight(look.light ?? 0xffe6c4, look.lightPower ?? 1.75);
   // At night the light comes from the moon, not the sun the sky is shaded with.
   const lightDir = look.moon ? new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - look.moon[0]), THREE.MathUtils.degToRad(look.moon[1])) : sunDir;
-  sun.castShadow = true;
+  sun.castShadow = !low;
   sun.shadow.mapSize.set(2048, 2048);
   const sc = sun.shadow.camera;
   sc.left = sc.bottom = -45;
@@ -150,7 +155,8 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): Trac
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x4a4030, look.hemi ?? 0.35));
+  // Low's simple materials don't see the sky environment (scene.environment), so more fill light stands in for it.
+  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x4a4030, (look.hemi ?? 0.35) * (low ? LOW_FILL : 1)));
   if (look.moon) scene.add(stars(lightDir, keep));
   scene.add(backdrop(look.backdrop, keep));
 
@@ -328,8 +334,9 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): Trac
         const idx: number[] = [];
         for (let k = i; k <= j; k++) {
           const r = run[k];
-          const from = dirtFrom(t, r);
           const to = t.rail + r + 1.2 * Math.min(1, r);
+          // dirtFrom is Infinity under 5 cm of runoff (this strip starts at 2 cm): pinch it shut there, not off to infinity.
+          const from = Math.min(dirtFrom(t, r), to);
           for (const d of [side * from, side * to]) {
             pos.push(t.x[k] - t.tz[k] * d, t.y[k] - t.bank[k] * d + 0.04, t.z[k] + t.tx[k] * d);
             uvs.push(d === side * from ? 0.03 : 0.03 + (to - from) / 14, (k * SAMPLE) / ROAD_TILE);
@@ -503,7 +510,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): Trac
   // --- Forests and rocks
   if (t.def.theme === 'city') city(scene, t, rng, inner, keep);
   else {
-    scatter(scene, t, look, rng, inner, keep);
+    scatter(scene, t, look, rng, inner, keep, low);
     village(scene, t, rng, keep, !!look.moon);
   }
 
@@ -592,8 +599,9 @@ function gantry(scene: THREE.Scene, t: Track, s: number, text: string, chequer: 
   scene.add(g);
 }
 
-/** Trees (pines up the mountain, cypress and round pines by the sea) and boulders, instanced per 400 m tile. */
-function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T) {
+/** Trees (pines up the mountain, cypress and round pines by the sea) and boulders, instanced per 400 m tile. A hill
+ * climb's forest is thicker and closer. */
+function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T, low: boolean) {
   const theme = t.def.theme;
   const tree = keep(theme === 'alpine' || theme === 'night' ? pineGeometry() : theme === 'coast' ? coastTreeGeometry() : theme === 'desert' ? cactusGeometry() : mapleGeometry());
   // Maples each get their own autumn colour; in spring the same trees are cherries in blossom, with a few in fresh leaf.
@@ -608,23 +616,31 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
   // Every tree a little different in shade and hue, even in a plain green forest.
   const jitter = new THREE.Color();
   const TILE = 400;
+  // A hill climb's forest crowds right up to the barrier, with more boulders tumbled beside the road.
+  const climb = !!t.def.climb;
+  const near = climb ? 3.5 : 9;
   const here = newLoc();
   const q = new THREE.Quaternion();
   const v = new THREE.Vector3();
   const s = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
+  // Low: trees out to 400 m instead of 700, and every other one past the first 60 (the same rolls either way,
+  // so the trees that stay are where they'd be on High).
+  let nth = 0;
   for (let tx = area.x0; tx < area.x1; tx += TILE)
     for (let tz = area.z0; tz < area.z1; tz += TILE) {
       const trees: THREE.Matrix4[] = [];
       const rocks: THREE.Matrix4[] = [];
+      /** Low: the trees left out (still rolled and coloured, so everything after is placed as on High). */
+      const cut = new Set<number>();
       for (let x = tx; x < tx + TILE; x += 10)
         for (let z = tz; z < tz + TILE; z += 10) {
           const px = x + rng() * 10;
           const pz = z + rng() * 10;
           const rd = roadDistance(t, px, pz);
-          if (rd < t.edge + 9) continue;
-          if (rd < t.edgeMax + 9 && Math.abs(locate(t, px, pz, -1, here).d) < railOf(t, here.i, here.d) + 9) continue; // not in the runoff
-          const forest = fbm(px / 140, pz / 140, t.def.seed + 11, 3) + (look.forest ?? (theme === 'alpine' ? 0.15 : -0.05));
+          if (rd < t.edge + near) continue;
+          if (rd < t.edgeMax + near && Math.abs(locate(t, px, pz, -1, here).d) < railOf(t, here.i, here.d) + near) continue; // not in the runoff
+          const forest = fbm(px / 140, pz / 140, t.def.seed + 11, 3) + (look.forest ?? (theme === 'alpine' ? 0.15 : -0.05)) + (climb ? 0.2 : 0);
           const h = heightAt(t, px, pz);
           if (t.def.water !== undefined && h < t.def.water + 2.5) continue;
           const slope = Math.abs(heightAt(t, px + 2, pz) - h) + Math.abs(heightAt(t, px, pz + 2) - h);
@@ -633,7 +649,8 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
             const sc = 0.75 + rng() * 0.7;
             q.setFromAxisAngle(up, rng() * Math.PI * 2);
             trees.push(new THREE.Matrix4().compose(v.set(px, h - 0.2, pz), q, s.set(sc, sc * (0.85 + rng() * 0.4), sc)));
-          } else if (rng() < 0.02 + (slope > 2.5 ? 0.06 : 0)) {
+            if (low && !(rd < 400 && (rd < 60 || ++nth % 2 === 0))) cut.add(trees.length - 1);
+          } else if (rng() < 0.02 + (slope > 2.5 ? 0.06 : 0) + (climb && rd < 60 ? 0.12 : 0)) {
             const sc = 0.5 + rng() * 2.2;
             q.setFromEuler(new THREE.Euler(rng(), rng() * 6, rng()));
             rocks.push(new THREE.Matrix4().compose(v.set(px, h - sc * 0.3, pz), q, s.set(sc, sc * 0.7, sc)));
@@ -643,13 +660,21 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
         [trees, tree, treeMat],
         [rocks, rock, rockMat],
       ] as const) {
-        if (!list.length) continue;
-        const im = new THREE.InstancedMesh(geo, mat, list.length);
+        const n = list === trees ? list.length - cut.size : list.length;
+        if (!n) {
+          // Keep the rolls in step: each tree's colour takes two (three with a palette).
+          if (list === trees) for (let i = 0; i < list.length * (leaves ? 3 : 2); i++) rng();
+          continue;
+        }
+        const im = new THREE.InstancedMesh(geo, mat, n);
+        let k = 0;
         list.forEach((mm, i) => {
-          im.setMatrixAt(i, mm);
-          if (list !== trees) return;
+          if (list !== trees) return im.setMatrixAt(i, mm);
           const base = leaves ? leaves[Math.floor(rng() * leaves.length)] : jitter.setRGB(1, 1, 1);
-          im.setColorAt(i, jitter.copy(base).offsetHSL((rng() - 0.5) * 0.04, 0, 0).multiplyScalar(0.8 + rng() * 0.35));
+          jitter.copy(base).offsetHSL((rng() - 0.5) * 0.04, 0, 0).multiplyScalar(0.8 + rng() * 0.35);
+          if (cut.has(i)) return;
+          im.setMatrixAt(k, mm);
+          im.setColorAt(k++, jitter);
         });
         im.castShadow = true;
         im.receiveShadow = true;
