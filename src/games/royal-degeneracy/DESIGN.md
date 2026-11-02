@@ -28,7 +28,7 @@ Among Us gives the bones: hidden culprits, takeouts, meetings and votes. Three t
 
 ## A round: one night in the house
 
-1. **Lobby** (a party room): pick your character from their card (stats, ability, quirk), with them turning on a
+1. **Lobby** (a party room): pick your character from their card (blurb, trait card, ability, quirk), with them turning on a
    stand; the host picks the case and settings.
 2. **Cold open** (8 s): the case card ("THE DRUMSET MASSACRE. Donal's kit is in pieces. He's home at 4 am. One of
    you did this."), then your private role card: Housemate or Degenerate. Degenerates see each other.
@@ -202,7 +202,7 @@ and lines. The regulars have no bedroom: Nash wakes up on the sofa with a contro
 room holds 12, so the rest of a full lobby are friends who join as **guests**. Guests wake up on the sofa, their
 room trait is "the couch", and they get abilities from the pool below once their sheets are in.
 
-Characters are data (`cast.ts`): name tag, look, height, card stats, trait card, bedroom, ability, quirk, signature
+Characters are data (`cast.ts`): name tag, look, height, trait card, bedroom, ability, quirk, signature
 belonging, catchphrase and a handful of lines (speech bubbles when they greet someone, at meetings, on finding a
 body, when evicted). The housemates wake up in their real bedrooms. Your eye height is your character's real height:
 Wags (190 cm) sees over the fridge, Will Palmer (165 cm) looks up at everyone.
@@ -364,8 +364,8 @@ asleep on the couch.
 - **Awards** every night, from the night's log: Sherlock (most real clues posted), Framed (evicted while innocent),
   Sus Magnet (most votes against), First Blood (taken out first, again), Chore Champion, Untouchable (a Degenerate
   nobody voted for).
-- **Character cards**: in the lobby every character is a trading card with their stats (Brains, Chill, Bro, Green,
-  Booze, Tidy), ability, quirk and a line.
+- **Character cards**: in the lobby every character is a trading card with their blurb, trait card, ability, quirk
+  and a line (no ratings).
 - **Stats** kept in the browser: nights, wins per side, cases cracked, times evicted, favourite character.
 - **Host settings**: case (random or pick), number of Degenerates, night length, takeout cooldown, discussion and
   vote times, reveal roles on eviction, anonymous votes, and **Cosy mode**: no takeouts, the Degenerates only
@@ -428,7 +428,7 @@ src/games/royal-degeneracy/
   channel.ts     the menu tile (banner: the house at night, windows lighting up, a silhouette passing) + mount
   game.ts        screens and the main loop: menu, lobby, night, meeting, reveal, pause
   house.ts       the house as data: floors, rooms, walls with door/window gaps, doors, stairs, furniture, spots
-  cast.ts        the characters as data (from CAST.md): look, height, card stats, trait card, bedroom, ability,
+  cast.ts        the characters as data (from CAST.md): look, height, trait card, bedroom, ability,
                  quirk, signature belonging, lines
   cases.ts       the mysteries as data
   npcs.ts        pure: the raccoon and the Bike Stu randoms (run by the host, sent like poses)
@@ -567,7 +567,6 @@ Look: build, hair (style, colour), facial hair, glasses, skin tone,
       usual outfit, signature items (cap, headphones, chain, ...)
 Personality in one sentence:
 What they'd be doing in the house at 2 am:
-Card stats out of 10: brains | chill | bro | green | booze | tidy
 Trait card (overlaps between people are good):
   studies | smokes? | temper | go-to drink | shoes | hair
 Something they'd leave lying around (their signature belonging):
