@@ -367,6 +367,26 @@ html.pad .tg :is(button, input):focus {
 .tg-track.spa {
   background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #b9c9d6, #dfe6ea 32%, #2f5a3a 33%, #3c3f45 50%, #3c3f45 56%, #24402b 57%, #17291c);
 }
+.tg-track.kodama {
+  background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #d6e9f6, #fbe3ec 30%, #f4b6ca 31%, #3c3f45 47%, #3c3f45 53%, #79a84c 54%, #3f6a2e);
+}
+.tg-modes {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.tg-modes .tg-pill {
+  flex: 1;
+  text-align: left;
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.tg-modes .tg-pill small {
+  display: block;
+  font-weight: 500;
+  font-size: 12px;
+  opacity: 0.75;
+}
 .tg-track.monaco {
   background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75)), linear-gradient(170deg, #9fd0f0, #e6f2fa 30%, #f3ead9 31%, #e9c9a0 45%, #1f6f9f 46%, #134a6e);
 }
@@ -1246,6 +1266,19 @@ html.pad .tg :is(button, input):focus {
 .rh-results .tm {
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+.rh-results .gap,
+.rh-results .best {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: #c8d2e2;
+}
+.rh-results .gap {
+  color: #ff9a9a;
+}
+.rh-results .best small {
+  color: #8f9bb0;
+  margin-right: 4px;
 }
 .rh-results .pz {
   color: #ffc940;

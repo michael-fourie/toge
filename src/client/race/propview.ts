@@ -71,6 +71,12 @@ export class PropView {
     for (const r of track.ramps) this.group.add(rampMesh(track, r.s, r.d, r.len, r.w, keep, rampMat));
   }
 
+  /** Time trial: no items, so no boxes. */
+  clearBoxes() {
+    for (const m of this.boxes.values()) m.removeFromParent();
+    this.boxes.clear();
+  }
+
   /** Takes box `i` if it's there (it comes back after a few seconds). */
   takeBox(i: number, now: number): boolean {
     const m = this.boxes.get(i);

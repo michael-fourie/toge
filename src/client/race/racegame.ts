@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, newOwnedCar, CAR_IDS, rating } from '../../shared/race/cars.ts';
 import { type Ai, aiDrive, newAi } from '../../shared/race/driver.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../../shared/race/powerups.ts';
-import { CarFlag, type NetCar, type RaceServerMsg, type Racer } from '../../shared/race/protocol.ts';
+import { CarFlag, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../../shared/race/protocol.ts';
 import { standings } from '../../shared/race/standings.ts';
 import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../../shared/race/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../../shared/race/vehicle.ts';
@@ -16,7 +16,7 @@ import { TrafficView } from './trafficview.ts';
 import { rumble, setMenuNav } from '../pad.ts';
 import { esc } from '../menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
-import { type CarModel, buildCar } from './carmodel.ts';
+import { type CarModel, buildCar, ghostly } from './carmodel.ts';
 import { Effects } from './effects.ts';
 import { garage } from './garageStore.ts';
 import { type Dot, type ResultLine, RaceHud, type Tag, fmtTime, money, ordinal } from './hud.ts';
@@ -30,8 +30,8 @@ export interface RaceSetup {
   track: TrackId;
   name: string;
   car: OwnedCar;
-  /** Online: the lobby socket and the countdown it just sent. */
-  online?: { net: RaceNet; grid: Record<number, number>; countdownMs: number; racers: Racer[] };
+  /** Online: the lobby socket and the countdown it just sent (and whether it's a race or a ghost time trial). */
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; countdownMs: number; racers: Racer[] };
   /** Solo: how many AI rivals. */
   rivals?: number;
   onExit(to: 'garage' | 'lobby', notice?: string): void;
@@ -171,6 +171,10 @@ export class RaceGame {
   /** The lap you're on (circuits) and when you started it. */
   private lap = 1;
   private lapStart = 0;
+  /** Your quickest lap so far (circuits), sent with your finish time. */
+  private bestLap = Infinity;
+  /** A time trial: the other racers are ghosts (no contact) and there are no items. */
+  private readonly trial: boolean;
   private acc = 0;
   private last = performance.now();
   private raf = 0;
@@ -194,6 +198,7 @@ export class RaceGame {
 
   constructor(private setup: RaceSetup) {
     this.track = getTrack(setup.track);
+    this.trial = setup.online?.mode === 'trial';
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
     this.renderer.shadowMap.enabled = true;
@@ -208,6 +213,7 @@ export class RaceGame {
     this.post = new Post(this.renderer, this.view.scene, this.camera, this.view.grade);
     this.fx = new Effects(this.view.scene);
     this.propView = new PropView(this.view.scene, this.track);
+    if (this.trial) this.propView.clearBoxes();
     this.traffic = getTraffic(this.track);
     if (this.traffic) this.trafficView = new TrafficView(this.view.scene, this.track, this.traffic);
     this.hud = new RaceHud(setup.container, this.track);
@@ -284,6 +290,7 @@ export class RaceGame {
   private addRemote(r: Racer) {
     const owned = decodeCar(r.car) ?? newOwnedCar('pebble');
     const model = buildCar(owned);
+    if (this.trial) ghostly(model);
     this.view.scene.add(model.root);
     this.headlights(model.root, owned);
     const spec = carSpec(owned);
@@ -542,7 +549,7 @@ export class RaceGame {
         if (this.phase !== 'done') this.hud.banner(`${r.name} finished`, fmtTime(m.time), 2000);
         if (this.watching === m.id) this.spectateNext();
       }
-    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ place: r.place, name: r.name, car: r.car, time: r.time, prize: r.prize, me: r.id === this.setup.online!.net.id })));
+    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, me: r.id === this.setup.online!.net.id })));
     else if (m.t === 'room') {
       // Someone left mid-race: drop their car.
       for (const id of [...this.remotes.keys()])
@@ -701,7 +708,8 @@ export class RaceGame {
     // Bumps
     const all = [me, ...this.rivals];
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) collideCars(all[i].car, all[j].car, true);
-    for (const r of this.remotes.values()) collideCars(me.car, r.ghost, false);
+    // In a time trial the others are ghosts: you drive straight through them.
+    if (!this.trial) for (const r of this.remotes.values()) collideCars(me.car, r.ghost, false);
     if (traffic) for (const r of all) collideTraffic(t, traffic, r.car, this.trafficTime);
     if (me.car.hit > 2.5) {
       this.audio.impact(me.car.hit);
@@ -730,7 +738,10 @@ export class RaceGame {
     if (live && me.finished === null && me.car.s >= t.finishS) this.finish();
     if (live && me.finished === null && t.lap && lapOf(t, me.car.s) > this.lap) {
       this.lap = lapOf(t, me.car.s);
-      this.hud.banner(this.lap === t.def.laps ? 'Final lap' : `Lap ${this.lap}/${t.def.laps}`, `Last lap ${fmtTime(this.time - this.lapStart)}`, 2200);
+      const lapTime = this.time - this.lapStart;
+      const best = lapTime < this.bestLap;
+      this.bestLap = Math.min(this.bestLap, lapTime);
+      this.hud.banner(this.lap === t.def.laps ? 'Final lap' : `Lap ${this.lap}/${t.def.laps}`, `${best && this.lap > 2 ? 'Best lap' : 'Last lap'} ${fmtTime(lapTime)}`, 2200);
       this.lapStart = this.time;
     }
     for (const r of this.rivals) if (r.finished === null && this.phase === 'racing' && r.car.s >= t.finishS) r.finished = this.time;
@@ -756,19 +767,21 @@ export class RaceGame {
     this.audio.beep(true);
     this.hud.countdown('GO!');
     setTimeout(() => this.hud.countdown(null), 900);
+    if (this.trial) this.hud.banner('Time trial', 'Ghost cars: drive straight through them', 2600);
     for (const r of [this.me, ...this.rivals]) r.car.gear = 1;
   }
 
   private finish() {
     const me = this.me;
     me.finished = this.time;
+    if (this.track.lap) this.bestLap = Math.min(this.bestLap, this.time - this.lapStart);
     this.phase = 'finished';
     const ahead = [...this.rivals.filter((r) => r.finished !== null), ...[...this.remotes.values()].filter((r) => r.finished !== null)].length;
     this.hud.banner(`${ordinal(ahead + 1)} place`, fmtTime(this.time), 0);
     rumble(0.6, 0.9, 400);
     // Solo: the race is over when you cross the line; the AI still out are placed by how far they got.
     if (!this.setup.online) return void this.soloResults();
-    this.setup.online.net.send({ t: 'finish', time: this.time });
+    this.setup.online.net.send({ t: 'finish', time: this.time, best: Number.isFinite(this.bestLap) ? this.bestLap : undefined });
     if (this.stillRacing().length) this.hud.watching('', `${this.spectateKey()}: spectate`);
   }
 
@@ -816,7 +829,7 @@ export class RaceGame {
     this.hud.watching('', '');
     const mine = lines.find((l) => l.me);
     if (mine) garage.credit(mine.prize, mine.place === 1 && lines.length > 1);
-    const p = this.hud.panel(`${this.hud.resultsHtml('Results', lines)}
+    const p = this.hud.panel(`${this.hud.resultsHtml(this.trial ? `Time trial · ${this.track.def.name}` : 'Results', lines, this.trial)}
       <p class="rh-note">${mine ? `You earned ${money(mine.prize)}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}</p>
       <div class="rh-buttons"><button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button></div>`);
     setMenuNav(true);

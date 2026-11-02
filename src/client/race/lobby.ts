@@ -3,7 +3,7 @@
 
 import { CARS, CLASS_COLORS, PAINTS, carSpec, decodeCar, encodeCar, rating } from '../../shared/race/cars.ts';
 import { current } from '../../shared/race/garage.ts';
-import type { RaceServerMsg } from '../../shared/race/protocol.ts';
+import { RACE_MODES, type RaceMode, type RaceServerMsg } from '../../shared/race/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../../shared/race/track.ts';
 import type { Render } from '../menu/router.ts';
 import { $, copy, esc, playerName } from '../menu/ui.ts';
@@ -30,7 +30,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     }
     const isHost = room.hostId === raceNet.id;
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
-    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.start !== undefined ? '[data-start]' : null;
+    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.start !== undefined ? '[data-start]' : null;
     const racers = room.racers
       .map((r) => {
         const c = decodeCar(r.car);
@@ -46,10 +46,14 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const tracks = (Object.keys(TRACK_DEFS) as TrackId[])
       .map((id) => `<button class="tg-track small ${id}" data-pick="${id}" aria-pressed="${id === room.track}" ${isHost && room.phase === 'lobby' ? '' : 'disabled'}><b>${esc(TRACK_DEFS[id].name)}</b></button>`)
       .join('');
+    const canPick = isHost && room.phase === 'lobby';
+    const modes = (Object.keys(RACE_MODES) as RaceMode[])
+      .map((id) => `<button class="tg-pill" data-mode="${id}" aria-pressed="${id === room.mode}" ${canPick ? '' : 'disabled'}><b>${esc(RACE_MODES[id].name)}</b><small>${esc(RACE_MODES[id].blurb)}</small></button>`)
+      .join('');
     const state =
       room.phase === 'lobby'
         ? isHost
-          ? `<button class="tg-go" data-start data-autofocus>Start race ▸</button>`
+          ? `<button class="tg-go" data-start data-autofocus>${room.mode === 'trial' ? 'Start time trial' : 'Start race'} ▸</button>`
           : `<p class="tg-muted">Waiting for the host to start…</p>`
         : `<p class="tg-muted">A race is under way. You'll line up for the next one.</p>`;
     root.innerHTML = `
@@ -62,7 +66,9 @@ export const driveLobby: Render = (root, ctx, screen) => {
         </header>
         <section class="tg-lobby-body">
           <div class="tg-lobby-col">
-            <h2 class="tg-h">Pass ${isHost ? '<small>you pick</small>' : ''}</h2>
+            <h2 class="tg-h">Game ${isHost ? '<small>you pick</small>' : ''}</h2>
+            <div class="tg-modes">${modes}</div>
+            <h2 class="tg-h">Pass</h2>
             <div class="tg-tracks">${tracks}</div>
             <div class="tg-row">
               <button class="tg-pill" data-copy>Copy code</button>
@@ -77,6 +83,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         </section>
       </main>`;
     root.querySelectorAll<HTMLElement>('[data-pick]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'track', track: b.dataset.pick as TrackId })));
+    root.querySelectorAll<HTMLElement>('[data-mode]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'mode', mode: b.dataset.mode as RaceMode })));
     root.querySelector('[data-start]')?.addEventListener('click', () => raceNet.send({ t: 'start' }));
     root.querySelector('[data-copy]')?.addEventListener('click', () => void copy(room.code, 'Code'));
     root.querySelector('[data-link]')?.addEventListener('click', () => void copy(`${location.origin}/?race=${room.code}`, 'Invite link'));
@@ -88,7 +95,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     else if (m.t === 'countdown') {
       starting = true;
       const room = raceNet.room!;
-      ctx.drive({ track: m.track, online: { net: raceNet, grid: m.grid, countdownMs: m.ms, racers: room.racers } });
+      ctx.drive({ track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, countdownMs: m.ms, racers: room.racers } });
     } else if (m.t === 'error') {
       starting = true; // the socket is gone anyway
       ctx.replace({ name: 'drive', notice: m.message });

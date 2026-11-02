@@ -9,6 +9,16 @@ import type { TrackId } from './track.ts';
 
 export type RacePhase = 'lobby' | 'countdown' | 'racing' | 'results';
 
+/**
+ * What the host is running: a `race` (cars bump, items fly) or a `trial` (time trial: everyone laps the same
+ * road at once, but the other cars are see-through ghosts you drive straight through, and there are no items).
+ */
+export type RaceMode = 'race' | 'trial';
+export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
+  race: { name: 'Race', blurb: 'Bump, block and throw items. First to the line wins.' },
+  trial: { name: 'Time trial', blurb: 'Ghost cars, no contact, no items. Fastest clean time wins.' },
+};
+
 export interface Racer {
   id: number;
   name: string;
@@ -45,6 +55,8 @@ export interface ResultRow {
   car: string;
   /** Finish time (s), or null for a DNF. */
   time: number | null;
+  /** Quickest lap (s) on a circuit, as the racer's client timed it. */
+  best?: number | null;
   place: number;
   prize: number;
 }
@@ -53,6 +65,7 @@ export interface RaceLobbyInfo {
   code: string;
   host: string;
   track: TrackId;
+  mode: RaceMode;
   phase: RacePhase;
   players: number;
   max: number;
@@ -60,12 +73,12 @@ export interface RaceLobbyInfo {
 
 export type RaceServerMsg =
   | { t: 'welcome'; id: number }
-  | { t: 'room'; code: string; hostId: number; track: TrackId; phase: RacePhase; racers: Racer[] }
-  | { t: 'countdown'; track: TrackId; ms: number; grid: Record<number, number> }
+  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; phase: RacePhase; racers: Racer[] }
+  | { t: 'countdown'; track: TrackId; mode: RaceMode; ms: number; grid: Record<number, number> }
   | { t: 'go' }
   | { t: 'snap'; cars: NetCar[] }
   | { t: 'finished'; id: number; time: number }
-  | { t: 'results'; track: TrackId; rows: ResultRow[] }
+  | { t: 'results'; track: TrackId; mode: RaceMode; rows: ResultRow[] }
   | { t: 'pong'; n: number }
   /** Someone used an item that reaches other racers: an oil slick dropped at `p`, or a shockwave. */
   | { t: 'item'; by: number; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number }
@@ -73,10 +86,11 @@ export type RaceServerMsg =
 
 export type RaceClientMsg =
   | { t: 'track'; track: TrackId }
+  | { t: 'mode'; mode: RaceMode }
   | { t: 'start' }
   | { t: 'car'; car: string }
   | ({ t: 'state' } & Omit<NetCar, 'id'>)
-  | { t: 'finish'; time: number }
+  | { t: 'finish'; time: number; best?: number }
   | { t: 'ping'; n: number }
   /** `target` and `s` (where it was fired from) for a comet. */
   | { t: 'item'; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number };
