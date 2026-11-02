@@ -129,16 +129,17 @@ function halfRing(w: number, h: number, rb: number, rt: number, uWell: number): 
 }
 
 /**
- * Builds the loft's surface, split into one geometry per material: `pick(t, zone, v)` chooses a material
- * index for each face. UVs run along the car (u = t) and round the section (v: 0 at the bottom centre,
+ * Builds the loft's surface, split into one geometry per material: `pick(t, zone, v, u)` chooses a material
+ * index for each face (u: how far out from the centre line, 0..1 of the half width; -1 skips the face). UVs run along the car (u = t) and round the section (v: 0 at the bottom centre,
  * 0.5 on the top centre), so stripes can be painted on as a texture. Ends are capped with `capMat`.
  */
-export function loft(s: Section, slices: number, mats: number, pick: (t: number, zone: Zone, v: number) => number, capMat = -1): THREE.BufferGeometry[] {
+export function loft(s: Section, slices: number, mats: number, pick: (t: number, zone: Zone, v: number, u: number) => number, capMat = -1): THREE.BufferGeometry[] {
   const pos: number[] = [];
   const uv: number[] = [];
   let ringN = 0;
   let zones: Zone[] = [];
   let vs: number[] = [];
+  let us: number[] = [];
   const ts: number[] = [];
   for (let i = 0; i <= slices; i++) {
     // Denser slices at the ends, where the nose and tail curl round.
@@ -155,6 +156,7 @@ export function loft(s: Section, slices: number, mats: number, pick: (t: number,
     // A segment takes the zone of its upper end (going up the right side, down the left).
     zones = ring.map((p, j) => (j < half.length - 1 ? ring[j + 1].zone : p.zone));
     vs = ring.map((p) => p.y / h);
+    us = ring.map((p) => Math.abs(p.x) / w);
     let per = 0;
     const acc = [0];
     for (let j = 1; j <= ringN; j++) {
@@ -182,8 +184,8 @@ export function loft(s: Section, slices: number, mats: number, pick: (t: number,
       const b = i * ringN + j2;
       const c = (i + 1) * ringN + j;
       const d = (i + 1) * ringN + j2;
-      const m = pick(tm, zones[j], (vs[j] + vs[j2]) / 2);
-      idx[m].push(a, b, c, b, d, c);
+      const m = pick(tm, zones[j], (vs[j] + vs[j2]) / 2, (us[j] + us[j2]) / 2);
+      if (m >= 0) idx[m].push(a, b, c, b, d, c);
     }
   }
   if (capMat >= 0) {

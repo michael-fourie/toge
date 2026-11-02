@@ -124,7 +124,7 @@ Four top tabs; a tab with more than one page shows sub-tabs at the top of the ra
 | **Race** | (one page) | The selected track as a hero with its map, rivals and *Race solo*; the track grid; Online (host, join by code, open races). |
 | **Garage** | My cars · Dealer | Your cars (drive, sell) and driver stats; buying new cars. |
 | **Performance** | Upgrades · Tuning | Upgrade crates per part; the tuning sliders. |
-| **Style** | Paint · Locker · Cases | Free paint/wheels/body; cosmetics you own (equip, try on, plates); buying cases. |
+| **Style** | Paint · Locker · Cases | Free paint/wheels/body/glass and trim; cosmetics you own (equip, try on, plates); buying cases. |
 
 Page ids (`dtab` in history, `Page` in hub.ts) are `race`, `garage`, `dealer`, `upgrades`, `tuning`, `paint`,
 `locker`, `cases`. Keep them stable: they're restored on reload.

@@ -118,6 +118,29 @@ test('car codes carry cosmetics and plate text; old codes still decode', () => {
   assert.deepEqual(decodeKit(encodeKit({ glow: 'g_red' }, '')), { kit: { glow: 'g_red' }, plate: '' });
 });
 
+test('car codes carry the body options (tint, roof, hood, trim, mirrors, lip) only when they are set', () => {
+  const car = newOwnedCar('shiro', 15);
+  Object.assign(car.look, { tint: 3, roof: 2, hood: 1, trim: 1, mirrors: 2, lip: 2, rims: 5, rimColor: 6 });
+  car.cos = { glow: 'g_red', window: 'w_opal' };
+  car.plate = 'TOGE 86';
+  const code = encodeCar(car);
+  assert.ok(code.length <= CAR_CODE_MAX, code);
+  const back = decodeCar(code)!;
+  assert.deepEqual(back.look, car.look);
+  assert.deepEqual(back.cos, car.cos);
+  assert.equal(back.plate, 'TOGE 86');
+  // Only the tint set: the rest of the options stay off the end.
+  const tinted = newOwnedCar('pebble');
+  tinted.look.tint = 2;
+  assert.equal(encodeCar(tinted), 'pebble.0.1.0.0.0.0.1.0.2.00000000');
+  assert.equal(decodeCar('pebble.0.1.0.0.0.0.1.0.2.00000000')!.look.tint, 2);
+  // Old codes take the defaults; out-of-range or junk values are refused.
+  assert.equal(decodeCar('pebble.0.1.0.0.0.0.1.0.00000000.-------1')!.look.tint, 1);
+  assert.equal(decodeCar('pebble.0.1.0.0.0.0.1.0.9.00000000'), null);
+  assert.equal(decodeCar('pebble.0.1.0.0.0.0.1.0.1.0.0.0.0.0.0.00000000'), null, 'one look value too many');
+  assert.equal(decodeCar('pebble.0.1.0.0.0.0.00000000'), null, 'too few look values');
+});
+
 test('race codes only show what the account owns', () => {
   const car = newOwnedCar('shiro');
   car.cos = { paint: 'p_chrome', glow: 'g_red' };

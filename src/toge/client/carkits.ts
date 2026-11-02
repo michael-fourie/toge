@@ -331,6 +331,12 @@ export const DESIGNS: Record<CarId, Design> = {
       // Roof airbox scoop.
       k.put(rbox(0.3, 0.08, 0.62, 0.04), MAT.carbon, [0, k.H + 0.015, k.z(0.56)], [0.04, 0, 0]);
       k.put(rbox(0.22, 0.05, 0.02, 0.02), MAT.grille, [0, k.H + 0.03, k.z(0.56) - 0.31]);
+      // The V10 under the rear glass: two red cam covers either side of a carbon plenum and its intake trumpets.
+      const et = 0.715;
+      const ey = k.top(et);
+      for (const s of [-1, 1]) k.put(rbox(0.16, 0.08, 0.58, 0.03), MAT.red, [s * 0.2, ey + 0.05, k.z(et)], [0, 0, s * -0.35]);
+      k.put(rbox(0.22, 0.1, 0.5, 0.04), MAT.carbon, [0, ey + 0.08, k.z(et)]);
+      for (let i = 0; i < 5; i++) k.put(new THREE.CylinderGeometry(0.028, 0.034, 0.06, 12), MAT.chrome, [0, ey + 0.15, k.z(et) - 0.2 + i * 0.1]);
       // Louvred engine cover.
       louvres(k, 0.74, 0.92, 7, () => k.W * 1.0, (t) => k.top(t), MAT.carbon);
       // Light bar across the tail with arrow ends, a gaping grille, diffuser fins and two hex exhausts.

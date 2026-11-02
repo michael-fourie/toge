@@ -614,7 +614,9 @@ const bright = (c: number, k: number) => new THREE.Color(c).multiplyScalar(k);
 export const windowMaterial = (it: ItemOf<'window'>) =>
   cached(it.id, () => {
     const fx = it.fx;
-    const m = new THREE.MeshPhysicalMaterial({ color: fx.color, metalness: fx.mirror ? 1 : 0.2, roughness: fx.mirror ? 0.03 : 0.04, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: fx.mirror ? 2.2 : 1.8 * (1 - fx.dark * 0.6) });
+    // See-through like the stock glass (carparts.ts GLASS): darker tints hide more of the cabin, a mirror hides it all.
+    const opacity = fx.mirror ? 0.94 : 0.3 + 0.6 * fx.dark;
+    const m = new THREE.MeshPhysicalMaterial({ color: fx.color, metalness: fx.mirror ? 1 : 0, roughness: fx.mirror ? 0.03 : 0.04, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: fx.mirror ? 2.2 : 2.4 * (1 - fx.dark * 0.4), transparent: true, opacity, depthWrite: false });
     if (fx.iri) {
       m.iridescence = 1;
       m.iridescenceIOR = 1.8;

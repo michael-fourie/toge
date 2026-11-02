@@ -16,7 +16,7 @@ import { TrafficView } from './trafficview.ts';
 import { rumble, setMenuNav } from '../../client/pad.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
-import { type CarModel, buildCar, ghostly } from './carmodel.ts';
+import { type CarModel, INTERIOR, buildCar, ghostly } from './carmodel.ts';
 import { type Cockpit, buildCockpit } from './cockpit.ts';
 import { Head, ROUGH } from './headcam.ts';
 import { Effects } from './effects.ts';
@@ -177,6 +177,8 @@ export class RaceGame {
   /** Cockpit camera: the driver's head, each car's interior (built the first time you sit in it), and what the head last saw. */
   private head = new Head();
   private cockpits = new Map<THREE.Object3D, Cockpit>();
+  /** The cabin of the car the cockpit camera is in (hidden). */
+  private hiddenCabin: THREE.Object3D | null = null;
   private headRoot: THREE.Object3D | null = null;
   private headV = new THREE.Vector3();
   private headA = new THREE.Vector3();
@@ -1109,6 +1111,13 @@ export class RaceGame {
     const back = this.controls.lookBack;
     const inside = this.cam === 'cockpit';
     for (const [r, c] of this.cockpits) c.root.visible = inside && r === root;
+    // The outside model's cabin would wall you in: the cockpit draws its own.
+    const hide = inside ? root.getObjectByName(INTERIOR) ?? null : null;
+    if (hide !== this.hiddenCabin) {
+      if (this.hiddenCabin) this.hiddenCabin.visible = true;
+      if (hide) hide.visible = false;
+      this.hiddenCabin = hide;
+    }
     const nearPlane = inside ? 0.06 : 0.2;
     if (this.camera.near !== nearPlane) this.camera.near = nearPlane;
     if (inside) {

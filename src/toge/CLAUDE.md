@@ -43,6 +43,11 @@ a component or a page.
   circuits `monza` (3 laps), `spa`, `monaco` (2 laps); city `neonbay` (Neon Bay, live traffic).
   Track `Feature`s: gravel, canyon, bridge, tunnel, crest and `cut` (a gravel shortcut through gaps in the barrier).
 - **Cars** (`CarId`): pebble (starter), kitsune, bramble, shiro, vanta; 8 upgrade `PARTS`, levels 0-5.
+- **Free looks** (`Look` in cars.ts, the Style → Paint page): paint (18), finish, rims (6 designs, 7 colours), spoiler,
+  stripes, underglow, then the body options: window `tint`, `roof` and `hood` (body colour / black / carbon), `trim`
+  (window seals and door handles), `mirrors` and front `lip`. Every list is append-only (codes store indexes). A car
+  code always carries the first eight look values; the body options go on the end only when one is off its default,
+  so a car without them keeps its old code (`decodeCar` takes either; the 8-digit upgrades segment marks the end).
 - **Cosmetics** (cosmetics.ts): 160 items in 11 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
   underglow, plates, plate frames/covers, exhaust tips), 5 rarities, won from 5 cases (Street, Night Run, Livery,
   Chrome, Legend) bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
@@ -89,7 +94,13 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
   post chain: clamp, bloom, film grade per theme (`Look.grade`), then tone mapping), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
-  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`), showroom.ts (the turntable; `place()` frames the car beside the rail), hub.ts (the home screen `drive`: tabs and pages,
+  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`, `lab.info()` for draw
+  calls and triangles). The glass is see-through (`GLASS` per tint in carparts.ts; cosmetic tints are too), so every
+  car has a cabin behind it: the greenhouse loft drawn again from inside (`MAT.liner`, back faces, glass faces skipped),
+  a dark cabin floor (the lower body's top inside the greenhouse), dash, wheel and bucket seats (`cabinParts`), a rear
+  bench when there's room. It's the group named `INTERIOR`, which the race hides for the car the cockpit camera is in.
+  `panelZones` says where the hood, doors and boot are, so the hood option and the shut lines (`details`: grooves,
+  handles, repeaters, fuel flap, wipers, third brake light, badge) agree. showroom.ts (the turntable; `place()` frames the car beside the rail), hub.ts (the home screen `drive`: tabs and pages,
   styled by hub.css), lobby.ts (`drivelobby`), trackart.ts (track tiles and maps for the menus), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
