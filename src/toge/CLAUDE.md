@@ -17,6 +17,14 @@ raised `ARCADE` grip/yaw on 2026-10-30 because corners felt unmakeable, so don't
 physics only with a test, and keep `tests/toge/racephysics.test.ts` green (it drives every car down every track with the AI).
 Physics runs client-side only; the AI's target speed reads `ARCADE.grip`, so rivals scale with it.
 
+## Menus and brand
+
+The home screens (hub.ts: tabs Race, Garage, Performance, Style), the race lobby (lobby.ts) and cosmetics
+(cosmeticsui.ts) follow the design system in **`src/toge/DESIGN.md`**: the brand, colour roles (red acts, cyan selects,
+gold pays), type, the screen anatomy, the tab map and the components. Its tokens and components are in
+`src/toge/client/hub.css`; reuse them rather than styling a new screen from scratch, and update DESIGN.md when you add
+a component or a page.
+
 ## Content
 
 - **Tracks** (`TrackId` in track.ts): passes `koripass` (alpine), `saltwind` (coast), `redmesa` (desert rally:
@@ -70,7 +78,8 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
   post chain: clamp, bloom, film grade per theme (`Look.grade`), then tone mapping), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
-  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`), showroom.ts, hub.ts (the garage screen `drive`), lobby.ts (`drivelobby`), hud.ts (incl. the top-left leaderboard and the name tags over
+  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`), showroom.ts (the turntable; `place()` frames the car beside the rail), hub.ts (the home screen `drive`: tabs and pages,
+  styled by hub.css), lobby.ts (`drivelobby`), trackart.ts (track tiles and maps for the menus), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
   garageStore.ts, racenet.ts, race.css, propview.ts (props, oil slicks, shield bubble), trafficview.ts (instanced city traffic).

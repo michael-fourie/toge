@@ -1,4 +1,5 @@
-/* TŌGE cosmetics: the Cases and Locker tabs and the case reel (cosmeticsui.ts). Rarity colour arrives as --r. */
+/* TŌGE cosmetics: the Locker and Cases pages and the case reel (cosmeticsui.ts). Rarity colour arrives as --r.
+   Built on the tokens and components in hub.css; see src/toge/DESIGN.md. */
 
 .cz-cases {
   display: grid;
@@ -8,10 +9,13 @@
   display: grid;
   grid-template-columns: 96px 1fr;
   gap: 14px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--c) 16%, transparent), rgba(255, 255, 255, 0.03));
+  padding: 16px;
+  border-radius: var(--tg-radius);
+  background:
+    radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--c) 22%, transparent), transparent 60%),
+    linear-gradient(180deg, rgba(26, 35, 51, 0.85), rgba(18, 25, 38, 0.85));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent);
+  clip-path: polygon(0 0, calc(100% - var(--tg-notch)) 0, 100% var(--tg-notch), 100% 100%, 0 100%);
 }
 .cz-case-art svg {
   width: 96px;
@@ -19,7 +23,8 @@
 }
 .cz-case h3 {
   margin: 0;
-  font: 800 22px 'Barlow Condensed', sans-serif;
+  font: italic 800 26px/1 var(--tg-display);
+  text-transform: uppercase;
   color: var(--c);
 }
 .cz-case p {
@@ -60,7 +65,7 @@
 }
 .cz-inside h4 {
   margin: 12px 0 6px;
-  font: 700 15px 'Barlow Condensed', sans-serif;
+  font: 700 15px var(--tg-display);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--r);
@@ -83,7 +88,7 @@
   justify-items: center;
   gap: 3px;
   padding: 8px 6px 10px;
-  border-radius: 10px;
+  border-radius: var(--tg-radius);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), color-mix(in srgb, var(--r) 14%, transparent));
   border-bottom: 3px solid var(--r);
   text-align: center;
@@ -183,7 +188,7 @@
 .cz-pick {
   padding: 0;
   border: 2px solid transparent;
-  border-radius: 12px;
+  border-radius: 8px;
   background: none;
 }
 .cz-pick[aria-pressed='true'] {
@@ -197,7 +202,7 @@
 }
 .cz-trying {
   padding: 8px 12px;
-  border-radius: 10px;
+  border-radius: var(--tg-radius);
   border-left: 4px solid var(--r);
   background: rgba(255, 255, 255, 0.05);
   font-size: 13px;
@@ -210,7 +215,7 @@
   border: 1px solid var(--tg-line);
   background: rgba(0, 0, 0, 0.35);
   color: #fff;
-  font: 700 16px 'Barlow Condensed', sans-serif;
+  font: italic 800 18px var(--tg-display);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
