@@ -4,7 +4,7 @@
 import type { GameMode, ServerMsg } from '../../shared/protocol.ts';
 import type { Net } from '../net.ts';
 import type { BotLevel } from '../../shared/bot.ts';
-import type { RaceMode, Racer } from '../../shared/race/protocol.ts';
+import type { CarRule, RaceMode, Racer } from '../../shared/race/protocol.ts';
 import type { TrackId } from '../../shared/race/track.ts';
 import type { RaceNet } from '../race/racenet.ts';
 
@@ -44,7 +44,7 @@ export interface Ctx {
 export interface DriveOpts {
   track: TrackId;
   rivals?: number;
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; countdownMs: number; racers: Racer[] };
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; countdownMs: number; racers: Racer[]; rule: CarRule; cars: Record<number, string> };
 }
 
 /** Renders into `root`; may return a cleanup that runs when the screen is left. */

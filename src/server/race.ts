@@ -1,6 +1,6 @@
-import { decodeCar } from '../shared/race/cars.ts';
+import { decodeCar, raceCars } from '../shared/race/cars.ts';
 import { payout } from '../shared/race/garage.ts';
-import { RACE, RACE_MODES, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/race/protocol.ts';
+import { CAR_RULES, RACE, RACE_MODES, type CarRule, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/race/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/race/track.ts';
 import type { Socket } from './lobby.ts';
 
@@ -29,6 +29,8 @@ interface Member {
   time: number | null;
   /** Quickest lap on a circuit (client-timed; only shown, never paid on). */
   best: number | null;
+  /** The car code this racer drives in the current race (their own unless a time trial's rule changed it). */
+  raceCar: string;
 }
 
 export const sendTo = (c: RaceClient, msg: RaceServerMsg) => {
@@ -47,6 +49,8 @@ export class Race {
   hostId = 0;
   track: TrackId = 'koripass';
   mode: RaceMode = 'race';
+  /** What a time trial's racers drive (a race always runs everyone's own car). */
+  cars: CarRule = 'own';
   phase: RacePhase = 'lobby';
   private phaseEnds = 0;
   private goAt = 0;
@@ -64,6 +68,8 @@ export class Race {
     private onResults: (rows: ResultRow[], users: Set<number>) => void,
     private now: () => number = Date.now,
     tick = true,
+    /** The dice for the spec car (tests pass their own). */
+    private rand: () => number = Math.random,
   ) {
     if (tick) this.timer = setInterval(() => this.tick(), 1000 / RACE.snapshotHz);
   }
@@ -78,7 +84,7 @@ export class Race {
 
   add(c: RaceClient) {
     if (!decodeCar(c.car)) c.car = 'pebble.0.1.0.0.0.0.1.00000000';
-    this.members.set(c.id, { client: c, state: null, racing: false, time: null, best: null });
+    this.members.set(c.id, { client: c, state: null, racing: false, time: null, best: null, raceCar: c.car });
     if (!this.hostId) this.hostId = c.id;
     sendTo(c, { t: 'welcome', id: c.id });
     this.broadcastRoom();
@@ -116,6 +122,12 @@ export class Race {
           if (msg.mode === 'trial') this.track = 'kodama';
           this.broadcastRoom();
           this.onChange(this);
+        }
+        break;
+      case 'cars':
+        if (c.id === this.hostId && this.phase === 'lobby' && Object.hasOwn(CAR_RULES, msg.cars) && msg.cars !== this.cars) {
+          this.cars = msg.cars;
+          this.broadcastRoom();
         }
         break;
       case 'start':
@@ -182,7 +194,11 @@ export class Race {
       m.state = null;
       grid[m.client.id] = slot++;
     }
-    this.broadcast({ t: 'countdown', track: this.track, mode: this.mode, ms: RACE.countdownMs, grid });
+    // Settle every racer's car for this race here, once, so a spec car's draw is the same for everyone.
+    const rule: CarRule = this.mode === 'trial' ? this.cars : 'own';
+    const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })), this.rand());
+    for (const m of this.members.values()) m.raceCar = cars[m.client.id];
+    this.broadcast({ t: 'countdown', track: this.track, mode: this.mode, ms: RACE.countdownMs, grid, rule, cars });
     this.broadcastRoom();
     this.onChange(this);
   }
@@ -199,7 +215,7 @@ export class Race {
     const dnf = field.filter((m) => m.time === null);
     const rows: ResultRow[] = [...done, ...dnf].map((m, i) => {
       const place = m.time === null ? 0 : i + 1;
-      return { id: m.client.id, name: m.client.name, car: m.client.car, time: m.time, best: m.best, place, prize: payout(place, field.length, this.track, false) };
+      return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize: payout(place, field.length, this.track, false) };
     });
     this.phase = 'results';
     this.phaseEnds = now + RACE.resultsSeconds * 1000;
@@ -230,7 +246,7 @@ export class Race {
 
   private room(): RaceServerMsg {
     const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, user: m.client.user }));
-    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, phase: this.phase, racers };
+    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, phase: this.phase, racers };
   }
 
   private broadcastRoom() {

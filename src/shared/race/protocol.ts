@@ -19,6 +19,18 @@ export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
   trial: { name: 'Time trial', blurb: 'Ghost cars, no contact, no items. Fastest clean time wins.' },
 };
 
+/**
+ * What the racers drive in a time trial (the host picks; a race always uses everyone's own car):
+ * `own` their own car, `spec` one racer's car drawn at random for everyone (same model, upgrades and default
+ * tuning, so identical stats; each keeps their own paint), `maxed` their own car with every part at the top level.
+ */
+export type CarRule = 'own' | 'spec' | 'maxed';
+export const CAR_RULES: Record<CarRule, { name: string; blurb: string }> = {
+  own: { name: 'Own cars', blurb: 'Everyone drives their own car as it is.' },
+  spec: { name: 'Spec car', blurb: "One racer's car, drawn at random, for everyone. Same stats, your paint." },
+  maxed: { name: 'Maxed out', blurb: 'Your own car with every part at level 5.' },
+};
+
 export interface Racer {
   id: number;
   name: string;
@@ -73,8 +85,9 @@ export interface RaceLobbyInfo {
 
 export type RaceServerMsg =
   | { t: 'welcome'; id: number }
-  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; phase: RacePhase; racers: Racer[] }
-  | { t: 'countdown'; track: TrackId; mode: RaceMode; ms: number; grid: Record<number, number> }
+  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; phase: RacePhase; racers: Racer[] }
+  /** `rule` and `cars` (each racer's car code for this race) settle what everyone drives; see raceCars(). */
+  | { t: 'countdown'; track: TrackId; mode: RaceMode; ms: number; grid: Record<number, number>; rule: CarRule; cars: Record<number, string> }
   | { t: 'go' }
   | { t: 'snap'; cars: NetCar[] }
   | { t: 'finished'; id: number; time: number }
@@ -87,6 +100,7 @@ export type RaceServerMsg =
 export type RaceClientMsg =
   | { t: 'track'; track: TrackId }
   | { t: 'mode'; mode: RaceMode }
+  | { t: 'cars'; cars: CarRule }
   | { t: 'start' }
   | { t: 'car'; car: string }
   | ({ t: 'state' } & Omit<NetCar, 'id'>)

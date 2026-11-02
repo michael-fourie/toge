@@ -3,10 +3,10 @@
 // finish (results and prize money).
 
 import * as THREE from 'three';
-import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, newOwnedCar, CAR_IDS, rating } from '../../shared/race/cars.ts';
+import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, myRaceCar, newOwnedCar, CAR_IDS, rating } from '../../shared/race/cars.ts';
 import { type Ai, aiDrive, newAi } from '../../shared/race/driver.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../../shared/race/powerups.ts';
-import { CarFlag, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../../shared/race/protocol.ts';
+import { CAR_RULES, CarFlag, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../../shared/race/protocol.ts';
 import { standings } from '../../shared/race/standings.ts';
 import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../../shared/race/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../../shared/race/vehicle.ts';
@@ -32,8 +32,11 @@ export interface RaceSetup {
   track: TrackId;
   name: string;
   car: OwnedCar;
-  /** Online: the lobby socket and the countdown it just sent (and whether it's a race or a ghost time trial). */
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; countdownMs: number; racers: Racer[] };
+  /**
+   * Online: the lobby socket and the countdown it just sent (whether it's a race or a ghost time trial, and the
+   * car rule with every racer's car code for this race, which can differ from their garage car).
+   */
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; countdownMs: number; racers: Racer[]; rule: CarRule; cars: Record<number, string> };
   /** Solo: how many AI rivals. */
   rivals?: number;
   onExit(to: 'garage' | 'lobby', notice?: string): void;
@@ -213,6 +216,9 @@ export class RaceGame {
   /** Name tags hidden behind a hill, by tag id, and the frame each was last checked. */
   private tagHidden = new Map<Tag['id'], { hidden: boolean; at: number }>();
 
+  /** A time trial's car rule, for the banner at GO ('' for own cars). */
+  private carNote = '';
+
   constructor(private setup: RaceSetup) {
     this.track = getTrack(setup.track);
     this.trial = setup.online?.mode === 'trial';
@@ -240,9 +246,14 @@ export class RaceGame {
     const rivals = online ? 0 : Math.max(0, Math.min(7, setup.rivals ?? 5));
     // Solo, you start mid-pack.
     const mySlot = online ? (online.grid[online.net.id] ?? 0) : Math.floor(rivals / 2);
-    this.me = this.spawn(setup.car, mySlot, setup.name, true);
+    // Online, the server says what you drive (a spec car, or your car maxed out, in a time trial).
+    const myCar = online ? myRaceCar(online.rule, online.cars[online.net.id], setup.car) : setup.car;
+    this.me = this.spawn(myCar, mySlot, setup.name, true);
     if (online) {
-      for (const r of online.racers) if (r.id !== online.net.id && r.id in online.grid) this.addRemote(r);
+      // Say what everyone's driving now, and again with the time trial's banner at GO.
+      this.carNote = online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}, the same for everyone` : online.rule === 'maxed' ? `${CAR_RULES.maxed.name}: every part at level 5` : '';
+      if (this.carNote) this.hud.banner(online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}` : CAR_RULES.maxed.name, online.rule === 'spec' ? 'Everyone drives the same car' : 'Every part at level 5', 3500);
+      for (const r of online.racers) if (r.id !== online.net.id && r.id in online.grid) this.addRemote({ ...r, car: online.cars[r.id] ?? r.car });
       this.countdown = online.countdownMs / 1000;
       this.offNet = online.net.on((m) => this.onNet(m));
     } else {
@@ -786,7 +797,7 @@ export class RaceGame {
     this.audio.beep(true);
     this.hud.countdown('GO!');
     setTimeout(() => this.hud.countdown(null), 900);
-    if (this.trial) this.hud.banner('Time trial', 'Ghost cars: drive straight through them', 2600);
+    if (this.trial) this.hud.banner('Time trial', this.carNote ? `${this.carNote} · ghosts: drive straight through` : 'Ghost cars: drive straight through them', 2600);
     for (const r of [this.me, ...this.rivals]) r.car.gear = 1;
   }
 
