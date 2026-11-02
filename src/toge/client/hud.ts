@@ -4,6 +4,7 @@
 
 import { PAINTS, decodeCar, CARS } from '../shared/cars.ts';
 import type { Track } from '../shared/track.ts';
+import type { Damage, Zone } from '../shared/damage.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { KEY_HELP, PAD_HELP } from './input.ts';
 import './race.css';
@@ -64,6 +65,8 @@ export interface HudState {
   /** The item slot: what you hold (or the roulette spinning), or null. */
   item: { icon: string; name: string; spinning: boolean } | null;
   heading: number; // yaw
+  /** Physics mode: your car's damage (null when the mode is off). */
+  damage: Damage | null;
   dots: Dot[];
   board: BoardLine[];
 }
@@ -126,6 +129,17 @@ export class RaceHud {
         <div class="rh-readout"><b data-el="speed">0</b><small>km/h</small></div>
         <div class="rh-gear" data-el="gear">N</div>
         <div class="rh-assists"><span data-el="abs">ABS</span><span data-el="tcs">TCS</span><span data-el="mt">MT</span></div>
+        <div class="rh-damage" data-el="damage" hidden aria-label="Car damage">
+          <svg viewBox="0 0 40 70" aria-hidden="true">
+            <rect class="shell" x="6" y="4" width="28" height="62" rx="9" />
+            <rect data-zone="front" x="9" y="6" width="22" height="13" rx="6" />
+            <rect data-zone="rear" x="9" y="51" width="22" height="13" rx="6" />
+            <rect data-zone="left" x="8" y="21" width="5" height="28" rx="2.5" />
+            <rect data-zone="right" x="27" y="21" width="5" height="28" rx="2.5" />
+            <rect class="cabin" x="15" y="24" width="10" height="22" rx="3" />
+          </svg>
+          <b data-el="health">100%</b>
+        </div>
       </div>
       <div class="rh-wind" data-el="wind" aria-hidden="true"></div>
       <div class="rh-combo" data-el="combo" aria-live="off"><b data-el="comboNum"></b><span data-el="comboMult"></span></div>
@@ -239,6 +253,7 @@ export class RaceHud {
     const name = h.item?.name ?? '';
     if (this.el.itemName.textContent !== name) this.el.itemName.textContent = name;
     this.updateCombo(h);
+    this.drawDamage(h.damage);
     this.drawTach(h);
     this.drawMap(h);
     this.drawStrip(h.dots);
@@ -258,6 +273,23 @@ export class RaceHud {
     if (this.el.comboNum.textContent !== num) this.el.comboNum.textContent = num;
     const mult = h.combo.mult > 1 ? `×${h.combo.mult.toFixed(1)}` : '';
     if (this.el.comboMult.textContent !== mult) this.el.comboMult.textContent = mult;
+  }
+
+  private damageKey = '';
+  /** The little top-down car by the tacho: each side shaded by how bent it is, and what's left of the car. */
+  private drawDamage(d: Damage | null) {
+    const el = this.el.damage;
+    el.hidden = !d;
+    if (!d) return;
+    const key = `${d.total.toFixed(2)}|${d.zones.front.toFixed(2)}|${d.zones.rear.toFixed(2)}|${d.zones.left.toFixed(2)}|${d.zones.right.toFixed(2)}|${d.grace > 0}`;
+    if (key === this.damageKey) return;
+    this.damageKey = key;
+    // Undamaged reads as plain white; then gold, then red (DESIGN.md: red acts, here it warns).
+    const shade = (k: number) => (k < 0.02 ? 'rgba(255,255,255,0.18)' : k < 0.4 ? `rgba(255,201,64,${0.45 + k})` : `rgba(255,74,61,${Math.min(1, 0.5 + k * 0.6)})`);
+    el.querySelectorAll<SVGRectElement>('[data-zone]').forEach((r) => r.setAttribute('fill', shade(d.zones[r.dataset.zone as Zone])));
+    const left = Math.max(0, Math.round((1 - d.total) * 100));
+    this.el.health.textContent = `${left}%`;
+    el.dataset.state = d.grace > 0 ? 'fresh' : d.total > 0.75 ? 'critical' : d.total > 0.4 ? 'hurt' : 'ok';
   }
 
   private drawBoard(lines: BoardLine[]) {

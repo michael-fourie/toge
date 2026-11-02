@@ -16,6 +16,8 @@ const ITEM_GAP_MS = 700;
 const MIN_RACE_SECONDS = 40;
 /** A turbo or shield use is counted at most this often (a triple turbo's three come quickly). */
 const USE_GAP_MS = 250;
+/** A car can't blow up more often than this (ms). */
+const WRECK_GAP_MS = 1000;
 
 export interface RaceClient {
   id: number;
@@ -64,6 +66,8 @@ export class Race {
   mode: RaceMode = 'race';
   /** What a time trial's racers drive (a race always runs everyone's own car). */
   cars: CarRule = 'own';
+  /** Physics mode: crash damage (damage.ts, run by each client for its own car). */
+  physics = false;
   phase: RacePhase = 'lobby';
   private phaseEnds = 0;
   private goAt = 0;
@@ -74,6 +78,8 @@ export class Race {
   private itemAt = new Map<number, number>();
   /** When each racer last reported a turbo or shield. */
   private usedAt = new Map<number, number>();
+  /** When each racer's car last blew up. */
+  private wreckAt = new Map<number, number>();
 
   constructor(
     readonly code: string,
@@ -147,6 +153,24 @@ export class Race {
           this.broadcastRoom();
         }
         break;
+      case 'physics':
+        if (c.id === this.hostId && this.phase === 'lobby' && typeof msg.on === 'boolean' && msg.on !== this.physics) {
+          this.physics = msg.on;
+          this.broadcastRoom();
+          this.onChange(this);
+        }
+        break;
+      case 'wreck': {
+        // Relayed so everyone sees the fireball; a car blows up at most once a second.
+        if (this.phase !== 'racing' || !this.physics || !m.racing || m.time !== null) return;
+        if (!(Array.isArray(msg.p) && msg.p.length === 3 && msg.p.every((x) => finite(x, 1e5)))) return;
+        const now = this.now();
+        if (now - (this.wreckAt.get(c.id) ?? 0) < WRECK_GAP_MS) return;
+        this.wreckAt.set(c.id, now);
+        const text = JSON.stringify({ t: 'wreck', id: c.id, p: msg.p } satisfies RaceServerMsg);
+        for (const o of this.members.values()) if (o !== m && o.client.ws.readyState === OPEN) o.client.ws.send(text);
+        break;
+      }
       case 'start':
         if (c.id === this.hostId && this.phase === 'lobby') this.startLoading();
         break;
@@ -180,6 +204,7 @@ export class Race {
         const okVec = (a: unknown, n: number, lim: number) => Array.isArray(a) && a.length === n && a.every((x) => finite(x, lim));
         if (!okVec(msg.p, 3, 1e5) || !okVec(msg.q, 4, 2) || !okVec(msg.v, 3, 200) || !finite(msg.w, 50) || !finite(msg.s, 1e5) || !finite(msg.st, 2) || !finite(msg.ws, 1e3) || !finite(msg.rpm, 2e4) || !finite(msg.f, 1023)) return;
         m.state = { id: c.id, p: msg.p, q: msg.q, v: msg.v, w: msg.w, s: msg.s, st: msg.st, ws: msg.ws, rpm: msg.rpm, f: msg.f | 0 };
+        if (this.physics && finite(msg.dm, 0xffff)) m.state.dm = msg.dm! & 0xffff;
         // Relay straight away (no waiting for a tick): every millisecond here is a millisecond of lag.
         const text = JSON.stringify({ t: 'snap', cars: [m.state] } satisfies RaceServerMsg);
         for (const o of this.members.values()) if (o !== m && o.client.ws.readyState === OPEN) o.client.ws.send(text);
@@ -255,7 +280,7 @@ export class Race {
     const rule: CarRule = this.mode === 'trial' ? this.cars : 'own';
     const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })), this.rand());
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
-    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars });
+    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics });
     this.broadcastRoom();
     this.onChange(this);
   }
@@ -336,7 +361,7 @@ export class Race {
 
   private room(): RaceServerMsg {
     const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user }));
-    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, phase: this.phase, racers };
+    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, phase: this.phase, racers };
   }
 
   private broadcastRoom() {

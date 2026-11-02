@@ -381,6 +381,8 @@ export function buildBike(owned: OwnedCar): CarModel {
   const q = new THREE.Quaternion();
   return {
     root,
+    // A bike leans, so its parts aren't in plain CG space: crash damage doesn't dent it (it still smokes and blows up).
+    body: new THREE.Group(),
     pose(ws, steer, braking, lat = 0) {
       // Suspension: the wheels' centres (CG space) move the fork along its axis and swing the arm.
       const yF = (ws[0].y + ws[1].y) / 2 + sp.cg - R;

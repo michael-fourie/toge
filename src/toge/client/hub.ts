@@ -8,6 +8,7 @@ import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById }
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
 import { type Rider, type RiderKey, RIDER_KEYS, defaultRider, encodeRider, randomRider } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
+import { PHYSICS } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
 import type { Render } from '../../client/menu/router.ts';
@@ -36,6 +37,8 @@ const tabOf = (p: Page) => TABS.find((t) => t.pages.some(([q]) => q === p))!;
 
 const TRACK_KEY = 'atrous.track';
 const RIVALS_KEY = 'atrous.rivals';
+/** Physics mode (crash damage) for solo races, on or off. */
+const PHYSICS_KEY = 'atrous.physics';
 const read = (k: string, d: string) => {
   try {
     return localStorage.getItem(k) ?? d;
@@ -71,6 +74,7 @@ export const driveHub: Render = (root, ctx, screen) => {
   lastPage[tabOf(page).id] = page;
   let track = (read(TRACK_KEY, 'koripass') in TRACK_DEFS ? read(TRACK_KEY, 'koripass') : 'koripass') as TrackId;
   let rivals = Number(read(RIVALS_KEY, '5'));
+  let physics = read(PHYSICS_KEY, '0') === '1';
   let status = screen.notice ?? '';
   let draft: { look: Look; tune: Tune } | null = null;
   /** A dealer car being looked at (shown in the showroom and on the card until you leave the page). */
@@ -212,6 +216,10 @@ export const driveHub: Render = (root, ctx, screen) => {
       <div class="tg-seg" role="group" aria-label="Rivals">
         <span class="tg-label">Rivals</span>
         ${[0, 3, 5, 7].map((n) => `<button class="tg-pill" data-rivals="${n}" aria-pressed="${n === rivals}">${n}</button>`).join('')}
+      </div>
+      <div class="tg-seg" role="group" aria-label="${esc(PHYSICS.name)}" title="${esc(PHYSICS.on.blurb)}">
+        <span class="tg-label">${esc(PHYSICS.name)}</span>
+        ${[false, true].map((on) => `<button class="tg-pill" data-physics="${on ? 1 : 0}" aria-pressed="${on === physics}">${on ? 'On' : 'Off'}</button>`).join('')}
       </div>
       <button class="tg-go" data-solo data-autofocus>${ICON.flag}Race solo</button>
     </div>
@@ -423,7 +431,14 @@ export const driveHub: Render = (root, ctx, screen) => {
         draw();
       }),
     );
-    panel.querySelector('[data-solo]')?.addEventListener('click', () => ctx.drive({ track, rivals }));
+    panel.querySelectorAll<HTMLElement>('[data-physics]').forEach((b) =>
+      b.addEventListener('click', () => {
+        physics = b.dataset.physics === '1';
+        write(PHYSICS_KEY, physics ? '1' : '0');
+        draw();
+      }),
+    );
+    panel.querySelector('[data-solo]')?.addEventListener('click', () => ctx.drive({ track, rivals, physics }));
     panel.querySelector('[data-host]')?.addEventListener('click', () => connect(null));
     const code = panel.querySelector<HTMLInputElement>('[data-code]');
     code?.addEventListener('input', () => (code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '')));
@@ -671,7 +686,7 @@ export const driveHub: Render = (root, ctx, screen) => {
       if (!root.querySelector('[data-lobbies]')) return;
       list.innerHTML = lobbies.length
         ? lobbies
-            .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s ${l.mode === 'trial' ? 'time trial' : 'race'} · ${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${l.phase === 'lobby' ? '' : ' · racing'}</span><button class="tg-pill" data-joincode="${esc(l.code)}" ${l.players >= l.max ? 'disabled' : ''}>${l.players >= l.max ? 'Full' : 'Join'}</button></li>`)
+            .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s ${l.mode === 'trial' ? 'time trial' : 'race'}${l.physics ? ' · physics' : ''} · ${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${l.phase === 'lobby' ? '' : ' · racing'}</span><button class="tg-pill" data-joincode="${esc(l.code)}" ${l.players >= l.max ? 'disabled' : ''}>${l.players >= l.max ? 'Full' : 'Join'}</button></li>`)
             .join('')
         : `<li class="muted">No open races right now. Host one and share the code.</li>`;
       list.querySelectorAll<HTMLElement>('[data-joincode]').forEach((b) => b.addEventListener('click', () => connect(b.dataset.joincode!)));
@@ -737,7 +752,7 @@ function focusId(el: Element | null): string | null {
   if (look) return `[data-look="${look}"][data-v="${el.getAttribute('data-v')}"]`;
   const rider = el.getAttribute('data-rider');
   if (rider) return `[data-rider="${rider}"][data-v="${el.getAttribute('data-v')}"]`;
-  for (const attr of ['data-track', 'data-rivals', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos']) {
+  for (const attr of ['data-track', 'data-rivals', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }

@@ -78,6 +78,8 @@ function cabinSection(d: Design, body: Section, W: number, H: number): Section {
 
 export interface CarModel {
   root: THREE.Group;
+  /** The body (everything but the wheels), offset from the CG by its position; its meshes are the car's own (crash dents). */
+  body: THREE.Group;
   /**
    * Turns the wheels and suspension and the brake lights. Positions are body-space wheel centres. `lat` is the
    * cornering force (m/s², + to the left): bikes lean with it, cars ignore it.
@@ -197,6 +199,7 @@ export function buildCar(owned: OwnedCar): CarModel {
 
   return {
     root,
+    body,
     pose(ws, steer, braking) {
       wheels.forEach((w, i) => {
         const front = i < 2;

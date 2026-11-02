@@ -126,6 +126,14 @@ export interface Car {
   hit: number;
   /** Hardest the body slammed into the ground this tick (landing a jump), m/s. */
   land: number;
+  /**
+   * The hardest knock this tick as the change in the car's own velocity (m/s): delta-V, the number crash
+   * severity is measured by, so a light car hit by a heavy one feels it more. Where it landed (body space,
+   * from the CG) and which way it pushed (body space, unit, pointing into the car). damage.ts turns it into damage.
+   */
+  crash: number;
+  crashP: V3;
+  crashN: V3;
   absOn: boolean;
   tcsOn: boolean;
   tcsCut: number;
@@ -196,6 +204,9 @@ export function newCar(spec: CarSpec, x: number, y: number, z: number, yaw: numb
     d: 0,
     hit: 0,
     land: 0,
+    crash: 0,
+    crashP: { x: 0, y: 0, z: 0 },
+    crashN: { x: 0, y: 0, z: 0 },
     absOn: false,
     tcsOn: false,
     tcsCut: 0,
@@ -281,6 +292,7 @@ export function stepCar(car: Car, input: DriveInput, t: Track, assists: Assists 
   const sp = car.spec;
   car.hit = 0;
   car.land = 0;
+  car.crash = 0;
   car.touched.length = 0;
   if (car.spin > 0) {
     // Spinning out: no say in the matter until it's over.
@@ -950,6 +962,16 @@ function barrier(car: Car, t: Track) {
   }
   impulse(car, nx * j + fx, 0, nz * j + fz, wx, 0, wz);
   car.hit = Math.max(car.hit, -vn);
+  noteCrash(car, j, wx, wz, nx, nz);
+}
+
+/** Keeps the tick's hardest knock (impulse `j` along world `n` at offset `r` from the CG) for crash damage. */
+function noteCrash(car: Car, j: number, rx: number, rz: number, nx: number, nz: number) {
+  const dv = j / car.spec.mass;
+  if (dv <= car.crash) return;
+  car.crash = dv;
+  rotInv(car.q, rx, 0, rz, car.crashP);
+  rotInv(car.q, nx, 0, nz, car.crashN);
 }
 
 /** Spins the car out for `seconds` (oil, a shockwave), unless it's already spinning. */
@@ -1002,6 +1024,8 @@ function props(car: Car, t: Track) {
       const j = (-(1 + RESTITUTION) * vn) / invMassAt(car, rx, 0, rz, nx, 0, nz);
       impulse(car, nx * j, 0, nz * j, rx, 0, rz);
       car.hit = Math.max(car.hit, -vn);
+      // Bales and barrels give: they crumple instead of the car (half the knock counts).
+      noteCrash(car, j * 0.5, rx, rz, nx, nz);
     }
   }
 }
@@ -1055,6 +1079,8 @@ export function collideCars(a: Car, b: Car, bMovable: boolean) {
       if (bMovable) impulse(b, nx * j, 0, nz * j, rbx, 0, rbz);
       a.hit = Math.max(a.hit, -vn);
       b.hit = Math.max(b.hit, -vn);
+      noteCrash(a, j, rax, raz, -nx, -nz);
+      noteCrash(b, j, rbx, rbz, nx, nz);
     }
 }
 

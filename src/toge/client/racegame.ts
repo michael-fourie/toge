@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, myRaceCar, newOwnedCar, CAR_IDS, rating } from '../shared/cars.ts';
 import { type Ai, aiDrive, newAi } from '../shared/driver.ts';
 import { DRAFT, type Body, stepDraft, strongestWake } from '../shared/draft.ts';
+import { DAMAGE, type Damage, ZONES, damagedInput, newDamage, packZones, repair, takeHit, unpackZones } from '../shared/damage.ts';
+import { Blasts, CarDents, smokeFrom } from './damageview.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
 import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { SOLO_SHARE } from '../shared/garage.ts';
@@ -40,9 +42,11 @@ export interface RaceSetup {
    * from their garage car). The car
    * waits on the line until every racer has loaded and the server sends the countdown.
    */
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string> };
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean };
   /** Solo: how many AI rivals. */
   rivals?: number;
+  /** Solo: Physics mode (crash damage, damage.ts). Online it comes with the race (`online.physics`). */
+  physics?: boolean;
   onExit(to: 'garage' | 'lobby', notice?: string): void;
 }
 
@@ -89,6 +93,9 @@ interface Racing {
   itemAt: number;
   shieldUntil: number;
   bubble: THREE.Mesh;
+  /** Physics mode: how damaged the car is, and its body's dents. */
+  dmg: Damage;
+  dents: CarDents;
 }
 
 interface Remote {
@@ -112,6 +119,9 @@ interface Remote {
   finished: number | null;
   spin: number;
   rpm: number;
+  /** Physics mode: the damage it last reported (packed zones) and its body's dents. */
+  dm: number;
+  dents: CarDents;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -240,10 +250,16 @@ export class RaceGame {
 
   /** A time trial's car rule, for the banner at GO ('' for own cars). */
   private carNote = '';
+  /** Physics mode: crash damage, wrecks and respawns (damage.ts). Explosions only exist when it's on. */
+  private readonly physics: boolean;
+  private blasts: Blasts | null = null;
+  /** The input a damaged car actually gets (reused every tick). */
+  private driven: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
 
   constructor(private setup: RaceSetup) {
     this.track = getTrack(setup.track);
     this.trial = setup.online?.mode === 'trial';
+    this.physics = setup.online ? !!setup.online.physics : !!setup.physics;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
     this.renderer.shadowMap.enabled = true;
@@ -259,6 +275,7 @@ export class RaceGame {
     this.fx = new Effects(this.view.scene);
     this.propView = new PropView(this.view.scene, this.track);
     if (this.trial) this.propView.clearBoxes();
+    if (this.physics) this.blasts = new Blasts(this.view.scene, this.track, this.fx);
     this.traffic = getTraffic(this.track);
     if (this.traffic) this.trafficView = new TrafficView(this.view.scene, this.track, this.traffic);
     this.hud = new RaceHud(setup.container, this.track);
@@ -336,6 +353,8 @@ export class RaceGame {
       itemAt: 0,
       shieldUntil: 0,
       bubble: this.bubbleFor(model.root, b.length),
+      dmg: newDamage(),
+      dents: new CarDents(model.body),
     };
   }
 
@@ -366,6 +385,8 @@ export class RaceGame {
       finished: null,
       spin: 0,
       rpm: spec.idle,
+      dm: 0,
+      dents: new CarDents(model.body),
       bubble: this.bubbleFor(model.root, CARS[owned.model].length),
     });
   }
@@ -624,6 +645,16 @@ export class RaceGame {
         r.err.copy(r.shownP).sub(this.predict(r, now, new THREE.Vector3(), null));
         if (r.err.lengthSq() > 64) r.err.set(0, 0, 0); // a reset or a long gap: just jump
         r.s = c.s;
+        if (this.physics && c.dm !== undefined && c.dm !== r.dm) this.remoteDamage(r, c.dm);
+      }
+    } else if (m.t === 'wreck') {
+      const r = this.remotes.get(m.id);
+      if (r && this.blasts) {
+        this.blasts.boom(m.p[0], m.p[1], m.p[2], r.last?.c.v[0] ?? 0, r.last?.c.v[2] ?? 0, PAINTS[decodeCar(r.code)?.look.paint ?? 0]);
+        this.boomSound(Math.hypot(m.p[0] - this.me.car.p.x, m.p[2] - this.me.car.p.z));
+        r.dents.repair();
+        r.dm = 0;
+        r.err.set(0, 0, 0);
       }
     } else if (m.t === 'finished') {
       const r = this.remotes.get(m.id);
@@ -683,6 +714,7 @@ export class RaceGame {
       ws: r((c.wheels[2].w + c.wheels[3].w) / 2),
       rpm: Math.round(c.rpm),
       f,
+      dm: this.physics ? packZones(this.me.dmg) : undefined,
     });
   }
 
@@ -708,6 +740,7 @@ export class RaceGame {
       }
       if (this.acc > TICK_DT) this.acc = 0;
       this.fx.update(dt);
+      this.blasts?.update(dt);
       this.propView.update(this.wallClock, dt);
       this.updateComets();
     }
@@ -823,7 +856,7 @@ export class RaceGame {
       r.prevP.set(r.car.p.x, r.car.p.y, r.car.p.z);
       r.prevQ.set(r.car.q.x, r.car.q.y, r.car.q.z, r.car.q.w);
       const assists = r === me ? this.assists : DEFAULT_ASSISTS;
-      stepCar(r.car, r.input, t, assists);
+      stepCar(r.car, this.physics ? damagedInput(r.dmg, r.input, this.driven) : r.input, t, assists);
       r.input.shiftUp = r.input.shiftDown = false;
     }
     this.pickups();
@@ -834,6 +867,7 @@ export class RaceGame {
     if (!this.trial) for (const r of this.remotes.values()) collideCars(me.car, r.ghost, false);
     if (traffic) for (const r of all) collideTraffic(t, traffic, r.car, this.trafficTime);
     if (live && me.finished === null) this.scoreDrift();
+    if (live && this.physics) this.crashes();
     if (me.car.hit > 2.5) {
       this.audio.impact(me.car.hit);
       rumble(Math.min(1, me.car.hit / 10), 0.5, 180);
@@ -881,6 +915,96 @@ export class RaceGame {
         if (me.finished === null) this.send();
       }
     }
+  }
+
+  // --- Physics mode: crash damage ------------------------------------------------------------------
+
+  /**
+   * Every car we drive (you and the AI) takes its knocks for this tick: dents where it was hit, and a wreck when
+   * it's had too much. A shield soaks hits like it soaks items. Finished cars are left alone.
+   */
+  private crashes() {
+    const now = this.wallClock;
+    for (const r of [this.me, ...this.rivals]) {
+      if (r.finished !== null) continue;
+      const c = r.car;
+      if (now < r.shieldUntil) {
+        r.dmg.grace = Math.max(0, r.dmg.grace - TICK_DT);
+        continue;
+      }
+      const hit = takeHit(r.dmg, c.crash, c.crashP, c.land, c.spec.body.hl, c.spec.body.hw, TICK_DT);
+      if (!hit) continue;
+      // The harder the hit, the deeper and wider the dent.
+      r.dents.dent(c.crashP, c.crashN, Math.min(0.32, 0.04 + hit.amount * 0.9), Math.min(1.5, 0.55 + hit.amount * 3));
+      if (r === this.me && hit.amount > 0.02) {
+        this.audio.burst(0.35, Math.min(0.35, 0.1 + hit.amount), 260, 'lowpass');
+        rumble(1, 0.6, 220 + hit.amount * 600);
+      }
+      if (hit.wrecked) this.wreck(r);
+    }
+  }
+
+  /** A car's had too much: it blows up, and comes back repaired a few metres back down the road. */
+  private wreck(r: Racing) {
+    const c = r.car;
+    const t = this.track;
+    this.blasts?.boom(c.p.x, c.p.y, c.p.z, c.v.x, c.v.z, PAINTS[decodeCar(r.code)?.look.paint ?? 0]);
+    const mine = r === this.me;
+    this.boomSound(mine ? 0 : Math.hypot(c.p.x - this.me.car.p.x, c.p.z - this.me.car.p.z));
+    if (mine) {
+      this.setup.online?.net.send({ t: 'wreck', p: [c.p.x, c.p.y, c.p.z].map((x) => Math.round(x * 100) / 100) as [number, number, number] });
+      rumble(1, 1, 900);
+      this.hud.banner('Wrecked!', 'Back on the road', 1600);
+    }
+    const back = Math.max(4, c.s - DAMAGE.respawnBack);
+    const d = Math.max(-t.half + 1.5, Math.min(t.half - 1.5, c.d));
+    resetCar(c, t, back, d);
+    if (r.ai) r.ai = newAi(r.ai.skill, r.ai.lane);
+    r.prevP.set(c.p.x, c.p.y, c.p.z);
+    r.prevQ.set(c.q.x, c.q.y, c.q.z, c.q.w);
+    repair(r.dmg);
+    r.dents.repair();
+    if (mine && this.watching === null) this.snapCamera();
+  }
+
+  /** An explosion's bang: a deep thump and a crackle, quieter with distance. */
+  private boomSound(dist: number) {
+    const near = Math.max(0, 1 - dist / 250);
+    if (near <= 0) return;
+    this.audio.burst(1.6, 0.5 * near, 140, 'lowpass');
+    this.audio.burst(0.6, 0.25 * near, 1800, 'bandpass');
+    this.audio.impact(30 * near);
+  }
+
+  /** A remote racer's damage changed: dent the sides that got worse; all zero means they respawned. */
+  private remoteDamage(r: Remote, dm: number) {
+    const was = unpackZones(r.dm);
+    const now = unpackZones(dm);
+    r.dm = dm;
+    if (dm === 0) return r.dents.repair();
+    const b = CARS[r.spec.id];
+    const hl = b.length / 2;
+    const hw = b.width / 2;
+    const at = { front: { x: 0, z: -hl }, rear: { x: 0, z: hl }, left: { x: -hw, z: 0 }, right: { x: hw, z: 0 } };
+    for (const z of ZONES) {
+      const more = now[z] - was[z];
+      if (more <= 0.03) continue;
+      const p = at[z];
+      // Somewhere along that side, not always the middle.
+      const jitter = (Math.random() - 0.5) * (z === 'left' || z === 'right' ? hl : hw);
+      const pt = { x: p.x + (z === 'front' || z === 'rear' ? jitter : 0), y: 0, z: p.z + (z === 'left' || z === 'right' ? jitter : 0) };
+      const len = Math.hypot(p.x, p.z) || 1;
+      r.dents.dent(pt, { x: -p.x / len, y: 0, z: -p.z / len }, Math.min(0.32, 0.04 + (more / 1.4) * 0.9), Math.min(1.5, 0.55 + (more / 1.4) * 3));
+    }
+  }
+
+  private bay = new THREE.Vector3();
+  /** Smoke (then fire) from a damaged car's engine bay. */
+  private engineSmoke(root: THREE.Object3D, spec: CarSpec, damage: number, vx: number, vz: number, dt: number) {
+    if (damage < 0.45) return;
+    const b = CARS[spec.id];
+    this.bay.set(0, b.height * 0.62 - spec.cg, -b.length / 2 + 0.8).applyMatrix4(root.matrixWorld);
+    smokeFrom(this.fx, this.bay, vx, vz, damage, dt);
   }
 
   private go() {
@@ -1111,9 +1235,17 @@ export class RaceGame {
     for (const r of [me, ...this.rivals]) {
       this.poseLocal(r, alpha);
       this.tyreEffects(r, r === me ? 0 : 1 + this.rivals.indexOf(r));
+      if (this.physics && !this.paused) this.engineSmoke(r.model.root, r.car.spec, r.dmg.total, r.car.v.x, r.car.v.z, dt);
     }
     if (this.watching === null) this.windFx(me.car, me.model.root);
-    for (const r of this.remotes.values()) this.poseRemote(r, now, dt);
+    for (const r of this.remotes.values()) {
+      this.poseRemote(r, now, dt);
+      if (this.physics && r.dm && r.last) {
+        // The sender only says how bent each side is; the zones fill 1.4× faster than the total.
+        const z = unpackZones(r.dm);
+        this.engineSmoke(r.model.root, r.spec, Math.min(1, (z.front + z.rear + z.left + z.right) / 1.4), r.last.c.v[0], r.last.c.v[2], dt);
+      }
+    }
     this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT);
     const view = this.camTarget();
     this.updateCamera(dt, view);
@@ -1394,6 +1526,7 @@ export class RaceGame {
       charge: c.draftArmed > 0 ? 1 : c.draftCharge / DRAFT.charge,
       sling: this.wallClock < this.slingUntil && c.boost > 0,
       heading: yaw,
+      damage: this.physics ? me.dmg : null,
       dots,
       board: order.map((e) => ({ name: e.who.name, color: e.who.color, me: e.who.me, finished: e.finished })),
     });
@@ -1458,6 +1591,7 @@ export class RaceGame {
     for (const r of this.remotes.values()) r.model.dispose();
     for (const c of this.cockpits.values()) c.dispose();
     this.fx.dispose();
+    this.blasts?.dispose();
     this.trafficView?.dispose();
     this.cometGeo.dispose();
     this.cometMat.dispose();
