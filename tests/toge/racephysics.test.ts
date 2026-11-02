@@ -36,8 +36,8 @@ test('tracks: legs of the road never come close enough to overlap, and no grade 
         const wide = (k: number) => t.edge + Math.max(t.runL[k], t.runR[k]);
         assert.ok(d > wide(i) + wide(j) + 40, `${id}: s=${i * SAMPLE} and s=${j * SAMPLE} are only ${d.toFixed(1)} m apart`);
       }
-    // Jump ramps are steep on purpose; everywhere else the grade stays sane.
-    const onCrest = (s: number) => t.crests.some((c) => Math.abs(s - c.s) < c.len / 2 + 2 * SAMPLE);
+    // Jump ramps and bumpy stretches are steep on purpose; everywhere else the grade stays sane.
+    const onCrest = (s: number) => t.crests.some((c) => Math.abs(s - c.s) < c.len / 2 + 2 * SAMPLE) || t.bumps.some((b) => s > b.s0 - 5 * SAMPLE && s < b.s1);
     for (let i = 0; i + 5 < t.n; i++) if (!onCrest(i * SAMPLE)) assert.ok(Math.abs(t.y[i + 5] - t.y[i]) / (5 * SAMPLE) < 0.12, `${id}: grade at s=${i * SAMPLE}`);
     assert.ok(Math.abs((t.finishS - t.startS) / 1000 - TRACK_LENGTH_KM[id]) < 0.15, `${id}: TRACK_LENGTH_KM is out of date`);
   }

@@ -11,7 +11,7 @@ import { Blasts, CarDents, smokeFrom } from './damageview.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
 import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { SOLO_SHARE } from '../shared/garage.ts';
-import { CAR_RULES, CarFlag, RACE, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../shared/protocol.ts';
+import { CAR_RULES, CarFlag, RACE, RACE_MODES, ghostMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../shared/protocol.ts';
 import { standings } from '../shared/standings.ts';
 import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../shared/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
@@ -218,8 +218,10 @@ export class RaceGame {
   private lapStart = 0;
   /** Your quickest lap so far (circuits), sent with your finish time. */
   private bestLap = Infinity;
-  /** A time trial: the other racers are ghosts (no contact) and there are no items. */
+  /** A time trial or hill climb: the other racers are ghosts (no contact) and there are no items. */
   private readonly trial: boolean;
+  /** A hill climb (one run up the mountain). */
+  private readonly climb: boolean;
   private acc = 0;
   private last = performance.now();
   private raf = 0;
@@ -258,7 +260,8 @@ export class RaceGame {
 
   constructor(private setup: RaceSetup) {
     this.track = getTrack(setup.track);
-    this.trial = setup.online?.mode === 'trial';
+    this.trial = !!setup.online && ghostMode(setup.online.mode);
+    this.climb = setup.online?.mode === 'climb';
     this.physics = setup.online ? !!setup.online.physics : !!setup.physics;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
@@ -1017,7 +1020,8 @@ export class RaceGame {
     this.audio.beep(true);
     this.hud.countdown('GO!');
     setTimeout(() => this.hud.countdown(null), 900);
-    if (this.trial) this.hud.banner('Time trial', this.carNote ? `${this.carNote} · ghosts: drive straight through` : 'Ghost cars: drive straight through them', 2600);
+    if (this.climb) this.hud.banner('Hill climb', this.carNote ? `${this.carNote} · first to the summit` : 'Ghost cars · watch for rockfall · first to the summit', 2600);
+    else if (this.trial) this.hud.banner('Time trial', this.carNote ? `${this.carNote} · ghosts: drive straight through` : 'Ghost cars: drive straight through them', 2600);
     for (const r of [this.me, ...this.rivals]) r.car.gear = 1;
   }
 
@@ -1084,7 +1088,7 @@ export class RaceGame {
     this.hud.watching('', '');
     const mine = lines.find((l) => l.me);
     if (mine) garage.credit(mine.prize, mine.place === 1 && lines.length > 1);
-    const p = this.hud.panel(`${this.hud.resultsHtml(this.trial ? `Time trial · ${this.track.def.name}` : 'Results', lines, this.trial)}
+    const p = this.hud.panel(`${this.hud.resultsHtml(this.trial ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results', lines, this.trial)}
       <p class="rh-note">${mine ? `You earned ${money(mine.prize)}${bonusNote(mine.bonus)}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}</p>
       <div class="rh-buttons"><button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button></div>`);
     setMenuNav(true);

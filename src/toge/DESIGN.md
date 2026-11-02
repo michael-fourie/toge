@@ -156,6 +156,7 @@ All in hub.css (cosmetics-specific ones, `.cz-*`, in cosmetics.css).
 | Status line | `.tg-status` | `role="status"`, gold; one per page, at the bottom of the rail. |
 | Track tile | `.tg-track` | Theme sky + painted backdrop + track map; selected = cyan frame. |
 | Modal | `.tg-modal` + `[data-nav-scope]` | Reels and confirmations. Esc / B closes when it's safe. |
+| Mode card | `.tg-modes` > `.tg-mode` | The lobby's big choices: mode (Race, Time trial, Hill climb) and the car rule. Name + one-line blurb; selected = cyan frame. The track grid under it shows only the tracks the mode runs (a Hill climb: its mountain). |
 | Crew | `.tg-crew` > `.tg-crew-m` | The lobby's row of drivers (portraits from riderportrait.ts) on a lit floor, name and car under each; yours is gold. |
 | Face | `.tg-face` | A racer's head cropped from their portrait, ringed in their car's paint. Grid rows. |
 

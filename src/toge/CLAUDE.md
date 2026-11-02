@@ -29,8 +29,10 @@ a component or a page.
 
 - **Tracks** (`TrackId` in track.ts): passes `koripass` (alpine), `saltwind` (coast), `redmesa` (desert rally:
   gravel, crests, canyon), `tsukiyo` (night: bridge, tunnel), `momiji` (autumn), `sakura` (spring);
-  circuits `monza` (3 laps), `spa`, `monaco` (2 laps); city `neonbay` (Neon Bay, live traffic).
-  Track `Feature`s: gravel, canyon, bridge, tunnel, crest and `cut` (a gravel shortcut through gaps in the barrier).
+  circuits `monza` (3 laps), `spa`, `monaco` (2 laps), `kodama` (the time trial's ring); city `neonbay` (Neon Bay, live
+  traffic); hill climb `karasu` (Karasu Peak: uphill, 4.1 km and 336 m up, narrow, `climb: true`, only in a Hill climb lobby).
+  Track `Feature`s: gravel, canyon, bridge, tunnel, crest, `cut` (a gravel shortcut through gaps in the barrier) and
+  `bumps` (heaved tarmac between two control points; the grade test skips them, like crests).
 - **Cars** (`CarId`): pebble (starter), kitsune, bramble, shiro, tengu (twin-rotor coupe, pop-up lamps), vanta, and one
   bike, raiden (`body: 'bike'`, `isBike`); 8 upgrade `PARTS`, levels 0-5.
 - **Bikes** run the same four-wheel physics on a narrow hidden `track` (1.2 m), with bike-sized wheel and engine inertia
@@ -95,11 +97,14 @@ src/toge/shared/
                toge/client/damageview.ts draws it: CarDents (moves the body's own vertices, flat normals in the creases),
                Blasts (fireball, black cloud, instanced debris, a flash light that only exists with the mode on), smokeFrom.
   props.ts     seeded track props (`placeProps`): mystery boxes, ramps, bales, barrels, cones. Not on circuits; Neon Bay
-               gets boxes only. toge/client/propview.ts draws props, oil slicks, the shield bubble.
+               gets boxes only. A `climb` track gets rockfall instead (`placeRockfall`): boulders and rocks, each its own
+               radius, bitten into the road's edges, always leaving `ROCKFALL_GAP` of clear tarmac; solid, and the AI
+               steers round them by their radius. toge/client/propview.ts draws props, oil slicks, the shield bubble.
   rider.ts     your driver: RIDER_FIELDS (APPEND ONLY, like the cosmetics catalogue: a code is one base-36 digit per field,
                after `r1.`; shorter old codes fill the new fields with 0), encode/decode/cleanRider, randomRider. Racers carry
                the code as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the default).
-  protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial).
+  protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
+               climb), ghostMode, modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.
@@ -137,6 +142,12 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 - A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts.
 - Circuits (`laps` on the TrackDef: Monza, Spa, Monaco) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
 - Time trial (`mode: 'trial'` on the room, picked by the host in the lobby; switching to it puts up Kodama Ring, the short circuit built for it): the other racers' cars are see-through ghosts (`ghostly()` in carmodel.ts) and never collide, there are no item boxes and the server drops `item` messages. Clients send their best lap with `finish` (shown only, never paid on); the results add each racer's gap to the winner and best lap.
+- Hill climb (`mode: 'climb'`): a ghost mode like the time trial (`ghostMode()`: see-through rivals, no items, the host's
+  car rule), run only on `climb` tracks (`modeTracks`; the server ignores any other pick, and leaving the mode puts Kōri
+  Pass back up). One map so far, Karasu Peak: bumpy forest climb, a hairpin ladder up the face, a crest, a gravel shelf,
+  rockfall, a twisty last kilometre to the summit. Its forest grows right up to the barrier (`climb` in trackview.ts
+  `scatter`). Not in the solo list (`TRACK_IDS` in trackart.ts leaves climb tracks out). A second hill climb = another
+  TrackDef with `climb: true` (uphill, grades < 12% outside `bumps`/crests).
 - Cameras (C / Ⓨ cycles, saved as `atrous.raceCam`): chase, near, cockpit, hood, bumper. Cockpit = the driver's eye: `cockpit.ts`
   builds each car's interior (dash, gauges, wheel, pillars, headliner) from its DESIGNS roof line, right-hand drive, parented to
   the car's root; `headcam.ts` is the head on a damped-spring neck, pushed by the car's acceleration (taken from its velocity, so
@@ -154,7 +165,9 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   to steer and lean, `cockpit()` for the driver's or rider's eye).
 - **A track:** a `TrackId` + `TRACK_DEFS` entry + its `TRACK_LENGTH_KM` in garage.ts (the test checks it within 0.15 km,
   plus leg spacing and grades). A new `Theme` also needs `LOOKS` (toge/client/trackview.ts) and `LITTER` (tracktextures.ts).
-- **A mode:** race / time trial (`RaceMode`) plus the Physics switch (`physics` on the room, `PHYSICS` in protocol.ts); the entry points are `RaceSetup` in toge/client/racegame.ts and the race protocol.
+- **A mode:** a `RaceMode` + `RACE_MODES` entry + `MODE_TRACK` (protocol.ts); the server's `mode` / `track` handling in
+  race.ts, the lobby's labels (lobby.ts `START`, hub.ts open-lobby list) and `RaceSetup.online.mode` in racegame.ts. The
+  Physics switch (`physics` on the room, `PHYSICS` in protocol.ts) is separate and works with every mode.
 - **Economy** (garage.ts): every garage change is an `applyAction` (server for accounts, client for guests). Prize =
   `payout()`; solo pays less and at most once per `SOLO_GAP_MS`.
 - **A driver option:** append to its field's `options` (and `colors`) in rider.ts, or append a new field to `RIDER_FIELDS`

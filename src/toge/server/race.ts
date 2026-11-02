@@ -3,7 +3,7 @@ import { ITEM_MAX_USES, clampDrift } from '../shared/drift.ts';
 import { payout, raceBonus } from '../shared/garage.ts';
 import type { Item } from '../shared/powerups.ts';
 import { cleanRiderCode } from '../shared/rider.ts';
-import { CAR_RULES, RACE, RACE_MODES, type CarRule, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
+import { CAR_RULES, MODE_TRACK, RACE, RACE_MODES, ghostMode, type CarRule, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Socket } from '../../server/rooms.ts';
 
@@ -64,7 +64,7 @@ export class Race {
   hostId = 0;
   track: TrackId = 'koripass';
   mode: RaceMode = 'race';
-  /** What a time trial's racers drive (a race always runs everyone's own car). */
+  /** What a time trial's or hill climb's racers drive (a race always runs everyone's own car). */
   cars: CarRule = 'own';
   /** Physics mode: crash damage (damage.ts, run by each client for its own car). */
   physics = false;
@@ -132,7 +132,8 @@ export class Race {
     if (!m || !msg || typeof msg !== 'object') return;
     switch (msg.t) {
       case 'track':
-        if (c.id === this.hostId && this.phase === 'lobby' && msg.track in TRACK_DEFS) {
+        // Only a track the mode runs: hill-climb roads in a hill climb, the rest otherwise.
+        if (c.id === this.hostId && this.phase === 'lobby' && Object.hasOwn(TRACK_DEFS, msg.track) && !!TRACK_DEFS[msg.track].climb === (this.mode === 'climb')) {
           this.track = msg.track;
           this.broadcastRoom();
           this.onChange(this);
@@ -142,7 +143,8 @@ export class Race {
         if (c.id === this.hostId && this.phase === 'lobby' && Object.hasOwn(RACE_MODES, msg.mode) && msg.mode !== this.mode) {
           this.mode = msg.mode;
           // A time trial wants a lap to learn: switching to one puts its ring up (the host can still pick another).
-          if (msg.mode === 'trial') this.track = 'kodama';
+          // A hill climb runs on its mountain; leaving one comes back down to the passes.
+          if (msg.mode !== 'race' || !!TRACK_DEFS[this.track].climb) this.track = MODE_TRACK[msg.mode];
           this.broadcastRoom();
           this.onChange(this);
         }
@@ -212,8 +214,8 @@ export class Race {
       }
       case 'item': {
         // Relayed to everyone else; each client works out whether it was hit.
-        // Ghosts can't touch each other, so a time trial has no items at all.
-        if (this.phase !== 'racing' || this.mode === 'trial' || !m.racing || (msg.kind !== 'oil' && msg.kind !== 'shock' && msg.kind !== 'comet')) return;
+        // Ghosts can't touch each other, so a time trial or hill climb has no items at all.
+        if (this.phase !== 'racing' || ghostMode(this.mode) || !m.racing || (msg.kind !== 'oil' && msg.kind !== 'shock' && msg.kind !== 'comet')) return;
         if (msg.kind === 'oil' && !(Array.isArray(msg.p) && msg.p.length === 3 && msg.p.every((x) => finite(x, 1e5)))) return;
         if (msg.kind === 'comet' && !(finite(msg.target, 1e6) && finite(msg.s, 1e5))) return;
         const now = this.now();
@@ -226,7 +228,7 @@ export class Race {
       }
       case 'used': {
         // Turbos and shields stay on the racer's own screen; they only count toward the item bonus.
-        if (this.phase !== 'racing' || this.mode === 'trial' || !m.racing || m.time !== null) return;
+        if (this.phase !== 'racing' || ghostMode(this.mode) || !m.racing || m.time !== null) return;
         if (msg.kind !== 'turbo' && msg.kind !== 'triple' && msg.kind !== 'shield') return;
         const now = this.now();
         if (now - (this.usedAt.get(c.id) ?? 0) < USE_GAP_MS) return;
@@ -277,7 +279,7 @@ export class Race {
       grid[m.client.id] = slot++;
     }
     // Settle every racer's car for this race here, once, so a spec car's draw is the same for everyone.
-    const rule: CarRule = this.mode === 'trial' ? this.cars : 'own';
+    const rule: CarRule = ghostMode(this.mode) ? this.cars : 'own';
     const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })), this.rand());
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
     this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics });
