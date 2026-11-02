@@ -48,6 +48,9 @@ export interface Kit {
   cabin: Section;
   paint: THREE.Material;
   tail: THREE.Material;
+  /** Exhaust pipe and the inside of its mouth (cosmetic exhaust tips swap these). */
+  pipe: THREE.Material;
+  pipeHole: THREE.Material;
   /** t of the front and rear axles. */
   tF: number;
   tR: number;
@@ -132,8 +135,8 @@ function grille(k: Kit, w: number, h: number, y: number, r = 0.03, mat: THREE.Ma
 
 function exhaust(k: Kit, x: number, y: number, r: number, mirror: boolean, sides = 20) {
   const z = k.rear(x, y);
-  k.put(new THREE.CylinderGeometry(r, r * 0.92, 0.16, sides, 1, true), MAT.chrome, [x, y, z + 0.02], [Math.PI / 2, 0, 0], mirror);
-  k.put(new THREE.CircleGeometry(r * 0.85, sides), MAT.grille, [x, y, z + 0.06], [0, 0, 0], mirror);
+  k.put(new THREE.CylinderGeometry(r, r * 0.92, 0.16, sides, 1, true), k.pipe, [x, y, z + 0.02], [Math.PI / 2, 0, 0], mirror);
+  k.put(new THREE.CircleGeometry(r * 0.85, sides), k.pipeHole, [x, y, z + 0.06], [0, 0, 0], mirror);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -237,9 +240,9 @@ export const DESIGNS: Record<CarId, Design> = {
       const pz0 = k.z(k.tF) + k.b.radius + 0.18;
       const pz1 = k.z(k.tR) - k.b.radius - 0.1;
       const px = k.W - 0.01;
-      k.put(new THREE.CylinderGeometry(0.055, 0.055, pz1 - pz0, 16), MAT.chrome, [px, 0.24, (pz0 + pz1) / 2], [Math.PI / 2, 0, 0], true);
+      k.put(new THREE.CylinderGeometry(0.055, 0.055, pz1 - pz0, 16), k.pipe, [px, 0.24, (pz0 + pz1) / 2], [Math.PI / 2, 0, 0], true);
       k.put(rbox(0.04, 0.09, (pz1 - pz0) * 0.6, 0.02), MAT.alloy, [px + 0.05, 0.25, (pz0 + pz1) / 2], [0, 0, 0], true);
-      k.put(new THREE.CircleGeometry(0.045, 16), MAT.grille, [px, 0.24, pz1 + 0.001], [0, 0, 0], true);
+      k.put(new THREE.CircleGeometry(0.045, 16), k.pipeHole, [px, 0.24, pz1 + 0.001], [0, 0, 0], true);
       // A full-width tail panel of six lamps.
       const ty = k.top(0.99) - 0.11;
       k.put(rbox(k.W * 1.8, 0.13, 0.05, 0.02), MAT.gloss, [0, ty, k.rear(0, ty) - 0.012]);

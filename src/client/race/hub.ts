@@ -1,9 +1,11 @@
 // TŌGE's home: the garage. Tabs (LB / RB on a controller): Race (solo, host, join), Garage (your cars),
-// Upgrades (crates: the gamble), Paint & Tune, Dealer. The showroom and a Forza-style car card stay
+// Upgrades (crates: the gamble), Paint & Tune, Locker and Cases (cosmetics, cosmeticsui.ts), Dealer. The showroom and a Forza-style car card stay
 // beside whichever tab is open.
 
 import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, RIMS, RIM_COLORS, RIM_COLOR_NAMES, SPOILERS, STRIPES, TUNE_RANGE, type Tune, carSpec, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../../shared/race/cars.ts';
 import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, tunerCost } from '../../shared/race/garage.ts';
+import { type CaseId, type CosSlot, COS_SLOTS, cosById, cosCaseById } from '../../shared/race/cosmetics.ts';
+import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
 import { TRACK_DEFS, type TrackId } from '../../shared/race/track.ts';
 import { account } from '../account.ts';
 import type { Render } from '../menu/router.ts';
@@ -14,12 +16,14 @@ import { raceNet } from './racenet.ts';
 import { Showroom } from './showroom.ts';
 import './race.css';
 
-type Tab = 'race' | 'garage' | 'upgrades' | 'paint' | 'dealer';
+type Tab = 'race' | 'garage' | 'upgrades' | 'paint' | 'locker' | 'cases' | 'dealer';
 const TABS: [Tab, string][] = [
   ['race', 'Race'],
   ['garage', 'Garage'],
   ['upgrades', 'Upgrades'],
   ['paint', 'Paint & Tune'],
+  ['locker', 'Locker'],
+  ['cases', 'Cases'],
   ['dealer', 'Dealer'],
 ];
 
@@ -55,6 +59,9 @@ export const driveHub: Render = (root, ctx, screen) => {
   let draft: { look: Look; tune: Tune } | null = null;
   /** A dealer car being looked at (shown in the showroom and on the card until you leave the tab). */
   let preview: OwnedCar | null = null;
+  /** Locker: the slot being browsed, and a not-yet-owned item being tried on in the showroom. */
+  let lockerSlot: CosSlot = 'paint';
+  let trying: string | null = null;
   let saveTimer = 0;
   let listTimer = 0;
   let busy = false;
@@ -85,7 +92,11 @@ export const driveHub: Render = (root, ctx, screen) => {
 
   const car = () => current(garage.g);
   /** The car as shown: the saved one with any unsaved paint/tune edits. */
-  const viewed = (): OwnedCar => preview ?? (draft ? { ...car(), look: draft.look, tune: draft.tune } : car());
+  const viewed = (): OwnedCar => {
+    if (preview) return preview;
+    const c = draft ? { ...car(), look: draft.look, tune: draft.tune } : car();
+    return trying ? { ...c, cos: { ...c.cos, [lockerSlot]: trying } } : c;
+  };
 
   const drawTop = () => {
     $(root, '[data-money]').textContent = money(garage.g.money);
@@ -111,7 +122,7 @@ export const driveHub: Render = (root, ctx, screen) => {
         <div><dt>Drive</dt><dd>${b.drive}</dd></div>
         <div><dt>Top speed</dt><dd>${Math.round(topSpeed(sp) * 3.6)} km/h</dd></div>
       </dl>`;
-    const key = JSON.stringify([c.model, c.look]);
+    const key = JSON.stringify([c.model, c.look, c.cos, c.plate]);
     if (key !== shown) {
       shown = key;
       showroom.show(c);
@@ -242,7 +253,9 @@ export const driveHub: Render = (root, ctx, screen) => {
     </div>
     <p class="tg-status" role="status" data-status>${esc(status)}</p>`;
 
-  const BODIES: Record<Tab, () => string> = { race: raceTab, garage: garageTab, upgrades: upgradesTab, paint: paintTab, dealer: dealerTab };
+  const lockerBody = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
+  const casesBody = () => casesTab(garage.g, status);
+  const BODIES: Record<Tab, () => string> = { race: raceTab, garage: garageTab, upgrades: upgradesTab, paint: paintTab, locker: lockerBody, cases: casesBody, dealer: dealerTab };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -268,10 +281,12 @@ export const driveHub: Render = (root, ctx, screen) => {
     if (t === tab) return;
     flushDraft();
     preview = null;
+    trying = null;
     tab = t;
     status = '';
     history.replaceState({ ...(history.state ?? {}), dtab: t }, '');
     draw(false);
+    $(root, '[data-panel]').scrollTop = 0;
     root.querySelector<HTMLElement>('[data-panel] [data-autofocus], [data-panel] button:not([disabled]), [data-panel] input')?.focus({ preventScroll: true });
   };
 
@@ -336,6 +351,39 @@ export const driveHub: Render = (root, ctx, screen) => {
         drawCard();
       }),
     );
+    // Cosmetics: cases and the locker.
+    if (tab === 'cases') wireCases(panel, garage.g);
+    panel.querySelectorAll<HTMLElement>('[data-case-open]').forEach((b) => b.addEventListener('click', () => void openCase(b.dataset.caseOpen as CaseId)));
+    panel.querySelectorAll<HTMLElement>('[data-slot]').forEach((b) =>
+      b.addEventListener('click', () => {
+        lockerSlot = COS_SLOTS.includes(b.dataset.slot as CosSlot) ? (b.dataset.slot as CosSlot) : 'paint';
+        trying = null;
+        status = '';
+        draw();
+      }),
+    );
+    panel.querySelectorAll<HTMLElement>('[data-cos]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const id = b.dataset.cos!;
+        if (!garage.g.cos.includes(id)) {
+          // Not owned: try it on in the showroom (click again to take it off).
+          trying = trying === id ? null : id;
+          draw();
+          return;
+        }
+        trying = null;
+        void act({ a: 'equip', i: garage.g.sel, slot: lockerSlot, id }).then((r) => r !== null && setStatus(`Equipped ${cosById(id)?.name ?? ''}.`));
+      }),
+    );
+    panel.querySelector('[data-unequip]')?.addEventListener('click', () => void act({ a: 'equip', i: garage.g.sel, slot: lockerSlot, id: null }));
+    const plateIn = panel.querySelector<HTMLInputElement>('[data-plate-text]');
+    if (plateIn) {
+      plateIn.value = car().plate;
+      plateIn.addEventListener('input', () => (plateIn.value = plateIn.value.toUpperCase().replace(/[^A-Z0-9 ]/g, '')));
+      const save = () => void act({ a: 'plate', i: garage.g.sel, text: plateIn.value }).then((r) => r !== null && setStatus(car().plate ? `Plate: ${car().plate}` : 'Stock plate.'));
+      plateIn.addEventListener('keydown', (e) => e.key === 'Enter' && save());
+      panel.querySelector('[data-plate-save]')?.addEventListener('click', save);
+    }
     panel.querySelectorAll<HTMLElement>('[data-buy]').forEach((b) =>
       b.addEventListener('click', () => {
         const id = b.dataset.buy as (typeof CAR_IDS)[number];
@@ -414,6 +462,32 @@ export const driveHub: Render = (root, ctx, screen) => {
       ok.addEventListener('click', closeReel);
     });
   };
+  // --- cosmetic cases ----------------------------------------------------------------------------
+
+  /** Pays and rolls (the server's roll for an account), then spins the reel to the drop. */
+  const openCase = async (id: CaseId) => {
+    const box = cosCaseById(id);
+    if (busy || !box) return;
+    busy = true;
+    flushDraft();
+    const r = await garage.act({ a: 'case', id });
+    busy = false;
+    if (!r.ok) return setStatus(r.error);
+    if (!r.drop) return;
+    const drop = r.drop;
+    showCaseReel($(root, '[data-modal]'), box, drop, garage.g.money >= box.price, (what) => {
+      if (what === 'again') return void openCase(id);
+      if (what === 'equip') {
+        const item = cosById(drop.id);
+        if (item) {
+          lockerSlot = item.slot;
+          void garage.act({ a: 'equip', i: garage.g.sel, slot: item.slot, id: item.id });
+        }
+      }
+      closeReel();
+    });
+  };
+
   const closeReel = () => {
     const modal = $(root, '[data-modal]');
     modal.hidden = true;
@@ -508,7 +582,7 @@ export const driveHub: Render = (root, ctx, screen) => {
 /** A selector that finds "the same control" after a redraw, so focus survives it. */
 function focusId(el: Element | null): string | null {
   if (!(el instanceof HTMLElement) || !el.closest('[data-panel]')) return null;
-  for (const attr of ['data-track', 'data-rivals', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy']) {
+  for (const attr of ['data-track', 'data-rivals', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos']) {
     const v = el.getAttribute(attr);
     if (v !== null) {
       const look = el.getAttribute('data-look');

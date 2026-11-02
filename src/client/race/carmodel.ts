@@ -8,6 +8,8 @@ import { CARS, type CarSpec, GLOWS, type OwnedCar, carSpec } from '../../shared/
 import { DESIGNS, type Design, type Kit, makeKitHelpers } from './carkits.ts';
 import { type Section, centreTop, curve, loft, smooth, zAt } from './carloft.ts';
 import { MAT, glowMaterial, isShared, mergeByMaterial, paintMaterial, plateMaterial, rbox, stripeTexture, wheel } from './carparts.ts';
+import { equipped } from '../../shared/race/cosmetics.ts';
+import { caliperMaterial, coverMaterial, cosPaint, cosPlateMaterial, exhaustMaterials, frameMaterial, headMaterials, rimMaterial, windowMaterial } from './cosmeticsview.ts';
 
 function bodySection(d: Design, sp: CarSpec, b: { wheelbase: number }, L: number, W: number, H: number, R: number): Section {
   const top = curve(d.top.map(([t, v]) => [t, v * H]));
@@ -95,14 +97,20 @@ export function buildCar(owned: OwnedCar): CarModel {
   body.position.set(0, -sp.cg, (sp.axleR - sp.axleF) / 2);
 
   const own: { dispose(): void }[] = [];
-  const paint = paintMaterial(look);
-  if (look.stripe) {
+  // A paint job or decal from a case replaces the stock paint (cosmeticsview.ts).
+  const job = cosPaint(owned);
+  const paint = job?.mat ?? paintMaterial(look);
+  if (job) own.push(...job.own);
+  else if (look.stripe) {
     const tex = stripeTexture(look);
     paint.map = tex;
     paint.color.set(0xffffff);
     own.push(tex);
   }
-  const tail = new THREE.MeshStandardMaterial({ color: 0x6a0707, emissive: 0xff1a12, emissiveIntensity: 3, roughness: 0.2 });
+  const tailFx = equipped(owned.cos, 'tail')?.fx;
+  const tail = new THREE.MeshStandardMaterial({ color: tailFx?.lens ?? 0x6a0707, emissive: tailFx?.light ?? 0xff1a12, emissiveIntensity: 3, roughness: 0.2 });
+  const pipes = equipped(owned.cos, 'exhaust');
+  const pipeMats = pipes ? exhaustMaterials(pipes) : null;
 
   const lower = bodySection(d, sp, b, L, W, H, b.radius);
   const cabin = cabinSection(d, lower, W, H);
@@ -132,6 +140,8 @@ export function buildCar(owned: OwnedCar): CarModel {
     cabin,
     paint,
     tail,
+    pipe: pipeMats?.pipe ?? MAT.chrome,
+    pipeHole: pipeMats?.hole ?? MAT.grille,
     tF: 0.5 - b.wheelbase / (2 * L),
     tR: 0.5 + b.wheelbase / (2 * L),
     ...makeKitHelpers(lower),
@@ -149,6 +159,7 @@ export function buildCar(owned: OwnedCar): CarModel {
   };
   d.kit(kit);
   common(kit, d, owned, own);
+  tintParts(body, owned);
 
   // Contact shadow so the car sits on the road even outside the shadow map.
   const blob = new THREE.Mesh(new THREE.PlaneGeometry(b.width * 1.2, L * 1.08), MAT.blob);
@@ -161,8 +172,11 @@ export function buildCar(owned: OwnedCar): CarModel {
   mergeByMaterial(body);
   blob.castShadow = false;
 
+  const rims = equipped(owned.cos, 'rims');
+  const rimMat = rims ? rimMaterial(rims) : undefined;
   const wheels = [0, 1, 2, 3].map((i) => {
-    const w = wheel(b, look);
+    const w = wheel(b, look, rimMat);
+    tintParts(w.fixed, owned);
     mergeByMaterial(w.spin);
     mergeByMaterial(w.fixed, new Set([w.spin]));
     const outward = i % 2 === 0 ? -1 : 1;
@@ -200,7 +214,27 @@ export function buildCar(owned: OwnedCar): CarModel {
   };
 }
 
-/** Parts every car gets: mirrors, plate, the chosen spoiler, and underglow. */
+/** Swaps shared materials for the car's cosmetic ones: window tint, headlamp tint, brake calipers. */
+function tintParts(root: THREE.Object3D, owned: OwnedCar) {
+  const swap = new Map<THREE.Material, THREE.Material>();
+  const win = equipped(owned.cos, 'window');
+  if (win) swap.set(MAT.glass, windowMaterial(win));
+  const head = equipped(owned.cos, 'head');
+  if (head) {
+    const m = headMaterials(head);
+    swap.set(MAT.head, m.head);
+    swap.set(MAT.drl, m.drl);
+  }
+  const cal = equipped(owned.cos, 'caliper');
+  if (cal) swap.set(MAT.caliper, caliperMaterial(cal));
+  if (!swap.size) return;
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && !Array.isArray(m.material)) m.material = swap.get(m.material) ?? m.material;
+  });
+}
+
+/** Parts every car gets: mirrors, plate (with any cosmetic frame and cover), the chosen spoiler, and underglow. */
 function common(k: Kit, d: Design, owned: OwnedCar, own: { dispose(): void }[]) {
   const { W, H } = k;
   // Door mirrors on stalks.
@@ -214,9 +248,16 @@ function common(k: Kit, d: Design, owned: OwnedCar, own: { dispose(): void }[]) 
 
   // Rear plate.
   const pz = k.rear(0, d.plateY);
-  const plate = plateMaterial(d.plate);
+  const plate = cosPlateMaterial(owned, d.plate) ?? plateMaterial(owned.plate || d.plate);
   own.push(plate);
   k.put(new THREE.PlaneGeometry(0.36, 0.115), plate, [0, d.plateY, pz + 0.008]);
+  const frame = equipped(owned.cos, 'frame');
+  if (frame) {
+    const fm = frameMaterial(frame);
+    for (const y of [-1, 1]) k.put(rbox(0.39, 0.016, 0.014, 0.005), fm, [0, d.plateY + y * 0.0655, pz + 0.012]);
+    k.put(rbox(0.016, 0.115, 0.014, 0.005), fm, [0.187, d.plateY, pz + 0.012], [0, 0, 0], true);
+    if (frame.fx.cover > 0) k.put(new THREE.PlaneGeometry(0.37, 0.125), coverMaterial(frame), [0, d.plateY, pz + 0.016]);
+  }
 
   // Spoilers.
   const s = owned.look.spoiler;
@@ -250,10 +291,12 @@ function common(k: Kit, d: Design, owned: OwnedCar, own: { dispose(): void }[]) 
   }
 
   // Underglow: a soft pool of light on the road, plus a strip along each sill.
-  if (owned.look.glow) {
-    const color = GLOWS[owned.look.glow];
+  const glow = equipped(owned.cos, 'glow')?.fx;
+  if (owned.look.glow || glow) {
+    const color = glow?.color ?? GLOWS[owned.look.glow];
     const pool = glowMaterial(color);
-    const strip = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(4) });
+    if (glow) pool.color.multiplyScalar(Math.min(2, glow.power));
+    const strip = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(4 * (glow?.power ?? 1)) });
     own.push(pool, strip);
     const g = k.put(new THREE.PlaneGeometry(W * 3, k.L * 1.25), pool, [0, 0.03, 0], [-Math.PI / 2, 0, 0]);
     g.userData.solo = true;

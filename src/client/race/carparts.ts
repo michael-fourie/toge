@@ -81,7 +81,7 @@ const discTex = canvasTexture(256, (g, s) => {
 });
 
 /** Metallic flake: each texel a tiny mirror tilted at random, under a smooth clear coat. */
-const flakeTex = canvasTexture(256, (g, s) => {
+export const flakeTex = canvasTexture(256, (g, s) => {
   const img = g.createImageData(s, s);
   for (let i = 0; i < s * s; i++) {
     const a = Math.random() * Math.PI * 2;
@@ -195,6 +195,11 @@ export const MAT = {
 };
 const SHARED = new Set<THREE.Material>(Object.values(MAT));
 export const isShared = (m: THREE.Material) => SHARED.has(m);
+/** Marks a cached material as shared between cars, so disposing a car leaves it alone (cosmeticsview.ts). */
+export function share<T extends THREE.Material>(m: T): T {
+  SHARED.add(m);
+  return m;
+}
 
 export function paintMaterial(look: Look, color = PAINTS[look.paint]): THREE.MeshPhysicalMaterial {
   const f = look.finish;
@@ -253,8 +258,8 @@ export function glowMaterial(color: number): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({ color, alphaMap: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
 }
 
-/** A wheel: `spin` turns with the road, `fixed` (the caliper) steers but doesn't spin. The rim's face is +X. */
-export function wheel(b: BaseCar, look: Look): { spin: THREE.Group; fixed: THREE.Group } {
+/** A wheel: `spin` turns with the road, `fixed` (the caliper) steers but doesn't spin. The rim's face is +X. `rim`: a cosmetic rim finish. */
+export function wheel(b: BaseCar, look: Look, rim?: THREE.Material): { spin: THREE.Group; fixed: THREE.Group } {
   const R = b.radius;
   const w = 0.2 + b.width * 0.03;
   const fixed = new THREE.Group();
@@ -280,7 +285,7 @@ export function wheel(b: BaseCar, look: Look): { spin: THREE.Group; fixed: THREE
   wall.rotation.y = Math.PI / 2;
   wall.position.x = w / 2 + 0.006;
 
-  const rimMat = new THREE.MeshPhysicalMaterial({ color: RIM_COLORS[look.rimColor], metalness: 0.9, roughness: 0.22, clearcoat: 0.6 });
+  const rimMat = rim ?? new THREE.MeshPhysicalMaterial({ color: RIM_COLORS[look.rimColor], metalness: 0.9, roughness: 0.22, clearcoat: 0.6 });
   const barrel = add(new THREE.CylinderGeometry(rimR, rimR, w - 0.03, 32, 1, true), MAT.alloy);
   barrel.rotation.z = Math.PI / 2;
   const style = look.rims;
