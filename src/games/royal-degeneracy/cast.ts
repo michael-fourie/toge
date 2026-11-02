@@ -23,17 +23,6 @@ export interface Look {
   hatColour?: string;
 }
 
-export interface Stats {
-  brains: number;
-  chill: number;
-  bro: number;
-  green: number;
-  booze: number;
-  tidy: number;
-}
-
-export const STAT_NAMES: (keyof Stats)[] = ['brains', 'chill', 'bro', 'green', 'booze', 'tidy'];
-
 /** The facts clues are made of (DESIGN.md "Trait cards"). */
 export interface Traits {
   notes: 'engineering' | 'computing' | 'teaching' | 'commerce' | 'science';
@@ -53,7 +42,6 @@ export interface Character {
   height: number;
   blurb: string;
   studies: string;
-  stats: Stats;
   ability: { name: string; text: string };
   quirk: { name: string; text: string };
   catchphrase: string;
@@ -75,7 +63,6 @@ export const CAST: Record<CharId, Character> = {
     height: 185,
     blurb: 'Captain of the concrete toboggan. The tidy, chill one.',
     studies: 'Mechanical Engineering',
-    stats: { brains: 6.5, chill: 7, bro: 4, green: 2, booze: 5, tidy: 9 },
     ability: { name: 'Toboggan Run', text: 'Rides the concrete toboggan down a staircase or a hall at 3× walking speed. Loud.' },
     quirk: { name: 'Engineer', text: 'Fixes sabotages twice as fast.' },
     catchphrase: '*nods*',
@@ -95,7 +82,6 @@ export const CAST: Record<CharId, Character> = {
     height: 185,
     blurb: 'Has never once been angry. Quietly a crypto genius.',
     studies: 'Computer Science',
-    stats: { brains: 8, chill: 8.5, bro: 3, green: 7.5, booze: 3.5, tidy: 5 },
     ability: { name: 'Router Logs', text: 'At the router: which room every phone was in over the last 90 s. Cracks locked phones in 2 s.' },
     quirk: { name: 'Unbothered', text: 'The fire alarm and the bathroom gross-out don’t touch him.' },
     catchphrase: 'What bro.',
@@ -115,7 +101,6 @@ export const CAST: Record<CharId, Character> = {
     height: 175,
     blurb: 'The maths brain, with a short fuse for nonsense.',
     studies: 'Applied Mathematics Engineering',
-    stats: { brains: 9, chill: 6.5, bro: 5, green: 6, booze: 6, tidy: 4 },
     ability: { name: 'Proof', text: 'Pick a player and a crime: “consistent” or “contradiction” against its real posted clues.' },
     quirk: { name: 'Illogical!', text: 'His phone buzzes the moment two posted clues from one crime can’t both be true.' },
     catchphrase: 'Wagwan.',
@@ -135,7 +120,6 @@ export const CAST: Record<CharId, Character> = {
     height: 175,
     blurb: 'The kindest, humblest man alive, until he becomes Bongus.',
     studies: 'Mining Engineering',
-    stats: { brains: 8.5, chill: 9, bro: 1, green: 8, booze: 7, tidy: 1 },
     ability: { name: 'Bongus Mode', text: 'One huge rip: for 15 s he walks slower, the world goes hazy, and hidden clues within 6 m glow.' },
     quirk: { name: 'Rock Hound', text: 'Searches twice as fast. He knows where to dig.' },
     catchphrase: 'Yoooooo.',
@@ -155,7 +139,6 @@ export const CAST: Record<CharId, Character> = {
     height: 175,
     blurb: 'Runs Bike Stu, a studio full of people nobody else has met.',
     studies: 'Teaching',
-    stats: { brains: 2, chill: 8, bro: 1, green: 8.2, booze: 6.5, tidy: 1 },
     ability: { name: 'Bike Stu Session', text: 'Two randoms from his studio wander the house for 45 s. If one sees a crime, he gets a trait.' },
     quirk: { name: 'Dire', text: 'Fixes a crisis sabotage alone.' },
     catchphrase: '*nods*',
@@ -175,7 +158,6 @@ export const CAST: Record<CharId, Character> = {
     height: 190,
     blurb: 'Genuinely the nicest person ever. Stressed about everything.',
     studies: 'Commerce',
-    stats: { brains: 9, chill: 5, bro: 6, green: 3, booze: 8, tidy: 8 },
     ability: { name: 'Look Out', text: 'Guards a friend for 30 s: they can’t be taken out, and he’s told if someone tries.' },
     quirk: { name: 'Worrier', text: 'A crime on his floor buzzes his phone, with an arrow to it for 3 s.' },
     catchphrase: 'How’s it goin.',
@@ -195,7 +177,6 @@ export const CAST: Record<CharId, Character> = {
     height: 165,
     blurb: 'Campus famous. Somehow gets great grades. Somehow never at the house clean-up.',
     studies: 'Mechanical Engineering',
-    stats: { brains: 3, chill: 2, bro: 10, green: 1, booze: 10, tidy: 10 },
     ability: { name: 'Campus Legend', text: 'Once a night at a meeting, his vote counts double, and everyone sees it.' },
     quirk: { name: 'Supervisor', text: 'His own chores are slow, but anyone working within 3 m of him works 50% faster.' },
     catchphrase: 'How’s it going, buddy.',
@@ -215,7 +196,6 @@ export const CAST: Record<CharId, Character> = {
     height: 170,
     blurb: 'The responsible one. Has everything figured out.',
     studies: 'Chemical Engineering',
-    stats: { brains: 9, chill: 6.5, bro: 5, green: 0, booze: 6.5, tidy: 10 },
     ability: { name: 'Inspection', text: 'Stands in a room for 3 s: anything moved or planted in it sparkles.' },
     quirk: { name: 'Spare Keys', text: 'Opens locked doors and locked clues in 2 s.' },
     catchphrase: 'Hey, how are you?',
@@ -233,9 +213,8 @@ export const CAST: Record<CharId, Character> = {
     id: 'nash',
     tag: 'Nash',
     height: 170,
-    blurb: 'Zero bro, ten out of ten green. Staying in.',
+    blurb: 'Ten out of ten green. Staying in.',
     studies: 'Commerce',
-    stats: { brains: 7.2, chill: 9, bro: 0, green: 10, booze: 1.5, tidy: 8 },
     ability: { name: 'Wallhack', text: 'For 3 s, everyone within 8 m shows as an outline through walls and floors.' },
     quirk: { name: 'Couch Lock', text: 'On the living-room sofa, he hears every footstep in the house at full volume.' },
     catchphrase: 'Yo.',
@@ -255,7 +234,6 @@ export const CAST: Record<CharId, Character> = {
     height: 185,
     blurb: 'Shirt off. Always down. Never, ever angry.',
     studies: 'Sciences',
-    stats: { brains: 3, chill: 10, bro: 1, green: 10, booze: 3, tidy: 3 },
     ability: { name: 'Ruck', text: 'Bursts through a locked door; lifts two-person chores on his own.' },
     quirk: { name: 'Always Down', text: 'Anyone can ping him from their phone, and he gets an arrow to them.' },
     catchphrase: 'Broooooo no broooooo.',
@@ -275,7 +253,6 @@ export const CAST: Record<CharId, Character> = {
     height: 178,
     blurb: 'Here for the party. Sleeps on the sofa. Knows nobody’s room by name.',
     studies: 'Undeclared',
-    stats: { brains: 5, chill: 5, bro: 5, green: 5, booze: 5, tidy: 5 },
     ability: { name: 'Plus One', text: 'Guest abilities arrive with their sheets. For now: vibes.' },
     quirk: { name: 'Couch Surfer', text: 'Wakes up on the living-room sofa.' },
     catchphrase: 'Whose house is this?',

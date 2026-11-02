@@ -35,7 +35,7 @@ Read these first, in this order:
 
 1. `src/games/CLAUDE.md`: the plug-in rules (stay in this folder, `three` only, scoped CSS, controllers, cleanup).
 2. `DESIGN.md`: the whole design, the tech plan, the file layout and the build order.
-3. `CAST.md`: the ten main characters (8 housemates + 2 regulars): abilities, quirks, trait cards, stats, lines.
+3. `CAST.md`: the ten main characters (8 housemates + 2 regulars): abilities, quirks, trait cards, lines.
 
 ## What's here
 

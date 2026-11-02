@@ -319,30 +319,6 @@
   font-style: italic;
   color: #5a4a5a;
 }
-.royal-degeneracy .rd-stats {
-  display: grid;
-  gap: 3px;
-}
-.royal-degeneracy .rd-stat {
-  display: grid;
-  grid-template-columns: 56px 1fr 30px;
-  gap: 8px;
-  align-items: center;
-  font-size: 12px;
-  text-transform: uppercase;
-  font-weight: 700;
-}
-.royal-degeneracy .rd-stat i {
-  height: 9px;
-  border-radius: 5px;
-  background: #e2d8c2;
-  overflow: hidden;
-}
-.royal-degeneracy .rd-stat em {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--rd-pink), #ff9a5a);
-}
 .royal-degeneracy .rd-power b {
   color: #6a2a5a;
 }

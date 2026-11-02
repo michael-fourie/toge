@@ -3,7 +3,7 @@
 // through textContent.
 
 import * as THREE from 'three';
-import { CAST, CHAR_IDS, STAT_NAMES, eyeHeight, lookFor, type CharId } from './cast.ts';
+import { CAST, CHAR_IDS, eyeHeight, lookFor, type CharId } from './cast.ts';
 import { CASES } from './cases.ts';
 import { POWERS, powerOf } from './abilities.ts';
 import { CATS, label, valueOf } from './clues.ts';
@@ -247,7 +247,6 @@ export function nextSetting<K extends keyof Settings>(s: Settings, k: K): Settin
   return out;
 }
 
-const pct = (v: number) => `${Math.round(v * 10)}%`;
 
 /** Draws the lobby; the stand's canvas is moved into place (it outlives re-renders). */
 export function renderLobby(root: HTMLElement, v: LobbyView, standCanvas: HTMLCanvasElement, renderer: THREE.WebGLRenderer, h: LobbyHandlers) {
@@ -277,7 +276,6 @@ export function renderLobby(root: HTMLElement, v: LobbyView, standCanvas: HTMLCa
           <p class="rd-kicker" data-studies></p>
           <h2 class="rd-cardname" data-name></h2>
           <p class="rd-blurb" data-blurb></p>
-          <div class="rd-stats" data-stats></div>
           <div class="rd-traits" data-traits></div>
           <div class="rd-power"><b>Ability · <span data-ab></span></b><p data-abt></p></div>
           <div class="rd-power"><b>Quirk · <span data-q></span></b><p data-qt></p></div>
@@ -316,15 +314,6 @@ export function renderLobby(root: HTMLElement, v: LobbyView, standCanvas: HTMLCa
   $('[data-q]').textContent = c.quirk.name;
   $('[data-qt]').textContent = c.quirk.text;
   $('[data-quote]').textContent = `“${c.catchphrase}”`;
-  const stats = $('[data-stats]');
-  for (const k of STAT_NAMES) {
-    const row = document.createElement('div');
-    row.className = 'rd-stat';
-    row.innerHTML = `<span></span><i><em style="width:${pct(c.stats[k])}"></em></i><b></b>`;
-    row.querySelector('span')!.textContent = k;
-    row.querySelector('b')!.textContent = String(c.stats[k]);
-    stats.append(row);
-  }
   // Pick button: yours, taken, or free.
   const pickBtn = $<HTMLButtonElement>('[data-k="pickme"]');
   const owner = ownerOf(v.preview);

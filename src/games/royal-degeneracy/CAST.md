@@ -46,21 +46,8 @@ other at once it's three slightly different "how's it going"s.
 
 ## Character cards
 
-In the lobby every character is a trading card: portrait, name tag, stats, ability, quirk and catchphrase. The
-stats are your ratings out of 10. Tidy is mine, read off how you described their rooms.
-
-| | Brains | Chill | Bro | Green | Booze | Tidy |
-| --- | --- | --- | --- | --- | --- | --- |
-| Dev | 6.5 | 7 | 4 | 2 | 5 | 9 |
-| Mikol | 8 | 8.5 | 3 | 7.5 | 3.5 | 5 |
-| Jung | 9 | 6.5 | 5 | 6 | 6 | 4 |
-| Xang | 8.5 | 9 | 1 | 8 | 7 | 1 |
-| Selby | 2 | 8 | 1 | 8.2 | 6.5 | 1 |
-| Wags | 9 | 5 | 6 | 3 | 8 | 8 |
-| Will Palmer | 3 (grades: somehow great) | 2 | 10 | 1 | 10 | 10 |
-| JJ | 9 | 6.5 | 5 | 0 | 6.5 | 10 |
-| Nash | 7.2 | 9 | 0 | 10 | 1.5 | 8 |
-| Shota | 3 (smart, hates homework) | 10 | 1 | 10 | 3 | 3 |
+In the lobby every character is a trading card: portrait, name tag, blurb, trait card, ability, quirk and catchphrase.
+There are no ratings: nobody gets scored on brains, chill or anything else.
 
 ## Trait cards
 
