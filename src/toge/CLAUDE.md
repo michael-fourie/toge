@@ -87,6 +87,13 @@ src/toge/shared/
                (eases `car.draft`, which cuts aero drag and pulls you on the gas in vehicle.ts; tucked in for `DRAFT.charge`
                s arms a slingshot that fires as a short boost when you pull out). Run per tick in racegame.ts `slipstream()`
                for you and the AI against every car incl. online poses; off in time trials. Nothing on the wire.
+  damage.ts    Physics mode (crash damage, off unless the host or the solo Race page turns it on): every knock is
+               delta-V (`car.crash`, recorded in vehicle.ts with where it hit), damage = DAMAGE.scale × (dv − threshold)^power,
+               dented zones (front/rear/left/right) cost power and pull the steering (`damagedInput`). At 1 the car is
+               wrecked: racegame.ts `crashes()`/`wreck()` blow it up and respawn it DAMAGE.respawnBack m back with a grace.
+               Online: zones ride `NetCar.dm`, explosions the `wreck` message (room relays only with `physics` on).
+               toge/client/damageview.ts draws it: CarDents (moves the body's own vertices, flat normals in the creases),
+               Blasts (fireball, black cloud, instanced debris, a flash light that only exists with the mode on), smokeFrom.
   props.ts     seeded track props (`placeProps`): mystery boxes, ramps, bales, barrels, cones. Not on circuits; Neon Bay
                gets boxes only. toge/client/propview.ts draws props, oil slicks, the shield bubble.
   rider.ts     your driver: RIDER_FIELDS (APPEND ONLY, like the cosmetics catalogue: a code is one base-36 digit per field,
@@ -147,7 +154,7 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   to steer and lean, `cockpit()` for the driver's or rider's eye).
 - **A track:** a `TrackId` + `TRACK_DEFS` entry + its `TRACK_LENGTH_KM` in garage.ts (the test checks it within 0.15 km,
   plus leg spacing and grades). A new `Theme` also needs `LOOKS` (toge/client/trackview.ts) and `LITTER` (tracktextures.ts).
-- **A mode:** there is no mode switch yet; the entry points are `RaceSetup` in toge/client/racegame.ts and the race protocol.
+- **A mode:** race / time trial (`RaceMode`) plus the Physics switch (`physics` on the room, `PHYSICS` in protocol.ts); the entry points are `RaceSetup` in toge/client/racegame.ts and the race protocol.
 - **Economy** (garage.ts): every garage change is an `applyAction` (server for accounts, client for guests). Prize =
   `payout()`; solo pays less and at most once per `SOLO_GAP_MS`.
 - **A driver option:** append to its field's `options` (and `colors`) in rider.ts, or append a new field to `RIDER_FIELDS`
@@ -157,5 +164,5 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   decal kind also needs a painter in toge/client/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
 
-Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider` in `tests/toge/`
+Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider`, `damage` in `tests/toge/`
 (`pad` is in `tests/`: the gamepad code is the site's).

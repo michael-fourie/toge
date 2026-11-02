@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 
-const SMOKE_MAX = 600;
+const SMOKE_MAX = 900;
 const SKID_MAX = 3000;
 
 export class Effects {
@@ -112,6 +112,24 @@ export class Effects {
     this.sBase[i] = size;
     this.sGrow[i] = -size * 0.8;
     this.sFade[i] = 2;
+  }
+
+  /**
+   * Smoke that isn't from tyres: a damaged engine's plume (grey, then black) and an explosion's cloud.
+   * `color` is linear RGB, `size` the puff at birth (it swells to `size + grow`), `rise` its upward speed.
+   */
+  plume(x: number, y: number, z: number, vx: number, vy: number, vz: number, color: number[], size: number, grow: number, life: number, alpha: number) {
+    const i = this.next;
+    this.next = (this.next + 1) % SMOKE_MAX;
+    this.sp.set([x, y, z], i * 3);
+    this.sv.set([vx, vy, vz], i * 3);
+    this.sAge[i] = 0;
+    this.sLife[i] = life;
+    this.sCol.set(color, i * 3);
+    this.sAlpha[i] = alpha;
+    this.sBase[i] = size;
+    this.sGrow[i] = grow;
+    this.sFade[i] = 0.5;
   }
 
   /** Lays skid mark between this wheel's last point and here; `strength` 0 lifts the pen. */

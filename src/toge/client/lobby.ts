@@ -4,7 +4,7 @@
 
 import { CARS, CLASS_COLORS, PAINTS, carSpec, decodeCar, encodeCar, rating } from '../shared/cars.ts';
 import { current } from '../shared/garage.ts';
-import { CAR_RULES, RACE, RACE_MODES, type CarRule, type RaceMode, type RaceServerMsg } from '../shared/protocol.ts';
+import { CAR_RULES, PHYSICS, RACE, RACE_MODES, type CarRule, type RaceMode, type RaceServerMsg } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { $, copy, esc, playerName } from '../../client/menu/ui.ts';
@@ -43,7 +43,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     }
     const isHost = room.hostId === raceNet.id;
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
-    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.start !== undefined ? '[data-start]' : null;
+    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.start !== undefined ? '[data-start]' : null;
     const max = RACE.maxPlayers;
     const racers =
       room.racers
@@ -81,6 +81,10 @@ export const driveLobby: Render = (root, ctx, screen) => {
             .map((id) => `<button class="tg-mode" data-rule="${id}" aria-pressed="${id === room.cars}" ${canPick ? '' : 'disabled'}><b>${esc(CAR_RULES[id].name)}</b><small>${esc(CAR_RULES[id].blurb)}</small></button>`)
             .join('')}</div>`
         : '';
+    // Physics mode: crash damage, for either mode.
+    const physics = (['off', 'on'] as const)
+      .map((k) => `<button class="tg-mode" data-physics="${k}" aria-pressed="${(k === 'on') === room.physics}" ${canPick ? '' : 'disabled'}><b>${esc(PHYSICS[k].name)}</b><small>${esc(PHYSICS[k].blurb)}</small></button>`)
+      .join('');
     const state =
       room.phase === 'lobby'
         ? isHost
@@ -93,7 +97,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
-          <div class="tg-lobby-title">${room.mode === 'trial' ? 'Time trial' : 'Race'} lobby</div>
+          <div class="tg-lobby-title">${room.mode === 'trial' ? 'Time trial' : 'Race'} lobby${room.physics ? ' · Physics' : ''}</div>
           <div class="tg-roomcode"><small>Race<br />code</small><b class="tg-bigcode">${esc(room.code)}</b></div>
         </header>
         <section class="tg-lobby-body">
@@ -111,6 +115,8 @@ export const driveLobby: Render = (root, ctx, screen) => {
             <h2 class="tg-h">Mode ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${modes}</div>
             ${rules}
+            <h2 class="tg-h">${esc(PHYSICS.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
+            <div class="tg-modes">${physics}</div>
             <h2 class="tg-h">Track ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-tracks">${tracks}</div>
           </div>
@@ -130,6 +136,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     root.querySelectorAll<HTMLElement>('[data-pick]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'track', track: b.dataset.pick as TrackId })));
     root.querySelectorAll<HTMLElement>('[data-mode]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'mode', mode: b.dataset.mode as RaceMode })));
     root.querySelectorAll<HTMLElement>('[data-rule]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cars', cars: b.dataset.rule as CarRule })));
+    root.querySelectorAll<HTMLElement>('[data-physics]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'physics', on: b.dataset.physics === 'on' })));
     root.querySelector('[data-start]')?.addEventListener('click', () => raceNet.send({ t: 'start' }));
     root.querySelector('[data-copy]')?.addEventListener('click', () => void copy(room.code, 'Code'));
     root.querySelector('[data-link]')?.addEventListener('click', () => void copy(`${location.origin}/?race=${room.code}`, 'Invite link'));
@@ -141,7 +148,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     else if (m.t === 'load') {
       starting = true;
       const room = raceNet.room!;
-      ctx.drive({ track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, racers: room.racers, rule: m.rule, cars: m.cars } });
+      ctx.drive({ track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, racers: room.racers, rule: m.rule, cars: m.cars, physics: m.physics } });
     } else if (m.t === 'error') {
       starting = true; // the socket is gone anyway
       ctx.replace({ name: 'drive', notice: m.message });

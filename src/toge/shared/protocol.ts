@@ -32,6 +32,17 @@ export const CAR_RULES: Record<CarRule, { name: string; blurb: string }> = {
   maxed: { name: 'Maxed out', blurb: 'Your own car with every part at level 5.' },
 };
 
+/**
+ * Physics mode (damage.ts), a switch the host flips in the lobby (a solo race has its own): realistic crash
+ * damage. Hard knocks against cars and walls dent the car and hurt how it drives; too much and it blows up and
+ * respawns a few metres back. Works in either mode (in a time trial only the walls can hurt you).
+ */
+export const PHYSICS = {
+  name: 'Physics',
+  off: { name: 'Off', blurb: 'Cars bounce off each other and the rails. No damage.' },
+  on: { name: 'Crash damage', blurb: 'Hard hits dent your car and cost power and steering. Wreck it and it blows up.' },
+};
+
 export interface Racer {
   id: number;
   name: string;
@@ -59,6 +70,8 @@ export interface NetCar {
   rpm: number;
   /** CarFlag bits. */
   f: number;
+  /** Physics mode: how bent each side of the car is (damage.ts packZones). */
+  dm?: number;
 }
 
 /** Bits of NetCar.f. The drift's spark level (0-3) rides in the top two bits. */
@@ -86,6 +99,8 @@ export interface RaceLobbyInfo {
   host: string;
   track: TrackId;
   mode: RaceMode;
+  /** Physics mode (crash damage) is on. */
+  physics?: boolean;
   phase: RacePhase;
   players: number;
   max: number;
@@ -93,12 +108,12 @@ export interface RaceLobbyInfo {
 
 export type RaceServerMsg =
   | { t: 'welcome'; id: number }
-  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; phase: RacePhase; racers: Racer[] }
+  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; phase: RacePhase; racers: Racer[] }
   /**
    * The race is on: build the track and say `ready`. Nobody moves until `countdown` then `go`. `rule` and `cars`
    * (each racer's car code for this race) settle what everyone drives; see raceCars().
    */
-  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string> }
+  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string>; physics: boolean }
   /** Who in the field has loaded so far (ids), sent whenever that changes. */
   | { t: 'loading'; ready: number[]; field: number[] }
   /** Everyone's loaded: `go` comes in `ms`. A racer who loads late hears the time that's left. */
@@ -110,12 +125,16 @@ export type RaceServerMsg =
   | { t: 'pong'; n: number }
   /** Someone used an item that reaches other racers: an oil slick dropped at `p`, or a shockwave. */
   | { t: 'item'; by: number; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number }
+  /** Physics mode: racer `id` wrecked their car at `p` (it blew up; they're respawning). */
+  | { t: 'wreck'; id: number; p: [number, number, number] }
   | { t: 'error'; message: string };
 
 export type RaceClientMsg =
   | { t: 'track'; track: TrackId }
   | { t: 'mode'; mode: RaceMode }
   | { t: 'cars'; cars: CarRule }
+  /** The host turns Physics mode (crash damage) on or off. */
+  | { t: 'physics'; on: boolean }
   | { t: 'start' }
   /** The track is built and on screen: this racer can take the countdown. */
   | { t: 'ready' }
@@ -129,6 +148,8 @@ export type RaceClientMsg =
   /** You used an item that only affects you (a turbo or a shield); counted for the item bonus, not relayed. */
   | { t: 'used'; kind: 'turbo' | 'triple' | 'shield' }
   | { t: 'ping'; n: number }
+  /** Physics mode: your car blew up at `p`. */
+  | { t: 'wreck'; p: [number, number, number] }
   /** `target` and `s` (where it was fired from) for a comet. */
   | { t: 'item'; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number };
 

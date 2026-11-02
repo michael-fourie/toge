@@ -249,6 +249,51 @@
   color: #ffc940;
   border-color: #ffc940;
 }
+/* Physics mode: the car's damage, a top-down car beside the tacho */
+.rh-damage {
+  position: absolute;
+  left: -64px;
+  bottom: 16px;
+  width: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font: 800 15px/1 'Barlow Condensed', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.rh-damage svg {
+  width: 40px;
+  height: 70px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+}
+.rh-damage .shell {
+  fill: rgba(10, 12, 18, 0.55);
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 1.5;
+}
+.rh-damage .cabin {
+  fill: rgba(255, 255, 255, 0.1);
+}
+.rh-damage rect[data-zone] {
+  transition: fill 0.25s;
+}
+.rh-damage[data-state='hurt'] b {
+  color: #ffc940;
+}
+.rh-damage[data-state='critical'] b {
+  color: #ff4a3d;
+  animation: rh-damage-blink 0.6s steps(2) infinite;
+}
+.rh-damage[data-state='fresh'] svg {
+  animation: rh-damage-blink 0.3s steps(2) infinite;
+}
+@keyframes rh-damage-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
 .rh-drift {
   position: absolute;
   left: 50%;
