@@ -5,6 +5,8 @@
 
 import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part, type Tune, cleanCar, cleanLook, cleanTune, decodeCar, encodeCar, isCarId, newOwnedCar } from './cars.ts';
 import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, rollCosCase } from './cosmetics.ts';
+import { clampDrift, driftPay, itemPay } from './drift.ts';
+import type { Item } from './powerups.ts';
 import type { TrackId } from './track.ts';
 import { TRACK_DEFS } from './track.ts';
 
@@ -141,6 +143,8 @@ const TIME_TRIAL_SHARE = 0.3;
 /** Solo races (against AI) pay this share, and at most once per this many ms. */
 export const SOLO_SHARE = 0.6;
 export const SOLO_GAP_MS = 45_000;
+/** Longest solo race the drift clamp allows for (s). */
+const SOLO_MAX_SECONDS = 600;
 
 /** What a finish pays: by place, a bit more for a bigger field and a longer road. `place` is 1-based, 0 = DNF. */
 export function payout(place: number, field: number, track: TrackId, solo: boolean): number {
@@ -150,6 +154,16 @@ export function payout(place: number, field: number, track: TrackId, solo: boole
   // Alone on the road there's nobody to beat: a time trial pays like a minor place.
   const share = field <= 1 ? TIME_TRIAL_SHARE : PLACE_SHARE[Math.min(PLACE_SHARE.length - 1, place - 1)];
   return Math.round((base * share * (solo ? SOLO_SHARE : 1)) / 10) * 10;
+}
+
+/**
+ * The bonus on top of the place prize: drift points (already clamped to the race clock) and item uses. Solo races
+ * pay their usual share of it. Paid to finishers and DNFs alike.
+ */
+export function raceBonus(drift: number, uses: Partial<Record<Item, number>>, track: TrackId, solo: boolean): { drift: number; items: number } {
+  const share = solo ? SOLO_SHARE : 1;
+  const r10 = (n: number) => Math.round((n * share) / 10) * 10;
+  return { drift: r10(driftPay(drift, TRACK_LENGTH_KM[track])), items: r10(itemPay(uses)) };
 }
 
 /** Rough race distances (km; every lap of a circuit) so payouts don't need the track built; tests check they stay close. */
@@ -164,12 +178,13 @@ export type GarageAction =
   | { a: 'select'; i: number }
   | { a: 'style'; i: number; look: Look; tune: Tune }
   | { a: 'sell'; i: number }
-  | { a: 'solo'; track: TrackId; place: number; field: number }
+  /** `drift`: drift points banked; `uses`: items used, per kind (both client-reported, clamped). */
+  | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number; uses?: Partial<Record<Item, number>> }
   | { a: 'case'; id: CaseId }
   | { a: 'equip'; i: number; slot: CosSlot; id: string | null }
   | { a: 'plate'; i: number; text: string };
 
-export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number } | { ok: false; error: string };
+export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number; bonus?: { drift: number; items: number } } | { ok: false; error: string };
 
 /** Selling gives back this share of the car's price. */
 export const SELL_SHARE = 0.5;
@@ -221,8 +236,10 @@ export function applyAction(g: Garage, act: GarageAction, rnd: () => number, now
       if (now - g.lastReward < SOLO_GAP_MS) return { ok: false, error: 'Too soon.' };
       const field = Math.max(1, Math.min(8, Math.floor(Number(act.field)) || 1));
       const place = Math.max(0, Math.min(field, Math.floor(Number(act.place)) || 0));
-      const paid = payout(place, field, act.track, true);
-      return { ok: true, g: { ...award(g, paid, place === 1 && field > 1), lastReward: now }, paid };
+      // Nothing times a solo race on the server, so drift is clamped to the longest race (and driftPay caps it per km).
+      const bonus = raceBonus(clampDrift(act.drift, SOLO_MAX_SECONDS), act.uses ?? {}, act.track, true);
+      const paid = payout(place, field, act.track, true) + bonus.drift + bonus.items;
+      return { ok: true, g: { ...award(g, paid, place === 1 && field > 1), lastReward: now }, paid, bonus };
     }
     case 'case': {
       const r = openCase(g, act.id, rnd);

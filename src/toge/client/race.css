@@ -277,10 +277,106 @@
     0 0 26px #ff8a2b;
   animation: rh-pop 0.4s ease-out;
 }
+/* Drift scoring: the live combo over the spark readout (white, not gold: points aren't money), the banked total
+   in the top bar, and a gold "+$40" off the item slot when an item pays. */
+.rh-combo {
+  position: absolute;
+  left: 50%;
+  bottom: 108px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: 800 40px/1 'Barlow Condensed', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: #eef2f8;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.rh-combo.on {
+  opacity: 1;
+}
+.rh-combo span {
+  font: 700 24px 'Barlow Condensed', system-ui, sans-serif;
+  color: #38c9ff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.rh-combo[data-state='bank'] span {
+  color: #3ddc84;
+}
+.rh-combo[data-state='lost'] b {
+  color: #8e9ab0;
+  text-decoration: line-through;
+}
+.rh-combo[data-state='lost'] span {
+  color: #ff6b6b;
+}
+.rh-combo.pop {
+  animation: rh-combo-pop 0.35s ease-out;
+}
+@keyframes rh-combo-pop {
+  from {
+    transform: translateX(-50%) scale(1.3);
+  }
+  to {
+    transform: translateX(-50%) scale(1);
+  }
+}
+.rh-score {
+  display: grid;
+  justify-items: center;
+  line-height: 1;
+}
+.rh-score[hidden] {
+  display: none;
+}
+.rh-score small {
+  font: 600 11px 'Barlow', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  opacity: 0.7;
+}
+.rh-score b {
+  font: 700 22px 'Barlow Condensed', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.rh-paid {
+  position: absolute;
+  left: 366px;
+  top: 46px;
+  white-space: nowrap;
+  font: 800 22px 'Barlow Condensed', system-ui, sans-serif;
+  color: #ffc940;
+  opacity: 0;
+  pointer-events: none;
+}
+.rh-paid.rise {
+  animation: rh-paid-rise 1.2s ease-out;
+}
+@keyframes rh-paid-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-22px);
+  }
+}
 .rh-item {
   position: absolute;
-  left: 52px;
-  top: 18px;
+  /* Beside the leaderboard (top left), not over it. */
+  left: 262px;
+  top: 14px;
   width: 92px;
   height: 92px;
   display: grid;
@@ -516,6 +612,14 @@
 .rh-results .best small {
   color: #8f9bb0;
   margin-right: 4px;
+}
+.rh-results .dr {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: #c8d2e2;
+}
+.rh-results .dr small {
+  color: #8f9bb0;
 }
 .rh-results .pz {
   color: #ffc940;

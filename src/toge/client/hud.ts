@@ -1,6 +1,6 @@
 // The race HUD (DOM + two small canvases): position and timer, the live leaderboard (top left), name tags
 // over the other cars, a vertical "descent" strip with every racer's progress, a heading-up minimap, the tachometer with gear and speed, assist lights, the countdown,
-// banners, and the pause and results panels (gamepad-navigable: they're nav scopes).
+// the drift combo and score, item payouts, banners, and the pause and results panels (gamepad-navigable: they're nav scopes).
 
 import { PAINTS, decodeCar, CARS } from '../shared/cars.ts';
 import type { Track } from '../shared/track.ts';
@@ -52,6 +52,10 @@ export interface HudState {
   manual: boolean;
   /** Drift spark level (0-3), or -1 when not drifting. */
   drift: number;
+  /** The live drift combo (points as they'd bank, and the multiplier), or null between combos. */
+  combo: { points: number; mult: number } | null;
+  /** Drift points banked this race. */
+  driftTotal: number;
   boost: boolean;
   /** The item slot: what you hold (or the roulette spinning), or null. */
   item: { icon: string; name: string; spinning: boolean } | null;
@@ -69,6 +73,9 @@ export interface ResultLine {
   best?: number | null;
   prize: number;
   me: boolean;
+  /** Drift points, and the money drifting and items added to `prize`, when known. */
+  drift?: number;
+  bonus?: { drift: number; items: number };
 }
 
 export const fmtTime = (t: number) => {
@@ -78,6 +85,8 @@ export const fmtTime = (t: number) => {
 };
 export const ordinal = (n: number) => n + (['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] ?? 'th');
 export const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
+/** Drift points with thousands commas. */
+const pts = (n: number) => Math.round(n).toLocaleString('en-US');
 
 export class RaceHud {
   readonly root: HTMLElement;
@@ -85,6 +94,9 @@ export class RaceHud {
   private map: HTMLCanvasElement;
   private el: Record<string, HTMLElement> = {};
   private bannerTimer = 0;
+  private comboTimer = 0;
+  /** The combo readout is showing a banked or lost combo (it holds a moment before the next live one). */
+  private comboHold = false;
   private boardHtml = '';
   private tagEls = new Map<Tag['id'], HTMLElement>();
 
@@ -99,6 +111,7 @@ export class RaceHud {
         <div class="rh-pos"><b data-el="place">–</b><small data-el="field"></small></div>
         <div class="rh-time" data-el="time">0:00.000</div>
         <div class="rh-lap" data-el="lap" hidden></div>
+        <div class="rh-score" data-el="score" hidden><small>Drift</small><b data-el="scoreNum">0</b></div>
       </div>
       <ol class="rh-board" data-el="board" aria-label="Standings"></ol>
       <div class="rh-tags" data-el="tags" aria-hidden="true"></div>
@@ -110,8 +123,10 @@ export class RaceHud {
         <div class="rh-gear" data-el="gear">N</div>
         <div class="rh-assists"><span data-el="abs">ABS</span><span data-el="tcs">TCS</span><span data-el="mt">MT</span></div>
       </div>
+      <div class="rh-combo" data-el="combo" aria-live="off"><b data-el="comboNum"></b><span data-el="comboMult"></span></div>
       <div class="rh-drift" data-el="drift"></div>
       <div class="rh-item" data-el="item"><span class="rh-item-icon" data-el="itemIcon"></span><small data-el="itemName"></small></div>
+      <div class="rh-paid" data-el="paid" aria-hidden="true"></div>
       <div class="rh-center" data-el="center"></div>
       <div class="rh-banner" data-el="banner"></div>
       <div class="rh-watch" data-el="watch"></div>
@@ -149,6 +164,43 @@ export class RaceHud {
     if (ms > 0) this.bannerTimer = window.setTimeout(() => this.el.banner.classList.remove('on'), ms);
   }
 
+  /** A drift combo banked: flash its points and bump the total. */
+  driftBanked(points: number, total: number) {
+    this.flashCombo(`+${pts(points)}`, 'banked', 'bank');
+    this.el.scoreNum.textContent = pts(total);
+  }
+
+  /** A combo lost to a crash or a spin. */
+  driftLost(points: number) {
+    this.flashCombo(pts(points), 'lost', 'lost');
+  }
+
+  private flashCombo(num: string, label: string, state: string) {
+    const c = this.el.combo;
+    this.el.comboNum.textContent = num;
+    this.el.comboMult.textContent = label;
+    c.dataset.state = state;
+    c.classList.remove('pop');
+    void c.offsetWidth;
+    c.classList.add('pop', 'on');
+    this.comboHold = true;
+    clearTimeout(this.comboTimer);
+    this.comboTimer = window.setTimeout(() => {
+      this.comboHold = false;
+      c.classList.remove('on', 'pop');
+    }, 1300);
+  }
+
+  /** Money just earned (an item use): a gold "+$40" rising off the item slot. */
+  paid(amount: number) {
+    if (amount <= 0) return;
+    const e = this.el.paid;
+    e.textContent = `+${money(amount)}`;
+    e.classList.remove('rise');
+    void e.offsetWidth;
+    e.classList.add('rise');
+  }
+
   /** The spectating line after you finish online: who's being followed and the key for the next. Empty hides it. */
   watching(who: string, hint: string) {
     this.el.watch.innerHTML = `${who ? `<b>${esc(who)}</b>` : ''}${hint ? `<small>${esc(hint)}</small>` : ''}`;
@@ -178,10 +230,26 @@ export class RaceHud {
     if (this.el.itemIcon.textContent !== icon) this.el.itemIcon.textContent = icon;
     const name = h.item?.name ?? '';
     if (this.el.itemName.textContent !== name) this.el.itemName.textContent = name;
+    this.updateCombo(h);
     this.drawTach(h);
     this.drawMap(h);
     this.drawStrip(h.dots);
     this.drawBoard(h.board);
+  }
+
+  private updateCombo(h: HudState) {
+    this.el.score.hidden = h.driftTotal <= 0 && !h.combo;
+    const total = pts(h.driftTotal);
+    if (this.el.scoreNum.textContent !== total) this.el.scoreNum.textContent = total;
+    if (this.comboHold) return;
+    const c = this.el.combo;
+    c.classList.toggle('on', !!h.combo);
+    if (!h.combo) return;
+    c.dataset.state = 'live';
+    const num = pts(h.combo.points);
+    if (this.el.comboNum.textContent !== num) this.el.comboNum.textContent = num;
+    const mult = h.combo.mult > 1 ? `×${h.combo.mult.toFixed(1)}` : '';
+    if (this.el.comboMult.textContent !== mult) this.el.comboMult.textContent = mult;
   }
 
   private drawBoard(lines: BoardLine[]) {
@@ -351,6 +419,7 @@ export class RaceHud {
   /** The results table. A time trial adds each racer's gap to the winner and their best lap. */
   resultsHtml(title: string, lines: ResultLine[], trial = false): string {
     const win = lines.find((l) => l.place === 1)?.time ?? null;
+    const drifts = lines.some((l) => l.drift !== undefined);
     const rows = lines
       .map((l) => {
         const car = decodeCar(l.car);
@@ -361,6 +430,7 @@ export class RaceHud {
           <td class="car">${car ? esc(CARS[car.model].name) : ''}</td>
           <td class="tm">${l.time !== null ? fmtTime(l.time) : '—'}</td>
           ${trial ? `<td class="gap">${l.time !== null && win !== null && l.place > 1 ? '+' + (l.time - win).toFixed(3) : ''}</td><td class="best">${l.best ? `<small>best lap</small> ${fmtTime(l.best)}` : ''}</td>` : ''}
+          ${drifts ? `<td class="dr">${l.drift ? `${pts(l.drift)} <small>drift</small>` : ''}</td>` : ''}
           <td class="pz">+${money(l.prize)}</td></tr>`;
       })
       .join('');
@@ -369,6 +439,7 @@ export class RaceHud {
 
   dispose() {
     clearTimeout(this.bannerTimer);
+    clearTimeout(this.comboTimer);
     clearTimeout(this.helpTimer);
     this.root.remove();
   }
