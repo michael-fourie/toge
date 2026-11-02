@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Race, type RaceClient } from '../../src/toge/server/race.ts';
-import { RACE, type RaceServerMsg, type ResultRow } from '../../src/toge/shared/protocol.ts';
+import { RACE, cleanMode, ghostMode, type RaceServerMsg, type ResultRow } from '../../src/toge/shared/protocol.ts';
 import { payout } from '../../src/toge/shared/garage.ts';
 import { MAX_LEVEL, PARTS, decodeCar, defaultTune, myRaceCar, newOwnedCar, raceCars } from '../../src/toge/shared/cars.ts';
 
@@ -185,7 +185,9 @@ test('time trial: only the host switches to it, it brings up the ring, has no it
   );
 });
 
-test('hill climb: it runs only on the mountain, ghosts throw nothing, the car rule applies, and leaving it comes back down', () => {
+test('hill climb: it runs only on the mountain, cars are solid but throw nothing, the car rule applies, and leaving it comes back down', () => {
+  assert.equal(ghostMode('climb'), false, 'hill climb cars are solid: you bump and draft them');
+  assert.equal(cleanMode('climb'), true);
   const r = room();
   const a = r.join(1);
   const b = r.join(2);

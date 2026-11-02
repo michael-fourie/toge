@@ -13,18 +13,21 @@ export type RacePhase = 'lobby' | 'loading' | 'countdown' | 'racing' | 'results'
 /**
  * What the host is running: a `race` (cars bump, items fly), a `trial` (time trial: everyone laps the same
  * road at once, but the other cars are see-through ghosts you drive straight through, and there are no items)
- * or a `climb` (hill climb: one run up a hill-climb road (`climb` on its TrackDef), ghosts and no items like a
- * time trial, with rockfall on the road; first to the summit wins).
+ * or a `climb` (hill climb: one run up a hill-climb road (`climb` on its TrackDef), solid cars you can bump and
+ * draft, no items, rockfall on the road; first to the summit wins).
  */
 export type RaceMode = 'race' | 'trial' | 'climb';
 export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
   race: { name: 'Race', blurb: 'Bump, block and throw items. First to the line wins.' },
   trial: { name: 'Time trial', blurb: 'Ghost cars, no contact, no items. Fastest clean time wins.' },
-  climb: { name: 'Hill climb', blurb: 'One run up the mountain past boulders and broken tarmac. Ghost cars. First to the summit wins.' },
+  climb: { name: 'Hill climb', blurb: 'One run up the mountain past boulders and broken tarmac. No items. First to the summit wins.' },
 };
 
-/** Modes where the other racers are ghosts: no contact, no items, and the host picks a car rule. */
-export const ghostMode = (m: RaceMode) => m !== 'race';
+/** Modes where the other racers are ghosts you drive straight through (no contact, no slipstream): the time trial. */
+export const ghostMode = (m: RaceMode) => m === 'trial';
+
+/** Modes with no items (boxes, throws or item money), where the host picks a car rule: everything but a race. */
+export const cleanMode = (m: RaceMode) => m !== 'race';
 
 /** The tracks a mode can run: a hill climb only on hill-climb roads, everything else only off them. */
 export const modeTracks = (m: RaceMode): TrackId[] => (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => !!TRACK_DEFS[id].climb === (m === 'climb'));
