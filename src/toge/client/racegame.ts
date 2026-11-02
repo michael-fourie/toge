@@ -22,6 +22,8 @@ import { rumble, setMenuNav } from '../../client/pad.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
 import { type CarModel, buildCar, ghostly } from './carmodel.ts';
+import { type Rider, decodeRider, defaultRider, randomRider } from '../shared/rider.ts';
+import { mulberry } from './tracktextures.ts';
 import { type Cockpit, buildCockpit } from './cockpit.ts';
 import { Head, ROUGH } from './headcam.ts';
 import { Effects } from './effects.ts';
@@ -37,6 +39,8 @@ export interface RaceSetup {
   track: TrackId;
   name: string;
   car: OwnedCar;
+  /** Your driver (rider.ts): on a bike, they're the one riding it. */
+  rider: Rider;
   /**
    * Online: the lobby socket, the grid the server just sent, and whether it's a race or a ghost time trial, with the car rule and every racer's car code for this race (which can differ
    * from their garage car). The car
@@ -287,7 +291,7 @@ export class RaceGame {
     const mySlot = online ? (online.grid[online.net.id] ?? 0) : Math.floor(rivals / 2);
     // Online, the server says what you drive (a spec car, or your car maxed out, in a time trial).
     const myCar = online ? myRaceCar(online.rule, online.cars[online.net.id], setup.car) : setup.car;
-    this.me = this.spawn(myCar, mySlot, setup.name, true);
+    this.me = this.spawn(myCar, mySlot, setup.name, true, setup.rider);
     if (online) {
       // Say what everyone's driving now, and again with the time trial's banner at GO.
       this.carNote = online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}, the same for everyone` : online.rule === 'maxed' ? `${CAR_RULES.maxed.name}: every part at level 5` : '';
@@ -311,7 +315,8 @@ export class RaceGame {
         // Match your upgrades so the field stays close.
         car.up = { ...setup.car.up };
         const slot = i < mySlot ? i : i + 1;
-        const r = this.spawn(car, slot, RIVAL_NAMES[i], false);
+        // Each rival gets a driver of their own (seen on a bike), the same one every race.
+        const r = this.spawn(car, slot, RIVAL_NAMES[i], false, randomRider(mulberry(0x5eed + i)));
         r.ai = newAi(0.84 + ((i * 37) % 11) / 100, ((i % 3) - 1) * 1.6);
         this.rivals.push(r);
       }
@@ -329,12 +334,12 @@ export class RaceGame {
 
   // --- setup ---------------------------------------------------------------------------------
 
-  private spawn(owned: OwnedCar, slot: number, name: string, mine: boolean): Racing {
+  private spawn(owned: OwnedCar, slot: number, name: string, mine: boolean, rider: Rider): Racing {
     const g = gridSlot(this.track, slot);
     const car = newCar(carSpec(owned), g.x, g.y, g.z, g.yaw);
     car.hint = Math.round(g.s / 2);
     car.s = g.s;
-    const model = buildCar(owned);
+    const model = buildCar(owned, rider);
     this.view.scene.add(model.root);
     this.headlights(model.root, owned);
     const b = CARS[owned.model];
@@ -360,7 +365,7 @@ export class RaceGame {
 
   private addRemote(r: Racer) {
     const owned = decodeCar(r.car) ?? newOwnedCar('pebble');
-    const model = buildCar(owned);
+    const model = buildCar(owned, decodeRider(r.rider) ?? defaultRider());
     if (this.trial) ghostly(model);
     this.view.scene.add(model.root);
     this.headlights(model.root, owned);

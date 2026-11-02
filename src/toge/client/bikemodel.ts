@@ -9,11 +9,13 @@
 // leaning; the rider's eye and the cockpit ride here) -> body (ground y = 0, mid-wheelbase z = 0, front -Z).
 
 import * as THREE from 'three';
-import { CARS, GLOWS, type OwnedCar, PAINTS, carSpec } from '../shared/cars.ts';
+import { CARS, GLOWS, type OwnedCar, carSpec } from '../shared/cars.ts';
 import { equipped } from '../shared/cosmetics.ts';
+import type { Rider } from '../shared/rider.ts';
 import { curve } from './carloft.ts';
 import type { CarModel } from './carmodel.ts';
-import { MAT, glowMaterial, isShared, mergeByMaterial, paintMaterial, plateMaterial, rbox, stripeTexture, wheel } from './carparts.ts';
+import { MAT, glowMaterial, isShared, mergeByMaterial, paintMaterial, plateMaterial, rbox, share, stripeTexture, wheel } from './carparts.ts';
+import { buildRider } from './ridermodel.ts';
 import { caliperMaterial, cosPaint, cosPlateMaterial, exhaustMaterials, frameMaterial, coverMaterial, headMaterials, rimMaterial, windowMaterial } from './cosmeticsview.ts';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -88,7 +90,7 @@ function limb(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material
 const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const at = <T extends THREE.Object3D>(o: T, p: THREE.Vector3): T => (o.position.copy(p), o);
 
-export function buildBike(owned: OwnedCar): CarModel {
+export function buildBike(owned: OwnedCar, rider: Rider | null): CarModel {
   const b = CARS[owned.model];
   const sp = carSpec(owned);
   const look = owned.look;
@@ -310,46 +312,21 @@ export function buildBike(owned: OwnedCar): CarModel {
   steerG.add(front.holder);
 
   // --- Rider ----------------------------------------------------------------------------------
-  // Tucked in behind the screen, knees out, chin on the tank. Its own group, so the rider's-eye camera can
-  // hide it (racegame.ts reads root.userData.rider).
-  const rider = new THREE.Group();
-  body.add(rider);
-  const leathers = new THREE.MeshStandardMaterial({ color: 0x141518, roughness: 0.55 });
-  const trimC = new THREE.MeshStandardMaterial({ color: PAINTS[look.paint], roughness: 0.45 });
-  const helmet = new THREE.MeshPhysicalMaterial({ color: PAINTS[look.paint], roughness: 0.25, metalness: 0.2, clearcoat: 1 });
-  const skinless = new THREE.MeshStandardMaterial({ color: 0x0a0a0c, roughness: 0.8 });
-  own.push(leathers, trimC, helmet, skinless);
-  const hip = v3(0, 0.98, zF + 1.16);
-  const shoulder = v3(0, 1.2, zF + 0.78);
-  const neck = v3(0, 1.24, zF + 0.7);
-  rider.add(limb(hip, shoulder, 0.125, leathers));
-  rider.add(limb(hip.clone().add(v3(0, 0.07, -0.05)), shoulder.clone().add(v3(0, 0.1, 0)), 0.06, trimC)); // the hump
-  const helm = new THREE.Mesh(new THREE.SphereGeometry(0.15, 20, 14), helmet);
-  helm.position.copy(neck).add(v3(0, 0.05, -0.08));
-  helm.scale.set(1, 0.95, 1.1);
-  rider.add(helm);
-  const visor = new THREE.Mesh(new THREE.SphereGeometry(0.152, 20, 10, Math.PI * 0.7, Math.PI * 0.6, Math.PI * 0.32, Math.PI * 0.28), MAT.gloss);
-  visor.position.copy(helm.position);
-  visor.scale.copy(helm.scale);
-  rider.add(visor);
-  for (const s of [-1, 1]) {
-    const sh = shoulder.clone().add(v3(s * 0.17, -0.02, 0.02));
-    const elbow = v3(s * 0.27, 1.02, zF + 0.6);
-    const grip = v3(s * 0.31, head.y + 0.0, head.z + 0.1);
-    rider.add(limb(sh, elbow, 0.05, leathers));
-    rider.add(limb(elbow, grip, 0.043, leathers));
-    rider.add(limb(elbow.clone().add(v3(s * 0.01, 0.03, 0)), sh.clone().add(v3(0, 0.03, 0)), 0.02, trimC));
-    const knee = v3(s * 0.27, 0.78, zF + 0.86);
-    const peg = v3(s * 0.21, 0.46, zF + 1.1);
-    rider.add(limb(hip.clone().add(v3(s * 0.11, -0.02, 0)), knee, 0.068, leathers));
-    rider.add(limb(knee, peg, 0.052, leathers));
-    rider.add(at(new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), trimC), knee.clone().add(v3(s * 0.06, -0.02, 0)))); // knee slider
-    const boot = new THREE.Mesh(rbox(0.09, 0.08, 0.22, 0.03), skinless);
-    boot.position.copy(peg).add(v3(0, -0.01, -0.04));
-    rider.add(boot);
-    const glove = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), skinless);
-    glove.position.copy(grip);
-    rider.add(glove);
+  // The racer's own driver (ridermodel.ts) in its riding pose, hips on the saddle, facing the bars; null leaves the
+  // saddle empty (the showroom stands your driver beside the bike instead). Its own group, so the rider's-eye camera
+  // can hide it (racegame.ts reads root.userData.rider). Its meshes and materials are the driver cache's, shared
+  // with every other driver on the page: never merged, never disposed here, and marked shared so a time-trial ghost
+  // fades copies of them, not the originals.
+  const figure = rider ? buildRider(rider, { ride: true }) : null;
+  const seat = v3(0, 0.9, zF + 1.14);
+  if (figure) {
+    figure.root.rotation.y = Math.PI;
+    figure.root.position.set(seat.x, seat.y - figure.hipY, seat.z);
+    figure.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && !Array.isArray(m.material)) share(m.material);
+    });
+    body.add(figure.root);
   }
 
   // Cosmetic tints (screen, headlamps, calipers) and merging, like the cars.
@@ -368,13 +345,12 @@ export function buildBike(owned: OwnedCar): CarModel {
     const m = o as THREE.Mesh;
     if (m.isMesh && !Array.isArray(m.material)) m.material = swap.get(m.material) ?? m.material;
   });
-  mergeByMaterial(body, new Set([steerG, arm, rear.holder, rider]));
+  mergeByMaterial(body, new Set([steerG, arm, rear.holder, ...(figure ? [figure.root] : [])]));
   mergeByMaterial(steerG, new Set([front.holder]));
-  mergeByMaterial(rider);
   root.traverse((o) => {
     if ((o as THREE.Mesh).isMesh && o !== blob && !(o as THREE.Mesh).userData.glow) o.castShadow = true;
   });
-  root.userData.rider = rider;
+  root.userData.rider = figure?.root;
   root.userData.lean = frame;
 
   let shown = 0;
@@ -400,6 +376,7 @@ export function buildBike(owned: OwnedCar): CarModel {
       tail.emissiveIntensity = braking ? 20 : 3;
     },
     dispose() {
+      figure?.dispose(); // the driver's geometry is the page-wide cache: take it off before freeing the bike's own
       root.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;

@@ -37,9 +37,13 @@ a component or a page.
   and engine braking and a body three times steadier than its little box (`BIKE_*` in cars.ts; without it a barrel
   spun it like a top), and no spoiler (the garage hides it; a code that carries one changes nothing).
   The look is all client side: `bikemodel.ts` builds painted lofted shells (UVs like the car bodies, so paint jobs,
-  stripes and decals work), frame, fork, swingarm, wheels and a rider, and leans the model into turns by the cornering
+  stripes and decals work), frame, fork, swingarm and wheels, and leans the model into turns by the cornering
   force `pose(..., lat)` gets from racegame.ts. `root.userData.lean` is the leaning frame (the cockpit camera rides in
   it, so the horizon tilts) and `root.userData.rider` is hidden from the rider's eye. Skid marks run down the middle.
+  The rider is a driver from `ridermodel.ts` (`buildRider(r, { ride: true })`, the `RIDE` pose): your own driver,
+  each online rival's from `Racer.rider`, a seeded `randomRider` per AI. `buildCar(owned, rider)` passes it on; the
+  showroom passes `null` (empty saddle, your driver stands beside it). Rider meshes are shared page-wide, so the bike
+  never merges or disposes them.
 - **Cosmetics** (cosmetics.ts): 160 items in 11 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
   underglow, plates, plate frames/covers, exhaust tips), 5 rarities, won from 5 cases (Street, Night Run, Livery,
   Chrome, Legend) bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
