@@ -139,7 +139,7 @@ function room(mode: 'race' | 'trial' = 'race') {
   const inbox = new Map<number, RaceServerMsg[]>();
   const join = (id: number): RaceClient => {
     inbox.set(id, []);
-    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: 'shiro.0.1.0.0.0.0.1.00000000', user: true };
+    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: 'shiro.0.1.0.0.0.0.1.00000000', rider: '', user: true };
     race.add(c);
     return c;
   };

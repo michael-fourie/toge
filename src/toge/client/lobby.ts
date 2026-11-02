@@ -1,4 +1,5 @@
-// The race lobby: the code to share, the host's track pick, who's in and what they drive, and Start.
+// The race lobby: the code to share, the host's track pick, who's in and what they drive (and the crew: every
+// racer's driver, standing in a row), and Start.
 // When the host starts, everyone drops into the race together; the race itself waits for every racer to load.
 
 import { CARS, CLASS_COLORS, PAINTS, carSpec, decodeCar, encodeCar, rating } from '../shared/cars.ts';
@@ -12,14 +13,22 @@ import { raceNet } from './racenet.ts';
 import { ICON, LOGO } from './brand.ts';
 import { TRACK_IDS, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
+import { encodeRider } from '../shared/rider.ts';
+import { PORTRAIT, releasePortraits, riderPortrait } from './riderportrait.ts';
 import './race.css';
 import './hub.css';
+
+/** A racer's face for the grid list: their portrait, cropped to the head. */
+const face = (rider: string) => {
+  const pic = riderPortrait(rider);
+  return pic ? `background-image:url(${pic})` : '';
+};
 
 export const driveLobby: Render = (root, ctx, screen) => {
   let starting = false;
   // A deep link (/?race=CODE) or a reload: connect first.
   if (!raceNet.connected) {
-    if (screen.code) raceNet.join(playerName(), encodeCar(current(garage.g)), screen.code);
+    if (screen.code) raceNet.join(playerName(), encodeCar(current(garage.g)), encodeRider(garage.g.rider), screen.code);
     else {
       ctx.replace({ name: 'drive' });
       return;
@@ -43,12 +52,23 @@ export const driveLobby: Render = (root, ctx, screen) => {
           const cls = c ? rating(carSpec(c)) : null;
           return `<li class="${r.id === raceNet.id ? 'me' : ''}">
           <span class="tg-slot">${i + 1}</span>
-          <div class="tg-racer"><i class="tg-swatch" style="background:${c ? '#' + PAINTS[c.look.paint].toString(16).padStart(6, '0') : '#888'}"></i><b>${esc(r.name)}</b>${r.id === room.hostId ? '<span class="tg-tag">Host</span>' : ''}${r.id === raceNet.id ? '<span class="tg-tag you">You</span>' : ''}</div>
+          <div class="tg-racer"><i class="tg-face" aria-hidden="true" style="--paint:${c ? '#' + PAINTS[c.look.paint].toString(16).padStart(6, '0') : '#888'};${face(r.rider)}"></i><b>${esc(r.name)}</b>${r.id === room.hostId ? '<span class="tg-tag">Host</span>' : ''}${r.id === raceNet.id ? '<span class="tg-tag you">You</span>' : ''}</div>
           <span class="car">${c ? esc(CARS[c.model].name) : ''}</span>
           ${cls ? `<span class="tg-class" style="--c:${CLASS_COLORS[cls.cls]}"><b>${cls.cls}</b>${cls.pi}</span>` : '<span></span>'}
         </li>`;
         })
         .join('') + Array.from({ length: Math.max(0, max - room.racers.length) }, (_, i) => `<li class="open"><span class="tg-slot">${room.racers.length + i + 1}</span><span>Open slot</span></li>`).join('');
+    // The crew: everyone's driver side by side, you in the middle of the light.
+    const crew = room.racers
+      .map((r) => {
+        const pic = riderPortrait(r.rider);
+        const c = decodeCar(r.car);
+        return `<figure class="tg-crew-m ${r.id === raceNet.id ? 'me' : ''}">
+          ${pic ? `<img src="${pic}" alt="" width="${PORTRAIT.w}" height="${PORTRAIT.h}" />` : '<span class="tg-crew-none"></span>'}
+          <figcaption><b>${esc(r.name)}</b><small>${c ? esc(CARS[c.model].name) : ''}</small></figcaption>
+        </figure>`;
+      })
+      .join('');
     const canPick = isHost && room.phase === 'lobby';
     const tracks = TRACK_IDS.map((id) => trackTile(id, `data-pick="${id}" aria-pressed="${id === room.track}" aria-label="${esc(TRACK_DEFS[id].name)}" ${canPick ? '' : 'disabled'}`)).join('');
     const modes = (Object.keys(RACE_MODES) as RaceMode[])
@@ -95,6 +115,8 @@ export const driveLobby: Render = (root, ctx, screen) => {
             <div class="tg-tracks">${tracks}</div>
           </div>
           <div class="tg-lobby-col">
+            <h2 class="tg-h">Crew</h2>
+            <div class="tg-crew" style="--n:${room.racers.length}">${crew}</div>
             <h2 class="tg-h">Grid <small>${room.racers.length} / ${max}</small></h2>
             <ul class="tg-racers">${racers}</ul>
             <div class="tg-row">
@@ -126,7 +148,10 @@ export const driveLobby: Render = (root, ctx, screen) => {
     }
   });
   // Your car in the lobby follows your garage (if you switch cars before the start).
-  const offGarage = garage.onChange(() => raceNet.send({ t: 'car', car: encodeCar(current(garage.g)) }));
+  const offGarage = garage.onChange(() => {
+    raceNet.send({ t: 'car', car: encodeCar(current(garage.g)) });
+    raceNet.send({ t: 'rider', rider: encodeRider(garage.g.rider) });
+  });
   const quick = () => root.querySelector<HTMLButtonElement>('[data-start]')?.click();
   addEventListener('padstart', quick);
   draw();
@@ -135,6 +160,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     off();
     offGarage();
     removeEventListener('padstart', quick);
+    releasePortraits();
     if (!starting) raceNet.leave();
   };
 };

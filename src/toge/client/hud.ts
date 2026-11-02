@@ -57,6 +57,10 @@ export interface HudState {
   /** Drift points banked this race. */
   driftTotal: number;
   boost: boolean;
+  /** Slipstream: how deep in a wake you are (0-1), the slingshot's charge (0-1, 1 = ready) and whether it just fired. */
+  draft: number;
+  charge: number;
+  sling: boolean;
   /** The item slot: what you hold (or the roulette spinning), or null. */
   item: { icon: string; name: string; spinning: boolean } | null;
   heading: number; // yaw
@@ -123,6 +127,7 @@ export class RaceHud {
         <div class="rh-gear" data-el="gear">N</div>
         <div class="rh-assists"><span data-el="abs">ABS</span><span data-el="tcs">TCS</span><span data-el="mt">MT</span></div>
       </div>
+      <div class="rh-wind" data-el="wind" aria-hidden="true"></div>
       <div class="rh-combo" data-el="combo" aria-live="off"><b data-el="comboNum"></b><span data-el="comboMult"></span></div>
       <div class="rh-drift" data-el="drift"></div>
       <div class="rh-item" data-el="item"><span class="rh-item-icon" data-el="itemIcon"></span><small data-el="itemName"></small></div>
@@ -221,9 +226,12 @@ export class RaceHud {
     this.el.mt.classList.toggle('on', h.manual);
     this.root.classList.toggle('wrong', h.wrongWay);
     const d = this.el.drift;
-    const label = h.boost ? 'BOOST!' : h.drift >= 0 ? ['DRIFT', 'DRIFT ●', 'DRIFT ●●', 'DRIFT ●●●'][h.drift] : '';
+    const drafting = !h.boost && h.drift < 0 && h.draft > 0.15;
+    const label = h.sling ? 'SLINGSHOT!' : h.boost ? 'BOOST!' : h.drift >= 0 ? ['DRIFT', 'DRIFT ●', 'DRIFT ●●', 'DRIFT ●●●'][h.drift] : drafting ? (h.charge >= 1 ? 'SLIPSTREAM ▸ PULL OUT' : 'SLIPSTREAM') : '';
     if (d.textContent !== label) d.textContent = label;
-    d.dataset.level = h.boost ? 'boost' : String(h.drift);
+    d.dataset.level = h.boost ? 'boost' : drafting ? (h.charge >= 1 ? 'ready' : 'draft') : String(h.drift);
+    d.style.setProperty('--charge', drafting ? h.charge.toFixed(2) : '0');
+    this.el.wind.style.opacity = h.draft > 0.05 ? Math.min(1, h.draft * 1.2).toFixed(2) : '0';
     this.el.item.classList.toggle('on', !!h.item);
     this.el.item.classList.toggle('spinning', !!h.item?.spinning);
     const icon = h.item?.icon ?? '';

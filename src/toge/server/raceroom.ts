@@ -25,6 +25,7 @@ export class RaceRoom extends DurableObject<Env> {
       ws,
       name: (url.searchParams.get('name') ?? '').slice(0, 16).trim() || 'driver',
       car: url.searchParams.get('car') ?? '',
+      rider: url.searchParams.get('rider') ?? '',
       user: url.searchParams.get('user') === '1',
     };
     const race = this.open(code);

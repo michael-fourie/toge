@@ -7,6 +7,7 @@ import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part
 import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, rollCosCase } from './cosmetics.ts';
 import { clampDrift, driftPay, itemPay } from './drift.ts';
 import type { Item } from './powerups.ts';
+import { type Rider, cleanRider, defaultRider } from './rider.ts';
 import type { TrackId } from './track.ts';
 import { TRACK_DEFS } from './track.ts';
 
@@ -24,9 +25,11 @@ export interface Garage {
   lastReward: number;
   /** Cosmetic item ids won from cases (cosmetics.ts), each once. */
   cos: string[];
+  /** Your driver (rider.ts): stands by your car at home and with your crew in a lobby. Free to change. */
+  rider: Rider;
 }
 
-export const newGarage = (): Garage => ({ money: START_MONEY, cars: [newOwnedCar('pebble', 0)], sel: 0, races: 0, wins: 0, lastReward: 0, cos: [] });
+export const newGarage = (): Garage => ({ money: START_MONEY, cars: [newOwnedCar('pebble', 0)], sel: 0, races: 0, wins: 0, lastReward: 0, cos: [], rider: defaultRider() });
 
 /** Anything (stored JSON, a request body) to a valid garage. */
 export function cleanGarage(x: unknown): Garage {
@@ -41,6 +44,7 @@ export function cleanGarage(x: unknown): Garage {
   g.wins = whole(o.wins);
   g.lastReward = whole(o.lastReward);
   g.cos = Array.isArray(o.cos) ? [...new Set(o.cos.filter((id) => cosById(id)))].slice(0, COS_ITEMS.length) as string[] : [];
+  g.rider = cleanRider(o.rider);
   // A car can only wear what the garage owns.
   const owned = new Set(g.cos);
   for (const c of g.cars) for (const s of COS_SLOTS) if (c.cos[s] && !owned.has(c.cos[s]!)) delete c.cos[s];
@@ -182,7 +186,8 @@ export type GarageAction =
   | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number; uses?: Partial<Record<Item, number>> }
   | { a: 'case'; id: CaseId }
   | { a: 'equip'; i: number; slot: CosSlot; id: string | null }
-  | { a: 'plate'; i: number; text: string };
+  | { a: 'plate'; i: number; text: string }
+  | { a: 'rider'; rider: Rider };
 
 export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number; bonus?: { drift: number; items: number } } | { ok: false; error: string };
 
@@ -263,6 +268,8 @@ export function applyAction(g: Garage, act: GarageAction, rnd: () => number, now
       next.cars[act.i].plate = cleanPlate(act.text);
       return { ok: true, g: next };
     }
+    case 'rider':
+      return { ok: true, g: { ...g, rider: cleanRider(act.rider) } };
   }
   return { ok: false, error: 'Bad request.' };
 }
