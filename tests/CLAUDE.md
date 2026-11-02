@@ -26,6 +26,6 @@ Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs
 | survival, survivalplus, survivalfun, contraptions | Survival rules, perks, boss, revive, power, scythe, contraptions |
 | koth, teams, royale, bot, spawn, weapons, grenade | match modes, bots, guns |
 | accounts, security, loot, casino, levels, skin | accounts, server-side economy, input validation, stash rules |
-| racephysics, garage, raceroom, standings, raceinput, pad | TŌGE: every car down every track with the AI, economy, race server |
+| racephysics, garage, raceroom, standings, raceinput, pad, headcam | TŌGE: every car down every track with the AI, economy, race server, cockpit camera head |
 | party, snap, royal-degeneracy-* | plug-in game rooms and the plug-in games |
 | achievements, killcam, speedfx, postgame, input, loadout | client-side pure logic (feats, replay timing, HUD maths, key handling, ammo) |
