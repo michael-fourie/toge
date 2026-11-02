@@ -1,8 +1,8 @@
-// The first-person walker on Gambol's collision (src/shared/collision.ts, imported as-is): walk, crouch, jump,
+// The first-person walker on Gambol's collision (src/gambol/shared/collision.ts, imported as-is): walk, crouch, jump,
 // stairs (walkable ramps), snapping down steps; no bhop, no air control. Ghosts fly through everything. Also the
 // gentle nudge apart when players overlap, and the shove's stagger. Pure: no three.js, no DOM.
 
-import { moveAndCollide, newContacts, snapToGround, type Box } from '../../shared/collision.ts';
+import { moveAndCollide, newContacts, snapToGround, type Box } from '../../gambol/shared/collision.ts';
 import { yawForward, yawRight, type Vec3 } from '../../shared/math.ts';
 
 export const WALK = {

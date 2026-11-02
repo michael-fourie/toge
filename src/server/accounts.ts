@@ -1,11 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { ActionResult, Garage, GarageAction } from '../shared/race/garage.ts';
-import type { Inv } from '../shared/inventory.ts';
-import type { StashAction, StashResult } from '../shared/stash.ts';
+import type { ActionResult, Garage, GarageAction } from '../toge/shared/garage.ts';
+import type { Inv } from '../gambol/shared/inventory.ts';
+import type { StashAction, StashResult } from '../gambol/shared/stash.ts';
 import { AccountStore, type Result } from './accountStore.ts';
-import { GarageStore } from './garageStore.ts';
+import { GarageStore } from '../toge/server/garageStore.ts';
 import { Limiter } from './limiter.ts';
-import { StashStore } from './stashStore.ts';
+import { StashStore } from '../gambol/server/stashStore.ts';
 
 /**
  * One global Durable Object holds every account and session (fine for a group of friends). Password hashing

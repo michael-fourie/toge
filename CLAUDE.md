@@ -16,10 +16,12 @@ It's a prototype that changes a lot. Player-facing docs: `README.md`.
 
 | Area | Guide |
 |---|---|
-| Shooter rules, physics, maps, game modes (`src/shared`) | `src/shared/CLAUDE.md` |
-| Browser: menu, rendering, viewmodel, mobile, browser verification (`src/client`) | `src/client/CLAUDE.md` |
-| Worker, Durable Objects, netcode, accounts, security rules (`src/server`) | `src/server/CLAUDE.md` |
-| TŌGE racing, all of it | `src/shared/race/CLAUDE.md` (and `src/client/race/CLAUDE.md`) |
+| Gambol: shooter rules, physics, maps, game modes (`src/gambol/shared`) | `src/gambol/shared/CLAUDE.md` |
+| Gambol in the browser: rendering, viewmodel, HUD, its menu screens, mobile, browser verification (`src/gambol/client`) | `src/gambol/client/CLAUDE.md` |
+| TŌGE racing, all of it (`src/toge`) | `src/toge/CLAUDE.md` (and `src/toge/client/CLAUDE.md`) |
+| Site shell in the browser: boot, router, game chooser, account screen, pad, touch (`src/client`) | `src/client/CLAUDE.md` |
+| Code shared by several games (`src/shared`) | `src/shared/CLAUDE.md` |
+| Worker, Durable Objects, netcode, accounts, security rules: every game's server (`src/server`, `src/*/server`) | `src/server/CLAUDE.md` |
 | Adding a new game to the chooser | `src/games/CLAUDE.md` + `docs/ADDING_A_GAME.md` |
 | Royal Degeneracy | `src/games/royal-degeneracy/CLAUDE.md` |
 | Tests | `tests/CLAUDE.md` |
@@ -28,23 +30,27 @@ It's a prototype that changes a lot. Player-facing docs: `README.md`.
 
 ```
 browser (Vite-built SPA, TypeScript + three.js WebGL)
-  src/client/main.ts ── menu router ──┬─ Gambol:  client/game.ts  (128 Hz local sim, render, net.ts)
-                                      ├─ TŌGE:    client/race/racegame.ts (120 Hz car sim, racenet.ts)
+  src/client/main.ts ── menu router ──┬─ Gambol:  src/gambol/client/game.ts  (128 Hz local sim, render, net.ts)
+                                      ├─ TŌGE:    src/toge/client/racegame.ts (120 Hz car sim, racenet.ts)
                                       └─ plug-ins: menu/play.ts mounts src/games/<id>/channel.ts
-        │  imports pure rules from src/shared (also used by the server)
+        │  imports pure rules from src/gambol/shared, src/toge/shared, src/shared (also used by the server)
         │
         │ HTTPS /api/*  +  WebSocket /ws
         ▼
 Cloudflare Worker  src/server/worker.ts  (one Worker also serves dist/ as static assets)
   ├─ Directory DO   lobby codes and lists ("all", "race", "party:<id>")
-  ├─ LobbyRoom DO   one per shooter match: lobby.ts (20 Hz tick) + survival.ts / workshop.ts / royale.ts
-  ├─ RaceRoom DO    one per TŌGE race: race.ts
+  ├─ LobbyRoom DO   one per shooter match: src/gambol/server (lobby.ts 20 Hz tick + survival.ts / workshop.ts / royale.ts)
+  ├─ RaceRoom DO    one per TŌGE race: src/toge/server (race.ts)
   ├─ PartyRoom DO   one per plug-in game room: party.ts (roster + relay only)
   └─ Accounts DO    users, sessions, the shooter stash (coins, items, XP), the TŌGE garage
 ```
 
-- **`src/shared` is the contract.** Physics, maps, game-mode rules, the economy and the wire protocol are pure,
-  deterministic TypeScript (no three.js, no DOM) used by both sides. Put logic there and test it there.
+- **Each game's `shared/` is its contract.** Physics, maps, game-mode rules, the economy and the wire protocol are pure,
+  deterministic TypeScript (no three.js, no DOM) used by both sides: `src/gambol/shared`, `src/toge/shared`. Put logic
+  there and test it there. `src/shared` holds only what several games use (math, account rules, party wire types).
+- **The games are separate.** Gambol (`src/gambol`) and TŌGE (`src/toge`) never import each other, and `src/shared`
+  imports no game (`tests/boundaries.test.ts`). The site shell (`src/client`) and the platform server (`src/server`)
+  wire the games in, so they import both. Code a second game needs moves to `src/shared` (pure) or `src/client` (browser).
 - **Authority:** movement and hit detection are client-side (prototype shortcuts; the server sanity-checks them).
   Match flow, zombies, Survival/Royale state, race timing and every coin/XP payout for signed-in players are
   server-side. Guests keep their stash/garage in localStorage and run the same shared rules locally.
@@ -56,11 +62,15 @@ Cloudflare Worker  src/server/worker.ts  (one Worker also serves dist/ as static
 ## Repo layout
 
 ```
-src/shared/   pure rules for client + server (shooter); race/ = TŌGE
-src/client/   the browser: menu/, the shooter (game.ts and friends), weapon/, race/ (TŌGE)
-src/server/   the Cloudflare Worker and Durable Objects
+src/gambol/   Gambol, the shooter: shared/ (pure rules for client + server), client/ (game.ts and friends, weapon/,
+              menu/ = its screens), server/ (LobbyRoom, lobby, Survival, Royale, the stash store)
+src/toge/     TŌGE, the racer: shared/ (physics, tracks, cars, garage), client/ (racegame.ts and friends),
+              server/ (RaceRoom, race, the garage store)
+src/shared/   pure code several games use (math, account rules, party wire types)
+src/client/   the site shell: main.ts, menu/ (router, ui kit, game chooser, account screen, plug-in host), pad, touch
+src/server/   the Worker and the platform Durable Objects (Directory, Accounts, PartyRoom), rooms.ts
 src/games/    plug-in games for the chooser (registry.ts finds <id>/channel.ts; _template/ to start)
-tests/        node:test files, run by an explicit list in package.json
+tests/        node:test files, run by an explicit list in package.json: gambol/, toge/, the rest at the top
 dev/          dev-only labs served by Vite: viewmodel.html (guns/hands), cars.html (TŌGE car models); backdrops.py paints TŌGE's sky backdrops
 docs/         ADDING_A_GAME, DEPLOYMENT, FOUNDRY (Survival map), MAP_PLAN (Windward), MENU_PLAN, SECURITY
 public/       _headers (security headers), models/ (optional awp.glb, see README), race/backdrops/ (TŌGE distant scenery, painted by dev/backdrops.py)
@@ -89,7 +99,7 @@ expand globs, so add each new test file to the `test` script by name.
 3. **Fun and silly.** Chibi anime snipers with streaming scarves and X_X faces when killed, flung corpses, YEET popups. Keep that tone.
 4. **Ghibli look.** Soft cel shading, warm painterly palette, and procedural textures (no image assets). Gameplay readability comes first: floors, walls, cover, pads, slide ramps and surf ramps must each look distinct.
 
-TŌGE's equivalent ("realistic sim with an arcade layer on top") is in `src/shared/race/CLAUDE.md`.
+TŌGE's equivalent ("realistic sim with an arcade layer on top") is in `src/toge/CLAUDE.md`.
 
 ## Conventions
 
@@ -99,7 +109,7 @@ TŌGE's equivalent ("realistic sim with an arcade layer on top") is in `src/shar
 - Every movement or physics change gets a test (shooter and TŌGE alike).
 - Never trust the client for anything that pays or decides a result; never put player names into HTML strings. Details: `src/server/CLAUDE.md`.
 - Mobile styles and input live under `html.touch` / `IS_TOUCH` only; desktop paths never change for mobile.
-- **Line endings are mixed.** Some files are CRLF (this file, `src/shared/race/*`, `src/client/race/*`, `worker.ts`, `wrangler.jsonc`, `package-lock.json`, …), most are LF. Keep each file's existing endings: tools that rewrite text (e.g. Python text mode) silently convert CRLF to LF and make whole-file diffs. Check with `git ls-files --eol <file>`.
+- **Line endings are mixed.** Some files are CRLF (this file, many files in `src/toge/`, `worker.ts`, `wrangler.jsonc`, `package-lock.json`, …), most are LF. Keep each file's existing endings: tools that rewrite text (e.g. Python text mode) silently convert CRLF to LF and make whole-file diffs. Check with `git ls-files --eol <file>`.
 
 ## Contributing
 
@@ -107,7 +117,7 @@ Several people (and their Claudes) work on this at once. To keep that smooth:
 
 1. **Branch from `master`**, one feature per branch, and open a PR against `master`. Michael reviews and merges. Don't push to `master` directly and don't commit unless the person you're working for asks.
 2. **Stay in your lane.** Give each parallel task clear file ownership; keep each test area in its own file. A new plug-in game stays inside its own `src/games/<id>/` folder (see `src/games/CLAUDE.md`).
-3. **Before opening a PR:** `npm test` and `npm run typecheck` green, and for anything visual, check it in the browser (`src/client/CLAUDE.md`, "Verifying in the browser"). Cloudflare also builds a preview for every branch.
+3. **Before opening a PR:** `npm test` and `npm run typecheck` green, and for anything visual, check it in the browser (`src/gambol/client/CLAUDE.md`, "Verifying in the browser"; `src/toge/CLAUDE.md` for TŌGE). Cloudflare also builds a preview for every branch.
 4. **Keep the docs true.** If you change how something works, update the CLAUDE.md for that area in the same PR, and the design docs in `docs/` for maps, menus, deployment or security.
 5. Prefer small, exact edits over rewrites; delete dead code instead of leaving it switched off.
 

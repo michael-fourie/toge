@@ -6,8 +6,8 @@ player sees is decided or checked by the server; anything the server can't check
 ## Coins, items, XP and the Casino
 
 - **Signed in:** the stash (coins, owned items, what's equipped, XP) lives in the `Accounts` Durable Object
-  (`server/stashStore.ts`, keys `i:<user>` and `t:<user>` for the Casino tables). The browser only asks: `/api/stash`
-  GET reads it, POST runs one `StashAction` through `shared/stash.ts` with the server's dice and clock.
+  (`gambol/server/stashStore.ts`, keys `i:<user>` and `t:<user>` for the Casino tables). The browser only asks: `/api/stash`
+  GET reads it, POST runs one `StashAction` through `gambol/shared/stash.ts` with the server's dice and clock.
   - Cases are rolled on the server. Plinko is rolled on the server. Blackjack's shoe and hand are kept on the server
     and the dealer's hole card isn't sent until the hand is over. Crash's snap point is kept on the server; the client
     learns it only once the kite has snapped (`peek`), and a cash-out pays at most what the kite had reached by the

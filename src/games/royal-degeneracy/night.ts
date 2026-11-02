@@ -3,7 +3,7 @@
 // case-closed card. The referee (host) decides everything that matters; this only asks and shows.
 
 import * as THREE from 'three';
-import { rayBox, raySphere, rayWorld } from '../../shared/collision.ts';
+import { rayBox, raySphere, rayWorld } from '../../gambol/shared/collision.ts';
 import type { Vec3 } from '../../shared/math.ts';
 import { lerp } from '../../shared/math.ts';
 import type { GameApi } from '../types.ts';

@@ -3,7 +3,7 @@
 // of doorways and stair landings. Get between it and that exit and it doubles back the other way, so shooing it out
 // means coming at it from the right side. It's gone once it's outside. Pure: the referee runs it.
 
-import { rayWorld, type Box } from '../../shared/collision.ts';
+import { rayWorld, type Box } from '../../gambol/shared/collision.ts';
 import type { Vec3 } from '../../shared/math.ts';
 import { DOORS, FLOOR_Y, ROOMS, SOLIDS, roomAt } from './house.ts';
 import { newWalker, stepWalker, type Walker } from './move.ts';

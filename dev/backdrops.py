@@ -8,7 +8,7 @@
 #
 #   python3 dev/backdrops.py            (needs numpy + Pillow with WebP)
 #
-# Geometry (keep in step with BACKDROP in src/client/race/trackview.ts): row 0 is tan(elevation) = TOP,
+# Geometry (keep in step with BACKDROP in src/toge/client/trackview.ts): row 0 is tan(elevation) = TOP,
 # the last row is BOTTOM, linear in tan(elevation) because the cylinder's height is linear. Column 0 is
 # azimuth 0 (+z) and azimuth grows with the column, the way three.js lays a CylinderGeometry's u.
 

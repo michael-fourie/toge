@@ -1,6 +1,6 @@
 # Menu plan
 
-The landing page is the **game chooser** (`menu/games.ts`, `games.css`): a 4×3 grid of channels (Gambol, TŌGE, then empty slots), a bottom bar with the clock, an account button and a message board. Picking a channel zooms into its page (animated banner, blurb, **Menu** / **Start**). Start goes to that game's home: Gambol's title screen (below) or TŌGE's garage (`race/hub.ts`). Back from either returns to the chooser, as does the ⌂ button on Gambol's home. Every screen works with a controller via `pad.ts`: focus follows the D-pad/stick, Ⓐ presses, Ⓑ is Back (it sends Escape), LB/RB switch tabs. A modal marks itself `data-nav-scope` so focus stays inside it.
+The landing page is the **game chooser** (`menu/games.ts`, `games.css`): a 4×3 grid of channels (Gambol, TŌGE, then empty slots), a bottom bar with the clock, an account button and a message board. Picking a channel zooms into its page (animated banner, blurb, **Menu** / **Start**). Start goes to that game's home: Gambol's title screen (below) or TŌGE's garage (`src/toge/client/hub.ts`). Back from either returns to the chooser, as does the ⌂ button on Gambol's home. Every screen works with a controller via `pad.ts`: focus follows the D-pad/stick, Ⓐ presses, Ⓑ is Back (it sends Escape), LB/RB switch tabs. A modal marks itself `data-nav-scope` so focus stays inside it.
 
 The rest of this file describes Gambol's menus.
 
@@ -58,13 +58,13 @@ Known limitation: while you sit in the room, your bean stands idle at its spawn 
 
 ## Code
 
-`src/client/main.ts` holds the boot, the game start (with the loading veil) and the router wiring. `src/client/menu/` contains:
+`src/client/main.ts` holds the boot, the game start (with the loading veil) and the router wiring. The site-wide menu code is in `src/client/menu/` (the chooser, account screen, router and shared UI); Gambol's own screens are in `src/gambol/client/menu/`:
 
 | File | Contents |
 | --- | --- |
 | `ui.ts` | backdrop, page shell, escaping, name storage |
 | `skirmish.ts` | the animated backdrop: bobbing islands and faded shadow-players bhopping and sniping (2D canvas) |
 | `router.ts` | the history-backed screen router |
-| `title.ts`, `practice.ts`, `host.ts`, `join.ts`, `lobby.ts`, `help.ts` | one file per screen |
+| `gambol/client/menu/`: `title.ts`, `practice.ts`, `host.ts`, `join.ts`, `lobby.ts`, `help.ts`, … | one file per Gambol screen |
 
-Settings live in `src/client/settings.ts`, and `Input` reads the sensitivity from there.
+Settings live in `src/gambol/client/settings.ts`, and `Input` reads the sensitivity from there.

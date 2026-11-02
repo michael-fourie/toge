@@ -1,18 +1,18 @@
 import type { Accounts } from './accounts.ts';
 import type { Directory } from './directory.ts';
-import type { RaceRoom } from './raceroom.ts';
+import type { RaceRoom } from '../toge/server/raceroom.ts';
 import type { PartyRoom } from './partyroom.ts';
 import { isGameId } from '../shared/party.ts';
-import type { LobbyRoom } from './room.ts';
-import type { GarageAction } from '../shared/race/garage.ts';
-import { CAR_CODE_MAX } from '../shared/race/cars.ts';
-import type { StashAction } from '../shared/stash.ts';
+import type { LobbyRoom } from '../gambol/server/room.ts';
+import type { GarageAction } from '../toge/shared/garage.ts';
+import { CAR_CODE_MAX } from '../toge/shared/cars.ts';
+import type { StashAction } from '../gambol/shared/stash.ts';
 
 export { Accounts } from './accounts.ts';
 export { Directory } from './directory.ts';
-export { RaceRoom } from './raceroom.ts';
+export { RaceRoom } from '../toge/server/raceroom.ts';
 export { PartyRoom } from './partyroom.ts';
-export { LobbyRoom } from './room.ts';
+export { LobbyRoom } from '../gambol/server/room.ts';
 
 export interface Env {
   LOBBY: DurableObjectNamespace<LobbyRoom>;

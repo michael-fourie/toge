@@ -7,7 +7,7 @@ import { caseById } from './cases.ts';
 import { BONGUS_RANGE, LOOKOUT_RANGE, NPC_SIGHT, POWERS, hiddenNear, plantedIn, powerOf, powerProblem, proof, recordRooms, routerLog, spend, teaFact } from './abilities.ts';
 import { CATS, ITEM, hint, inspect, label, nextRand, plant, post, search, traceable, unlock, valueOf, wipe } from './clues.ts';
 import { WALK, newWalker, stepWalker, type Walker } from './move.ts';
-import { rayWorld } from '../../shared/collision.ts';
+import { rayWorld } from '../../gambol/shared/collision.ts';
 import { BINBAG_DROP, DOORS, DUO_PAIRS, FLOOR_Y, REACH, ROOMS, SOLIDS, SPOTS, doorBox, floorOf, roomAt, type Door } from './house.ts';
 import { SABOTAGES, fixSabotage, lockedDoors, startSabotage, wifiDown } from './sabotage.ts';
 import type { Msg } from './net.ts';
