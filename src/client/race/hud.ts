@@ -65,6 +65,8 @@ export interface ResultLine {
   name: string;
   car: string;
   time: number | null;
+  /** Quickest lap (circuits), when known. */
+  best?: number | null;
   prize: number;
   me: boolean;
 }
@@ -346,7 +348,9 @@ export class RaceHud {
     return !this.el.panel.hidden;
   }
 
-  resultsHtml(title: string, lines: ResultLine[]): string {
+  /** The results table. A time trial adds each racer's gap to the winner and their best lap. */
+  resultsHtml(title: string, lines: ResultLine[], trial = false): string {
+    const win = lines.find((l) => l.place === 1)?.time ?? null;
     const rows = lines
       .map((l) => {
         const car = decodeCar(l.car);
@@ -356,6 +360,7 @@ export class RaceHud {
           <td><i class="swatch" style="background:${color}"></i>${esc(l.name)}</td>
           <td class="car">${car ? esc(CARS[car.model].name) : ''}</td>
           <td class="tm">${l.time !== null ? fmtTime(l.time) : '—'}</td>
+          ${trial ? `<td class="gap">${l.time !== null && win !== null && l.place > 1 ? '+' + (l.time - win).toFixed(3) : ''}</td><td class="best">${l.best ? `<small>best lap</small> ${fmtTime(l.best)}` : ''}</td>` : ''}
           <td class="pz">+${money(l.prize)}</td></tr>`;
       })
       .join('');

@@ -1,6 +1,6 @@
 import { decodeCar } from '../shared/race/cars.ts';
 import { payout } from '../shared/race/garage.ts';
-import { RACE, type NetCar, type RaceClientMsg, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/race/protocol.ts';
+import { RACE, RACE_MODES, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/race/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/race/track.ts';
 import type { Socket } from './lobby.ts';
 
@@ -27,6 +27,8 @@ interface Member {
   /** In the current race (joined before the countdown). */
   racing: boolean;
   time: number | null;
+  /** Quickest lap on a circuit (client-timed; only shown, never paid on). */
+  best: number | null;
 }
 
 export const sendTo = (c: RaceClient, msg: RaceServerMsg) => {
@@ -44,6 +46,7 @@ export class Race {
   readonly members = new Map<number, Member>();
   hostId = 0;
   track: TrackId = 'koripass';
+  mode: RaceMode = 'race';
   phase: RacePhase = 'lobby';
   private phaseEnds = 0;
   private goAt = 0;
@@ -75,7 +78,7 @@ export class Race {
 
   add(c: RaceClient) {
     if (!decodeCar(c.car)) c.car = 'pebble.0.1.0.0.0.0.1.00000000';
-    this.members.set(c.id, { client: c, state: null, racing: false, time: null });
+    this.members.set(c.id, { client: c, state: null, racing: false, time: null, best: null });
     if (!this.hostId) this.hostId = c.id;
     sendTo(c, { t: 'welcome', id: c.id });
     this.broadcastRoom();
@@ -106,6 +109,15 @@ export class Race {
           this.onChange(this);
         }
         break;
+      case 'mode':
+        if (c.id === this.hostId && this.phase === 'lobby' && Object.hasOwn(RACE_MODES, msg.mode) && msg.mode !== this.mode) {
+          this.mode = msg.mode;
+          // A time trial wants a lap to learn: switching to one puts its ring up (the host can still pick another).
+          if (msg.mode === 'trial') this.track = 'kodama';
+          this.broadcastRoom();
+          this.onChange(this);
+        }
+        break;
       case 'start':
         if (c.id === this.hostId && this.phase === 'lobby') this.startCountdown();
         break;
@@ -127,7 +139,8 @@ export class Race {
       }
       case 'item': {
         // Relayed to everyone else; each client works out whether it was hit.
-        if (this.phase !== 'racing' || !m.racing || (msg.kind !== 'oil' && msg.kind !== 'shock' && msg.kind !== 'comet')) return;
+        // Ghosts can't touch each other, so a time trial has no items at all.
+        if (this.phase !== 'racing' || this.mode === 'trial' || !m.racing || (msg.kind !== 'oil' && msg.kind !== 'shock' && msg.kind !== 'comet')) return;
         if (msg.kind === 'oil' && !(Array.isArray(msg.p) && msg.p.length === 3 && msg.p.every((x) => finite(x, 1e5)))) return;
         if (msg.kind === 'comet' && !(finite(msg.target, 1e6) && finite(msg.s, 1e5))) return;
         const now = this.now();
@@ -147,6 +160,7 @@ export class Race {
         // Trust the client's own clock (it started on `go`) within a little latency either way.
         const time = msg.time >= elapsed - 2 && msg.time <= elapsed + 0.5 ? msg.time : elapsed;
         m.time = Math.round(time * 1000) / 1000;
+        m.best = finite(msg.best, 1e4) && msg.best! > 0 && msg.best! <= m.time ? Math.round(msg.best! * 1000) / 1000 : null;
         if (!this.firstFinish) this.firstFinish = this.now();
         this.broadcast({ t: 'finished', id: c.id, time: m.time });
         this.maybeFinish();
@@ -164,10 +178,11 @@ export class Race {
     for (const m of this.members.values()) {
       m.racing = true;
       m.time = null;
+      m.best = null;
       m.state = null;
       grid[m.client.id] = slot++;
     }
-    this.broadcast({ t: 'countdown', track: this.track, ms: RACE.countdownMs, grid });
+    this.broadcast({ t: 'countdown', track: this.track, mode: this.mode, ms: RACE.countdownMs, grid });
     this.broadcastRoom();
     this.onChange(this);
   }
@@ -184,12 +199,12 @@ export class Race {
     const dnf = field.filter((m) => m.time === null);
     const rows: ResultRow[] = [...done, ...dnf].map((m, i) => {
       const place = m.time === null ? 0 : i + 1;
-      return { id: m.client.id, name: m.client.name, car: m.client.car, time: m.time, place, prize: payout(place, field.length, this.track, false) };
+      return { id: m.client.id, name: m.client.name, car: m.client.car, time: m.time, best: m.best, place, prize: payout(place, field.length, this.track, false) };
     });
     this.phase = 'results';
     this.phaseEnds = now + RACE.resultsSeconds * 1000;
     for (const m of field) m.racing = false;
-    this.broadcast({ t: 'results', track: this.track, rows });
+    this.broadcast({ t: 'results', track: this.track, mode: this.mode, rows });
     this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)));
     this.onChange(this);
   }
@@ -215,7 +230,7 @@ export class Race {
 
   private room(): RaceServerMsg {
     const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, user: m.client.user }));
-    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, phase: this.phase, racers };
+    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, phase: this.phase, racers };
   }
 
   private broadcastRoom() {

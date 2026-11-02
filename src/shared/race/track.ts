@@ -13,7 +13,7 @@ import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -343,6 +343,24 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [690, 16, -290], [708, 13, -200], [700, 11, -90], [698, 10, -30], [668, 9, 20], [675, 9, 80], [645, 8, 165],
       [560, 8, 195], [470, 8, 182], [445, 8, 215], [400, 8, 224], [340, 8, 224], [312, 8, 186], [270, 8, 180],
       [150, 8, 195], [55, 8, 215], [25, 8, 212], [5, 9, 185], [-5, 9, 100],
+    ],
+  },
+  // Built for the time trial: a short, flowing lap you learn by heart and shave tenths off.
+  kodama: {
+    id: 'kodama',
+    name: 'Kodama Ring',
+    tag: 'Time trial · 3 laps · flowing',
+    blurb: 'A short ring in the cherry-blossom hills, made for chasing ghosts: a climbing esse, a fast downhill sweeper into the infield hairpin, a long double-apex right and a flat-out run to the line.',
+    theme: 'spring',
+    seed: 149,
+    width: 12,
+    relief: 70,
+    laps: 3,
+    points: [
+      [0, 60, 0], [0, 60, -95], [14, 61, -142], [52, 62, -170], [101, 64, -165], [148, 66, -181], [195, 67, -204],
+      [250, 67, -201], [287, 66, -170], [298, 64, -117], [289, 62, -76], [250, 60, -61], [179, 58, -56], [129, 57, -45],
+      [100, 57, -9], [117, 57, 27], [164, 58, 41], [234, 59, 47], [281, 60, 72], [290, 61, 117], [265, 62, 153],
+      [203, 62, 165], [133, 61, 156], [70, 61, 167], [23, 60, 148], [3, 60, 101], [0, 60, 47],
     ],
   },
   neonbay: {

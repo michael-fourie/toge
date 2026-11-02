@@ -263,3 +263,33 @@ function common(k: Kit, d: Design, owned: OwnedCar, own: { dispose(): void }[]) 
     k.put(rbox(0.03, 0.03, k.b.wheelbase * 0.62, 0.012), strip, [sx, k.body.floor(0.5) - 0.01, 0], [0, 0, 0], true);
   }
 }
+
+/**
+ * Time trial: turns a built car into a see-through ghost (no shadow, never hides the road behind it). Materials
+ * shared between cars are swapped for clones (dispose() frees them, since clones aren't shared); the car's own
+ * are changed in place, so the brake lights still work.
+ */
+export function ghostly(model: CarModel, opacity = 0.35) {
+  const clones = new Map<THREE.Material, THREE.Material>();
+  const faded = new Set<THREE.Material>();
+  const fade = (m: THREE.Material) => {
+    if (faded.has(m)) return m;
+    faded.add(m);
+    m.transparent = true;
+    m.opacity *= opacity;
+    m.depthWrite = false;
+    return m;
+  };
+  model.root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.castShadow = false;
+    const swap = (mat: THREE.Material) => {
+      if (!isShared(mat)) return fade(mat);
+      let c = clones.get(mat);
+      if (!c) clones.set(mat, (c = fade(mat.clone())));
+      return c;
+    };
+    m.material = Array.isArray(m.material) ? m.material.map(swap) : swap(m.material);
+  });
+}

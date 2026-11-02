@@ -139,3 +139,41 @@ test('late joiners wait for the next race', () => {
   const roomMsg = r.last(2, 'room');
   assert.ok(roomMsg && roomMsg.t === 'room' && roomMsg.phase === 'racing');
 });
+
+test('time trial: only the host switches to it, it brings up the ring, has no items, and ranks every time with best laps', () => {
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  const c = r.join(3);
+  r.race.handle(b, { t: 'mode', mode: 'trial' });
+  assert.equal(r.race.mode, 'race');
+  r.race.handle(a, { t: 'mode', mode: 'toString' as 'trial' });
+  assert.equal(r.race.mode, 'race', 'junk modes are ignored');
+  r.race.handle(a, { t: 'mode', mode: 'trial' });
+  assert.equal(r.race.mode, 'trial');
+  assert.equal(r.race.track, 'kodama');
+  const room1 = r.last(2, 'room');
+  assert.ok(room1 && room1.t === 'room' && room1.mode === 'trial');
+  r.race.handle(a, { t: 'start' });
+  const cd = r.last(3, 'countdown');
+  assert.ok(cd && cd.t === 'countdown' && cd.mode === 'trial' && cd.track === 'kodama');
+  r.advance(RACE.countdownMs + 100);
+  // Ghosts don't throw things.
+  r.race.handle(a, { t: 'item', kind: 'shock' });
+  assert.ok(!r.last(2, 'item'));
+  r.advance(100_000);
+  r.race.handle(c, { t: 'finish', time: 100.2, best: 32.5 });
+  r.race.handle(a, { t: 'finish', time: 99.8, best: 31.9 });
+  r.race.handle(b, { t: 'finish', time: 100.05, best: 500 });
+  const res = r.last(2, 'results');
+  assert.ok(res && res.t === 'results' && res.mode === 'trial');
+  assert.deepEqual(
+    res.rows.map((x) => [x.id, x.place, x.time, x.best]),
+    [
+      [1, 1, 99.8, 31.9],
+      [2, 2, 100.05, null],
+      [3, 3, 100.2, 32.5],
+    ],
+    'a best lap longer than the whole race is dropped',
+  );
+});
