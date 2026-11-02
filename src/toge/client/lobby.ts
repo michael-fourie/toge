@@ -4,7 +4,7 @@
 
 import { CARS, CLASS_COLORS, PAINTS, carSpec, decodeCar, encodeCar, rating } from '../shared/cars.ts';
 import { current } from '../shared/garage.ts';
-import { CAR_RULES, PHYSICS, RACE, RACE_MODES, ghostMode, modeTracks, type CarRule, type RaceMode, type RaceServerMsg } from '../shared/protocol.ts';
+import { CAR_RULES, PHYSICS, RACE, RACE_MODES, cleanMode, modeTracks, type CarRule, type RaceMode, type RaceServerMsg } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { $, copy, esc, playerName } from '../../client/menu/ui.ts';
@@ -78,7 +78,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
       .join('');
     // A time trial's or hill climb's car rule: own cars, one spec car for everyone, or everyone's car maxed out.
     const rules =
-      ghostMode(room.mode)
+      cleanMode(room.mode)
         ? `<h2 class="tg-h">Cars</h2><div class="tg-modes">${(Object.keys(CAR_RULES) as CarRule[])
             .map((id) => `<button class="tg-mode" data-rule="${id}" aria-pressed="${id === room.cars}" ${canPick ? '' : 'disabled'}><b>${esc(CAR_RULES[id].name)}</b><small>${esc(CAR_RULES[id].blurb)}</small></button>`)
             .join('')}</div>`
