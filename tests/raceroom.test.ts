@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { Race, type RaceClient } from '../src/server/race.ts';
 import { RACE, type RaceServerMsg, type ResultRow } from '../src/shared/race/protocol.ts';
 import { payout } from '../src/shared/race/garage.ts';
+import { MAX_LEVEL, PARTS, decodeCar, defaultTune, myRaceCar, newOwnedCar, raceCars } from '../src/shared/race/cars.ts';
 
 /** A race room with fake sockets and a hand-wound clock. */
 function room() {
@@ -176,4 +177,92 @@ test('time trial: only the host switches to it, it brings up the ring, has no it
     ],
     'a best lap longer than the whole race is dropped',
   );
+});
+
+/** A room whose spec-car dice land on `pick`, with three racers in three different cars. */
+function trialRoom(pick: number) {
+  const inbox = new Map<number, RaceServerMsg[]>();
+  const race = new Race('TRIA', () => {}, () => {}, () => {}, () => 1_000_000, false, () => pick);
+  const cars = { 1: 'pebble.3.0.0.0.0.0.1.10000000', 2: 'kitsune.5.1.2.0.0.0.1.32104050', 3: 'vanta.7.2.1.0.1.0.1.55555555' } as Record<number, string>;
+  const clients = [1, 2, 3].map((id) => {
+    inbox.set(id, []);
+    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: cars[id], user: false };
+    race.add(c);
+    return c;
+  });
+  const countdown = (id: number) => inbox.get(id)!.filter((m) => m.t === 'countdown').at(-1) as Extract<RaceServerMsg, { t: 'countdown' }>;
+  return { race, clients, cars, countdown, inbox };
+}
+
+test('car rules: only the host sets them, only in the lobby, and the room shows the choice', () => {
+  const r = trialRoom(0);
+  const [a, b] = r.clients;
+  r.race.handle(b, { t: 'cars', cars: 'maxed' });
+  assert.equal(r.race.cars, 'own');
+  r.race.handle(a, { t: 'cars', cars: 'nonsense' as never });
+  assert.equal(r.race.cars, 'own');
+  r.race.handle(a, { t: 'cars', cars: 'spec' });
+  assert.equal(r.race.cars, 'spec');
+  const room = r.inbox.get(2)!.filter((m) => m.t === 'room').at(-1);
+  assert.ok(room && room.t === 'room' && room.cars === 'spec');
+  r.race.handle(a, { t: 'mode', mode: 'trial' });
+  r.race.handle(a, { t: 'start' });
+  r.race.handle(a, { t: 'cars', cars: 'own' });
+  assert.equal(r.race.cars, 'spec', 'locked once the countdown starts');
+});
+
+test('spec car: one racer\'s car for everyone (same model and upgrades, own paint), the same for every client', () => {
+  const r = trialRoom(0.5); // the middle racer's kitsune
+  const [a] = r.clients;
+  r.race.handle(a, { t: 'mode', mode: 'trial' });
+  r.race.handle(a, { t: 'cars', cars: 'spec' });
+  r.race.handle(a, { t: 'start' });
+  const cd = r.countdown(1);
+  assert.equal(cd.rule, 'spec');
+  assert.deepEqual(r.countdown(3).cars, cd.cars, 'every client hears the same cars');
+  const spec = decodeCar(r.cars[2])!;
+  for (const id of [1, 2, 3]) {
+    const car = decodeCar(cd.cars[id])!;
+    assert.equal(car.model, 'kitsune');
+    assert.deepEqual(car.up, spec.up);
+    assert.equal(car.look.paint, decodeCar(r.cars[id])!.look.paint, 'keeps their own paint');
+  }
+});
+
+test('maxed: everyone keeps their own car with every part at the top level; races ignore the rule', () => {
+  const r = trialRoom(0);
+  const [a] = r.clients;
+  r.race.handle(a, { t: 'cars', cars: 'maxed' });
+  r.race.handle(a, { t: 'start' }); // still a race: own cars
+  assert.equal(r.countdown(1).rule, 'own');
+  assert.deepEqual(r.countdown(1).cars, r.cars);
+
+  const t = trialRoom(0);
+  t.race.handle(t.clients[0], { t: 'mode', mode: 'trial' });
+  t.race.handle(t.clients[0], { t: 'cars', cars: 'maxed' });
+  t.race.handle(t.clients[0], { t: 'start' });
+  for (const id of [1, 2, 3]) {
+    const car = decodeCar(t.countdown(1).cars[id])!;
+    assert.equal(car.model, decodeCar(t.cars[id])!.model);
+    for (const p of PARTS) assert.equal(car.up[p], MAX_LEVEL);
+  }
+});
+
+test('race cars: results show the car raced; tuning only carries over to your own model outside spec', () => {
+  const r = trialRoom(0.99); // the vanta
+  const [a] = r.clients;
+  r.race.handle(a, { t: 'mode', mode: 'trial' });
+  r.race.handle(a, { t: 'cars', cars: 'spec' });
+  r.race.handle(a, { t: 'start' });
+  r.race.tick();
+  for (const c of r.clients) r.race.remove(c); // everyone leaves: no results, but no crash either
+
+  assert.deepEqual(raceCars('spec', [], 0.5), {});
+  assert.equal(decodeCar(raceCars('own', [{ id: 1, car: 'junk' }], 0)[1])!.model, 'pebble', 'a bad code becomes the starter car');
+  const mine = newOwnedCar('vanta');
+  mine.tune.ride = 0.5;
+  const code = raceCars('spec', [{ id: 1, car: 'vanta.0.1.0.0.0.0.1.00000000' }], 0)[1];
+  assert.deepEqual(myRaceCar('spec', code, mine).tune, defaultTune('vanta'), 'spec: default tuning even on your own model');
+  assert.equal(myRaceCar('maxed', raceCars('maxed', [{ id: 1, car: code }], 0)[1], mine).tune.ride, 0.5, 'maxed: your tuning');
+  assert.equal(myRaceCar('own', undefined, mine), mine, 'no code: your garage car');
 });
