@@ -1,11 +1,21 @@
-# src/server: Cloudflare Worker + Durable Objects
+# src/server: Cloudflare Worker + Durable Objects (every game's server)
 
 One Worker (`worker.ts`) serves the API and WebSockets; the built client is served as static assets by
 Cloudflare (`wrangler.jsonc`: `assets.directory ./dist`, SPA fallback, and `run_worker_first: ["/ws", "/api/*"]`,
 so only those paths ever reach the Worker). Everything runs on the Cloudflare free plan. Deploying: `docs/DEPLOYMENT.md`.
 Security model and open gaps: `docs/SECURITY.md`.
 
-This folder is typechecked by `tsconfig.worker.json` (Workers types, no DOM). It may import `src/shared`, never `src/client`.
+This guide covers the server side of every game. The files are split by owner:
+
+- `src/server/` (the platform): `worker.ts` (routing, `Env`), `directory.ts`, `accounts.ts` + `accountStore.ts`,
+  `limiter.ts`, `party.ts` + `partyroom.ts` (plug-in rooms), `rooms.ts` (`Socket` and `HEARTBEAT_SECONDS`, which
+  every game's room uses).
+- `src/gambol/server/`: `room.ts` (LobbyRoom), `lobby.ts`, `survival.ts`, `workshop.ts`, `royale.ts`, `stashStore.ts`.
+- `src/toge/server/`: `raceroom.ts` (RaceRoom), `race.ts`, `garageStore.ts`.
+
+All of them are typechecked by `tsconfig.worker.json` (Workers types, no DOM). They may import `src/shared` and the
+`shared/` folders of the games, never a `client/` folder. The platform files wire the games in; a game's server never
+imports the other game's (`tests/boundaries.test.ts`).
 
 ## Routing (`worker.ts`)
 
@@ -33,11 +43,11 @@ This folder is typechecked by `tsconfig.worker.json` (Workers types, no DOM). It
 
 | Class (file) | Role |
 |---|---|
-| `LobbyRoom` (`room.ts`, game logic in `lobby.ts`) | One per shooter match. Normalises params (`koth` forces teams, `br` forces FFA, `map` only for Battle). Messages ≤ 4096 B, `Limiter` 100 msg/s. `lobby.bank` pays/charges accounts via Accounts `reward` / `spend`. |
+| `LobbyRoom` (`gambol/server/room.ts`, game logic in `lobby.ts`) | One per shooter match. Normalises params (`koth` forces teams, `br` forces FFA, `map` only for Battle). Messages ≤ 4096 B, `Limiter` 100 msg/s. `lobby.bank` pays/charges accounts via Accounts `reward` / `spend`. |
 | `Directory` (`directory.ts`) | Registry per namespace (`"all"`, `"race"`, `"party:<id>"`): 4-letter codes, lobby lists, entries expire after 3 missed 30 s heartbeats. Rate-limits hosting per IP. |
-| `Accounts` (`accounts.ts` + `accountStore.ts`, `stashStore.ts`, `garageStore.ts`) | One global instance `"all"`: users, sessions, the shooter stash, the TŌGE garage. PBKDF2 runs here (the free-plan Worker only gets 10 ms CPU). |
-| `RaceRoom` (`raceroom.ts`, logic in `race.ts`) | One TŌGE race. Messages ≤ 2048 B, 60 msg/s. One prize per account per race. |
-| `PartyRoom` (`partyroom.ts`, logic in `party.ts`) | Generic roster + relay for plug-in games in `src/games`; never reads payloads. Limits in `PARTY` (`shared/party.ts`). |
+| `Accounts` (`accounts.ts` + `accountStore.ts`, `gambol/server/stashStore.ts`, `toge/server/garageStore.ts`) | One global instance `"all"`: users, sessions, the shooter stash, the TŌGE garage. PBKDF2 runs here (the free-plan Worker only gets 10 ms CPU). |
+| `RaceRoom` (`toge/server/raceroom.ts`, logic in `race.ts`) | One TŌGE race. Messages ≤ 2048 B, 60 msg/s. One prize per account per race. |
+| `PartyRoom` (`partyroom.ts`, logic in `party.ts`) | Generic roster + relay for plug-in games in `src/games`; never reads payloads. Limits in `PARTY` (`src/shared/party.ts`). |
 
 Rooms use `ws.accept()` (not the hibernation API) and keep state in memory; a room ends when it empties.
 Rate limiters (`limiter.ts`, token bucket) and login lockouts are in memory too, so they reset if a DO is evicted.
@@ -45,14 +55,14 @@ Rate limiters (`limiter.ts`, token bucket) and login lockouts are in memory too,
 The room *logic* (`lobby.ts`, `survival.ts`, `workshop.ts`, `royale.ts`, `race.ts`, `party.ts`) is plain TypeScript with
 no Cloudflare imports; the DO classes are thin wrappers. Keep it that way: it's what makes the logic unit-testable.
 
-## The shooter loop (`lobby.ts`)
+## The shooter loop (`gambol/server/lobby.ts`)
 
 `setInterval(tick, 1000/20)`: step Survival (zombies substep at 60 Hz, `SIM_DT`) and Royale, restart after
 `matchOver`, respawn, step the hill (KotH), broadcast `snapshot {players, zombies, koth, zone}`, heartbeat the
-Directory. Messages: `ClientMsg` / `ServerMsg` in `src/shared/protocol.ts`; flow is `welcome` → `joined` →
+Directory. Messages: `ClientMsg` / `ServerMsg` in `src/gambol/shared/protocol.ts`; flow is `welcome` → `joined` →
 `playerJoined` → 20 Hz `snapshot` + `shot` / `kill` / `respawn` → `matchOver` → (`MATCH_OVER_SECONDS`) `matchStart`.
 Survival (`survival.ts`), contraptions (`workshop.ts`) and Battle Royale (`royale.ts`) are described under
-"Game modes" in `src/shared/CLAUDE.md`.
+"Game modes" in `src/gambol/shared/CLAUDE.md`.
 
 Survival owns everything with a price, server-authoritative and reset with the run: per-player `wallet` (points,
 Juggernog, two gun slots), doors, window boards, the Mystery Box. Clients send `use {kind,id}` (the server re-checks
@@ -72,7 +82,7 @@ shooter) and the server sanity-checks distance and fire rate.
   race timing (finishes under `MIN_RACE_SECONDS` are ignored; client time accepted within −2/+0.5 s of the server's),
   and **all coins/XP/money for signed-in players**.
 - Netcode upgrade path: send inputs instead of state, run the shared `stepPlayer` on the server, add prediction and
-  reconciliation. Keep `src/shared` deterministic so that stays possible.
+  reconciliation. Keep each game's `shared/` (and `src/shared`) deterministic so that stays possible.
 
 ## Accounts and economy
 
@@ -83,8 +93,8 @@ shooter) and the server sanity-checks distance and fire rate.
 - TŌGE cosmetic cases are a garage action like crates: the server rolls with `secureRandom` (crypto, garageStore.ts),
   charges, grants or refunds. `Accounts.raceCar(name, code)` strips cosmetics an account doesn't own from its race car
   code; the Worker runs it on `car=` when an account joins a race, RaceRoom on every `{t:'car'}` from an account.
-- Guests keep stash and garage in localStorage and run the same pure rules (`applyStash` in `shared/stash.ts`,
-  `applyAction` in `shared/race/garage.ts`). Signed in, the server runs them with its own dice and clock.
+- Guests keep stash and garage in localStorage and run the same pure rules (`applyStash` in `gambol/shared/stash.ts`,
+  `applyAction` in `toge/shared/garage.ts`). Signed in, the server runs them with its own dice and clock.
 - Paying: shooter rooms call `Lobby.pay` → `Accounts.reward` (only for `client.user`; killing your own second tab pays
   nothing). Races call `Accounts.raceReward`. Amounts must match what the client floats up for guests.
 
@@ -95,7 +105,7 @@ shooter) and the server sanity-checks distance and fire rate.
    lengths, ids that must exist (`decodeGear`, `decodeSkin`, `cleanGarage`, `sanitize`). Relayed state reaches every player.
 3. New POST route: through `jsonBody` with a size cap. New socket kind: a byte cap and a `Limiter`.
 4. Never send hidden state early (e.g. the Blackjack hole card, the Crash point before the kite snaps).
-5. **New message type:** add it to the union in `shared/protocol.ts` (or `shared/race/protocol.ts`), handle it in
+5. **New message type:** add it to the union in `gambol/shared/protocol.ts` (or `toge/shared/protocol.ts`), handle it in
    `Lobby.handle` (or `Race`), keep it under the room's byte limit, add a test.
 6. **New Durable Object:** export it from `worker.ts`, add it to `Env`, add the binding to **both** `durable_objects`
    and `previews.durable_objects` in `wrangler.jsonc` (branch preview builds fail without the latter), and append a
@@ -108,6 +118,6 @@ Tests never import `cloudflare:workers`; they construct the logic classes with f
 
 - `new Lobby('HILL', 'battle', true, 'windward', () => {}, () => {}, true)` (koth, survival, royale, security tests);
   drive time with `lobby['tick']()` and `remove()` every client so the interval stops.
-- `new Race(..., () => now, false)` with a hand-wound clock and no interval (`tests/raceroom.test.ts`).
+- `new Race(..., () => now, false)` with a hand-wound clock and no interval (`tests/toge/raceroom.test.ts`).
 - `new Party(..., () => now)` (`tests/party.test.ts`). Storage tests use a `Map` as KV (`tests/accounts.test.ts`).
 - `npm run smoke` (`tests/lobby.smoke.ts`, `BASE=https://…`) runs two real bots against a running server.

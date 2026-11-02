@@ -67,7 +67,7 @@ Fix: surf (and slide) ramps sometimes rendered inside-out. The ramp mesh wound e
 
 ## Wildmere (Battle Royale)
 
-`src/shared/wildmere.ts`, rendered by `client/royaleworld.ts`. One big meadow, ~500 m across, floating over the cloud sea; the ground is rows of thick slab (a rough 250 m circle) with holes cut for the gorge. Not mirrored: every direction has its own place to drop into.
+`src/gambol/shared/wildmere.ts`, rendered by `gambol/client/royaleworld.ts`. One big meadow, ~500 m across, floating over the cloud sea; the ground is rows of thick slab (a rough 250 m circle) with holes cut for the gorge. Not mirrored: every direction has its own place to drop into.
 
 | Where | What |
 | --- | --- |
@@ -82,7 +82,7 @@ Fix: surf (and slide) ramps sometimes rendered inside-out. The ramp mesh wound e
 | Westcliff | beyond the gorge: a house, a shrine, a hill |
 | Everywhere | ten more hills, ~130 trees (bark trunks + instanced canopies), boulders, puffballs, hooks over the fields |
 
-Loot spots (~120: every house storey and roof, hilltops, platforms, the gorge floor, scattered field spots) and spawns (48, farthest-point sampled over open ground) are built with the map, deterministic. The zone's first circle covers the whole island; the server plans the rest (`planZone`) so the last one closes on a loot spot. `tests/wildmere.test.ts` checks the size, every ramp walkable from its foot, surf steepness, spawns and loot standable, pads, the Gorge Run and the Sky Rail.
+Loot spots (~120: every house storey and roof, hilltops, platforms, the gorge floor, scattered field spots) and spawns (48, farthest-point sampled over open ground) are built with the map, deterministic. The zone's first circle covers the whole island; the server plans the rest (`planZone`) so the last one closes on a loot spot. `tests/gambol/wildmere.test.ts` checks the size, every ramp walkable from its foot, surf steepness, spawns and loot standable, pads, the Gorge Run and the Sky Rail.
 
 ## Survival
 
@@ -100,7 +100,7 @@ Survival no longer uses Windward: it has its own night-time factory map, **the F
 
 ## Spawns
 
-Battle spawns are 29 spots spread over the whole map (both harbours, centre island, gorge, ruins, mills, undercliffs), found by farthest-point sampling over every spot you can stand on, and each faces the middle. There is no spawn zone to camp. `src/shared/spawn.ts` picks one at random among the good ones: at least 30 m from every living player, out of their line of sight (within 90 m), and not one of the last 8 used. If nothing qualifies it relaxes those rules in order and finally takes the farthest spot. Tests: `tests/spawn.test.ts`.
+Battle spawns are 29 spots spread over the whole map (both harbours, centre island, gorge, ruins, mills, undercliffs), found by farthest-point sampling over every spot you can stand on, and each faces the middle. There is no spawn zone to camp. `src/gambol/shared/spawn.ts` picks one at random among the good ones: at least 30 m from every living player, out of their line of sight (within 90 m), and not one of the last 8 used. If nothing qualifies it relaxes those rules in order and finally takes the farthest spot. Tests: `tests/gambol/spawn.test.ts`.
 
 ## Grapple hooks
 

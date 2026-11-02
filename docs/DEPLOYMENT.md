@@ -10,7 +10,7 @@ browser ── https://<domain>/            → static assets (dist/client), fre
 ```
 
 - `src/server/worker.ts`: routing, origin check, region hint (`locationHint` from the host's continent).
-- `src/server/room.ts`: the `LobbyRoom` Durable Object. Wraps `lobby.ts` (the game logic, runtime-agnostic). It exists while someone is connected.
+- `src/gambol/server/room.ts`: the `LobbyRoom` Durable Object. Wraps `lobby.ts` (the game logic, runtime-agnostic). It exists while someone is connected.
 - `src/server/directory.ts`: one global `Directory` DO: allocates codes, lists lobbies, expires entries that stop sending heartbeats.
 - `wrangler.jsonc`: assets, bindings, and the migration. Classes must be `new_sqlite_classes` to be allowed on the free plan.
 

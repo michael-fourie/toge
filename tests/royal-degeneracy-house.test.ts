@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { type Box } from '../src/shared/collision.ts';
-import { PLAYER } from '../src/shared/constants.ts';
+import { type Box } from '../src/gambol/shared/collision.ts';
+import { PLAYER } from '../src/gambol/shared/constants.ts';
 import type { Vec3 } from '../src/shared/math.ts';
 import { CAST, CHAR_IDS } from '../src/games/royal-degeneracy/cast.ts';
 import { DOORS, FLOOR_Y, MEETING_CENTRE, PERCHES, REACH, ROOMS, SEATS, SOLIDS, SPOTS, clearAt, doorBox, floorOf, roomAt, standFrom, wakeSpot } from '../src/games/royal-degeneracy/house.ts';

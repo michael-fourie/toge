@@ -1,9 +1,6 @@
-// Shared bits for the menu screens: the painted backdrop, the page shell, names, toasts, the server pill.
+// Shared bits for the menu screens: the painted backdrop, the page shell, names, toasts. (Gambol's server pill is gambol/client/menu/online.ts.)
 
-import type { LobbyInfo } from '../../shared/protocol.ts';
 import { account } from '../account.ts';
-import type { Net } from '../net.ts';
-import { sfx } from '../sfx.ts';
 
 export const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 export const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
@@ -115,33 +112,4 @@ export function replay(el: HTMLElement, cls: string) {
   el.classList.remove(cls);
   void el.offsetWidth;
   el.classList.add(cls);
-}
-
-// --- Server connection pill ----------------------------------------------------------
-
-export const SERVER_PILL = `<p class="pill" data-pill role="status" aria-live="polite"></p>`;
-
-/**
- * Checks the server and reflects the state in the screen's pill: connecting → online, or offline with Retry.
- * Resolves the open lobbies, or null when the server can't be reached.
- */
-export async function goOnline(root: HTMLElement, net: Net): Promise<LobbyInfo[] | null> {
-  const pill = $(root, '[data-pill]');
-  const set = (state: string, html: string) => {
-    if (!pill) return;
-    pill.dataset.state = state;
-    pill.innerHTML = html;
-  };
-  sfx.unlock();
-  set('connecting', '<i class="mini-leaf"></i> Reaching the sky server…');
-  try {
-    const lobbies = await net.lobbies();
-    set('online', '<i class="dot"></i> Server online');
-    return lobbies;
-  } catch {
-    const hint = import.meta.env.DEV ? ' Is <code>npm run dev</code> running?' : '';
-    set('offline', `Can't reach the sky server.${hint} <button class="link" data-retry>Retry</button>`);
-    $(root, '[data-retry]')?.addEventListener('click', () => void goOnline(root, net));
-    return null;
-  }
 }

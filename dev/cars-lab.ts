@@ -3,8 +3,8 @@
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { CAR_IDS, type CarId, type Look, carSpec, newOwnedCar } from '../src/shared/race/cars.ts';
-import { type CarModel, buildCar } from '../src/client/race/carmodel.ts';
+import { CAR_IDS, type CarId, type Look, carSpec, newOwnedCar } from '../src/toge/shared/cars.ts';
+import { type CarModel, buildCar } from '../src/toge/client/carmodel.ts';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });

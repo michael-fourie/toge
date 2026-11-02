@@ -8,8 +8,8 @@
 // them (a short wall between): a flight climbs left to a half landing and doubles back, climbing right into the top hall. Doors are 1 m (a touch wider than
 // the real 0.85 m: Gambol's collider is 0.8 m wide with no step-up, and a real doorway would snag it).
 
-import type { Box } from '../../shared/collision.ts';
-import { PLAYER } from '../../shared/constants.ts';
+import type { Box } from '../../gambol/shared/collision.ts';
+import { PLAYER } from '../../gambol/shared/constants.ts';
 import type { Vec3 } from '../../shared/math.ts';
 
 export const WIDTH = 8.4;

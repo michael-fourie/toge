@@ -1,7 +1,7 @@
 // Manual smoke test against a running server (`npm run dev`, or a deployed URL): `npx tsx tests/lobby.smoke.ts`
 // Set BASE to test a deployment, e.g. BASE=https://atrous.example.com
 import WebSocket from 'ws';
-import type { ServerMsg } from '../src/shared/protocol.ts';
+import type { ServerMsg } from '../src/gambol/shared/protocol.ts';
 
 const base = process.env.BASE ?? 'http://localhost:5173';
 const wsBase = base.replace(/^http/, 'ws');

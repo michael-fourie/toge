@@ -2,8 +2,8 @@
 // Dev-only page for tuning the first-person guns + hands in isolation: /dev/viewmodel.html
 // window.lab.step(seconds) advances time manually (handy when the tab is hidden and rAF is paused).
 import * as THREE from 'three';
-import { ViewModel } from '../src/client/viewmodel.ts';
-import { WEAPONS, WEAPON_IDS, gunStats } from '../src/shared/weapons.ts';
+import { ViewModel } from '../src/gambol/client/viewmodel.ts';
+import { WEAPONS, WEAPON_IDS, gunStats } from '../src/gambol/shared/weapons.ts';
 const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 r.toneMapping = THREE.NeutralToneMapping;
 r.setClearColor(0x3d4a6a);
