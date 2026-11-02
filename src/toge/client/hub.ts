@@ -1,5 +1,6 @@
 // TŌGE's home: the garage. Four tabs (DESIGN.md §6): Race; Garage (My cars, Dealer); Performance (Upgrades,
-// Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts); Driver (your character: riderui.ts). LB / RB walk every page in that order. The showroom fills
+// Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts); Driver (your character: riderui.ts); Settings (graphics:
+// settingsui.ts). LB / RB walk every page in that order. The showroom fills
 // the window behind the glass rail, with your car framed in the free space and its card bottom right.
 
 import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, RIMS, RIM_COLORS, RIM_COLOR_NAMES, SPOILERS, STRIPES, type BaseCar, TUNE_RANGE, type Tune, carSpec, isBike, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
@@ -9,6 +10,8 @@ import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
 import { type Rider, type RiderKey, RIDER_KEYS, defaultRider, encodeRider, randomRider } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
 import { PHYSICS } from '../shared/protocol.ts';
+import { settingsTab } from './settingsui.ts';
+import { type Graphics, graphics, setGraphics } from '../../client/graphics.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
 import type { Render } from '../../client/menu/router.ts';
@@ -22,14 +25,15 @@ import { TRACK_IDS, trackKind, trackMap, trackStyle, trackTile } from './trackar
 import './race.css';
 import './hub.css';
 
-type Page = 'race' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver';
-type TabId = 'race' | 'garage' | 'perf' | 'style' | 'driver';
+type Page = 'race' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'settings';
+type TabId = 'race' | 'garage' | 'perf' | 'style' | 'driver' | 'settings';
 const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
   { id: 'race', label: 'Race', pages: [['race', 'Race']] },
   { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['dealer', 'Dealer']] },
   { id: 'perf', label: 'Performance', pages: [['upgrades', 'Upgrades'], ['tuning', 'Tuning']] },
   { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['cases', 'Cases']] },
   { id: 'driver', label: 'Driver', pages: [['driver', 'Driver']] },
+  { id: 'settings', label: 'Settings', pages: [['settings', 'Settings']] },
 ];
 /** Every page in LB / RB order. */
 const PAGES: Page[] = TABS.flatMap((t) => t.pages.map(([p]) => p));
@@ -70,7 +74,7 @@ const statBar = (label: string, v: number) =>
 export const driveHub: Render = (root, ctx, screen) => {
   let page: Page = PAGES.find((p) => p === screen.dtab) ?? 'race';
   /** The page each tab opens on (the last one you looked at). */
-  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint', driver: 'driver' };
+  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint', driver: 'driver', settings: 'settings' };
   lastPage[tabOf(page).id] = page;
   let track = (read(TRACK_KEY, 'koripass') in TRACK_DEFS ? read(TRACK_KEY, 'koripass') : 'koripass') as TrackId;
   let rivals = Number(read(RIVALS_KEY, '5'));
@@ -114,7 +118,7 @@ export const driveHub: Render = (root, ctx, screen) => {
       </section>
       <div class="tg-modal" data-modal hidden></div>
     </main>`;
-  const showroom = new Showroom($<HTMLCanvasElement>(root, '.tg-showroom'));
+  let showroom = new Showroom($<HTMLCanvasElement>(root, '.tg-showroom'));
   let shown = '';
 
   /** Frame the car in the space right of the rail (or under the top bar on a phone). */
@@ -131,6 +135,17 @@ export const driveHub: Render = (root, ctx, screen) => {
   };
   const ro = new ResizeObserver(frameCar);
   ro.observe(root.querySelector('.tg')!);
+
+  /** A new showroom on a fresh canvas (the renderer's options, like anti-aliasing, are fixed when it's made). */
+  const rebuildShowroom = () => {
+    const old = $<HTMLCanvasElement>(root, '.tg-showroom');
+    const fresh = old.cloneNode() as HTMLCanvasElement;
+    showroom.dispose();
+    old.replaceWith(fresh);
+    showroom = new Showroom(fresh);
+    shown = '';
+    frameCar();
+  };
 
   const car = () => current(garage.g);
   /** The car as shown: the saved one with any unsaved paint/tune edits. */
@@ -374,7 +389,8 @@ export const driveHub: Render = (root, ctx, screen) => {
   const lockerPage = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
   const casesPage = () => casesTab(garage.g, status);
   const driverPage = () => driverTab(viewedRider(), status);
-  const BODIES: Record<Page, () => string> = { race: racePage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage };
+  const settingsPage = () => settingsTab(graphics(), status);
+  const BODIES: Record<Page, () => string> = { race: racePage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, settings: settingsPage };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -480,6 +496,16 @@ export const driveHub: Render = (root, ctx, screen) => {
       b.addEventListener('click', () => {
         const id = b.dataset.preview as (typeof CAR_IDS)[number];
         preview = preview?.model === id ? null : newOwnedCar(id, 0);
+        draw();
+      }),
+    );
+    panel.querySelectorAll<HTMLElement>('[data-graphics]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const g = b.dataset.graphics as Graphics;
+        if (g === graphics()) return;
+        setGraphics(g);
+        rebuildShowroom();
+        status = g === 'low' ? 'Low graphics on. Your next race uses it too.' : 'High graphics on. Your next race uses it too.';
         draw();
       }),
     );

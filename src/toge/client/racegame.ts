@@ -32,6 +32,7 @@ import { type Dot, type ResultLine, RaceHud, type Tag, fmtTime, money, ordinal }
 import { DriveControls } from './input.ts';
 import type { RaceNet } from './racenet.ts';
 import { Post } from './post.ts';
+import { frameGate, lowGraphics, LOW_PIXEL_RATIO } from '../../client/graphics.ts';
 import { buildTrackView, type TrackView } from './trackview.ts';
 
 export interface RaceSetup {
@@ -256,6 +257,10 @@ export class RaceGame {
   private driftMeter = newDriftMeter();
   private uses: Partial<Record<Item, number>> = {};
 
+  /** Low graphics (src/client/graphics.ts), and its frame cap. */
+  private readonly low = lowGraphics();
+  private gate = frameGate(60);
+
   /** A time trial's car rule, for the banner at GO ('' for own cars). */
   private carNote = '';
   /** Physics mode: crash damage, wrecks and respawns (damage.ts). Explosions only exist when it's on. */
@@ -270,18 +275,20 @@ export class RaceGame {
     this.clean = !!setup.online && cleanMode(setup.online.mode);
     this.climb = setup.online?.mode === 'climb';
     this.physics = setup.online ? !!setup.online.physics : !!setup.physics;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
-    this.renderer.shadowMap.enabled = true;
+    // Low graphics (the Settings tab): no MSAA, native pixels at most, no shadow map, no post chain, simple
+    // materials, a thinner forest and a 60 fps cap. Read once here, so a change applies from the next race.
+    this.renderer = new THREE.WebGLRenderer({ antialias: !this.low, powerPreference: this.low ? 'default' : 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, this.low ? LOW_PIXEL_RATIO : 1.75));
+    this.renderer.shadowMap.enabled = !this.low;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.className = 'race-canvas';
     setup.container.appendChild(this.renderer.domElement);
-    this.view = buildTrackView(this.track, this.renderer);
+    this.view = buildTrackView(this.track, this.renderer, this.low);
     this.view.scene.add(this.cometLight);
     this.renderer.toneMappingExposure = this.view.exposure;
-    this.post = new Post(this.renderer, this.view.scene, this.camera, this.view.grade);
+    this.post = new Post(this.renderer, this.view.scene, this.camera, this.view.grade, this.low);
     this.fx = new Effects(this.view.scene);
     this.propView = new PropView(this.view.scene, this.track);
     if (this.clean) this.propView.clearBoxes();
@@ -733,6 +740,7 @@ export class RaceGame {
 
   private frame = (now: number) => {
     this.raf = requestAnimationFrame(this.frame);
+    if (!this.gate(now)) return; // Low: at most 60 frames a second (the skipped time is simulated next frame)
     const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000)); // never negative: a first frame can predate `last`
     this.last = now;
     this.wallClock += dt;
