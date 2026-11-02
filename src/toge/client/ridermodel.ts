@@ -12,6 +12,8 @@ export interface RiderModel {
   root: THREE.Group;
   /** Standing height (m), for framing. */
   height: number;
+  /** Height of the hip joint above the feet (m), where a seated rider sits on the saddle. */
+  hipY: number;
   /** Idle motion: breathing, a little sway, a look around. `t` in seconds. */
   update(t: number): void;
   dispose(): void;
@@ -39,6 +41,9 @@ const SHELL = (name: string, phiStart: number, phiLength: number, thetaStart: nu
   geo(`shell:${name}`, () => new THREE.SphereGeometry(1, 20, 12, phiStart, phiLength, thetaStart, thetaLength));
 /** A half disc pointing +Z (a cap's brim). */
 const BRIM = () => geo('brim', () => new THREE.CylinderGeometry(1, 1, 1, 20, 1, false, -Math.PI / 2, Math.PI));
+
+/** The riding pose's joint angles (rad): torso lean, thighs forward, shins back to the pegs, arms to the bars. */
+const RIDE = { lean: 0.95, thigh: -1.45, knees: 0.32, shin: 2.05, arm: -1.95, elbow: -0.2 };
 
 const mats = new Map<string, THREE.Material>();
 function mat(color: number, rough = 0.85, metal = 0, extra: Partial<THREE.MeshStandardMaterialParameters> = {}, tag = ''): THREE.MeshStandardMaterial {
@@ -90,7 +95,11 @@ function emblemMat(emblem: number, color: number, ring: number): THREE.Material 
 const BUILD = [0.88, 1, 1.16];
 const HEIGHT = [0.94, 1, 1.06];
 
-export function buildRider(r: Rider): RiderModel {
+/**
+ * `ride`: on a motorbike instead of standing: tucked forward over the tank, knees out, feet back on the pegs and
+ * hands forward on the clip-ons (bikemodel.ts places it on the saddle). The chosen stance pose is ignored.
+ */
+export function buildRider(r: Rider, opts: { ride?: boolean } = {}): RiderModel {
   const root = new THREE.Group();
   root.name = 'rider';
   const k = HEIGHT[r.height] ?? 1;
@@ -147,6 +156,7 @@ export function buildRider(r: Rider): RiderModel {
   const legW = [1.18, 0.95, 1.05, 1.42, 1.15][r.bottom] ?? 1;
   const shorts = r.bottom === 4 && r.top !== 7;
   const legs: THREE.Group[] = [];
+  const shins: THREE.Group[] = [];
   for (const s of [1, -1]) {
     const thigh = group(hips, [s * 0.095 * b, 0, 0]);
     const tl = HIP_Y - KNEE_Y;
@@ -176,6 +186,7 @@ export function buildRider(r: Rider): RiderModel {
     if (shoeStyle === 0 || shoeStyle === 1) add(foot, BOX(), sole, [s * 0.052, -0.02, 0.06], [0.006, 0.02, 0.12]); // a side swoosh-free stripe
     if (r.bottom === 3 && !shorts) add(shin, CYL(srad * 1.15, srad * 1.25, 0.09, true), bot, [0, -sl + 0.06, 0]); // wide pants pool at the ankle
     legs.push(thigh);
+    shins.push(shin);
   }
 
   // --- torso ---------------------------------------------------------------------------------------
@@ -498,13 +509,29 @@ export function buildRider(r: Rider): RiderModel {
   legs[0].rotation.set(0, 0.15, 0.05);
   legs[1].rotation.set(0, -0.2, -0.07);
   hips.rotation.z = 0.025;
+  if (opts.ride) {
+    // Tucked in on a sports bike: chest down toward the tank, chin up to see the road.
+    torso.rotation.set(RIDE.lean, 0, 0);
+    head.rotation.set(-RIDE.lean * 0.8, 0, 0);
+    for (const [i, s] of [1, -1].entries()) {
+      legs[i].rotation.set(RIDE.thigh, 0, s * RIDE.knees);
+      shins[i].rotation.set(RIDE.shin, 0, -s * RIDE.knees * 0.6);
+      const a = arms[i];
+      a.shoulder.rotation.set(RIDE.arm, 0, s * 0.22);
+      a.elbow.rotation.set(RIDE.elbow, 0, 0);
+      a.hand.visible = true;
+    }
+  }
 
+  const hipY = HIP_Y * k;
   const height = 1.75 * k + (r.hair === 3 || r.hair === 1 || r.hair === 8 ? 0.06 : 0) * k;
   const seed = (r.skin * 7 + r.hair * 13 + r.top * 3) % 10;
   return {
     root,
     height,
+    hipY,
     update(t: number) {
+      if (opts.ride) return;
       const tt = t + seed;
       const breath = Math.sin(tt * 1.6);
       chest.scale.y = 0.27 * (1 + breath * 0.012);

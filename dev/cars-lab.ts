@@ -1,5 +1,5 @@
 // Dev-only lab for the TŌGE car models: every car in a row (or one up close) under studio lights.
-// window.lab: show(id | 'all'), view(yawDeg, pitchDeg, dist), look({...}), spin(on), pose(steer, lat) (a bike leans
+// window.lab: show(id | 'all'), view(yawDeg, pitchDeg, dist), look({...}), spin(on), rider(random), pose(steer, lat) (a bike leans
 // with lat, m/s²), cockpit() (the driver's / rider's eye of the one car shown).
 
 import * as THREE from 'three';
@@ -7,6 +7,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { CAR_IDS, type CarId, type Look, carSpec, newOwnedCar } from '../src/toge/shared/cars.ts';
 import { type CarModel, buildCar } from '../src/toge/client/carmodel.ts';
 import { buildCockpit } from '../src/toge/client/cockpit.ts';
+import { type Rider, defaultRider, randomRider } from '../src/toge/shared/rider.ts';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -42,6 +43,7 @@ let yaw = 35;
 let pitch = 12;
 let dist = 0;
 let spinning = false;
+let rider: Rider = defaultRider();
 
 function show(id: CarId | 'all' = current) {
   current = id;
@@ -54,7 +56,7 @@ function show(id: CarId | 'all' = current) {
     const owned = newOwnedCar(cid, i);
     owned.look = { ...owned.look, ...look };
     const sp = carSpec(owned);
-    const m = buildCar(owned);
+    const m = buildCar(owned, rider);
     m.root.position.set((i - (ids.length - 1) / 2) * 2.6, sp.cg, 0);
     m.pose([0, 1, 2, 3].map(() => ({ y: sp.radius - sp.cg, angle: 0 })), 0.2, false);
     scene.add(m.root);
@@ -110,6 +112,11 @@ requestAnimationFrame(frame);
   },
   look(l: Partial<Look>) {
     look = l;
+    show();
+  },
+  /** Who rides the bikes: a random driver (or the default with no argument). */
+  rider(random = false) {
+    rider = random ? randomRider() : defaultRider();
     show();
   },
   spin(on: boolean) {

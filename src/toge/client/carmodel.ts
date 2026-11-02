@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { CARS, type CarSpec, GLOWS, type OwnedCar, carSpec, isBike } from '../shared/cars.ts';
 import { buildBike } from './bikemodel.ts';
+import { type Rider, defaultRider } from '../shared/rider.ts';
 import { DESIGNS, type Design, type Kit, makeKitHelpers } from './carkits.ts';
 import { type Section, centreTop, curve, loft, smooth, zAt } from './carloft.ts';
 import { MAT, glowMaterial, isShared, mergeByMaterial, paintMaterial, plateMaterial, rbox, stripeTexture, wheel } from './carparts.ts';
@@ -88,8 +89,9 @@ export interface CarModel {
   dispose(): void;
 }
 
-export function buildCar(owned: OwnedCar): CarModel {
-  if (isBike(owned.model)) return buildBike(owned);
+/** `rider`: who sits on a bike (null: nobody; the showroom stands them beside it). Cars keep their drivers inside. */
+export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()): CarModel {
+  if (isBike(owned.model)) return buildBike(owned, rider);
   const b = CARS[owned.model];
   const d = DESIGNS[owned.model as keyof typeof DESIGNS];
   const sp = carSpec(owned);

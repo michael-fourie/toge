@@ -167,7 +167,7 @@ export class Showroom {
       this.turntable.remove(this.model.root);
       this.model.dispose();
     }
-    const m = buildCar(owned);
+    const m = buildCar(owned, null); // your driver stands beside it (showRider)
     const sp = carSpec(owned);
     m.root.position.y = sp.cg;
     // Wheels at rest: centres one radius above the floor.
