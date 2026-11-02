@@ -4,7 +4,7 @@
 // Flow: everyone sits in the lobby → the host picks a track and starts → `load` (grid slots): every racer builds
 // the track and says `ready` (`loading` tells the room who has) → once all are ready, or after RACE.loadTimeoutMs,
 // `countdown` (the same 3-2-1 on every screen) → `go` → clients drive (client-authoritative, like the shooter) and send `state` at 20 Hz → each sends `finish`
-// with its time → `results` (places, prize money) → back to the lobby.
+// with its time (and `drift` / `used` along the way for the bonus) → `results` (places, prize money) → back to the lobby.
 
 import type { TrackId } from './track.ts';
 
@@ -73,7 +73,12 @@ export interface ResultRow {
   /** Quickest lap (s) on a circuit, as the racer's client timed it. */
   best?: number | null;
   place: number;
+  /** Everything paid: the place prize plus `bonus`. */
   prize: number;
+  /** Drift points banked (clamped to the race clock by the server). */
+  drift: number;
+  /** The part of `prize` earned by drifting and by using items. */
+  bonus: { drift: number; items: number };
 }
 
 export interface RaceLobbyInfo {
@@ -119,6 +124,10 @@ export type RaceClientMsg =
   | { t: 'rider'; rider: string }
   | ({ t: 'state' } & Omit<NetCar, 'id'>)
   | { t: 'finish'; time: number; best?: number }
+  /** Your drift total so far (sent as each combo banks, and just before `finish`). The server caps it by the clock. */
+  | { t: 'drift'; pts: number }
+  /** You used an item that only affects you (a turbo or a shield); counted for the item bonus, not relayed. */
+  | { t: 'used'; kind: 'turbo' | 'triple' | 'shield' }
   | { t: 'ping'; n: number }
   /** `target` and `s` (where it was fired from) for a comet. */
   | { t: 'item'; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number };

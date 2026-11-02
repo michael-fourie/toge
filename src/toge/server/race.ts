@@ -1,5 +1,7 @@
 import { decodeCar, raceCars } from '../shared/cars.ts';
-import { payout } from '../shared/garage.ts';
+import { ITEM_MAX_USES, clampDrift } from '../shared/drift.ts';
+import { payout, raceBonus } from '../shared/garage.ts';
+import type { Item } from '../shared/powerups.ts';
 import { cleanRiderCode } from '../shared/rider.ts';
 import { CAR_RULES, RACE, RACE_MODES, type CarRule, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
@@ -12,6 +14,8 @@ const HEARTBEAT_MS = 30_000;
 const ITEM_GAP_MS = 700;
 /** No real descent is quicker than this; a faster "finish" is ignored. */
 const MIN_RACE_SECONDS = 40;
+/** A turbo or shield use is counted at most this often (a triple turbo's three come quickly). */
+const USE_GAP_MS = 250;
 
 export interface RaceClient {
   id: number;
@@ -36,6 +40,10 @@ interface Member {
   best: number | null;
   /** The car code this racer drives in the current race (their own unless a time trial's rule changed it). */
   raceCar: string;
+  /** Drift points reported this race, capped by the race clock. */
+  drift: number;
+  /** Items used this race, per kind (attack items as relayed, self items from `used`), for the bonus. */
+  uses: Partial<Record<Item, number>>;
 }
 
 export const sendTo = (c: RaceClient, msg: RaceServerMsg) => {
@@ -64,6 +72,8 @@ export class Race {
   private timer: ReturnType<typeof setInterval> | null = null;
   /** When each racer last used an attack item (a cheap guard against spam). */
   private itemAt = new Map<number, number>();
+  /** When each racer last reported a turbo or shield. */
+  private usedAt = new Map<number, number>();
 
   constructor(
     readonly code: string,
@@ -90,7 +100,7 @@ export class Race {
   add(c: RaceClient) {
     if (!decodeCar(c.car)) c.car = 'pebble.0.1.0.0.0.0.1.00000000';
     c.rider = cleanRiderCode(c.rider);
-    this.members.set(c.id, { client: c, state: null, racing: false, ready: false, time: null, best: null, raceCar: c.car });
+    this.members.set(c.id, { client: c, state: null, racing: false, ready: false, time: null, best: null, raceCar: c.car, drift: 0, uses: {} });
     if (!this.hostId) this.hostId = c.id;
     sendTo(c, { t: 'welcome', id: c.id });
     this.broadcastRoom();
@@ -184,8 +194,25 @@ export class Race {
         const now = this.now();
         if (now - (this.itemAt.get(c.id) ?? 0) < ITEM_GAP_MS) return;
         this.itemAt.set(c.id, now);
+        this.countUse(m, msg.kind);
         const text = JSON.stringify({ t: 'item', by: c.id, kind: msg.kind, p: msg.kind === 'oil' ? msg.p : undefined, target: msg.kind === 'comet' ? msg.target : undefined, s: msg.kind === 'comet' ? msg.s : undefined } satisfies RaceServerMsg);
         for (const o of this.members.values()) if (o !== m && o.client.ws.readyState === OPEN) o.client.ws.send(text);
+        break;
+      }
+      case 'used': {
+        // Turbos and shields stay on the racer's own screen; they only count toward the item bonus.
+        if (this.phase !== 'racing' || this.mode === 'trial' || !m.racing || m.time !== null) return;
+        if (msg.kind !== 'turbo' && msg.kind !== 'triple' && msg.kind !== 'shield') return;
+        const now = this.now();
+        if (now - (this.usedAt.get(c.id) ?? 0) < USE_GAP_MS) return;
+        this.usedAt.set(c.id, now);
+        this.countUse(m, msg.kind);
+        break;
+      }
+      case 'drift': {
+        // Client-scored, so the most it can be is what the fastest possible drifting would score since GO.
+        if (this.phase !== 'racing' || !m.racing || m.time !== null) return;
+        m.drift = Math.max(m.drift, clampDrift(msg.pts, (this.now() - this.goAt) / 1000));
         break;
       }
       case 'ping':
@@ -220,6 +247,8 @@ export class Race {
       m.time = null;
       m.best = null;
       m.state = null;
+      m.drift = 0;
+      m.uses = {};
       grid[m.client.id] = slot++;
     }
     // Settle every racer's car for this race here, once, so a spec car's draw is the same for everyone.
@@ -267,7 +296,9 @@ export class Race {
     const dnf = field.filter((m) => m.time === null);
     const rows: ResultRow[] = [...done, ...dnf].map((m, i) => {
       const place = m.time === null ? 0 : i + 1;
-      return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize: payout(place, field.length, this.track, false) };
+      const bonus = raceBonus(m.drift, m.uses, this.track, false);
+      const prize = payout(place, field.length, this.track, false) + bonus.drift + bonus.items;
+      return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize, drift: m.drift, bonus };
     });
     this.phase = 'results';
     this.phaseEnds = now + RACE.resultsSeconds * 1000;
@@ -275,6 +306,12 @@ export class Race {
     this.broadcast({ t: 'results', track: this.track, mode: this.mode, rows });
     this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)));
     this.onChange(this);
+  }
+
+  private countUse(m: Member, kind: Item) {
+    if (m.time !== null) return;
+    const total = Object.values(m.uses).reduce((a, n) => a + n, 0);
+    if (total < ITEM_MAX_USES) m.uses[kind] = (m.uses[kind] ?? 0) + 1;
   }
 
   tick() {

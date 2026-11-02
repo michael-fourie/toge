@@ -7,6 +7,8 @@ import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeC
 import { type Ai, aiDrive, newAi } from '../shared/driver.ts';
 import { DRAFT, type Body, stepDraft, strongestWake } from '../shared/draft.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
+import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
+import { SOLO_SHARE } from '../shared/garage.ts';
 import { CAR_RULES, CarFlag, RACE, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../shared/protocol.ts';
 import { standings } from '../shared/standings.ts';
 import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../shared/track.ts';
@@ -147,6 +149,13 @@ interface CamTarget {
   rough: number;
 }
 
+/** ", incl. $X drifting and $Y items" for a results note (nothing when there's no bonus). */
+function bonusNote(b: { drift: number; items: number } | undefined): string {
+  if (!b || b.drift + b.items <= 0) return '';
+  const parts = [b.drift > 0 ? `${money(b.drift)} drifting` : '', b.items > 0 ? `${money(b.items)} items` : ''].filter(Boolean);
+  return ` (incl. ${parts.join(' and ')})`;
+}
+
 export class RaceGame {
   private renderer: THREE.WebGLRenderer;
   private camera = new THREE.PerspectiveCamera(62, 1, 0.2, 9000);
@@ -224,6 +233,10 @@ export class RaceGame {
   private exited = false;
   /** Name tags hidden behind a hill, by tag id, and the frame each was last checked. */
   private tagHidden = new Map<Tag['id'], { hidden: boolean; at: number }>();
+
+  /** Your drift score this race, and the items you've used (both pay a bonus at the end). */
+  private driftMeter = newDriftMeter();
+  private uses: Partial<Record<Item, number>> = {};
 
   /** A time trial's car rule, for the banner at GO ('' for own cars). */
   private carNote = '';
@@ -438,9 +451,28 @@ export class RaceGame {
     }
   }
 
+  /** One tick of your drift meter: combos bank (and online, the new total goes to the server) or are lost. */
+  private scoreDrift() {
+    const ev = stepDrift(this.driftMeter, this.me.car, TICK_DT);
+    if (!ev) return;
+    if (ev.kind === 'bank') {
+      this.hud.driftBanked(ev.points, this.driftMeter.total);
+      this.audio.tone(880, 0.1, 0.05, 'triangle');
+      this.setup.online?.net.send({ t: 'drift', pts: this.driftMeter.total });
+    } else if (ev.points > 0) this.hud.driftLost(ev.points);
+  }
+
+  /** You used an item: count it for the bonus, show what it's worth, and online tell the server about the ones it doesn't relay. */
+  private paidUse(kind: Item) {
+    this.uses[kind] = (this.uses[kind] ?? 0) + 1;
+    this.hud.paid(Math.round((ITEM_PAY[kind] * (this.setup.online ? 1 : SOLO_SHARE)) / 10) * 10);
+    if (kind === 'turbo' || kind === 'triple' || kind === 'shield') this.setup.online?.net.send({ t: 'used', kind });
+  }
+
   private useItem(r: Racing) {
     const it = r.item;
     if (!it) return;
+    let fired = true;
     const c = r.car;
     const now = this.wallClock;
     switch (it.kind) {
@@ -468,13 +500,17 @@ export class RaceGame {
         break;
       case 'comet': {
         const target = this.leaderFor(r);
-        if (!target) break;
+        if (!target) {
+          fired = false;
+          break;
+        }
         this.launchComet(c.s, target, r.name);
         if (r === this.me && typeof target === 'number') this.setup.online?.net.send({ t: 'item', kind: 'comet', target, s: c.s });
         break;
       }
     }
     if (r === this.me) this.audio.burst(0.3, 0.06, 1800, 'highpass');
+    if (r === this.me && fired && !this.trial) this.paidUse(it.kind);
     it.uses--;
     if (it.uses <= 0) r.item = null;
   }
@@ -596,7 +632,7 @@ export class RaceGame {
         if (this.phase !== 'done') this.hud.banner(`${r.name} finished`, fmtTime(m.time), 2000);
         if (this.watching === m.id) this.spectateNext();
       }
-    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, me: r.id === this.setup.online!.net.id })));
+    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id })));
     else if (m.t === 'room') {
       // Someone left mid-race: drop their car.
       for (const id of [...this.remotes.keys()])
@@ -797,6 +833,7 @@ export class RaceGame {
     // In a time trial the others are ghosts: you drive straight through them.
     if (!this.trial) for (const r of this.remotes.values()) collideCars(me.car, r.ghost, false);
     if (traffic) for (const r of all) collideTraffic(t, traffic, r.car, this.trafficTime);
+    if (live && me.finished === null) this.scoreDrift();
     if (me.car.hit > 2.5) {
       this.audio.impact(me.car.hit);
       rumble(Math.min(1, me.car.hit / 10), 0.5, 180);
@@ -869,7 +906,10 @@ export class RaceGame {
     this.hud.banner(`${ordinal(ahead + 1)} place`, fmtTime(this.time), 0);
     rumble(0.6, 0.9, 400);
     // Solo: the race is over when you cross the line; the AI still out are placed by how far they got.
+    // The combo you cross the line in still counts.
+    if (comboPoints(this.driftMeter) > 0) this.hud.driftBanked(bankCombo(this.driftMeter), this.driftMeter.total);
     if (!this.setup.online) return void this.soloResults();
+    this.setup.online.net.send({ t: 'drift', pts: this.driftMeter.total });
     this.setup.online.net.send({ t: 'finish', time: this.time, best: Number.isFinite(this.bestLap) ? this.bestLap : undefined });
     if (this.stillRacing().length) this.hud.watching('', `${this.spectateKey()}: spectate`);
   }
@@ -900,10 +940,12 @@ export class RaceGame {
     const done = field.filter((r) => r.finished !== null).sort((a, b) => a.finished! - b.finished!);
     const behind = field.filter((r) => r.finished === null).sort((a, b) => b.car.s - a.car.s);
     const myPlace = done.indexOf(this.me) + 1;
-    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length });
+    const drift = this.driftMeter.total;
+    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift, uses: this.uses });
     this.myPrize = res.ok ? (res.paid ?? 0) : 0;
-    const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me }));
-    const note = res.ok ? `You won ${money(this.myPrize)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`;
+    const bonus = res.ok ? res.bonus : undefined;
+    const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined }));
+    const note = res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`;
     const p = this.hud.panel(`${this.hud.resultsHtml(this.track.def.name, lines)}
       <p class="rh-note">${esc(note)}</p>
       <div class="rh-buttons"><button data-act="again" data-autofocus>Race again</button><button data-act="garage">Garage</button></div>`);
@@ -919,7 +961,7 @@ export class RaceGame {
     const mine = lines.find((l) => l.me);
     if (mine) garage.credit(mine.prize, mine.place === 1 && lines.length > 1);
     const p = this.hud.panel(`${this.hud.resultsHtml(this.trial ? `Time trial · ${this.track.def.name}` : 'Results', lines, this.trial)}
-      <p class="rh-note">${mine ? `You earned ${money(mine.prize)}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}</p>
+      <p class="rh-note">${mine ? `You earned ${money(mine.prize)}${bonusNote(mine.bonus)}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}</p>
       <div class="rh-buttons"><button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button></div>`);
     setMenuNav(true);
     p.querySelector('[data-act="lobby"]')!.addEventListener('click', () => this.exit('lobby'));
@@ -1331,6 +1373,8 @@ export class RaceGame {
       wrongWay: this.phase === 'racing' && tangentDot < -0.3 && speedOf(c) > 3,
       manual: !this.assists.auto,
       drift: c.drift !== 0 ? c.driftLevel : -1,
+      combo: this.driftMeter.combo > 0 ? { points: comboPoints(this.driftMeter), mult: this.driftMeter.mult } : null,
+      driftTotal: this.driftMeter.total,
       item: this.wallClock < this.rouletteUntil ? { icon: ITEMS[(['turbo', 'oil', 'shield', 'triple', 'shock', 'comet'] as Item[])[Math.floor(this.wallClock * 12) % 6]].icon, name: '', spinning: true } : me.item ? { icon: ITEMS[me.item.kind].icon, name: ITEMS[me.item.kind].name + (me.item.uses > 1 ? ` ×${me.item.uses}` : ''), spinning: false } : null,
       boost: c.boost > 0,
       draft: me.finished === null ? c.draft : 0,
