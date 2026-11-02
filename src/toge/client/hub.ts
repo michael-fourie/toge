@@ -1,11 +1,13 @@
 // TŌGE's home: the garage. Four tabs (DESIGN.md §6): Race; Garage (My cars, Dealer); Performance (Upgrades,
-// Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts). LB / RB walk every page in that order. The showroom fills
+// Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts); Driver (your character: riderui.ts). LB / RB walk every page in that order. The showroom fills
 // the window behind the glass rail, with your car framed in the free space and its card bottom right.
 
 import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, RIMS, RIM_COLORS, RIM_COLOR_NAMES, SPOILERS, STRIPES, TUNE_RANGE, type Tune, carSpec, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
 import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, payout, tunerCost } from '../shared/garage.ts';
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById } from '../shared/cosmetics.ts';
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
+import { type Rider, type RiderKey, RIDER_KEYS, defaultRider, encodeRider, randomRider } from '../shared/rider.ts';
+import { driverCard, driverTab } from './riderui.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
 import type { Render } from '../../client/menu/router.ts';
@@ -19,13 +21,14 @@ import { TRACK_IDS, trackKind, trackMap, trackStyle, trackTile } from './trackar
 import './race.css';
 import './hub.css';
 
-type Page = 'race' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases';
-type TabId = 'race' | 'garage' | 'perf' | 'style';
+type Page = 'race' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver';
+type TabId = 'race' | 'garage' | 'perf' | 'style' | 'driver';
 const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
   { id: 'race', label: 'Race', pages: [['race', 'Race']] },
   { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['dealer', 'Dealer']] },
   { id: 'perf', label: 'Performance', pages: [['upgrades', 'Upgrades'], ['tuning', 'Tuning']] },
   { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['cases', 'Cases']] },
+  { id: 'driver', label: 'Driver', pages: [['driver', 'Driver']] },
 ];
 /** Every page in LB / RB order. */
 const PAGES: Page[] = TABS.flatMap((t) => t.pages.map(([p]) => p));
@@ -62,7 +65,7 @@ const statBar = (label: string, v: number) =>
 export const driveHub: Render = (root, ctx, screen) => {
   let page: Page = PAGES.find((p) => p === screen.dtab) ?? 'race';
   /** The page each tab opens on (the last one you looked at). */
-  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint' };
+  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint', driver: 'driver' };
   lastPage[tabOf(page).id] = page;
   let track = (read(TRACK_KEY, 'koripass') in TRACK_DEFS ? read(TRACK_KEY, 'koripass') : 'koripass') as TrackId;
   let rivals = Number(read(RIVALS_KEY, '5'));
@@ -73,6 +76,9 @@ export const driveHub: Render = (root, ctx, screen) => {
   /** Locker: the slot being browsed, and a not-yet-owned item being tried on in the showroom. */
   let lockerSlot: CosSlot = 'paint';
   let trying: string | null = null;
+  /** Driver edits not saved yet (they save a moment after the last change, like paint). */
+  let riderDraft: Rider | null = null;
+  let riderTimer = 0;
   let saveTimer = 0;
   let listTimer = 0;
   let busy = false;
@@ -127,6 +133,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     const c = draft ? { ...car(), look: draft.look, tune: draft.tune } : car();
     return trying ? { ...c, cos: { ...c.cos, [lockerSlot]: trying } } : c;
   };
+  const viewedRider = (): Rider => riderDraft ?? garage.g.rider;
 
   const drawTop = () => {
     $(root, '[data-money]').textContent = money(garage.g.money);
@@ -165,6 +172,12 @@ export const driveHub: Render = (root, ctx, screen) => {
       </dl>
       <p class="tg-card-hint">${ICON.spin} Drag or right stick to spin</p>`;
     $(root, '[data-stage-name]').innerHTML = `<small>${esc(b.maker)}</small>${esc(b.name)}`;
+    showroom.showRider(viewedRider());
+    showroom.focus(page === 'driver' ? 'rider' : 'car');
+    if (page === 'driver') {
+      $(root, '[data-card]').innerHTML = driverCard(viewedRider(), account.user ?? playerName());
+      $(root, '[data-stage-name]').innerHTML = `<small>Driver</small>${esc(account.user ?? playerName())}`;
+    }
     const key = JSON.stringify([c.model, c.look, c.cos, c.plate]);
     if (key !== shown) {
       shown = key;
@@ -350,7 +363,8 @@ export const driveHub: Render = (root, ctx, screen) => {
 
   const lockerPage = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
   const casesPage = () => casesTab(garage.g, status);
-  const BODIES: Record<Page, () => string> = { race: racePage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage };
+  const driverPage = () => driverTab(viewedRider(), status);
+  const BODIES: Record<Page, () => string> = { race: racePage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -452,6 +466,21 @@ export const driveHub: Render = (root, ctx, screen) => {
         draw();
       }),
     );
+    // Your driver: every pick shows at once and saves a moment later.
+    const setRider = (r: Rider) => {
+      riderDraft = r;
+      clearTimeout(riderTimer);
+      riderTimer = window.setTimeout(flushRider, 700);
+      draw();
+    };
+    panel.querySelectorAll<HTMLElement>('[data-rider]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const k = b.dataset.rider as RiderKey;
+        if (RIDER_KEYS.includes(k)) setRider({ ...viewedRider(), [k]: Number(b.dataset.v) });
+      }),
+    );
+    panel.querySelector('[data-rider-random]')?.addEventListener('click', () => setRider(randomRider()));
+    panel.querySelector('[data-rider-reset]')?.addEventListener('click', () => setRider(defaultRider()));
     // Cosmetics: cases and the locker.
     if (page === 'cases') wireCases(panel, garage.g);
     panel.querySelectorAll<HTMLElement>('[data-case-open]').forEach((b) => b.addEventListener('click', () => void openCase(b.dataset.caseOpen as CaseId)));
@@ -507,7 +536,16 @@ export const driveHub: Render = (root, ctx, screen) => {
     clearTimeout(saveTimer);
     saveTimer = window.setTimeout(flushDraft, 700);
   };
+  const flushRider = () => {
+    clearTimeout(riderTimer);
+    if (!riderDraft) return;
+    const r = riderDraft;
+    void garage.act({ a: 'rider', rider: r }).then(() => {
+      if (riderDraft === r) riderDraft = null;
+    });
+  };
   const flushDraft = () => {
+    flushRider();
     clearTimeout(saveTimer);
     if (!draft) return;
     const d = draft;
@@ -617,8 +655,9 @@ export const driveHub: Render = (root, ctx, screen) => {
       }
     });
     const enc = encodeCar(car());
-    if (code) raceNet.join(playerName(), enc, code);
-    else raceNet.host(playerName(), enc);
+    const rider = encodeRider(viewedRider());
+    if (code) raceNet.join(playerName(), enc, rider, code);
+    else raceNet.host(playerName(), enc, rider);
   };
 
   const refreshLobbies = async () => {
@@ -694,10 +733,12 @@ function focusId(el: Element | null): string | null {
   if (!(el instanceof HTMLElement) || !el.closest('[data-panel]')) return null;
   const look = el.getAttribute('data-look');
   if (look) return `[data-look="${look}"][data-v="${el.getAttribute('data-v')}"]`;
+  const rider = el.getAttribute('data-rider');
+  if (rider) return `[data-rider="${rider}"][data-v="${el.getAttribute('data-v')}"]`;
   for (const attr of ['data-track', 'data-rivals', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }
-  for (const attr of ['data-solo', 'data-host', 'data-join', 'data-code']) if (el.hasAttribute(attr)) return `[${attr}]`;
+  for (const attr of ['data-solo', 'data-host', 'data-join', 'data-code', 'data-rider-random', 'data-rider-reset']) if (el.hasAttribute(attr)) return `[${attr}]`;
   return null;
 }

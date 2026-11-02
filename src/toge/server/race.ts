@@ -1,5 +1,6 @@
 import { decodeCar, raceCars } from '../shared/cars.ts';
 import { payout } from '../shared/garage.ts';
+import { cleanRiderCode } from '../shared/rider.ts';
 import { CAR_RULES, RACE, RACE_MODES, type CarRule, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Socket } from '../../server/rooms.ts';
@@ -17,6 +18,8 @@ export interface RaceClient {
   ws: Socket;
   name: string;
   car: string;
+  /** encodeRider(): the racer's driver (cleaned on the way in, so it's always valid). */
+  rider: string;
   /** Signed in (prize money is paid into the account's garage). */
   user: boolean;
 }
@@ -86,6 +89,7 @@ export class Race {
 
   add(c: RaceClient) {
     if (!decodeCar(c.car)) c.car = 'pebble.0.1.0.0.0.0.1.00000000';
+    c.rider = cleanRiderCode(c.rider);
     this.members.set(c.id, { client: c, state: null, racing: false, ready: false, time: null, best: null, raceCar: c.car });
     if (!this.hostId) this.hostId = c.id;
     sendTo(c, { t: 'welcome', id: c.id });
@@ -150,6 +154,14 @@ export class Race {
       case 'car':
         if ((this.phase === 'lobby' || this.phase === 'results') && decodeCar(msg.car)) {
           c.car = msg.car;
+          this.broadcastRoom();
+        }
+        break;
+      case 'rider':
+        if (this.phase === 'lobby' || this.phase === 'results') {
+          const rider = cleanRiderCode(msg.rider);
+          if (rider === c.rider) break;
+          c.rider = rider;
           this.broadcastRoom();
         }
         break;
@@ -286,7 +298,7 @@ export class Race {
   }
 
   private room(): RaceServerMsg {
-    const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, user: m.client.user }));
+    const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user }));
     return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, phase: this.phase, racers };
   }
 

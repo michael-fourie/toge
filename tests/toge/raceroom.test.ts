@@ -14,7 +14,7 @@ function room() {
   const race = new Race('ABCD', () => {}, () => (empty = true), (rows, users) => paid.push({ rows, users }), () => now, false);
   const join = (id: number, user = false): RaceClient => {
     inbox.set(id, []);
-    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: 'shiro.0.1.0.0.0.0.1.00000000', user };
+    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: 'shiro.0.1.0.0.0.0.1.00000000', rider: '', user };
     race.add(c);
     return c;
   };
@@ -192,7 +192,7 @@ function trialRoom(pick: number) {
   const cars = { 1: 'pebble.3.0.0.0.0.0.1.10000000', 2: 'kitsune.5.1.2.0.0.0.1.32104050', 3: 'vanta.7.2.1.0.1.0.1.55555555' } as Record<number, string>;
   const clients = [1, 2, 3].map((id) => {
     inbox.set(id, []);
-    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: cars[id], user: false };
+    const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: cars[id], rider: '', user: false };
     race.add(c);
     return c;
   });

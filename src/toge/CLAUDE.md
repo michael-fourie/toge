@@ -19,7 +19,7 @@ Physics runs client-side only; the AI's target speed reads `ARCADE.grip`, so riv
 
 ## Menus and brand
 
-The home screens (hub.ts: tabs Race, Garage, Performance, Style), the race lobby (lobby.ts) and cosmetics
+The home screens (hub.ts: tabs Race, Garage, Performance, Style, Driver), the race lobby (lobby.ts) and cosmetics
 (cosmeticsui.ts) follow the design system in **`src/toge/DESIGN.md`**: the brand, colour roles (red acts, cyan selects,
 gold pays), type, the screen anatomy, the tab map and the components. Its tokens and components are in
 `src/toge/client/hub.css`; reuse them rather than styling a new screen from scratch, and update DESIGN.md when you add
@@ -35,6 +35,10 @@ a component or a page.
 - **Cosmetics** (cosmetics.ts): 160 items in 11 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
   underglow, plates, plate frames/covers, exhaust tips), 5 rarities, won from 5 cases (Street, Night Run, Livery,
   Chrome, Legend) bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
+- **Drivers** (rider.ts): your character, Tokyo street-drift style. 23 fields (build, height, skin, face, 12 hair styles,
+  8 tops from tees to souvenir jackets and long coats with a kanji back print, bottoms, shoes, headwear, eyewear, masks,
+  neck pieces, gloves, 5 poses), all free, saved in the garage (`rider`, the `rider` action). Your driver stands by your car
+  in the showroom (the Driver tab walks the camera in), and the lobby shows every racer's driver in the Crew row.
 - **Solo**: 0/3/5/7 AI rivals (hub.ts, saved as `atrous.rivals`) picked near your PI with your upgrades; you start mid-pack.
 - **Online**: Directory instance `"race"`, sockets `/ws?game=race`, up to `RACE.maxPlayers` (8).
 
@@ -74,6 +78,9 @@ src/toge/shared/
                for you and the AI against every car incl. online poses; off in time trials. Nothing on the wire.
   props.ts     seeded track props (`placeProps`): mystery boxes, ramps, bales, barrels, cones. Not on circuits; Neon Bay
                gets boxes only. toge/client/propview.ts draws props, oil slicks, the shield bubble.
+  rider.ts     your driver: RIDER_FIELDS (APPEND ONLY, like the cosmetics catalogue: a code is one base-36 digit per field,
+               after `r1.`; shorter old codes fill the new fields with 0), encode/decode/cleanRider, randomRider. Racers carry
+               the code as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the default).
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial).
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`). Race lobbies use the Directory instance 'race'
@@ -82,7 +89,11 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
   post chain: clamp, bloom, film grade per theme (`Look.grade`), then tone mapping), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
-  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`), showroom.ts (the turntable; `place()` frames the car beside the rail), hub.ts (the home screen `drive`: tabs and pages,
+  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`), showroom.ts (the turntable; `place()` frames the car beside the rail; `showRider()` stands your driver by the
+  driver's door, `focus('rider')` turns them to the camera), ridermodel.ts (the driver figure: ~70 primitives with cached
+  geometry and materials, posed, a breathing idle; tune in `/dev/riders.html`, `window.lab`), riderportrait.ts (one
+  offscreen renderer draws each driver to a cached PNG for the lobby; released when the lobby closes), riderui.ts (the
+  Driver page), hub.ts (the home screen `drive`: tabs and pages,
   styled by hub.css), lobby.ts (`drivelobby`), trackart.ts (track tiles and maps for the menus), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
@@ -125,9 +136,12 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 - **A mode:** there is no mode switch yet; the entry points are `RaceSetup` in toge/client/racegame.ts and the race protocol.
 - **Economy** (garage.ts): every garage change is an `applyAction` (server for accounts, client for guests). Prize =
   `payout()`; solo pays less and at most once per `SOLO_GAP_MS`.
+- **A driver option:** append to its field's `options` (and `colors`) in rider.ts, or append a new field to `RIDER_FIELDS`
+  (it decodes as 0 from old codes, so make 0 the plain choice); draw it in ridermodel.ts and check it in `/dev/riders.html`
+  (`lab.vary('hair')`, `lab.random(8)`). Keep every field under 36 options.
 - **A cosmetic:** append it to its slot's list in `CATALOG` (cosmetics.ts) with a rarity and its cases; a new pattern or
   decal kind also needs a painter in toge/client/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
 
-Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft` in `tests/toge/`
+Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider` in `tests/toge/`
 (`pad` is in `tests/`: the gamepad code is the site's).
