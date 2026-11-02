@@ -4,7 +4,8 @@
 // merged by material at the end. The model's origin is the centre of gravity, like the physics.
 
 import * as THREE from 'three';
-import { CARS, type CarSpec, GLOWS, type OwnedCar, carSpec } from '../shared/cars.ts';
+import { CARS, type CarSpec, GLOWS, type OwnedCar, carSpec, isBike } from '../shared/cars.ts';
+import { buildBike } from './bikemodel.ts';
 import { DESIGNS, type Design, type Kit, makeKitHelpers } from './carkits.ts';
 import { type Section, centreTop, curve, loft, smooth, zAt } from './carloft.ts';
 import { MAT, glowMaterial, isShared, mergeByMaterial, paintMaterial, plateMaterial, rbox, stripeTexture, wheel } from './carparts.ts';
@@ -77,14 +78,18 @@ function cabinSection(d: Design, body: Section, W: number, H: number): Section {
 
 export interface CarModel {
   root: THREE.Group;
-  /** Turns the wheels and suspension and the brake lights. Positions are body-space wheel centres. */
-  pose(wheels: { y: number; angle: number }[], steer: number, braking: boolean): void;
+  /**
+   * Turns the wheels and suspension and the brake lights. Positions are body-space wheel centres. `lat` is the
+   * cornering force (m/s², + to the left): bikes lean with it, cars ignore it.
+   */
+  pose(wheels: { y: number; angle: number }[], steer: number, braking: boolean, lat?: number): void;
   dispose(): void;
 }
 
 export function buildCar(owned: OwnedCar): CarModel {
+  if (isBike(owned.model)) return buildBike(owned);
   const b = CARS[owned.model];
-  const d = DESIGNS[owned.model];
+  const d = DESIGNS[owned.model as keyof typeof DESIGNS];
   const sp = carSpec(owned);
   const look = owned.look;
   const L = b.length;
