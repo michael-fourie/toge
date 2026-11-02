@@ -69,6 +69,24 @@ export interface Section {
   /** Corner radii (m) along the bottom and top edges of every section. */
   rb: number;
   rt: number;
+  /** A character line down the flank: how far (m) the crease stands proud, a hand below the shoulder. */
+  crease?: number;
+}
+
+/** Where the crease runs: this far below the start of the shoulder's rounding. */
+const CREASE_DROP = 0.045;
+/** Half the crease's width (m): it rises to its peak and falls away over this. */
+const CREASE_HALF = 0.03;
+
+/** How far the crease pushes the flank out at height y (from the section's bottom) in a section h tall. */
+function creaseOut(s: Section, h: number, w: number, y: number): number {
+  const c = s.crease ?? 0;
+  if (!c) return 0;
+  const rt = Math.min(s.rt, h * 0.5, w * 0.6);
+  const rb = Math.min(s.rb, h * 0.45, w * 0.45);
+  const yc = h - rt - CREASE_DROP;
+  if (yc < rb + CREASE_HALF) return 0;
+  return c * Math.max(0, 1 - Math.abs(y - yc) / CREASE_HALF);
 }
 
 export const zAt = (s: Section, t: number) => (t - 0.5) * s.length;
@@ -85,7 +103,10 @@ export const centreTop = (s: Section, t: number) => s.top(t) - s.dip(t);
 /** A point on the side of the surface: `v` up the section, on the right (+1) or left (-1). */
 export function surface(s: Section, t: number, v: number, side = 1): THREE.Vector3 {
   const b = s.bottom(t);
-  return new THREE.Vector3(side * s.half(t, v), b + v * (s.top(t) - b), zAt(s, t));
+  const h = Math.max(0.004, s.top(t) - b);
+  const w = Math.max(0.01, s.half(t, 0.5));
+  const out = creaseOut(s, h, w, v * h) * (s.half(t, v) / w);
+  return new THREE.Vector3(side * (s.half(t, v) + out), b + v * h, zAt(s, t));
 }
 
 /** Where the surface is at this x and height, coming in from the nose (`dir` 1) or the tail (-1). */
@@ -109,8 +130,11 @@ interface RingPt {
   inner?: boolean;
 }
 
-/** Half a cross-section, from the bottom centre round the right side to the top centre, in a w × h box. */
-function halfRing(w: number, h: number, rb: number, rt: number, uWell: number): RingPt[] {
+/**
+ * Half a cross-section, from the bottom centre round the right side to the top centre, in a w × h box. The
+ * flat of the side is sampled finely enough to carry the crease (`out(y)`, metres proud of the side).
+ */
+function halfRing(w: number, h: number, rb: number, rt: number, uWell: number, out: (y: number) => number = () => 0): RingPt[] {
   const p: RingPt[] = [];
   const uw = Math.min(uWell, (w - rb) / w - 0.06);
   for (const u of [0, uw * 0.5, uw - 0.02]) p.push({ x: u * w, y: 0, zone: 'bottom', inner: true });
@@ -119,7 +143,16 @@ function halfRing(w: number, h: number, rb: number, rt: number, uWell: number): 
     const a = -Math.PI / 2 + (i / 3) * (Math.PI / 2);
     p.push({ x: w - rb + Math.cos(a) * rb, y: rb + Math.sin(a) * rb, zone: 'lower' });
   }
-  for (let i = 1; i <= 3; i++) p.push({ x: w, y: rb + (i / 4) * (h - rb - rt), zone: 'side' });
+  // Every ring must have the same number of points, so the crease's samples are always there (clamped onto
+  // the flat, and simply flat where a section has no crease).
+  const lo = rb;
+  const hi = h - rt;
+  const ys: number[] = [];
+  for (let i = 1; i <= 5; i++) ys.push(lo + (i / 6) * (hi - lo));
+  const yc = h - rt - CREASE_DROP;
+  for (const f of [-1, -0.35, 0, 0.35, 1]) ys.push(Math.min(hi, Math.max(lo, yc + f * CREASE_HALF)));
+  ys.sort((a, b) => a - b);
+  for (const y of ys) p.push({ x: w + out(y), y, zone: 'side' });
   for (let i = 0; i <= 6; i++) {
     const a = (i / 6) * (Math.PI / 2);
     p.push({ x: w - rt + Math.cos(a) * rt, y: h - rt + Math.sin(a) * rt, zone: i === 0 ? 'side' : 'shoulder' });
@@ -150,7 +183,7 @@ export function loft(s: Section, slices: number, mats: number, pick: (t: number,
     const fl = s.floor(t);
     const h = Math.max(0.004, s.top(t) - b);
     const w = Math.max(0.01, s.half(t, 0.5));
-    const half = halfRing(w, h, Math.min(s.rb, h * 0.45, w * 0.45), Math.min(s.rt, h * 0.5, w * 0.6), s.well(t) / w);
+    const half = halfRing(w, h, Math.min(s.rb, h * 0.45, w * 0.45), Math.min(s.rt, h * 0.5, w * 0.6), s.well(t) / w, (y) => creaseOut(s, h, w, y));
     const ring = [...half, ...half.slice(1, -1).reverse().map((p) => ({ ...p, x: -p.x }))];
     ringN = ring.length;
     // A segment takes the zone of its upper end (going up the right side, down the left).

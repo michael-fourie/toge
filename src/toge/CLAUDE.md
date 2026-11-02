@@ -100,7 +100,13 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   a dark cabin floor (the lower body's top inside the greenhouse), dash, wheel and bucket seats (`cabinParts`), a rear
   bench when there's room. It's the group named `INTERIOR`, which the race hides for the car the cockpit camera is in.
   `panelZones` says where the hood, doors and boot are, so the hood option and the shut lines (`details`: grooves,
-  handles, repeaters, fuel flap, wipers, third brake light, badge) agree. showroom.ts (the turntable; `place()` frames the car beside the rail), hub.ts (the home screen `drive`: tabs and pages,
+  handles, repeaters, fuel flap, wipers, third brake light, badge) agree. Flanks carry a character line
+  (`Section.crease`, `Design.crease`, default 0.012 m; carloft.ts samples the side finely enough to hold it, and every
+  ring keeps the same point count). Round headlamps are shallow buckets standing proud of the panel (reflector bowl,
+  bulb and shield, chrome rim, glass), since a flush one sits behind the paint; slit lamps are a housing with projectors
+  under a clear cover; tail lamps are a dark red lens (`MAT.redLens`) with lit elements (`tailLamp`). Lamp glow is
+  global: `setLampLevel` (carparts.ts) scales every registered lamp material (`lamp()`; cosmetic lamp tints too). The
+  race sets `LAMP_NIGHT` on night and city tracks and `LAMP_DAY` otherwise, so headlamps don't blaze white by day. showroom.ts (the turntable; `place()` frames the car beside the rail), hub.ts (the home screen `drive`: tabs and pages,
   styled by hub.css), lobby.ts (`drivelobby`), trackart.ts (track tiles and maps for the menus), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),

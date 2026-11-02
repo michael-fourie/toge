@@ -18,7 +18,8 @@ function bodySection(d: Design, sp: CarSpec, b: { wheelbase: number }, L: number
   const floor = curve(d.floor);
   const tF = 0.5 - b.wheelbase / (2 * L);
   const tR = 0.5 + b.wheelbase / (2 * L);
-  const ar = R + 0.08;
+  // Arch radius: a few fingers of gap over the tyre, like a lowered road car.
+  const ar = R + 0.06;
   const sig = (R * 1.3) / L;
   const bump = (x: number) => Math.exp(-(x * x) / (2 * sig * sig));
   const tyre = 0.2 + W * 2 * 0.03;
@@ -33,6 +34,7 @@ function bodySection(d: Design, sp: CarSpec, b: { wheelbase: number }, L: number
     t1: 1,
     rb: d.rb,
     rt: d.rt,
+    crease: d.crease ?? 0.012,
     top,
     dip,
     floor,
@@ -79,7 +81,7 @@ function cabinSection(d: Design, body: Section, W: number, H: number): Section {
 /** The cabin group's name: the race hides it for the car you're sitting in (cockpit camera). */
 export const INTERIOR = 'carInterior';
 /** Tail lamp glow: running lights, and on the brakes. */
-const TAIL_IDLE = 1.3;
+const TAIL_IDLE = 0.9;
 const TAIL_BRAKE = 16;
 
 /** Where the hood panel, the cabin floor and the rear deck are, so options and shut lines agree. */
@@ -255,10 +257,14 @@ function details(k: Kit, d: Design, zones: Zones, beltMat: THREE.Material) {
     const p = body_side(body, rt, 0.72, side, 0.004);
     k.put(rbox(0.012, 0.022, 0.07, 0.008), MAT.amber, [p.x, p.y, p.z]);
   }
-  const ft = k.tR - (k.b.radius + 0.3) / k.L;
-  const fp = body_side(body, ft, 0.78, 1, 0.002);
-  k.put(new THREE.CylinderGeometry(0.075, 0.075, 0.004, 24), k.paint, [fp.x, fp.y, fp.z], [0, 0, Math.PI / 2]);
-  k.put(new THREE.TorusGeometry(0.076, 0.0035, 4, 28), MAT.seam, [fp.x + 0.001, fp.y, fp.z], [0, Math.PI / 2, 0]);
+  // The fuel flap goes on the rear quarter, clear of the door and the arch; a car with no room there has none.
+  const doorEnd = Math.max(...zones.doors.map(([, b]) => b));
+  const ft = Math.min(k.tR - (k.b.radius + 0.2) / k.L, doorEnd + 0.2 / k.L);
+  if (ft > doorEnd + 0.14 / k.L) {
+    const fp = body_side(body, ft, 0.74, 1, 0.002);
+    k.put(new THREE.CylinderGeometry(0.07, 0.07, 0.004, 24), k.paint, [fp.x, fp.y, fp.z], [0, 0, Math.PI / 2]);
+    k.put(new THREE.TorusGeometry(0.071, 0.003, 4, 28), MAT.seam, [fp.x + 0.001, fp.y, fp.z], [0, Math.PI / 2, 0]);
+  }
   // Wipers parked along the windscreen's foot.
   const ws = d.roof[0][0] + 0.01;
   const wy = k.top(ws) + 0.035;

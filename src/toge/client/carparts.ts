@@ -241,6 +241,12 @@ export const MAT = {
   drl: new THREE.MeshBasicMaterial({ color: new THREE.Color(8, 9, 10) }),
   amber: new THREE.MeshStandardMaterial({ color: 0xffa21a, emissive: 0xff8a00, emissiveIntensity: 1.6, roughness: 0.2 }),
   lens: new THREE.MeshPhysicalMaterial({ color: 0x9aa5b1, metalness: 1, roughness: 0.05, clearcoat: 1 }),
+  /** The polished bowl behind a headlamp bulb, seen from the open side. */
+  reflector: new THREE.MeshStandardMaterial({ color: 0xf2f4f7, metalness: 1, roughness: 0.22, side: THREE.DoubleSide, emissive: 0xfff2dc, emissiveIntensity: 1.6 }),
+  /** Clear lamp covers: nearly invisible, but they catch the light. */
+  lampGlass: new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: 0.02, clearcoat: 1, transparent: true, opacity: 0.18, depthWrite: false, envMapIntensity: 2.5 }),
+  /** A tail lamp's red lens where it isn't lit. */
+  redLens: new THREE.MeshPhysicalMaterial({ color: 0x4a0408, metalness: 0.1, roughness: 0.08, clearcoat: 1, emissive: 0x3a0000, emissiveIntensity: 0.4 }),
   rubber: new THREE.MeshStandardMaterial({ color: 0x0f0f10, roughness: 0.95 }),
   red: new THREE.MeshStandardMaterial({ color: 0xc8102e, roughness: 0.5 }),
   pink: new THREE.MeshStandardMaterial({ color: 0xff7eb6, roughness: 0.35, emissive: 0xff3d8f, emissiveIntensity: 0.25 }),
@@ -256,6 +262,40 @@ export const GLASS: THREE.MeshPhysicalMaterial[] = [0.36, 0.55, 0.74, 0.9].map(
 );
 
 const SHARED = new Set<THREE.Material>([...Object.values(MAT), ...GLASS]);
+
+/**
+ * Headlamp glow. The race's bloom only catches values above its threshold, so at night lamps must be far
+ * brighter than white; by day that turns every headlamp into a white blob, when a real one is a reflector
+ * behind clear glass with a modest glow in it. `setLampLevel` scales every registered lamp material
+ * (the stock ones and any cosmetic lamp tint): 1 at night, less by day.
+ */
+const lamps: { mat: THREE.Material; base: number }[] = [];
+export const LAMP_DAY = 0.3;
+export const LAMP_NIGHT = 1;
+let lampLevel = LAMP_DAY;
+export function lamp<T extends THREE.MeshStandardMaterial | THREE.MeshBasicMaterial>(m: T): T {
+  const base = (m as THREE.MeshStandardMaterial).isMeshStandardMaterial ? (m as THREE.MeshStandardMaterial).emissiveIntensity : 1;
+  if ((m as THREE.MeshBasicMaterial).isMeshBasicMaterial) m.userData.lampColor = (m as THREE.MeshBasicMaterial).color.clone();
+  lamps.push({ mat: m, base });
+  applyLamp(lamps[lamps.length - 1]);
+  return m;
+}
+function applyLamp({ mat, base }: { mat: THREE.Material; base: number }) {
+  const std = mat as THREE.MeshStandardMaterial;
+  if (std.isMeshStandardMaterial) std.emissiveIntensity = base * lampLevel;
+  else {
+    // Basic materials have no intensity: scale the colour, never below plain white (it still reads as lit).
+    const c = mat.userData.lampColor as THREE.Color;
+    (mat as THREE.MeshBasicMaterial).color.copy(c).multiplyScalar(Math.max(lampLevel, 1 / Math.max(c.r, c.g, c.b, 1e-3)));
+  }
+}
+export function setLampLevel(level: number) {
+  lampLevel = level;
+  for (const l of lamps) applyLamp(l);
+}
+lamp(MAT.head);
+lamp(MAT.drl);
+lamp(MAT.reflector);
 export const isShared = (m: THREE.Material) => SHARED.has(m);
 /** Marks a cached material as shared between cars, so disposing a car leaves it alone (cosmeticsview.ts). */
 export function share<T extends THREE.Material>(m: T): T {

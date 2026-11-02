@@ -31,6 +31,8 @@ export interface Design {
   tumble: number;
   rb: number;
   rt: number;
+  /** How far the flank's character line stands proud (m); 0.009 if unset, 0 for none. */
+  crease?: number;
   /** Spoilers sit on the roof (hatches) rather than the deck. */
   roofSpoiler?: boolean;
   plate: string;
@@ -82,12 +84,39 @@ export function makeKitHelpers(body: Section) {
 
 const hemi = (r: number) => new THREE.SphereGeometry(r, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2);
 
-/** A round lamp on the nose (dir 1) or tail (dir -1): chrome bezel, domed lens. */
+/**
+ * A round lamp on the nose (dir 1) or tail (dir -1) in a bezel. A headlamp is built like one: a polished
+ * reflector bowl, a bulb, and a clear domed glass over them; a tail lamp is a lit red dome in a dark ring.
+ */
 function roundLamp(k: Kit, x: number, y: number, r: number, lens: THREE.Material, dir: 1 | -1, bezel: THREE.Material = MAT.chrome) {
   const z = dir > 0 ? k.front(x, y) : k.rear(x, y);
+  const out = -dir; // which way along z is out of the car (the nose faces -z)
   k.put(new THREE.TorusGeometry(r, r * 0.16, 8, 28), bezel, [x, y, z + dir * 0.012], [0, 0, 0], true);
-  k.put(new THREE.CylinderGeometry(r, r, 0.08, 24), MAT.gloss, [x, y, z + dir * 0.03], [Math.PI / 2, 0, 0], true);
-  k.put(hemi(r * 0.9), lens, [x, y, z - dir * 0.005], [-dir * Math.PI / 2, 0, 0], true);
+  // The lamp's barrel: solid behind a tail lamp, an open tube round a headlamp's bowl.
+  k.put(new THREE.CylinderGeometry(r, r, 0.08, 24, 1, lens === MAT.head), MAT.gloss, [x, y, z + dir * 0.03], [Math.PI / 2, 0, 0], true);
+  if (lens !== MAT.head) {
+    k.put(new THREE.TorusGeometry(r * 0.78, r * 0.08, 6, 24), MAT.redLens, [x, y, z + out * 0.004], [0, 0, 0], true);
+    k.put(hemi(r * 0.72), lens, [x, y, z - dir * 0.005], [-dir * Math.PI / 2, 0, 0], true);
+    return;
+  }
+  // A shallow bucket standing proud of the panel (a flush one would sit behind the paint): the polished
+  // bowl opening forward from the panel, the bulb with its shield cap, a chrome rim, and the glass dome.
+  const depth = r * 0.42;
+  const rim = z - dir * (depth + 0.006);
+  k.put(new THREE.CylinderGeometry(r * 1.02, r * 1.02, depth + 0.01, 24, 1, true), MAT.gloss, [x, y, z - dir * (depth / 2)], [Math.PI / 2, 0, 0], true);
+  const bowl = k.put(hemi(r * 0.96), MAT.reflector, [x, y, rim], [dir * Math.PI / 2, 0, 0], true);
+  bowl.scale.y = depth / (r * 0.96);
+  k.put(new THREE.SphereGeometry(r * 0.16, 14, 10), MAT.head, [x, y, rim + dir * depth * 0.45], [0, 0, 0], true);
+  k.put(new THREE.CylinderGeometry(r * 0.2, r * 0.2, 0.006, 16), MAT.chrome, [x, y, rim + dir * depth * 0.45 - dir * r * 0.18], [Math.PI / 2, 0, 0], true);
+  k.put(new THREE.TorusGeometry(r * 1.01, r * 0.07, 8, 32), MAT.chrome, [x, y, rim], [0, 0, 0], true);
+  const glass = k.put(hemi(r * 0.98), MAT.lampGlass, [x, y, rim], [-dir * Math.PI / 2, 0, 0], true);
+  glass.scale.y = 0.3;
+}
+
+/** A projector: a chrome cup with a lit lens in it, facing along `r`'s +y (out of a lamp housing). */
+function projector(k: Kit, p: [number, number, number], r: [number, number, number], size: number) {
+  k.put(new THREE.CylinderGeometry(size, size * 0.8, size * 0.6, 18, 1, true), MAT.reflector, p, r, true);
+  k.put(new THREE.CylinderGeometry(size * 0.62, size * 0.62, size * 0.5, 18), MAT.head, p, r, true);
 }
 
 /**
@@ -113,9 +142,24 @@ function slitLamp(k: Kit, x0: number, t0: number, x1: number, t1: number, depth:
     const v = p0.clone().addScaledVector(a, len * u).addScaledVector(n, up).addScaledVector(s, along);
     return [v.x, v.y, v.z];
   };
-  k.put(rbox(len, 0.05, depth, 0.016), MAT.gloss, at(0.5, -0.012, 0), r, true);
-  for (const f of [0.3, 0.68]) k.put(hemi(depth * 0.3), MAT.head, at(f, 0.004, 0.004), r, true);
-  k.put(rbox(len * 0.94, 0.014, 0.016, 0.006), MAT.drl, at(0.5, 0.012, -depth / 2 + 0.006), r, true);
+  // A dark housing set into the nose, two chrome projectors and a light strip, under a clear cover.
+  k.put(rbox(len, 0.05, depth, 0.016), MAT.gloss, at(0.5, -0.016, 0), r, true);
+  k.put(rbox(len * 0.96, 0.012, depth * 0.86, 0.006), MAT.trim, at(0.5, 0.004, 0), r, true);
+  for (const f of [0.3, 0.68]) projector(k, at(f, 0.008, 0.006), r, depth * 0.24);
+  k.put(rbox(len * 0.94, 0.012, 0.014, 0.006), MAT.drl, at(0.5, 0.014, -depth / 2 + 0.01), r, true);
+  k.put(rbox(len * 1.02, 0.02, depth * 1.04, 0.012), MAT.lampGlass, at(0.5, 0.016, 0), r, true);
+}
+
+/**
+ * A modern tail lamp on the rear face at (x, y): a dark red lens, a lit bar across it and a thinner one
+ * under it, in a black surround.
+ */
+function tailLamp(k: Kit, x: number, y: number, w: number, h: number) {
+  const z = k.rear(x, y);
+  k.put(rbox(w + 0.02, h + 0.02, 0.04, 0.012), MAT.gloss, [x, y, z - 0.012], [0, 0, 0], true);
+  k.put(rbox(w, h, 0.04, 0.01), MAT.redLens, [x, y, z - 0.004], [0, 0, 0], true);
+  k.put(rbox(w * 0.86, h * 0.26, 0.03, 0.006), k.tail, [x, y + h * 0.18, z + 0.008], [0, 0, 0], true);
+  k.put(rbox(w * 0.86, h * 0.1, 0.03, 0.004), k.tail, [x, y - h * 0.22, z + 0.008], [0, 0, 0], true);
 }
 
 /** A run of slats (louvres) across the top between t0 and t1, following `height`. */
@@ -200,9 +244,13 @@ export const DESIGNS: Record<CarId, Design> = {
       k.put(rbox(0.3, 0.06, 0.24, 0.03), k.paint, [0, k.H + 0.02, k.z(0.5)]);
       k.put(rbox(0.24, 0.04, 0.02, 0.01), MAT.grille, [0, k.H + 0.025, k.z(0.5) - 0.12]);
       // Mud flaps behind every wheel.
-      for (const t of [k.tF, k.tR]) k.put(rbox(0.26, 0.24, 0.02, 0.01), MAT.red, [k.b.track / 2, 0.16, k.z(t) + k.b.radius + 0.12], [0, 0, 0], true);
+      for (const t of [k.tF, k.tR]) {
+        const z = k.z(t) + k.b.radius + 0.12;
+        k.put(rbox(0.26, 0.24, 0.012, 0.006), MAT.rubber, [k.b.track / 2, 0.16, z], [0.08, 0, 0], true);
+        k.put(rbox(0.262, 0.05, 0.013, 0.004), MAT.red, [k.b.track / 2, 0.24, z - 0.006], [0.08, 0, 0], true);
+      }
       // Tail.
-      for (const x of [0.62]) k.put(rbox(0.32, 0.09, 0.05, 0.02), k.tail, [x * k.W, 0.72, k.rear(x * k.W, 0.72) - 0.01], [0, 0, 0], true);
+      tailLamp(k, 0.62 * k.W, 0.72, 0.32, 0.1);
       k.put(rbox(k.W * 1.8, 0.14, 0.16, 0.06), MAT.trim, [0, 0.28, k.rear(0, 0.28) - 0.06]);
       exhaust(k, k.W * 0.55, 0.22, 0.065, false);
     },
@@ -248,7 +296,8 @@ export const DESIGNS: Record<CarId, Design> = {
       k.put(rbox(k.W * 1.8, 0.13, 0.05, 0.02), MAT.gloss, [0, ty, k.rear(0, ty) - 0.012]);
       for (let i = 0; i < 3; i++) {
         const x = (0.25 + i * 0.25) * k.W;
-        k.put(rbox(k.W * 0.22, 0.08, 0.03, 0.015), k.tail, [x, ty, k.rear(x, ty) + 0.004], [0, 0, 0], true);
+        k.put(rbox(k.W * 0.22, 0.09, 0.03, 0.012), MAT.redLens, [x, ty, k.rear(x, ty) + 0.004], [0, 0, 0], true);
+        k.put(rbox(k.W * 0.19, 0.03, 0.03, 0.008), k.tail, [x, ty, k.rear(x, ty) + 0.012], [0, 0, 0], true);
       }
     },
   },
@@ -266,7 +315,7 @@ export const DESIGNS: Record<CarId, Design> = {
       slitLamp(k, k.W * 0.3, 0.045, k.W * 0.8, 0.08, 0.085);
       grille(k, k.W * 0.9, 0.15, 0.4, 0.05);
       // Carbon lip and canards.
-      k.put(rbox(k.W * 1.9, 0.02, 0.2, 0.008), MAT.carbon, [0, 0.16, k.front(0, 0.2) + 0.02]);
+      k.put(rbox(k.body.half(0.05, 0.1) * 1.9, 0.02, 0.2, 0.008), MAT.carbon, [0, 0.165, k.front(0, k.body.floor(0.05) + 0.03) + 0.08]);
       for (const [y, a] of [[0.36, 0.18], [0.28, 0.12]]) {
         const x = k.W * 0.8;
         k.put(rbox(0.12, 0.012, 0.1, 0.004), MAT.carbon, [x + 0.02, y, k.front(x, y) + 0.02], [0, 0.5, a], true);
@@ -290,8 +339,9 @@ export const DESIGNS: Record<CarId, Design> = {
       const ty = k.top(0.99) - 0.1;
       for (const x of [0.38, 0.7]) {
         const z = k.rear(x * k.W, ty);
-        k.put(new THREE.TorusGeometry(0.075, 0.022, 8, 28), k.tail, [x * k.W, ty, z + 0.01], [0, 0, 0], true);
-        k.put(new THREE.CircleGeometry(0.05, 20), MAT.gloss, [x * k.W, ty, z + 0.004], [0, 0, 0], true);
+        k.put(new THREE.TorusGeometry(0.09, 0.012, 8, 28), MAT.chrome, [x * k.W, ty, z + 0.006], [0, 0, 0], true);
+        k.put(new THREE.TorusGeometry(0.07, 0.016, 8, 28), k.tail, [x * k.W, ty, z + 0.012], [0, 0, 0], true);
+        k.put(new THREE.CircleGeometry(0.08, 24), MAT.redLens, [x * k.W, ty, z + 0.006], [0, 0, 0], true);
       }
       k.put(rbox(k.W * 1.86, 0.12, 0.14, 0.05), MAT.trim, [0, 0.26, k.rear(0, 0.26) - 0.05]);
       k.put(rbox(k.W * 1.2, 0.05, 0.08, 0.02), MAT.carbon, [0, 0.17, k.rear(0, 0.2) - 0.02]);
@@ -319,9 +369,10 @@ export const DESIGNS: Record<CarId, Design> = {
         k.put(rbox(0.17, 0.016, 0.018, 0.006), MAT.drl, [hx + dx, hy + 0.016, k.z(lt) - 0.03], [-slope, yaw, 0], true);
       }
       // Big front intakes and a carbon splitter.
-      for (const x of [0.6]) k.put(rbox(0.42, 0.16, 0.12, 0.05), MAT.grille, [x * k.W, 0.27, k.front(x * k.W, 0.27) + 0.05], [0, 0.3, 0], true);
+      // Corner intakes, set into the nose (it tapers hard here, so they follow it in).
+      for (const x of [0.46]) k.put(rbox(0.3, 0.14, 0.14, 0.04), MAT.grille, [x * k.W, 0.27, k.front(x * k.W, 0.27) + 0.11], [0, 0.45, 0], true);
       k.put(rbox(0.5, 0.09, 0.12, 0.04), MAT.grille, [0, 0.24, k.front(0, 0.24) + 0.05]);
-      k.put(rbox(k.W * 1.94, 0.02, 0.3, 0.008), MAT.carbon, [0, 0.13, k.front(0, 0.16) + 0.06]);
+      k.put(rbox(k.body.half(0.07, 0.1) * 1.95, 0.02, 0.3, 0.008), MAT.carbon, [0, 0.13, k.front(0, k.body.floor(0.05) + 0.03) + 0.12]);
       // Side intakes ahead of the rear wheels.
       const it = k.tR - 0.15;
       const p = k.side(it, 0.5);
@@ -343,9 +394,13 @@ export const DESIGNS: Record<CarId, Design> = {
       const ty = k.top(0.99) - 0.05;
       const tw = k.body.half(0.99, 0.8) * 0.92;
       k.put(rbox(tw * 2, 0.022, 0.03, 0.008), k.tail, [0, ty, k.rear(0, ty) + 0.008]);
-      for (const roll of [0.55, -0.55]) {
-        const x = tw * 0.84;
-        k.put(rbox(0.13, 0.02, 0.03, 0.008), k.tail, [x, ty - 0.04, k.rear(x, ty - 0.04) + 0.004], [0, 0, roll], true);
+      // Chevrons at each end, pointing outward: two strokes meeting at the tip.
+      for (const a of [0.55, -0.55]) {
+        const tip = tw * 0.95;
+        const half = 0.065;
+        const x = tip - Math.cos(a) * half;
+        const y = ty - 0.045 + Math.sin(a) * half;
+        k.put(rbox(half * 2, 0.02, 0.03, 0.008), k.tail, [x, y, k.rear(x, y) + 0.004], [0, 0, -a], true);
       }
       const gw = k.body.half(0.99, 0.3) * 0.9;
       k.put(rbox(gw * 2, 0.18, 0.12, 0.03), MAT.grille, [0, 0.33, k.rear(0, 0.33) - 0.04]);

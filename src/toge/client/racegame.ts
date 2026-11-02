@@ -17,6 +17,7 @@ import { rumble, setMenuNav } from '../../client/pad.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
 import { type CarModel, INTERIOR, buildCar, ghostly } from './carmodel.ts';
+import { LAMP_DAY, LAMP_NIGHT, setLampLevel } from './carparts.ts';
 import { type Cockpit, buildCockpit } from './cockpit.ts';
 import { Head, ROUGH } from './headcam.ts';
 import { Effects } from './effects.ts';
@@ -228,6 +229,8 @@ export class RaceGame {
 
   constructor(private setup: RaceSetup) {
     this.track = getTrack(setup.track);
+    // Headlamps blaze at night (the bloom catches them) and only glow by day.
+    setLampLevel(this.track.def.theme === 'night' || this.track.def.theme === 'city' ? LAMP_NIGHT : LAMP_DAY);
     this.trial = setup.online?.mode === 'trial';
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
@@ -1355,6 +1358,7 @@ export class RaceGame {
 
   private dispose() {
     this.exited = true;
+    setLampLevel(LAMP_DAY);
     cancelAnimationFrame(this.raf);
     removeEventListener('resize', this.resize);
     this.offNet?.();

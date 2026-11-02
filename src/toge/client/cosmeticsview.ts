@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { type Look, PAINTS, type OwnedCar } from '../shared/cars.ts';
 import { type DecalFx, type Finish, type ItemOf, type PaintFx, type PlateFx, equipped } from '../shared/cosmetics.ts';
-import { flakeTex, paintMaterial, share } from './carparts.ts';
+import { flakeTex, lamp, paintMaterial, share } from './carparts.ts';
 
 const css = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
@@ -627,8 +627,8 @@ export const windowMaterial = (it: ItemOf<'window'>) =>
 
 /** Headlamp lens and daytime running light, both brighter than white so the race's bloom catches them. */
 export const headMaterials = (it: ItemOf<'head'>) => ({
-  head: cached(it.id, () => new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: it.fx.color, emissiveIntensity: 9 * it.fx.power, roughness: 0.1 })),
-  drl: cached(it.id + ':drl', () => new THREE.MeshBasicMaterial({ color: bright(it.fx.color, 8 * it.fx.power) })),
+  head: cached(it.id, () => lamp(new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: it.fx.color, emissiveIntensity: 9 * it.fx.power, roughness: 0.1 }))),
+  drl: cached(it.id + ':drl', () => lamp(new THREE.MeshBasicMaterial({ color: bright(it.fx.color, 8 * it.fx.power) }))),
 });
 
 export const rimMaterial = (it: ItemOf<'rims'>) =>
