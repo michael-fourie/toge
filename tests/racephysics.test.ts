@@ -4,7 +4,7 @@ import { CAR_IDS, carSpec, newOwnedCar, rating, topSpeed } from '../src/shared/r
 import { aiDrive, newAi } from '../src/shared/race/driver.ts';
 import { TRACK_LENGTH_KM } from '../src/shared/race/garage.ts';
 import { SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../src/shared/race/track.ts';
-import { type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, stepCar } from '../src/shared/race/vehicle.ts';
+import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, stepCar } from '../src/shared/race/vehicle.ts';
 
 const TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
 
@@ -207,11 +207,33 @@ test('cornering: steady lateral grip is about what the tyres promise, and the bo
     const az = (car.v.z - vz) / TICK_DT;
     latMax = Math.max(latMax, Math.hypot(ax, az) / 9.81);
   }
-  assert.ok(latMax > 0.6 && latMax < car.spec.grip * 1.15, `lateral ${latMax.toFixed(2)} g`);
+  // Arcade handling promises more than the tyres do.
+  const promised = DEFAULT_ASSISTS.arcade ? ARCADE.grip : car.spec.grip;
+  assert.ok(latMax > 0.6 && latMax < promised * 1.15, `lateral ${latMax.toFixed(2)} g`);
   // Turning right rolls the body to the left (its up vector leans left, -x of the car).
   const q = car.q;
   const upRight = 2 * (q.x * q.y - q.w * q.z); // up · right
   assert.ok(upRight < 0, 'body rolls to the outside of the turn');
+});
+
+test('arcade cornering: full lock at 90 km/h turns tighter than a touge hairpin needs', () => {
+  // Wide open tarmac, so the circle never meets a rail.
+  const pad = buildTrack({ ...flat.def, width: 400 });
+  const car = carOn(pad);
+  while (speedOf(car) < 25) stepCar(car, gas, pad);
+  for (let i = 0; i < TICK_HZ * 0.5; i++) stepCar(car, { steer: 1, throttle: 0.5, brake: 0, handbrake: 0 }, pad);
+  let turned = 0;
+  let dist = 0;
+  let h = Math.atan2(car.v.x, car.v.z);
+  for (let i = 0; i < TICK_HZ; i++) {
+    stepCar(car, { steer: 1, throttle: speedOf(car) < 25 ? 1 : 0.3, brake: 0, handbrake: 0 }, pad);
+    const nh = Math.atan2(car.v.x, car.v.z);
+    turned += Math.atan2(Math.sin(nh - h), Math.cos(nh - h));
+    dist += speedOf(car) * TICK_DT;
+    h = nh;
+  }
+  const radius = dist / Math.abs(turned);
+  assert.ok(radius < 26, `turning radius ${radius.toFixed(1)} m at ${speedOf(car).toFixed(1)} m/s`);
 });
 
 test('AI drivers get every car down every track, with no NaNs and few big crashes', () => {
