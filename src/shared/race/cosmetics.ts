@@ -18,9 +18,9 @@ export const RARITY: Record<Rarity, { name: string; color: number; refund: numbe
   mythic: { name: 'Mythic', color: 0xff3d6e, refund: 10000 },
 };
 
-export type CosSlot = 'paint' | 'decal' | 'window' | 'head' | 'tail' | 'rims' | 'caliper' | 'glow' | 'plate' | 'frame' | 'exhaust';
+export type CosSlot = 'paint' | 'decal' | 'window' | 'head' | 'tail' | 'rims' | 'caliper' | 'glow' | 'plate' | 'frame' | 'exhaust' | 'wing' | 'hood' | 'roof' | 'lip' | 'skirts' | 'flaps';
 /** Wire order: append only. */
-export const COS_SLOTS: readonly CosSlot[] = ['paint', 'decal', 'window', 'head', 'tail', 'rims', 'caliper', 'glow', 'plate', 'frame', 'exhaust'];
+export const COS_SLOTS: readonly CosSlot[] = ['paint', 'decal', 'window', 'head', 'tail', 'rims', 'caliper', 'glow', 'plate', 'frame', 'exhaust', 'wing', 'hood', 'roof', 'lip', 'skirts', 'flaps'];
 
 export const SLOT_INFO: Record<CosSlot, { name: string; icon: string }> = {
   paint: { name: 'Paint job', icon: '🎨' },
@@ -34,6 +34,12 @@ export const SLOT_INFO: Record<CosSlot, { name: string; icon: string }> = {
   plate: { name: 'Plate', icon: '▭' },
   frame: { name: 'Plate frame', icon: '⬚' },
   exhaust: { name: 'Exhaust tips', icon: '◉' },
+  wing: { name: 'Rear wing', icon: '⟂' },
+  hood: { name: 'Hood', icon: '⌂' },
+  roof: { name: 'Roof', icon: '⌒' },
+  lip: { name: 'Front lip', icon: '⌣' },
+  skirts: { name: 'Sides', icon: '▬' },
+  flaps: { name: 'Mudflaps', icon: '▮' },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -62,6 +68,18 @@ export interface FrameFx { color: number; metal: number; rough: number; glow?: b
 /** `heat`: the glow inside the pipe (0 = a dark hole). */
 export interface ExhaustFx { color: number; metal: number; rough: number; heat: number }
 
+// Body parts (bolted on; no effect on handling). `mat` is what they're made of: the car's own paint, carbon,
+// chrome or a colour; `glow` lights an edge strip in that colour (it blooms in the race).
+export type PartMat = 'paint' | 'carbon' | 'chrome' | 'color';
+export interface PartLook { mat: PartMat; color?: number; glow?: number }
+/** Replaces the stock spoiler. */
+export interface WingFx extends PartLook { style: 'ducktail' | 'trunklip' | 'gt' | 'swan' | 'dual' | 'bosozoku' }
+export interface HoodFx extends PartLook { style: 'vents' | 'naca' | 'scoop' | 'louvres' | 'snorkels' | 'shaker' | 'blower' }
+export interface RoofFx extends PartLook { style: 'fin' | 'rack' | 'lightbar' | 'box' | 'scoop' | 'surf' | 'duck' | 'halo' }
+export interface LipFx extends PartLook { style: 'lip' | 'splitter' | 'canards' | 'tow' | 'bullbar' }
+export interface SkirtFx extends PartLook { style: 'skirts' | 'flares' | 'rivets' | 'sidepipes' }
+export interface FlapFx extends PartLook { mark?: 'stripe' | 'chevron' }
+
 export interface FxBySlot {
   paint: PaintFx;
   decal: DecalFx;
@@ -74,9 +92,15 @@ export interface FxBySlot {
   plate: PlateFx;
   frame: FrameFx;
   exhaust: ExhaustFx;
+  wing: WingFx;
+  hood: HoodFx;
+  roof: RoofFx;
+  lip: LipFx;
+  skirts: SkirtFx;
+  flaps: FlapFx;
 }
 
-export type CaseId = 'street' | 'night' | 'chrome' | 'livery' | 'legend';
+export type CaseId = 'street' | 'night' | 'chrome' | 'livery' | 'legend' | 'aero';
 
 export type CosItem = { [S in CosSlot]: { id: string; name: string; slot: S; rarity: Rarity; cases: readonly CaseId[]; fx: FxBySlot[S] } }[CosSlot];
 export type ItemOf<S extends CosSlot> = Extract<CosItem, { slot: S }>;
@@ -96,6 +120,11 @@ const SC: CaseId[] = ['street', 'chrome'];
 const NC: CaseId[] = ['night', 'chrome'];
 const NV: CaseId[] = ['night', 'livery'];
 const CV: CaseId[] = ['chrome', 'livery'];
+const A: CaseId[] = ['aero'];
+const AS: CaseId[] = ['aero', 'street'];
+const AN: CaseId[] = ['aero', 'night'];
+const AC: CaseId[] = ['aero', 'chrome'];
+const AV: CaseId[] = ['aero', 'livery'];
 
 const p = make('paint');
 const paint = (finish: Finish, pattern: Pattern, base: number, accent = 0xffffff, accent2 = 0x111317, glow = false): PaintFx => ({ finish, pattern, base, accent, accent2, ...(glow ? { glow } : {}) });
@@ -109,6 +138,16 @@ const g = make('glow');
 const pl = make('plate');
 const f = make('frame');
 const e = make('exhaust');
+const wi = make('wing');
+const ho = make('hood');
+const ro = make('roof');
+const li = make('lip');
+const sk = make('skirts');
+const fl = make('flaps');
+const PAINT = { mat: 'paint' } as const;
+const CARBON = { mat: 'carbon' } as const;
+const CHROME = { mat: 'chrome' } as const;
+const tint = (color: number, glow?: number): PartLook => ({ mat: 'color', color, ...(glow !== undefined ? { glow } : {}) });
 
 /** Every item, by slot, in wire order. APPEND ONLY within each list. */
 export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
@@ -294,6 +333,58 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     e('e_blueflame', 'Blue Flame', 'legendary', NC, { color: 0x7a6ab0, metal: 1, rough: 0.15, heat: 0x3a8aff }),
     e('e_dragon', 'Dragon Breath', 'mythic', C, { color: 0xffc94a, metal: 1, rough: 0.1, heat: 0xff2a00 }),
   ],
+  wing: [
+    wi('wg_ducktail', 'Ducktail', 'common', AS, { style: 'ducktail', ...PAINT }),
+    wi('wg_trunklip', 'Carbon Trunk Lip', 'common', A, { style: 'trunklip', ...CARBON }),
+    wi('wg_gt', 'GT Wing', 'rare', AS, { style: 'gt', ...CARBON }),
+    wi('wg_gtwhite', 'Endurance Wing', 'rare', AV, { style: 'gt', ...tint(0xf2f2f0) }),
+    wi('wg_swan', 'Swan Neck', 'epic', AC, { style: 'swan', ...CARBON }),
+    wi('wg_dual', 'Twin Plane', 'epic', AV, { style: 'dual', ...tint(0xc8102e) }),
+    wi('wg_boso', 'Bōsōzoku Wing', 'legendary', AN, { style: 'bosozoku', ...tint(0xff2bd6) }),
+    wi('wg_neonblade', 'Neon Blade', 'mythic', AN, { style: 'gt', ...tint(0x111317, 0x22e6ff) }),
+  ],
+  hood: [
+    ho('hd_vents', 'Heat Vents', 'common', AS, { style: 'vents', ...CARBON }),
+    ho('hd_naca', 'NACA Ducts', 'common', A, { style: 'naca', ...PAINT }),
+    ho('hd_scoop', 'Ram Scoop', 'rare', AS, { style: 'scoop', ...PAINT }),
+    ho('hd_louvres', 'Louvre Panel', 'rare', AC, { style: 'louvres', ...CARBON }),
+    ho('hd_snorkels', 'Twin Snorkels', 'epic', AC, { style: 'snorkels', ...CHROME }),
+    ho('hd_shaker', 'Shaker', 'epic', AV, { style: 'shaker', ...tint(0x16181c) }),
+    ho('hd_blower', 'Supercharger', 'legendary', AC, { style: 'blower', ...CHROME }),
+  ],
+  roof: [
+    ro('rf_fin', 'Shark Fin', 'common', AS, { style: 'fin', ...PAINT }),
+    ro('rf_rack', 'Roof Rack', 'common', AS, { style: 'rack', ...tint(0x16181c) }),
+    ro('rf_lightbar', 'Rally Light Bar', 'rare', AN, { style: 'lightbar', ...tint(0x16181c, 0xfff1c9) }),
+    ro('rf_box', 'Roof Box', 'rare', A, { style: 'box', ...tint(0xeef1f4) }),
+    ro('rf_scoop', 'Roof Scoop', 'epic', AV, { style: 'scoop', ...CARBON }),
+    ro('rf_surf', 'Surf Trip', 'epic', AS, { style: 'surf', ...tint(0x22c3c9) }),
+    ro('rf_duck', 'Lucky Duck', 'legendary', AV, { style: 'duck', ...tint(0xffd21a) }),
+    ro('rf_halo', 'Halo', 'mythic', AN, { style: 'halo', ...tint(0xffd76a, 0xffc94a) }),
+  ],
+  lip: [
+    li('lp_lip', 'Front Lip', 'common', AS, { style: 'lip', ...CARBON }),
+    li('lp_tow', 'Tow Strap', 'common', A, { style: 'tow', ...tint(0xd4211b) }),
+    li('lp_splitter', 'Track Splitter', 'rare', AC, { style: 'splitter', ...CARBON }),
+    li('lp_canards', 'Canards', 'rare', AV, { style: 'canards', ...CARBON }),
+    li('lp_bullbar', 'Bull Bar', 'epic', AS, { style: 'bullbar', ...CHROME }),
+    li('lp_neon', 'Neon Lip', 'legendary', AN, { style: 'lip', ...tint(0x111317, 0xff2bd6) }),
+  ],
+  skirts: [
+    sk('sd_skirts', 'Side Skirts', 'common', AS, { style: 'skirts', ...PAINT }),
+    sk('sd_carbon', 'Carbon Skirts', 'rare', AC, { style: 'skirts', ...CARBON }),
+    sk('sd_flares', 'Overfenders', 'rare', AV, { style: 'flares', ...PAINT }),
+    sk('sd_rivets', 'Riveted Flares', 'epic', AV, { style: 'rivets', ...tint(0x16181c) }),
+    sk('sd_sidepipes', 'Side Pipes', 'epic', AC, { style: 'sidepipes', ...CHROME }),
+    sk('sd_neon', 'Neon Skirts', 'legendary', AN, { style: 'skirts', ...tint(0x111317, 0x22e6ff) }),
+  ],
+  flaps: [
+    fl('mf_red', 'Rally Flaps', 'common', AS, { ...tint(0xd4211b), mark: 'stripe' }),
+    fl('mf_black', 'Black Flaps', 'common', AS, tint(0x16181c)),
+    fl('mf_blue', 'Works Blue Flaps', 'common', A, { ...tint(0x1d4ed8), mark: 'chevron' }),
+    fl('mf_gold', 'Gold Rush Flaps', 'rare', AC, { ...tint(0xd4a017), mark: 'stripe' }),
+    fl('mf_neon', 'Neon Flaps', 'epic', AN, { ...tint(0x111317, 0x39ff88), mark: 'chevron' }),
+  ],
 };
 
 export const COS_ITEMS: readonly CosItem[] = COS_SLOTS.flatMap((s) => CATALOG[s] as readonly CosItem[]);
@@ -318,6 +409,7 @@ export const COS_CASES: readonly CosCase[] = [
   { id: 'night', name: 'Night Run Case', blurb: 'Glow after dark: underglow, neon rims, lamp tints, flip paints.', price: 2500, color: 0xff2bd6, weights: { common: 48, rare: 32, epic: 14, legendary: 5, mythic: 1 } },
   { id: 'livery', name: 'Livery Case', blurb: 'Paint jobs with a story: stripes, flames, camo, kanji and race numbers.', price: 2500, color: 0xff8a00, weights: { common: 48, rare: 32, epic: 14, legendary: 5, mythic: 1 } },
   { id: 'chrome', name: 'Chrome Case', blurb: 'Shiny things: chrome paint, mirror tints, gold rims, frames and tips.', price: 3000, color: 0xd9dde4, weights: { common: 40, rare: 34, epic: 18, legendary: 6.5, mythic: 1.5 } },
+  { id: 'aero', name: 'Aero Case', blurb: 'Bolt-ons: wings, scoops, splitters, skirts, roof gear and mudflaps.', price: 2800, color: 0x7cff6b, weights: { common: 46, rare: 32, epic: 15, legendary: 5.5, mythic: 1.5 } },
   { id: 'legend', name: 'Legend Case', blurb: 'Epic or better, from every case. The big one.', price: 8000, color: 0xffb020, weights: { epic: 72, legendary: 23, mythic: 5 } },
 ];
 

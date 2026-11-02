@@ -14,4 +14,7 @@ The rules that bite most often in this folder:
   client sees the same camo; cached materials per item, registered with `share()` so a car's dispose leaves them);
   cosmeticsui.ts is the Locker and Cases tabs and the case reel (styles in cosmetics.css). Body UVs: u nose to tail,
   v round the section, so each flank needs its own transform to read the right way (`onFlanks`).
-- Dev hooks: `window.__race` (the running race), `/dev/cars.html` + `window.lab` for car models.
+- Body parts (wings, hoods, roof gear, lips, sides, mudflaps): bodykits.ts builds them from the Kit helpers (`k.top`,
+  `k.height`, `k.side`, `k.front`, `k.cabin`) inside carmodel.ts's `common()`, before the merge; a cosmetic wing replaces
+  the stock spoiler. Glowing edges are MeshBasicMaterial brighter than white (bloom) and marked `userData.glow` (no shadow).
+- Dev hooks: `window.__race` (the running race), `/dev/cars.html` + `window.lab` for car models (`lab.cos({...})` dresses them).

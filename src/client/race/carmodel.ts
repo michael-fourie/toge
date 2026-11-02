@@ -3,6 +3,7 @@
 // of parts, the garage options (paint, rims, spoiler, stripes, underglow), and four wheels. Static parts are
 // merged by material at the end. The model's origin is the centre of gravity, like the physics.
 
+import { bodyKit, hasWing } from './bodykits.ts';
 import * as THREE from 'three';
 import { CARS, type CarSpec, GLOWS, type OwnedCar, carSpec } from '../../shared/race/cars.ts';
 import { DESIGNS, type Design, type Kit, makeKitHelpers } from './carkits.ts';
@@ -259,8 +260,8 @@ function common(k: Kit, d: Design, owned: OwnedCar, own: { dispose(): void }[]) 
     if (frame.fx.cover > 0) k.put(new THREE.PlaneGeometry(0.37, 0.125), coverMaterial(frame), [0, d.plateY, pz + 0.016]);
   }
 
-  // Spoilers.
-  const s = owned.look.spoiler;
+  // Spoilers (a cosmetic wing replaces the stock one).
+  const s = hasWing(owned) ? 0 : owned.look.spoiler;
   const onRoof = d.roofSpoiler;
   const baseT = onRoof ? d.roofR + 0.02 : 0.955;
   const baseY = onRoof ? H : k.top(baseT);
@@ -289,6 +290,9 @@ function common(k: Kit, d: Design, owned: OwnedCar, own: { dispose(): void }[]) 
       k.put(new THREE.TubeGeometry(path, 16, 0.016, 6), MAT.alloy, [0, 0, 0]);
     }
   }
+
+  // Bolt-on parts from the cases: wing, hood, roof, lip, sides, mudflaps.
+  bodyKit(k, d, owned);
 
   // Underglow: a soft pool of light on the road, plus a strip along each sill.
   const glow = equipped(owned.cos, 'glow')?.fx;

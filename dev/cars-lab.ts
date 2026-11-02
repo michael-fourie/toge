@@ -1,10 +1,11 @@
 // Dev-only lab for the TŌGE car models: every car in a row (or one up close) under studio lights.
-// window.lab: show(id | 'all'), view(yawDeg, pitchDeg, dist), look({...}), spin(on).
+// window.lab: show(id | 'all'), view(yawDeg, pitchDeg, dist), look({...}), cos({slot: itemId}), spin(on).
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { CAR_IDS, type CarId, type Look, carSpec, newOwnedCar } from '../src/shared/race/cars.ts';
 import { type CarModel, buildCar } from '../src/client/race/carmodel.ts';
+import type { CosKit } from '../src/shared/race/cosmetics.ts';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -36,6 +37,7 @@ const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 200);
 let models: CarModel[] = [];
 let current: CarId | 'all' = 'all';
 let look: Partial<Look> = {};
+let cos: CosKit = {};
 let yaw = 35;
 let pitch = 12;
 let dist = 0;
@@ -51,6 +53,7 @@ function show(id: CarId | 'all' = current) {
   models = ids.map((cid, i) => {
     const owned = newOwnedCar(cid, i);
     owned.look = { ...owned.look, ...look };
+    owned.cos = { ...cos };
     const sp = carSpec(owned);
     const m = buildCar(owned);
     m.root.position.set((i - (ids.length - 1) / 2) * 2.6, sp.cg, 0);
@@ -108,6 +111,11 @@ requestAnimationFrame(frame);
   },
   look(l: Partial<Look>) {
     look = l;
+    show();
+  },
+  /** Dresses every car in cosmetics, e.g. cos({ wing: 'wg_boso', roof: 'rf_duck' }). */
+  cos(kit: CosKit) {
+    cos = kit;
     show();
   },
   spin(on: boolean) {

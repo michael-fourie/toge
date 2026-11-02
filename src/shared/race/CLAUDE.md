@@ -17,9 +17,10 @@ Physics runs client-side only; the AI's target speed reads `ARCADE.grip`, so riv
   circuits `monza` (3 laps), `spa`, `monaco` (2 laps); city `neonbay` (Neon Bay, live traffic).
   Track `Feature`s: gravel, canyon, bridge, tunnel, crest and `cut` (a gravel shortcut through gaps in the barrier).
 - **Cars** (`CarId`): pebble (starter), kitsune, bramble, shiro, vanta; 8 upgrade `PARTS`, levels 0-5.
-- **Cosmetics** (cosmetics.ts): 160 items in 11 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
-  underglow, plates, plate frames/covers, exhaust tips), 5 rarities, won from 5 cases (Street, Night Run, Livery,
-  Chrome, Legend) bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
+- **Cosmetics** (cosmetics.ts): 200 items in 17 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
+  underglow, plates, plate frames/covers, exhaust tips, and bolt-on body parts: rear wing, hood, roof, front lip, sides,
+  mudflaps), 5 rarities, won from 6 cases (Street, Night Run, Livery, Chrome, Aero, Legend) bought with garage money;
+  equipped per car, plus free custom plate text. No effect on physics.
 - **Solo**: 0/3/5/7 AI rivals (hub.ts, saved as `atrous.rivals`) picked near your PI with your upgrades; you start mid-pack.
 - **Online**: Directory instance `"race"`, sockets `/ws?game=race`, up to `RACE.maxPlayers` (8).
 
@@ -99,5 +100,8 @@ src/client/pad.ts  gamepads for every menu (spatial focus moves, A/B/LB/RB) and 
 - **A cosmetic:** append it to its slot's list in `CATALOG` (cosmetics.ts) with a rarity and its cases; a new pattern or
   decal kind also needs a painter in client/race/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
+  A body part (wing/hood/roof/lip/skirts/flaps) is a `style` plus a `PartLook` (paint, carbon, chrome or a colour, and an
+  optional glowing edge); a new style needs building in client/race/bodykits.ts, from the Kit helpers so it fits every car.
+  Check it on all five cars in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
 Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `pad`, `headcam`, `cosmetics` in `tests/`.
