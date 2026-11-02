@@ -307,6 +307,11 @@ test('specs: upgrades make a car faster and raise its rating; classes span the c
   tuned.up = { engine: 5, turbo: 5, tires: 5, brakes: 5, suspension: 5, weight: 5, gearbox: 5, aero: 5 };
   assert.ok(rating(carSpec(tuned)).pi > rating(carSpec(stock)).pi + 100);
   assert.ok(topSpeed(carSpec(tuned)) > topSpeed(carSpec(stock)));
+  // PI is not capped at 999: a maxed car keeps climbing so better cars show better numbers.
+  const maxed = newOwnedCar('vanta');
+  maxed.up = { ...tuned.up };
+  assert.ok(rating(carSpec(maxed)).pi > 999, String(rating(carSpec(maxed)).pi));
+  assert.ok(rating(carSpec(maxed)).pi > rating(carSpec(newOwnedCar('vanta'))).pi);
   const classes = new Set(CAR_IDS.map((id) => rating(carSpec(newOwnedCar(id))).cls));
   assert.ok(classes.size >= 4, [...classes].join());
 });

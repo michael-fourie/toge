@@ -179,7 +179,10 @@ html.pad .tg :is(button, input):focus {
   border-radius: 6px;
   border: 2px solid var(--c);
   font: 700 15px 'Barlow Condensed', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  /* PI has no ceiling (tuned cars pass 1000), so the badge sizes to its number and never gets squeezed. */
+  flex-shrink: 0;
 }
 .tg-class b {
   display: grid;

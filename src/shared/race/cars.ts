@@ -391,10 +391,13 @@ export function topSpeed(sp: CarSpec): number {
 
 export type CarClass = 'D' | 'C' | 'B' | 'A' | 'S' | 'X';
 
-/** A Forza-style performance index (100–999) and its class. */
+/**
+ * A Forza-style performance index and its class. PI starts at 100 and has no ceiling: a fully tuned
+ * hypercar passes 1800, and everything above 900 is class X.
+ */
 export function rating(sp: CarSpec): { pi: number; cls: CarClass } {
   const pw = (peakPower(sp).kw * 1000) / sp.mass;
-  const pi = Math.round(Math.min(999, Math.max(100, 140 + 1.9 * pw + 430 * (sp.grip - 0.95) + 60 * sp.clA + (sp.drive === 'AWD' ? 25 : 0) + (sp.brake / sp.mass) * 4)));
+  const pi = Math.round(Math.max(100, 140 + 1.9 * pw + 430 * (sp.grip - 0.95) + 60 * sp.clA + (sp.drive === 'AWD' ? 25 : 0) + (sp.brake / sp.mass) * 4));
   const cls: CarClass = pi <= 400 ? 'D' : pi <= 500 ? 'C' : pi <= 600 ? 'B' : pi <= 700 ? 'A' : pi <= 900 ? 'S' : 'X';
   return { pi, cls };
 }
