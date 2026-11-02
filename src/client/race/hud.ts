@@ -1,5 +1,5 @@
-// The race HUD (DOM + two small canvases): position and timer, a vertical "descent" strip with every
-// racer's progress, a heading-up minimap, the tachometer with gear and speed, assist lights, the countdown,
+// The race HUD (DOM + two small canvases): position and timer, the live leaderboard (top left), name tags
+// over the other cars, a vertical "descent" strip with every racer's progress, a heading-up minimap, the tachometer with gear and speed, assist lights, the countdown,
 // banners, and the pause and results panels (gamepad-navigable: they're nav scopes).
 
 import { PAINTS, decodeCar, CARS } from '../../shared/race/cars.ts';
@@ -14,6 +14,24 @@ export interface Dot {
   color: string;
   x: number;
   z: number;
+}
+
+/** A row of the leaderboard, in race order. */
+export interface BoardLine {
+  name: string;
+  color: string;
+  me: boolean;
+  /** Finish time (s), or null while still racing. */
+  finished: number | null;
+}
+
+/** A name tag over a car: where it lands on screen (px), how opaque, or null when it's off screen or hidden. */
+export interface Tag {
+  id: number | string;
+  name: string;
+  color: string;
+  place: number;
+  at: { x: number; y: number; alpha: number } | null;
 }
 
 export interface HudState {
@@ -36,6 +54,7 @@ export interface HudState {
   item: { icon: string; name: string; spinning: boolean } | null;
   heading: number; // yaw
   dots: Dot[];
+  board: BoardLine[];
 }
 
 export interface ResultLine {
@@ -61,6 +80,8 @@ export class RaceHud {
   private map: HTMLCanvasElement;
   private el: Record<string, HTMLElement> = {};
   private bannerTimer = 0;
+  private boardHtml = '';
+  private tagEls = new Map<Tag['id'], HTMLElement>();
 
   constructor(
     container: HTMLElement,
@@ -73,6 +94,8 @@ export class RaceHud {
         <div class="rh-pos"><b data-el="place">–</b><small data-el="field"></small></div>
         <div class="rh-time" data-el="time">0:00.000</div>
       </div>
+      <ol class="rh-board" data-el="board" aria-label="Standings"></ol>
+      <div class="rh-tags" data-el="tags" aria-hidden="true"></div>
       <div class="rh-strip" aria-hidden="true"><i class="flag top"></i><div class="rh-strip-track" data-el="strip"></div><i class="flag bottom"></i></div>
       <canvas class="rh-map" width="220" height="220" aria-hidden="true"></canvas>
       <div class="rh-dash">
@@ -150,6 +173,49 @@ export class RaceHud {
     this.drawTach(h);
     this.drawMap(h);
     this.drawStrip(h.dots);
+    this.drawBoard(h.board);
+  }
+
+  private drawBoard(lines: BoardLine[]) {
+    const html = lines
+      .map(
+        (l, i) =>
+          `<li class="${l.me ? 'me' : ''}${l.finished !== null ? ' done' : ''}"><b>${i + 1}</b><i style="background:${l.color}"></i><span>${esc(l.name)}</span>${l.finished !== null ? `<small>${fmtTime(l.finished)}</small>` : ''}</li>`,
+      )
+      .join('');
+    if (html !== this.boardHtml) this.el.board.innerHTML = this.boardHtml = html;
+  }
+
+  /** Places a name tag over each car in `tags`; tags for cars no longer listed are removed. */
+  tags(tags: Tag[]) {
+    const seen = new Set<Tag['id']>();
+    for (const t of tags) {
+      seen.add(t.id);
+      let el = this.tagEls.get(t.id);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'rh-tag';
+        el.innerHTML = '<b></b><span></span>';
+        this.el.tags.appendChild(el);
+        this.tagEls.set(t.id, el);
+      }
+      const [place, name] = el.children as unknown as [HTMLElement, HTMLElement];
+      const p = String(t.place);
+      if (place.textContent !== p) place.textContent = p;
+      if (name.textContent !== t.name) name.textContent = t.name;
+      el.style.setProperty('--c', t.color);
+      if (!t.at) {
+        el.style.opacity = '0';
+        continue;
+      }
+      el.style.opacity = t.at.alpha.toFixed(2);
+      el.style.transform = `translate(${t.at.x.toFixed(1)}px, ${t.at.y.toFixed(1)}px) translate(-50%, -100%)`;
+    }
+    for (const [id, el] of this.tagEls)
+      if (!seen.has(id)) {
+        el.remove();
+        this.tagEls.delete(id);
+      }
   }
 
   private drawTach(h: HudState) {

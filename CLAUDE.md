@@ -225,6 +225,8 @@ src/shared/race/
                (everything -> physics numbers), torqueAt, rating (PI + class), stats (garage bars).
   garage.ts    money, owned cars, crates (the gamble), payouts, applyAction (every garage change; run by the server for
                accounts and by the client for guests).
+  standings.ts race order (finishers by time, then progress); the place readout and the leaderboard both use it.
+               Lap races pass laps × lap length + distance into the lap as `progress`.
   driver.ts    AI: pure pursuit on a corner-cutting line; target speed from the tightest bend in braking range.
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings.
 src/server/race.ts (Race: lobby -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
@@ -234,7 +236,8 @@ src/client/race/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
   post chain: clamp, bloom, film grade per theme (`Look.grade`), then tone mapping), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
-  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`), showroom.ts, hub.ts (the garage screen `drive`), lobby.ts (`drivelobby`), hud.ts, input.ts
+  textures in carparts.ts, merged by material; tune them in `/dev/cars.html`, `window.lab`), showroom.ts, hub.ts (the garage screen `drive`), lobby.ts (`drivelobby`), hud.ts (incl. the top-left leaderboard and the name tags over
+  other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
   garageStore.ts, racenet.ts, race.css.
 src/client/pad.ts  gamepads for every menu (spatial focus moves, A/B/LB/RB) and for driving (readPad, padAxis, rumble).

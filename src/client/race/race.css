@@ -778,6 +778,93 @@ html.pad .tg :is(button, input):focus {
   font: 700 26px 'Barlow Condensed', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
 }
+.rh-board {
+  position: absolute;
+  left: 50px;
+  top: 14px;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  min-width: 190px;
+  border-radius: 12px;
+  background: rgba(8, 12, 18, 0.45);
+  backdrop-filter: blur(6px);
+  font: 600 16px/1 'Barlow Condensed', system-ui, sans-serif;
+}
+.rh-board:empty {
+  display: none;
+}
+.rh-board li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+}
+.rh-board li b {
+  width: 16px;
+  text-align: right;
+  font-weight: 800;
+  opacity: 0.75;
+}
+.rh-board li i {
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+}
+.rh-board li span {
+  flex: 1;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rh-board li small {
+  font-size: 14px;
+  color: #ffc940;
+  font-variant-numeric: tabular-nums;
+}
+.rh-board li.me {
+  background: rgba(255, 255, 255, 0.16);
+}
+.rh-board li.me b {
+  opacity: 1;
+}
+.rh-tags {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.rh-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 4px;
+  border-radius: 999px;
+  border-bottom: 2px solid var(--c, #fff);
+  background: rgba(8, 12, 18, 0.55);
+  font: 700 15px/1 'Barlow Condensed', system-ui, sans-serif;
+  white-space: nowrap;
+  max-width: 180px;
+  will-change: transform, opacity;
+}
+.rh-tag b {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: #000;
+  text-shadow: none;
+  background: var(--c, #fff);
+}
+.rh-tag span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .rh-strip {
   position: absolute;
   left: 22px;
@@ -1173,5 +1260,9 @@ html.pad .tg :is(button, input):focus {
   }
   .rh-center {
     font-size: 90px;
+  }
+  .rh-board {
+    transform: scale(0.75);
+    transform-origin: top left;
   }
 }
