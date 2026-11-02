@@ -1,11 +1,14 @@
 // The garage's 3D showroom: your car on a slowly turning platform in a dark garage bay, under softbox
 // strips (they're what draws the long highlights down the paint) with cyan and magenta neon behind.
-// Drag (or the right stick) to spin it.
+// Drag (or the right stick) to spin it. Your driver stands on the platform by the driver's door (right-hand drive,
+// so the car's right, +X; the nose is -Z); focus('rider') turns them to the camera and walks in close.
 
 import * as THREE from 'three';
-import { type OwnedCar, carSpec } from '../shared/cars.ts';
+import { CARS, type OwnedCar, carSpec } from '../shared/cars.ts';
+import { type Rider, encodeRider } from '../shared/rider.ts';
 import { padAxis } from '../../client/pad.ts';
 import { type CarModel, buildCar } from './carmodel.ts';
+import { type RiderModel, buildRider } from './ridermodel.ts';
 import { Post } from './post.ts';
 import { stone } from './tracktextures.ts';
 
@@ -70,6 +73,17 @@ export class Showroom {
   private fx = 0.5;
   private fy = 0.5;
   private zoom = 1;
+  private rider: RiderModel | null = null;
+  private riderCode = '';
+  /** Where the driver stands on the turntable (x follows the car's width). */
+  private riderAt = new THREE.Vector3(1.5, 0, -0.25);
+  /** 0 = the car view, 1 = close on the driver; eases toward `focusOn`. */
+  private focusK = 0;
+  private focusOn: 'car' | 'rider' = 'car';
+  /** The driver's own turn (dragging while focused on them spins the driver, not the car). */
+  private riderYaw = 0;
+  private dist = 9;
+  private readonly look = new THREE.Vector3();
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -160,6 +174,31 @@ export class Showroom {
     m.pose([0, 1, 2, 3].map(() => ({ y: sp.radius - sp.cg, angle: 0 })), 0.18, false);
     this.turntable.add(m.root);
     this.model = m;
+    this.riderAt.x = CARS[owned.model].width / 2 + 0.62;
+    this.rider?.root.position.copy(this.riderAt);
+  }
+
+  /** Puts your driver beside the car (rebuilt only when the look changes). */
+  showRider(r: Rider) {
+    const code = encodeRider(r);
+    if (code === this.riderCode) return;
+    this.riderCode = code;
+    this.rider?.dispose();
+    this.rider = buildRider(r);
+    this.rider.root.position.copy(this.riderAt);
+    this.turntable.add(this.rider.root);
+  }
+
+  /** Frame the car, or walk the camera in to the driver (the Driver page). */
+  focus(on: 'car' | 'rider') {
+    if (on === this.focusOn) return;
+    this.focusOn = on;
+    if (on === 'rider') {
+      // Turn the platform the short way round to where the driver faces the camera.
+      const want = Math.PI / 4 - Math.atan2(this.riderAt.x, this.riderAt.z);
+      this.spin = want + Math.round((this.spin - want) / (Math.PI * 2)) * Math.PI * 2;
+      this.riderYaw = 0;
+    }
   }
 
   /**
@@ -182,6 +221,10 @@ export class Showroom {
   private up = () => (this.dragging = false);
   private move = (e: PointerEvent) => {
     if (!this.dragging) return;
+    if (this.focusOn === 'rider') {
+      this.riderYaw += e.movementX * 0.01;
+      return;
+    }
     this.vel = e.movementX * 0.5;
     this.spin += e.movementX * 0.008;
   };
@@ -194,12 +237,25 @@ export class Showroom {
     this.camera.aspect = r.width / r.height;
     // Pull back on narrow screens so the whole car fits (the free space beside a panel is narrower than the canvas).
     const free = this.camera.aspect * Math.min(this.fx, 1 - this.fx) * 2;
-    const d = free < 1.2 ? 11 : 9;
-    this.camera.position.set(d * 0.7, 2.2, d * 0.7);
-    this.camera.lookAt(0, 0.5, 0);
+    this.dist = free < 1.2 ? 11 : 9;
+    this.aim();
     this.camera.zoom = this.zoom;
     this.camera.setViewOffset(r.width, r.height, -(this.fx - 0.5) * r.width, -(this.fy - 0.5) * r.height, r.width, r.height);
     this.camera.updateProjectionMatrix();
+  }
+
+  /** Places the camera between the car view and the driver close-up (focusK). */
+  private aim() {
+    const d = this.dist;
+    const f = this.focusK * this.focusK * (3 - 2 * this.focusK);
+    // The close-up: where the driver ends up once the platform has turned (the camera's bearing, π/4).
+    const r = Math.hypot(this.riderAt.x, this.riderAt.z);
+    const h = this.rider?.height ?? 1.75;
+    const tx = r * Math.SQRT1_2;
+    const near = d * 0.56;
+    this.look.set(tx * f, 0.5 + (h * 0.5 - 0.5) * f, tx * f);
+    this.camera.position.set(d * 0.7 + (tx + near * 0.7 - d * 0.7) * f, 2.2 + (h * 0.6 - 2.2) * f, d * 0.7 + (tx + near * 0.7 - d * 0.7) * f);
+    this.camera.lookAt(this.look);
   }
 
   private frame = (now: number) => {
@@ -208,10 +264,26 @@ export class Showroom {
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     const stick = padAxis(2); // right stick
-    if (Math.abs(stick) > 0.1) this.vel = stick * 2.5;
-    else if (!this.dragging) this.vel += (0.25 - this.vel) * Math.min(1, dt * 1.5);
-    if (!this.dragging) this.spin += this.vel * dt;
-    this.turntable.rotation.y = this.spin;
+    const onRider = this.focusOn === 'rider';
+    if (onRider) {
+      // Hold the platform still with the driver to camera; the stick turns the driver.
+      if (Math.abs(stick) > 0.1) this.riderYaw += stick * 2.5 * dt;
+      else if (!this.dragging) this.riderYaw *= 1 - Math.min(1, dt * 0.6);
+      this.vel = 0;
+      this.turntable.rotation.y += (this.spin - this.turntable.rotation.y) * Math.min(1, dt * 4);
+    } else {
+      if (Math.abs(stick) > 0.1) this.vel = stick * 2.5;
+      else if (!this.dragging) this.vel += (0.25 - this.vel) * Math.min(1, dt * 1.5);
+      if (!this.dragging) this.spin += this.vel * dt;
+      this.turntable.rotation.y = this.spin;
+    }
+    const k0 = this.focusK;
+    this.focusK += ((onRider ? 1 : 0) - this.focusK) * Math.min(1, dt * 3.5);
+    if (Math.abs(this.focusK - k0) > 1e-5) this.aim();
+    if (this.rider) {
+      this.rider.root.rotation.y = Math.PI / 2 + 0.35 + this.riderYaw;
+      this.rider.update(now / 1000);
+    }
     this.post.render(now / 1000);
   };
 
@@ -221,6 +293,7 @@ export class Showroom {
     removeEventListener('pointerup', this.up);
     removeEventListener('pointermove', this.move);
     this.model?.dispose();
+    this.rider?.dispose();
     this.post.dispose();
     for (const d of this.own) d.dispose();
     this.renderer.dispose();

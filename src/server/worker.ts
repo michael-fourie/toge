@@ -6,6 +6,7 @@ import { isGameId } from '../shared/party.ts';
 import type { LobbyRoom } from '../gambol/server/room.ts';
 import type { GarageAction } from '../toge/shared/garage.ts';
 import { CAR_CODE_MAX } from '../toge/shared/cars.ts';
+import { RIDER_CODE_MAX } from '../toge/shared/rider.ts';
 import type { StashAction } from '../gambol/shared/stash.ts';
 
 export { Accounts } from './accounts.ts';
@@ -118,7 +119,8 @@ async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, ur
   let car = (url.searchParams.get('car') ?? '').slice(0, CAR_CODE_MAX);
   if (user) car = await env.ACCOUNTS.getByName('all').raceCar(name, car);
   const target = new URL(req.url);
-  target.search = new URLSearchParams({ code, name, user: user ? '1' : '', car }).toString();
+  const rider = (url.searchParams.get('rider') ?? '').slice(0, RIDER_CODE_MAX);
+  target.search = new URLSearchParams({ code, name, user: user ? '1' : '', car, rider }).toString();
   return room.fetch(new Request(target, req));
 }
 

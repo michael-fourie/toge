@@ -37,6 +37,8 @@ export interface Racer {
   name: string;
   /** encodeCar(): model, paint, rims... and upgrade levels. */
   car: string;
+  /** encodeRider(): the racer's driver, shown with the crew in the lobby. */
+  rider: string;
   /** Signed in: prize money goes to the account's garage on the server. */
   user: boolean;
 }
@@ -113,6 +115,8 @@ export type RaceClientMsg =
   /** The track is built and on screen: this racer can take the countdown. */
   | { t: 'ready' }
   | { t: 'car'; car: string }
+  /** Your driver changed (lobby only, like `car`). */
+  | { t: 'rider'; rider: string }
   | ({ t: 'state' } & Omit<NetCar, 'id'>)
   | { t: 'finish'; time: number; best?: number }
   | { t: 'ping'; n: number }

@@ -22,12 +22,12 @@ export class RaceNet {
     return res.json();
   }
 
-  host(name: string, car: string) {
-    this.open({ game: 'race', name, car });
+  host(name: string, car: string, rider: string) {
+    this.open({ game: 'race', name, car, rider });
   }
 
-  join(name: string, car: string, code: string) {
-    this.open({ game: 'race', name, car, code });
+  join(name: string, car: string, rider: string, code: string) {
+    this.open({ game: 'race', name, car, rider, code });
   }
 
   leave() {
