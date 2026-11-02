@@ -1,13 +1,14 @@
 // Race lobby wire types (JSON). A race room is its own Durable Object (server/raceroom.ts); the shooter's
 // protocol is untouched.
 //
-// Flow: everyone sits in the lobby → the host picks a track and starts → `countdown` (grid slots) → `go` →
-// clients drive (client-authoritative, like the shooter) and send `state` at 20 Hz → each sends `finish`
+// Flow: everyone sits in the lobby → the host picks a track and starts → `load` (grid slots): every racer builds
+// the track and says `ready` (`loading` tells the room who has) → once all are ready, or after RACE.loadTimeoutMs,
+// `countdown` (the same 3-2-1 on every screen) → `go` → clients drive (client-authoritative, like the shooter) and send `state` at 20 Hz → each sends `finish`
 // with its time → `results` (places, prize money) → back to the lobby.
 
 import type { TrackId } from './track.ts';
 
-export type RacePhase = 'lobby' | 'countdown' | 'racing' | 'results';
+export type RacePhase = 'lobby' | 'loading' | 'countdown' | 'racing' | 'results';
 
 /**
  * What the host is running: a `race` (cars bump, items fly) or a `trial` (time trial: everyone laps the same
@@ -86,8 +87,15 @@ export interface RaceLobbyInfo {
 export type RaceServerMsg =
   | { t: 'welcome'; id: number }
   | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; phase: RacePhase; racers: Racer[] }
-  /** `rule` and `cars` (each racer's car code for this race) settle what everyone drives; see raceCars(). */
-  | { t: 'countdown'; track: TrackId; mode: RaceMode; ms: number; grid: Record<number, number>; rule: CarRule; cars: Record<number, string> }
+  /**
+   * The race is on: build the track and say `ready`. Nobody moves until `countdown` then `go`. `rule` and `cars`
+   * (each racer's car code for this race) settle what everyone drives; see raceCars().
+   */
+  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string> }
+  /** Who in the field has loaded so far (ids), sent whenever that changes. */
+  | { t: 'loading'; ready: number[]; field: number[] }
+  /** Everyone's loaded: `go` comes in `ms`. A racer who loads late hears the time that's left. */
+  | { t: 'countdown'; ms: number }
   | { t: 'go' }
   | { t: 'snap'; cars: NetCar[] }
   | { t: 'finished'; id: number; time: number }
@@ -102,6 +110,8 @@ export type RaceClientMsg =
   | { t: 'mode'; mode: RaceMode }
   | { t: 'cars'; cars: CarRule }
   | { t: 'start' }
+  /** The track is built and on screen: this racer can take the countdown. */
+  | { t: 'ready' }
   | { t: 'car'; car: string }
   | ({ t: 'state' } & Omit<NetCar, 'id'>)
   | { t: 'finish'; time: number; best?: number }
@@ -111,7 +121,10 @@ export type RaceClientMsg =
 
 export const RACE = {
   maxPlayers: 8,
-  countdownMs: 4000,
+  /** How long the room waits for every racer to load before it counts down without the stragglers. */
+  loadTimeoutMs: 20_000,
+  /** The 3-2-1 once everyone's loaded. */
+  countdownMs: 3000,
   /** The room's clock tick (phases, timeouts). Car poses are relayed as they arrive, not on this tick. */
   snapshotHz: 20,
   /** After the first finisher, the rest have this long before they're a DNF. */

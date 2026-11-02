@@ -1,5 +1,5 @@
 // The race lobby: the code to share, the host's track pick, who's in and what they drive, and Start.
-// When the server starts the countdown, everyone drops into the race together.
+// When the host starts, everyone drops into the race together; the race itself waits for every racer to load.
 
 import { CARS, CLASS_COLORS, PAINTS, carSpec, decodeCar, encodeCar, rating } from '../../shared/race/cars.ts';
 import { current } from '../../shared/race/garage.ts';
@@ -101,10 +101,10 @@ export const driveLobby: Render = (root, ctx, screen) => {
 
   const off = raceNet.on((m: RaceServerMsg) => {
     if (m.t === 'room') draw();
-    else if (m.t === 'countdown') {
+    else if (m.t === 'load') {
       starting = true;
       const room = raceNet.room!;
-      ctx.drive({ track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, countdownMs: m.ms, racers: room.racers, rule: m.rule, cars: m.cars } });
+      ctx.drive({ track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, racers: room.racers, rule: m.rule, cars: m.cars } });
     } else if (m.t === 'error') {
       starting = true; // the socket is gone anyway
       ctx.replace({ name: 'drive', notice: m.message });

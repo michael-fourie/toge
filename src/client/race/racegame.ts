@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, myRaceCar, newOwnedCar, CAR_IDS, rating } from '../../shared/race/cars.ts';
 import { type Ai, aiDrive, newAi } from '../../shared/race/driver.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../../shared/race/powerups.ts';
-import { CAR_RULES, CarFlag, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../../shared/race/protocol.ts';
+import { CAR_RULES, CarFlag, RACE, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../../shared/race/protocol.ts';
 import { standings } from '../../shared/race/standings.ts';
 import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../../shared/race/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../../shared/race/vehicle.ts';
@@ -33,10 +33,11 @@ export interface RaceSetup {
   name: string;
   car: OwnedCar;
   /**
-   * Online: the lobby socket and the countdown it just sent (whether it's a race or a ghost time trial, and the
-   * car rule with every racer's car code for this race, which can differ from their garage car).
+   * Online: the lobby socket, the grid the server just sent, and whether it's a race or a ghost time trial, with the car rule and every racer's car code for this race (which can differ
+   * from their garage car). The car
+   * waits on the line until every racer has loaded and the server sends the countdown.
    */
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; countdownMs: number; racers: Racer[]; rule: CarRule; cars: Record<number, string> };
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string> };
   /** Solo: how many AI rivals. */
   rivals?: number;
   onExit(to: 'garage' | 'lobby', notice?: string): void;
@@ -186,6 +187,10 @@ export class RaceGame {
   private watching: number | null = null;
   private phase: Phase = 'countdown';
   private countdown: number;
+  /** Online: on the grid, waiting for the others to load (the countdown doesn't run until the server says so). */
+  private held = false;
+  /** Online: frames drawn so far; once the first few (which compile the shaders) are out, we tell the server we're ready. */
+  private frames = 0;
   private lastBeep = 99;
   private time = 0;
   /** The lap you're on (circuits) and when you started it. */
@@ -253,8 +258,10 @@ export class RaceGame {
       // Say what everyone's driving now, and again with the time trial's banner at GO.
       this.carNote = online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}, the same for everyone` : online.rule === 'maxed' ? `${CAR_RULES.maxed.name}: every part at level 5` : '';
       if (this.carNote) this.hud.banner(online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}` : CAR_RULES.maxed.name, online.rule === 'spec' ? 'Everyone drives the same car' : 'Every part at level 5', 3500);
+      else this.hud.banner('Waiting for racers', 'Loading the track…', 0);
       for (const r of online.racers) if (r.id !== online.net.id && r.id in online.grid) this.addRemote({ ...r, car: online.cars[r.id] ?? r.car });
-      this.countdown = online.countdownMs / 1000;
+      this.countdown = RACE.countdownMs / 1000;
+      this.held = true;
       this.offNet = online.net.on((m) => this.onNet(m));
     } else {
       const n = rivals;
@@ -560,6 +567,14 @@ export class RaceGame {
     const now = performance.now() / 1000;
     if (m.t === 'pong') this.rtt = this.rtt ? this.rtt * 0.7 + (now - m.n / 1000) * 0.3 : now - m.n / 1000;
     else if (m.t === 'go') this.go();
+    else if (m.t === 'loading') this.waitingFor(m.ready, m.field);
+    else if (m.t === 'countdown') {
+      if (this.phase !== 'countdown') return;
+      // Everyone's loaded (or the rest timed out): the same 3-2-1 on every screen, then the server's `go`.
+      if (this.held) this.hud.banner('Get ready', '', 1000);
+      this.held = false;
+      this.countdown = m.ms / 1000;
+    }
     else if (m.t === 'snap') {
       for (const c of m.cars) {
         const r = this.remotes.get(c.id);
@@ -657,7 +672,18 @@ export class RaceGame {
       this.updateComets();
     }
     this.render(dt, Math.min(1, this.acc / TICK_DT));
+    // The first frames compile every shader (a hitch of a second or more on slow machines): ready after those.
+    if (this.setup.online && ++this.frames === 3) this.setup.online.net.send({ t: 'ready' });
   };
+
+  /** Online, before the countdown: who we're still waiting on. */
+  private waitingFor(ready: number[], field: number[]) {
+    if (this.phase !== 'countdown' || !this.held) return;
+    const names = new Map(this.setup.online!.racers.map((r) => [r.id, r.name]));
+    const late = field.filter((id) => !ready.includes(id) && id !== this.setup.online!.net.id).map((id) => names.get(id) ?? 'a racer');
+    const shown = late.length > 3 ? `${late.slice(0, 3).join(', ')} +${late.length - 3}` : late.join(', ');
+    this.hud.banner('Waiting for racers', `${ready.length} / ${field.length} loaded${shown ? ` · waiting on ${shown}` : ''}`, 0);
+  }
   private padHelpShown = false;
 
   private action(a: string) {
@@ -688,7 +714,7 @@ export class RaceGame {
     const me = this.me;
     const t = this.track;
     // Inputs
-    if (this.phase === 'countdown') {
+    if (this.phase === 'countdown' && !this.held) {
       this.countdown -= TICK_DT;
       const n = Math.ceil(this.countdown);
       if (n !== this.lastBeep && n <= 3 && n >= 1) {
@@ -793,6 +819,9 @@ export class RaceGame {
   private go() {
     if (this.phase !== 'countdown') return;
     this.phase = 'racing';
+    // Loaded after the room gave up waiting: the others are already away.
+    if (this.held && !this.trial) this.hud.banner('Late start', 'The race began while you were loading', 2600);
+    this.held = false;
     this.trafficTime = 0;
     this.audio.beep(true);
     this.hud.countdown('GO!');
