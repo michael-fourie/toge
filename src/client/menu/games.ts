@@ -59,7 +59,7 @@ const BOTTOM_BAR = `
       <path d="M0 40 C 250 40, 330 120, 520 120 L 1080 120 C 1270 120, 1350 40, 1600 40 L 1600 140 L 0 140 Z" class="fill"/>
       <path d="M0 40 C 250 40, 330 120, 520 120 L 1080 120 C 1270 120, 1350 40, 1600 40" class="line"/>
     </svg>
-    <button class="wii-round left" data-act="account" aria-label="Account"><span class="wii-logo">atrous</span></button>
+    <button class="wii-round left" data-act="account" aria-label="Account"><span class="wii-logo">Account</span></button>
     <div class="wii-clock" aria-live="off"><div class="wii-time"></div><div class="wii-date"></div></div>
     <button class="wii-round right" data-act="mail" aria-label="Message board"><svg viewBox="0 0 48 36" aria-hidden="true"><rect x="3" y="3" width="42" height="30" rx="4"/><path d="M5 6 L24 21 L43 6"/></svg></button>
   </footer>`;

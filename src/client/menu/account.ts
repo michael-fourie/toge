@@ -2,10 +2,32 @@ import { PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN } from '../../shared/account.t
 import { account } from '../account.ts';
 import type { Render } from './router.ts';
 import './account.css';
-import { $, sheet } from './ui.ts';
+import { $, esc, sheet } from './ui.ts';
 
-/** Sign in / create account. Accounts are optional: guests can play, an account just reserves your name. */
+/** Sign in / create account, or who you're signed in as. Accounts are optional: guests can play, an account just reserves your name. */
 export const accountScreen: Render = (root, ctx, screen) => {
+  // Redraw when the sign-in state changes (e.g. /api/me lands after we opened, or Sign out).
+  const draw = () => (account.user ? signedIn(root, account.user) : signInForm(root, ctx, screen.signup));
+  draw();
+  return account.onChange(draw);
+};
+
+function signedIn(root: HTMLElement, user: string) {
+  root.innerHTML = sheet(
+    'Account',
+    `
+    <p class="lead">Signed in as <b>${esc(user)}</b>. Your name, coins and XP are kept on this account.</p>
+    <div class="cta"><button class="primary big" data-signout>Sign out</button></div>`,
+  );
+  const out = $<HTMLButtonElement>(root, '[data-signout]');
+  out.addEventListener('click', () => {
+    out.disabled = true;
+    void account.signOut();
+  });
+  out.focus();
+}
+
+function signInForm(root: HTMLElement, ctx: Parameters<Render>[1], signup?: boolean) {
   let mode: 'login' | 'register' = 'login';
   root.innerHTML = sheet(
     'Account',
@@ -48,6 +70,6 @@ export const accountScreen: Render = (root, ctx, screen) => {
     if (err) notice.textContent = err;
     else ctx.back();
   });
-  if (screen.signup) setMode('register');
+  if (signup) setMode('register');
   user.focus();
-};
+}
