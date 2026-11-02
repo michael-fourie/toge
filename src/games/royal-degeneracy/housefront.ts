@@ -37,6 +37,11 @@ export function paintHouse(canvas: HTMLCanvasElement, caption = true) {
   const frame = (now: number) => {
     if (!canvas.isConnected) return;
     const { width: w, height: h } = canvas.getBoundingClientRect();
+    // Not laid out yet (or hidden): nothing to paint this frame.
+    if (Math.round(w) < 1 || Math.round(h) < 1) {
+      requestAnimationFrame(frame);
+      return;
+    }
     if (canvas.width !== Math.round(w) || canvas.height !== Math.round(h)) {
       canvas.width = Math.round(w);
       canvas.height = Math.round(h);
