@@ -8,6 +8,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { drawLow } from './lowgfx.ts';
 
 export interface Grade {
   /** Bloom strength, and the brightness (after exposure) where it starts. */
@@ -76,12 +77,17 @@ const ClampShader = {
     }`,
 };
 
+/**
+ * On Low graphics (`low`), there is no chain at all: the scene goes straight to the screen (tone mapped there by the
+ * renderer), with simple materials (lowgfx.ts). No HDR targets, no MSAA buffer, no bloom, no grade.
+ */
 export class Post {
-  private composer: EffectComposer;
-  private bloom: UnrealBloomPass;
-  private grade: ShaderPass;
+  private composer: EffectComposer | null = null;
+  private bloom: UnrealBloomPass | null = null;
+  private grade: ShaderPass | null = null;
 
-  constructor(private renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, g: Grade) {
+  constructor(private renderer: THREE.WebGLRenderer, private scene: THREE.Scene, private camera: THREE.Camera, g: Grade, private low = false) {
+    if (low) return;
     const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(renderer, target);
     this.composer.addPass(new RenderPass(scene, camera));
@@ -105,18 +111,23 @@ export class Post {
   }
 
   setSize(w: number, h: number) {
+    if (!this.composer || !this.grade) return;
     this.composer.setPixelRatio(this.renderer.getPixelRatio());
     this.composer.setSize(w, h); // the bloom runs at half of this on its own
     this.grade.uniforms.aspect.value = w / Math.max(1, h);
   }
 
   render(time: number) {
+    if (this.low || !this.composer || !this.grade) {
+      drawLow(this.scene, () => this.renderer.render(this.scene, this.camera));
+      return;
+    }
     this.grade.uniforms.time.value = time % 100;
     this.composer.render();
   }
 
   dispose() {
-    this.bloom.dispose();
-    this.composer.dispose();
+    this.bloom?.dispose();
+    this.composer?.dispose();
   }
 }

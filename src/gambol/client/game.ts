@@ -51,6 +51,7 @@ import { ScytheFx } from './scythefx.ts';
 import { Horde } from './horde.ts';
 import { HillFx, HillHud } from './hill.ts';
 import { IS_TOUCH, goFullscreen } from '../../client/touch.ts';
+import { frameGate, lowGraphics, LOW_PIXEL_RATIO } from '../../client/graphics.ts';
 import { TouchControls } from './touchcontrols.ts';
 import { Hud } from './hud.ts';
 import { GrenadeFx } from './grenadefx.ts';
@@ -258,6 +259,9 @@ export class Game {
   private use: Use | null = null;
   private repairAt = 0;
   private shadowTick = 0;
+  /** Low graphics (src/client/graphics.ts) and its frame cap. */
+  private readonly low = lowGraphics();
+  private gate = frameGate(60);
   private boxTick = 0;
   private useHud!: UseHud;
   /** Survival: the Tinker's Workbench, its menu, placing and the contraptions out in the building. */
@@ -267,9 +271,11 @@ export class Game {
     const { container, net, joined } = opts;
     this.mode = joined?.mode ?? 'battle';
     this.teams = !!joined?.teams;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2)); // phones: fewer pixels, steadier frame rate
-    this.renderer.shadowMap.enabled = true;
+    // Low graphics (the site setting, picked in TŌGE's Settings tab): no MSAA, one pixel per CSS pixel, no
+    // shadows, at most 60 fps. Read once here, so a change applies from the next match.
+    this.renderer = new THREE.WebGLRenderer({ antialias: !this.low, powerPreference: this.low ? 'default' : 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, this.low ? LOW_PIXEL_RATIO : IS_TOUCH ? 1.5 : 2)); // phones: fewer pixels, steadier frame rate
+    this.renderer.shadowMap.enabled = !this.low;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.map = mapFor(this.mode, joined?.map, joined?.koth, !!joined?.br);
     this.cols = buildColliders(this.map);
@@ -382,6 +388,7 @@ export class Game {
 
   private frame = (now: number) => {
     this.raf = requestAnimationFrame(this.frame);
+    if (!this.gate(now)) return; // Low: at most 60 frames a second
     const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000));
     this.last = now;
     this.time += dt;

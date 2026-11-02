@@ -26,6 +26,8 @@ The shell may import the games (it wires them in); the games import the shell, n
   menu/account.ts the sign-in / create-account screen (account.css)
   account.ts      who's signed in (asks `/api/me`; the session cookie is HttpOnly)
   pad.ts          gamepads for every menu (spatial focus, A/B/LB/RB) and for driving (readPad, padAxis, rumble)
+  graphics.ts     the Graphics setting, High / Low, saved per device (`atrous.graphics`; picked in TŌGE's Settings tab):
+                  lowGraphics(), frameGate(fps) for Low's frame cap, LOW_PIXEL_RATIO. Both games read it at renderer build
   touch.ts        phones/tablets: IS_TOUCH, html.touch, the rotate-your-phone card, fullscreen; touch.css holds every
                   mobile style, all under html.touch, so desktop never changes
   styles.css      global styles (loaded by index.html)

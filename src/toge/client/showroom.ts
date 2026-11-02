@@ -10,6 +10,7 @@ import { padAxis } from '../../client/pad.ts';
 import { type CarModel, buildCar } from './carmodel.ts';
 import { type RiderModel, buildRider } from './ridermodel.ts';
 import { Post } from './post.ts';
+import { frameGate, lowGraphics, LOW_PIXEL_RATIO } from '../../client/graphics.ts';
 import { stone } from './tracktextures.ts';
 
 const CYAN = new THREE.Color(0x38c9ff);
@@ -84,14 +85,17 @@ export class Showroom {
   private riderYaw = 0;
   private dist = 9;
   private readonly look = new THREE.Vector3();
+  /** Low graphics (src/client/graphics.ts), read when the showroom opens, and its frame cap. */
+  private readonly low = lowGraphics();
+  private gate = frameGate(30);
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, this.low ? LOW_PIXEL_RATIO : 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = !this.low;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const keep = <T extends { dispose(): void }>(x: T) => (this.own.push(x), x);
     this.scene.environment = keep(garageEnvironment(this.renderer));
@@ -131,7 +135,7 @@ export class Showroom {
     this.scene.add(this.turntable);
     const key = new THREE.SpotLight(0xfff6ea, 34, 22, 0.65, 0.85, 1.2);
     key.position.set(2, 8, 3);
-    key.castShadow = true;
+    key.castShadow = !this.low;
     key.shadow.mapSize.set(1024, 1024);
     key.shadow.bias = -0.0005;
     this.scene.add(key, key.target);
@@ -142,6 +146,8 @@ export class Showroom {
     const rimM = new THREE.DirectionalLight(MAGENTA, 1.2);
     rimM.position.set(8, 6, -2);
     this.scene.add(rimC, rimM);
+    // Low's simple materials don't see the garage environment: a soft fill stands in for it.
+    if (this.low) this.scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x20232a, 1.6));
     this.post = new Post(this.renderer, this.scene, this.camera, {
       bloom: 0.45,
       threshold: 5,
@@ -150,7 +156,7 @@ export class Showroom {
       shadows: [0.9, 0.96, 1.12],
       highlights: [1.04, 1.0, 0.96],
       vignette: 0.55,
-    });
+    }, this.low);
     this.camera.position.set(6.4, 2.1, 6.4);
     this.camera.lookAt(0, 0.45, 0);
     canvas.addEventListener('pointerdown', this.down);
@@ -261,6 +267,7 @@ export class Showroom {
   private frame = (now: number) => {
     if (!this.canvas.isConnected) return this.dispose();
     this.raf = requestAnimationFrame(this.frame);
+    if (!this.gate(now)) return; // Low: a turntable doesn't need more than 30 frames a second
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     const stick = padAxis(2); // right stick
@@ -297,5 +304,6 @@ export class Showroom {
     this.post.dispose();
     for (const d of this.own) d.dispose();
     this.renderer.dispose();
+    this.renderer.forceContextLoss(); // the canvas is never reused: give the GPU context back now
   }
 }

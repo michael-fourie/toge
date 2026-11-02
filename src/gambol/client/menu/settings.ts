@@ -1,5 +1,6 @@
 import { ACTIONS, ACTION_NAME, type Action, DEFAULT_KEYS, keyLabel, loadSettings, saveSettings } from '../settings.ts';
 import { IS_TOUCH } from '../../../client/touch.ts';
+import { graphics, setGraphics } from '../../../client/graphics.ts';
 import type { Render } from '../../../client/menu/router.ts';
 import { $, esc, sheet } from '../../../client/menu/ui.ts';
 
@@ -25,6 +26,13 @@ export const settings: Render = (root) => {
         <input id="autohop" type="checkbox" role="switch" ${s.autoHop ? 'checked' : ''} />
       </label>
     </fieldset>
+    <fieldset class="settings">
+      <legend>Graphics <small>this device, both games, from the next match</small></legend>
+      <label class="setting toggle">
+        <span>Low graphics <small>for laptops: no shadows, fewer pixels, 60 fps cap</small></span>
+        <input id="lowgfx" type="checkbox" role="switch" ${graphics() === 'low' ? 'checked' : ''} />
+      </label>
+    </fieldset>
     <fieldset class="settings key-binds">
       <legend>Controls <small>click a key, then press the new one (Esc cancels)</small></legend>
       <div class="binds" id="binds"></div>
@@ -45,6 +53,8 @@ export const settings: Render = (root) => {
   };
   sens.addEventListener('input', save);
   autoHop.addEventListener('change', save);
+  const lowGfx = $<HTMLInputElement>(root, '#lowgfx');
+  lowGfx.addEventListener('change', () => setGraphics(lowGfx.checked ? 'low' : 'high'));
 
   const drawBinds = () => {
     $(root, '#binds').innerHTML = ACTIONS.map(

@@ -1567,6 +1567,46 @@ html:not(.pad) .tg-bumper {
   min-width: 260px;
 }
 
+/* Settings: the graphics choice, two option cards (cyan frame on the one picked) */
+.tg-gfx {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.tg-gfx-opt {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 14px 16px;
+  text-align: left;
+  border-radius: 6px;
+  border: 1px solid var(--tg-line-2);
+  background: var(--tg-ink-2);
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.tg-gfx-opt:hover {
+  background: var(--tg-ink-3);
+}
+.tg-gfx-opt[aria-pressed='true'] {
+  border-color: var(--tg-cyan);
+  box-shadow: inset 0 0 0 1px var(--tg-cyan);
+}
+.tg-gfx-opt[aria-pressed='true'] .tg-title {
+  color: var(--tg-cyan);
+}
+.tg-gfx-opt small {
+  color: var(--tg-dim);
+}
+.tg-gfx-opt ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--tg-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 /* ============================================================================================
    Small screens
    ============================================================================================ */
