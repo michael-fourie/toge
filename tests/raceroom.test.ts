@@ -25,7 +25,12 @@ function room() {
     }
   };
   const last = (id: number, t: RaceServerMsg['t']) => inbox.get(id)!.filter((m) => m.t === t).at(-1);
-  return { race, join, advance, last, inbox, paid, isEmpty: () => empty };
+  /** The host (first) starts and every racer listed finishes loading straight away. */
+  const start = (...cs: RaceClient[]) => {
+    race.handle(cs[0], { t: 'start' });
+    for (const c of cs) race.handle(c, { t: 'ready' });
+  };
+  return { race, join, advance, last, start, inbox, paid, isEmpty: () => empty };
 }
 
 const pose = (s: number) => ({ t: 'state' as const, p: [0, 0, 0] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number], v: [0, 0, -30] as [number, number, number], w: 0, s, st: 0, ws: 80, rpm: 5000, f: 0 });
@@ -42,9 +47,9 @@ test('the first player hosts; only the host picks the track and starts', () => {
   r.race.handle(b, { t: 'start' });
   assert.equal(r.race.phase, 'lobby');
   r.race.handle(a, { t: 'start' });
-  assert.equal(r.race.phase, 'countdown');
-  const cd = r.last(2, 'countdown');
-  assert.ok(cd && cd.t === 'countdown' && cd.track === 'saltwind' && cd.grid[1] === 0 && cd.grid[2] === 1);
+  assert.equal(r.race.phase, 'loading');
+  const ld = r.last(2, 'load');
+  assert.ok(ld && ld.t === 'load' && ld.track === 'saltwind' && ld.grid[1] === 0 && ld.grid[2] === 1);
 });
 
 test('countdown, go, relayed poses, finishes ranked by time, prizes, then back to the lobby', () => {
@@ -52,7 +57,7 @@ test('countdown, go, relayed poses, finishes ranked by time, prizes, then back t
   const a = r.join(1, true);
   const b = r.join(2);
   const c = r.join(3);
-  r.race.handle(a, { t: 'start' });
+  r.start(a, b, c);
   r.advance(RACE.countdownMs + 100);
   assert.equal(r.race.phase, 'racing');
   assert.ok(r.last(1, 'go'));
@@ -102,7 +107,7 @@ test('countdown, go, relayed poses, finishes ranked by time, prizes, then back t
 test("finish times must fit the server's clock; a too-quick finish is ignored", () => {
   const r = room();
   const a = r.join(1);
-  r.race.handle(a, { t: 'start' });
+  r.start(a);
   r.advance(RACE.countdownMs + 50);
   r.advance(10_000);
   r.race.handle(a, { t: 'finish', time: 9 });
@@ -118,7 +123,7 @@ test('the race ends when everyone still out leaves; host moves on; empty room cl
   const r = room();
   const a = r.join(1);
   const b = r.join(2);
-  r.race.handle(a, { t: 'start' });
+  r.start(a, b);
   r.advance(RACE.countdownMs + 50 + 50_000);
   r.race.handle(a, { t: 'finish', time: 50 });
   r.race.remove(b);
@@ -130,7 +135,7 @@ test('the race ends when everyone still out leaves; host moves on; empty room cl
 test('late joiners wait for the next race', () => {
   const r = room();
   const a = r.join(1);
-  r.race.handle(a, { t: 'start' });
+  r.start(a);
   r.advance(RACE.countdownMs + 50);
   const late = r.join(2);
   r.race.handle(late, pose(5));
@@ -155,9 +160,10 @@ test('time trial: only the host switches to it, it brings up the ring, has no it
   assert.equal(r.race.track, 'kodama');
   const room1 = r.last(2, 'room');
   assert.ok(room1 && room1.t === 'room' && room1.mode === 'trial');
-  r.race.handle(a, { t: 'start' });
-  const cd = r.last(3, 'countdown');
-  assert.ok(cd && cd.t === 'countdown' && cd.mode === 'trial' && cd.track === 'kodama');
+  r.start(a, b, c);
+  const ld = r.last(3, 'load');
+  assert.ok(ld && ld.t === 'load' && ld.mode === 'trial' && ld.track === 'kodama');
+  assert.equal(r.race.phase, 'countdown', 'a time trial waits for everyone to load too');
   r.advance(RACE.countdownMs + 100);
   // Ghosts don't throw things.
   r.race.handle(a, { t: 'item', kind: 'shock' });
@@ -190,7 +196,7 @@ function trialRoom(pick: number) {
     race.add(c);
     return c;
   });
-  const countdown = (id: number) => inbox.get(id)!.filter((m) => m.t === 'countdown').at(-1) as Extract<RaceServerMsg, { t: 'countdown' }>;
+  const countdown = (id: number) => inbox.get(id)!.filter((m) => m.t === 'load').at(-1) as Extract<RaceServerMsg, { t: 'load' }>;
   return { race, clients, cars, countdown, inbox };
 }
 
@@ -265,4 +271,77 @@ test('race cars: results show the car raced; tuning only carries over to your ow
   assert.deepEqual(myRaceCar('spec', code, mine).tune, defaultTune('vanta'), 'spec: default tuning even on your own model');
   assert.equal(myRaceCar('maxed', raceCars('maxed', [{ id: 1, car: code }], 0)[1], mine).tune.ride, 0.5, 'maxed: your tuning');
   assert.equal(myRaceCar('own', undefined, mine), mine, 'no code: your garage car');
+});
+
+test('the countdown waits until every racer has loaded the track', () => {
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  r.race.handle(a, { t: 'start' });
+  r.race.handle(a, { t: 'ready' });
+  const ld = r.last(2, 'loading');
+  assert.ok(ld && ld.t === 'loading');
+  assert.deepEqual(ld.ready, [1]);
+  assert.deepEqual(ld.field, [1, 2]);
+  r.advance(RACE.loadTimeoutMs - 1000);
+  assert.equal(r.race.phase, 'loading', 'still waiting on the slow loader');
+  assert.ok(!r.last(1, 'countdown') && !r.last(1, 'go'));
+  r.race.handle(a, pose(3)); // cars on the grid are relayed while we wait
+  assert.ok(r.last(2, 'snap'));
+  r.race.handle(b, { t: 'ready' });
+  assert.equal(r.race.phase, 'countdown');
+  for (const id of [1, 2]) {
+    const cd = r.last(id, 'countdown');
+    assert.ok(cd && cd.t === 'countdown' && cd.ms === RACE.countdownMs, 'everyone hears the same countdown at once');
+  }
+  r.advance(RACE.countdownMs - 100);
+  assert.ok(!r.last(1, 'go'));
+  r.advance(200);
+  assert.equal(r.race.phase, 'racing');
+  assert.ok(r.last(1, 'go') && r.last(2, 'go'));
+});
+
+test('a stuck loader is left behind after the timeout and starts when it finally loads', () => {
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  const c = r.join(3);
+  r.race.handle(a, { t: 'start' });
+  r.race.handle(a, { t: 'ready' });
+  r.advance(RACE.loadTimeoutMs + 50);
+  assert.equal(r.race.phase, 'countdown');
+  r.advance(1000);
+  // Loads mid-countdown: told how long is left.
+  r.race.handle(b, { t: 'ready' });
+  const cd = r.inbox.get(2)!.filter((m) => m.t === 'countdown');
+  assert.equal(cd.length, 2);
+  const left = cd[1];
+  assert.ok(left.t === 'countdown' && left.ms <= RACE.countdownMs - 1000 && left.ms > RACE.countdownMs - 1200);
+  r.advance(RACE.countdownMs);
+  assert.equal(r.race.phase, 'racing');
+  // Loads after GO: started on the spot.
+  const before = r.inbox.get(3)!.filter((m) => m.t === 'go').length;
+  r.race.handle(c, { t: 'ready' });
+  assert.equal(r.inbox.get(3)!.filter((m) => m.t === 'go').length, before + 1);
+  r.race.handle(c, { t: 'ready' });
+  assert.equal(r.inbox.get(3)!.filter((m) => m.t === 'go').length, before + 1, 'ready only counts once');
+});
+
+test('a racer who leaves while loading is not waited for; an empty field goes back to the lobby', () => {
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  r.race.handle(a, { t: 'start' });
+  r.race.handle(a, { t: 'ready' });
+  r.race.remove(b);
+  assert.equal(r.race.phase, 'countdown');
+
+  const r2 = room();
+  const x = r2.join(1);
+  r2.race.handle(x, { t: 'start' });
+  const late = r2.join(2);
+  r2.race.handle(late, { t: 'ready' });
+  assert.equal(r2.race.phase, 'loading', "someone who wasn't on the grid can't start it");
+  r2.race.remove(x);
+  assert.equal(r2.race.phase, 'lobby');
 });

@@ -26,6 +26,8 @@ interface Member {
   state: NetCar | null;
   /** In the current race (joined before the countdown). */
   racing: boolean;
+  /** Has built the track and is waiting on the grid (the countdown waits for everyone, up to a timeout). */
+  ready: boolean;
   time: number | null;
   /** Quickest lap on a circuit (client-timed; only shown, never paid on). */
   best: number | null;
@@ -84,7 +86,7 @@ export class Race {
 
   add(c: RaceClient) {
     if (!decodeCar(c.car)) c.car = 'pebble.0.1.0.0.0.0.1.00000000';
-    this.members.set(c.id, { client: c, state: null, racing: false, time: null, best: null, raceCar: c.car });
+    this.members.set(c.id, { client: c, state: null, racing: false, ready: false, time: null, best: null, raceCar: c.car });
     if (!this.hostId) this.hostId = c.id;
     sendTo(c, { t: 'welcome', id: c.id });
     this.broadcastRoom();
@@ -102,6 +104,7 @@ export class Race {
     this.broadcastRoom();
     this.onChange(this);
     if (this.phase === 'racing') this.maybeFinish();
+    else if (this.phase === 'loading') this.loaded();
   }
 
   handle(c: RaceClient, msg: RaceClientMsg) {
@@ -131,16 +134,27 @@ export class Race {
         }
         break;
       case 'start':
-        if (c.id === this.hostId && this.phase === 'lobby') this.startCountdown();
+        if (c.id === this.hostId && this.phase === 'lobby') this.startLoading();
         break;
+      case 'ready': {
+        if (!m.racing || m.ready) return;
+        m.ready = true;
+        if (this.phase === 'loading') {
+          this.broadcastLoading();
+          this.loaded();
+        } else if (this.phase === 'countdown') sendTo(c, { t: 'countdown', ms: Math.max(0, this.phaseEnds - this.now()) });
+        // Loaded after the timeout: start now (the server's clock has been running, so this costs them the wait).
+        else if (this.phase === 'racing') sendTo(c, { t: 'go' });
+        break;
+      }
       case 'car':
-        if (this.phase !== 'racing' && this.phase !== 'countdown' && decodeCar(msg.car)) {
+        if ((this.phase === 'lobby' || this.phase === 'results') && decodeCar(msg.car)) {
           c.car = msg.car;
           this.broadcastRoom();
         }
         break;
       case 'state': {
-        if (!m.racing || m.time !== null || (this.phase !== 'racing' && this.phase !== 'countdown')) return;
+        if (!m.racing || m.time !== null || (this.phase !== 'racing' && this.phase !== 'countdown' && this.phase !== 'loading')) return;
         const okVec = (a: unknown, n: number, lim: number) => Array.isArray(a) && a.length === n && a.every((x) => finite(x, lim));
         if (!okVec(msg.p, 3, 1e5) || !okVec(msg.q, 4, 2) || !okVec(msg.v, 3, 200) || !finite(msg.w, 50) || !finite(msg.s, 1e5) || !finite(msg.st, 2) || !finite(msg.ws, 1e3) || !finite(msg.rpm, 2e4) || !finite(msg.f, 1023)) return;
         m.state = { id: c.id, p: msg.p, q: msg.q, v: msg.v, w: msg.w, s: msg.s, st: msg.st, ws: msg.ws, rpm: msg.rpm, f: msg.f | 0 };
@@ -181,14 +195,16 @@ export class Race {
     }
   }
 
-  private startCountdown() {
-    this.phase = 'countdown';
-    this.phaseEnds = this.now() + RACE.countdownMs;
+  /** Everyone in the room is in this race: send them off to build the track, and wait for each to be `ready`. */
+  private startLoading() {
+    this.phase = 'loading';
+    this.phaseEnds = this.now() + RACE.loadTimeoutMs;
     this.firstFinish = 0;
     const grid: Record<number, number> = {};
     let slot = 0;
     for (const m of this.members.values()) {
       m.racing = true;
+      m.ready = false;
       m.time = null;
       m.best = null;
       m.state = null;
@@ -198,9 +214,33 @@ export class Race {
     const rule: CarRule = this.mode === 'trial' ? this.cars : 'own';
     const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })), this.rand());
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
-    this.broadcast({ t: 'countdown', track: this.track, mode: this.mode, ms: RACE.countdownMs, grid, rule, cars });
+    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars });
     this.broadcastRoom();
     this.onChange(this);
+  }
+
+  /** While loading: once every racer still here is ready, count down. (The tick counts down anyway at the timeout.) */
+  private loaded() {
+    const field = [...this.members.values()].filter((m) => m.racing);
+    if (!field.length) {
+      // The whole field left before the start: back to the lobby for whoever's here now.
+      this.phase = 'lobby';
+      this.broadcastRoom();
+      this.onChange(this);
+    } else if (field.every((m) => m.ready)) this.startCountdown();
+  }
+
+  private startCountdown() {
+    this.phase = 'countdown';
+    this.phaseEnds = this.now() + RACE.countdownMs;
+    // Stragglers still loading hear this too (their client holds it until it's built) and say `ready` when they are.
+    this.broadcast({ t: 'countdown', ms: RACE.countdownMs });
+    this.broadcastRoom();
+  }
+
+  private broadcastLoading() {
+    const field = [...this.members.values()].filter((m) => m.racing);
+    this.broadcast({ t: 'loading', ready: field.filter((m) => m.ready).map((m) => m.client.id), field: field.map((m) => m.client.id) });
   }
 
   /** Everyone still racing has finished (or left), or the DNF clock ran out: rank and pay. */
@@ -231,7 +271,8 @@ export class Race {
       this.lastBeat = now;
       this.onChange(this);
     }
-    if (this.phase === 'countdown' && now >= this.phaseEnds) {
+    if (this.phase === 'loading' && now >= this.phaseEnds) this.startCountdown();
+    else if (this.phase === 'countdown' && now >= this.phaseEnds) {
       this.phase = 'racing';
       this.goAt = now;
       this.broadcast({ t: 'go' });

@@ -44,7 +44,7 @@ export interface Ctx {
 export interface DriveOpts {
   track: TrackId;
   rivals?: number;
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; countdownMs: number; racers: Racer[]; rule: CarRule; cars: Record<number, string> };
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string> };
 }
 
 /** Renders into `root`; may return a cleanup that runs when the screen is left. */
