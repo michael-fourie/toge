@@ -13,6 +13,7 @@
 
 import { type CarSpec, torqueAt } from './cars.ts';
 import { type Ground, type Loc, type Surface, type Track, groundAt, heightAt, locate, newGround, newLoc, onCut, pointAt, railAt } from './track.ts';
+import { DRAFT } from './draft.ts';
 import { firstPropFrom, isSolid } from './props.ts';
 
 export const TICK_HZ = 120;
@@ -141,6 +142,11 @@ export interface Car {
   /** Seconds of boost left (mini-turbos, items) and how hard it pushes (m/s^2). */
   boost: number;
   boostPower: number;
+  /** Slipstream (draft.ts): how strongly the car sits in another's wake (0-1, eased), seconds tucked in
+   *  toward the slingshot, and how long a charged slingshot stays ready after pulling out. */
+  draft: number;
+  draftCharge: number;
+  draftArmed: number;
   /** Lateral tyre grip scale (drifting lets the tyres slide). */
   latGrip: number;
   /** Spinning out (hit by oil or a shockwave): seconds left, and which way. */
@@ -202,6 +208,9 @@ export function newCar(spec: CarSpec, x: number, y: number, z: number, yaw: numb
     driftLevel: 0,
     boost: 0,
     boostPower: 0,
+    draft: 0,
+    draftCharge: 0,
+    draftArmed: 0,
     latGrip: 1,
     spin: 0,
     spinDir: 1,
@@ -230,6 +239,7 @@ export function resetCar(car: Car, t: Track, s = car.s, d = 0) {
   car.upsideDown = 0;
   car.drift = 0;
   car.boost = 0;
+  car.draft = car.draftCharge = car.draftArmed = 0;
   car.latGrip = 1;
   car.spin = 0;
   for (const w of car.wheels) Object.assign(w, newWheel());
@@ -472,7 +482,11 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
       v.z += fz * car.boostPower * dt;
     }
   }
-  void throttle;
+  // Slipstream: the car ahead's wake pulls you along while you're on the gas.
+  if (car.draft > 0 && grounded && throttle > 0.5) {
+    v.x += fx * DRAFT.pull * car.draft * dt;
+    v.z += fz * DRAFT.pull * car.draft * dt;
+  }
 }
 
 /**
@@ -749,7 +763,8 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
   // --- Aero
   const v = car.v;
   const speed = Math.hypot(v.x, v.y, v.z);
-  const drag = 0.5 * RHO * sp.cdA * speed;
+  // Another car's wake (slipstream) takes some of the drag away.
+  const drag = 0.5 * RHO * sp.cdA * speed * (1 - DRAFT.dragCut * car.draft);
   Fx -= drag * v.x;
   Fy -= drag * v.y;
   Fz -= drag * v.z;
