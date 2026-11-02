@@ -30,6 +30,12 @@ interface Look {
   light?: number; // light colour
   lightPower?: number;
   hemi?: number;
+  /** The physical sky's brightness (1 = as three.js computes it). Day skies are toned down so the haze near the sun doesn't burn out to white. */
+  skyGain?: number;
+  /** The sky shader's clouds: coverage and density (0..1). */
+  clouds?: [number, number];
+  /** The painted distant scenery: public/race/backdrops/<backdrop>.webp, painted by dev/backdrops.py. */
+  backdrop: string;
   forest?: number; // how wooded (added to the forest noise)
   /** White-painted guardrails, as on Japanese passes (otherwise galvanised). */
   whiteRail?: boolean;
@@ -50,13 +56,13 @@ const grade = (g: Partial<Grade> = {}): Grade => ({
 });
 
 const LOOKS: Record<Theme, Look> = {
-  alpine: { sun: [22, 215], turbidity: 4, rayleigh: 1.4, fog: 0xa9bfd6, fogDensity: 0.00038, exposure: 0.42, grass: [0.16, 0.28, 0.09], grassDry: [0.34, 0.36, 0.16], rock: [0.36, 0.35, 0.34], verge: [0.28, 0.31, 0.17], snowline: 470, treeline: 440, grade: grade() },
-  coast: { sun: [14, 250], turbidity: 6, rayleigh: 2.2, fog: 0xd8c8b4, fogDensity: 0.00034, exposure: 0.42, grass: [0.42, 0.45, 0.2], grassDry: [0.62, 0.55, 0.32], rock: [0.72, 0.66, 0.55], verge: [0.55, 0.5, 0.3], snowline: 1e9, treeline: 1e9, grade: grade({ highlights: [1.1, 1.0, 0.86] }) },
-  desert: { sun: [30, 140], turbidity: 8, rayleigh: 1.2, fog: 0xe0b48a, fogDensity: 0.0003, exposure: 0.4, grass: [0.66, 0.42, 0.24], grassDry: [0.78, 0.55, 0.32], rock: [0.62, 0.3, 0.18], verge: [0.7, 0.5, 0.32], snowline: 1e9, treeline: 1e9, forest: -0.35, grade: grade({ contrast: 1.16, shadows: [0.86, 0.98, 1.14], highlights: [1.08, 0.99, 0.88] }) },
-  night: { sun: [-5, 230], moon: [38, 120], turbidity: 2, rayleigh: 3, fog: 0x0b1120, fogDensity: 0.0006, exposure: 0.9, grass: [0.12, 0.2, 0.08], grassDry: [0.22, 0.25, 0.12], rock: [0.3, 0.3, 0.32], verge: [0.22, 0.24, 0.16], snowline: 520, treeline: 500, light: 0x9db5ff, lightPower: 0.55, hemi: 0.12, forest: 0.2, whiteRail: true, grade: grade({ bloom: 0.45, threshold: 4.5, contrast: 1.12, saturation: 1.08, shadows: [0.82, 0.94, 1.22], highlights: [1.1, 0.98, 0.92], vignette: 0.55 }) },
-  autumn: { sun: [18, 200], turbidity: 5, rayleigh: 1.6, fog: 0xd9c7a8, fogDensity: 0.00036, exposure: 0.42, grass: [0.42, 0.4, 0.14], grassDry: [0.58, 0.46, 0.18], rock: [0.45, 0.42, 0.38], verge: [0.42, 0.36, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.2, whiteRail: true, grade: grade({ highlights: [1.1, 1.0, 0.85] }) },
-  city: { sun: [-6, 200], moon: [30, 150], turbidity: 2, rayleigh: 3, fog: 0x1b1730, fogDensity: 0.0009, exposure: 0.9, grass: [0.1, 0.1, 0.11], grassDry: [0.16, 0.15, 0.15], rock: [0.2, 0.2, 0.21], verge: [0.18, 0.18, 0.19], snowline: 1e9, treeline: 1e9, light: 0xb4c2ff, lightPower: 0.5, hemi: 0.3, grade: grade({ bloom: 0.6, threshold: 4, contrast: 1.12, saturation: 1.15, shadows: [0.84, 0.9, 1.2], highlights: [1.1, 0.98, 0.95], vignette: 0.5 }) },
-  spring: { sun: [28, 160], turbidity: 3, rayleigh: 1.8, fog: 0xdcdfec, fogDensity: 0.00034, exposure: 0.44, grass: [0.22, 0.38, 0.12], grassDry: [0.38, 0.44, 0.2], rock: [0.5, 0.48, 0.46], verge: [0.32, 0.4, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.1, whiteRail: true, grade: grade({ saturation: 0.98, shadows: [0.93, 0.95, 1.08], highlights: [1.05, 1.0, 0.97] }) },
+  alpine: { skyGain: 0.5, clouds: [0.45, 0.45], backdrop: 'alpine', sun: [22, 215], turbidity: 4, rayleigh: 1.4, fog: 0xa9bfd6, fogDensity: 0.00038, exposure: 0.42, grass: [0.16, 0.28, 0.09], grassDry: [0.34, 0.36, 0.16], rock: [0.36, 0.35, 0.34], verge: [0.28, 0.31, 0.17], snowline: 470, treeline: 440, grade: grade() },
+  coast: { skyGain: 0.5, clouds: [0.35, 0.4], backdrop: 'coast', sun: [14, 250], turbidity: 6, rayleigh: 2.2, fog: 0xd8c8b4, fogDensity: 0.00034, exposure: 0.42, grass: [0.42, 0.45, 0.2], grassDry: [0.62, 0.55, 0.32], rock: [0.72, 0.66, 0.55], verge: [0.55, 0.5, 0.3], snowline: 1e9, treeline: 1e9, grade: grade({ highlights: [1.1, 1.0, 0.86] }) },
+  desert: { skyGain: 0.48, clouds: [0.15, 0.3], backdrop: 'desert', sun: [30, 140], turbidity: 8, rayleigh: 1.2, fog: 0xe0b48a, fogDensity: 0.0003, exposure: 0.4, grass: [0.66, 0.42, 0.24], grassDry: [0.78, 0.55, 0.32], rock: [0.62, 0.3, 0.18], verge: [0.7, 0.5, 0.32], snowline: 1e9, treeline: 1e9, forest: -0.35, grade: grade({ contrast: 1.16, shadows: [0.86, 0.98, 1.14], highlights: [1.08, 0.99, 0.88] }) },
+  night: { backdrop: 'night', sun: [-5, 230], moon: [38, 120], turbidity: 2, rayleigh: 3, fog: 0x0b1120, fogDensity: 0.0006, exposure: 0.9, grass: [0.12, 0.2, 0.08], grassDry: [0.22, 0.25, 0.12], rock: [0.3, 0.3, 0.32], verge: [0.22, 0.24, 0.16], snowline: 520, treeline: 500, light: 0x9db5ff, lightPower: 0.55, hemi: 0.12, forest: 0.2, whiteRail: true, grade: grade({ bloom: 0.45, threshold: 4.5, contrast: 1.12, saturation: 1.08, shadows: [0.82, 0.94, 1.22], highlights: [1.1, 0.98, 0.92], vignette: 0.55 }) },
+  autumn: { skyGain: 0.5, clouds: [0.4, 0.4], backdrop: 'autumn', sun: [18, 200], turbidity: 5, rayleigh: 1.6, fog: 0xd9c7a8, fogDensity: 0.00036, exposure: 0.42, grass: [0.42, 0.4, 0.14], grassDry: [0.58, 0.46, 0.18], rock: [0.45, 0.42, 0.38], verge: [0.42, 0.36, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.2, whiteRail: true, grade: grade({ highlights: [1.1, 1.0, 0.85] }) },
+  city: { backdrop: 'city', sun: [-6, 200], moon: [30, 150], turbidity: 2, rayleigh: 3, fog: 0x1b1730, fogDensity: 0.0009, exposure: 0.9, grass: [0.1, 0.1, 0.11], grassDry: [0.16, 0.15, 0.15], rock: [0.2, 0.2, 0.21], verge: [0.18, 0.18, 0.19], snowline: 1e9, treeline: 1e9, light: 0xb4c2ff, lightPower: 0.5, hemi: 0.3, grade: grade({ bloom: 0.6, threshold: 4, contrast: 1.12, saturation: 1.15, shadows: [0.84, 0.9, 1.2], highlights: [1.1, 0.98, 0.95], vignette: 0.5 }) },
+  spring: { skyGain: 0.5, clouds: [0.35, 0.35], backdrop: 'spring', sun: [28, 160], turbidity: 3, rayleigh: 1.8, fog: 0xdcdfec, fogDensity: 0.00034, exposure: 0.44, grass: [0.22, 0.38, 0.12], grassDry: [0.38, 0.44, 0.2], rock: [0.5, 0.48, 0.46], verge: [0.32, 0.4, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.1, whiteRail: true, grade: grade({ saturation: 0.98, shadows: [0.93, 0.95, 1.08], highlights: [1.05, 1.0, 0.97] }) },
 };
 
 export interface TrackView {
@@ -82,7 +88,8 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): Trac
   const u = sky.material.uniforms;
   u.turbidity.value = look.turbidity;
   u.rayleigh.value = look.rayleigh;
-  u.mieCoefficient.value = 0.004;
+  u.mieCoefficient.value = look.moon ? 0.004 : 0.0025; // less glare round the sun
+  if (look.clouds) [u.cloudCoverage.value, u.cloudDensity.value] = look.clouds;
   u.mieDirectionalG.value = 0.8;
   const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - look.sun[0]), THREE.MathUtils.degToRad(look.sun[1]));
   u.sunPosition.value.copy(sunDir);
@@ -96,7 +103,12 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): Trac
   envScene.add(envSky);
   // The sun disc is brighter than a half float holds; unclamped it turns to Inf in the HDR targets and
   // the bloom (and the environment's blur) smear it over the whole screen.
-  for (const s of [sky, envSky]) s.material.fragmentShader = s.material.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', 'gl_FragColor = vec4( min( texColor, vec3( 30.0 ) ), 1.0 );');
+  // skyGain tones the sky down (the sun disc included) without touching its colours. The sky the cars and
+  // the ground see (the environment) is toned down less, so the shade under the trees doesn't go murky.
+  const skyGain = look.skyGain ?? 1;
+  for (const [s, gain] of [[sky, skyGain], [envSky, Math.max(skyGain, 0.8)]] as const) {
+    s.material.fragmentShader = s.material.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', `gl_FragColor = vec4( min( texColor * ${gain.toFixed(3)}, vec3( 20.0 ) ), 1.0 );`);
+  }
   // A ground below the horizon (the sky shader alone reflects as sky all round, which flattens paint),
   // and at night the glow of a distant town and a few lamps overhead, so the cars still catch light.
   const envKeep: { dispose(): void }[] = [];
@@ -125,7 +137,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): Trac
   pmrem.dispose();
   scene.fog = new THREE.FogExp2(look.fog, look.fogDensity);
 
-  const sun = new THREE.DirectionalLight(look.light ?? 0xffe6c4, look.lightPower ?? 2.4);
+  const sun = new THREE.DirectionalLight(look.light ?? 0xffe6c4, look.lightPower ?? 1.75);
   // At night the light comes from the moon, not the sun the sky is shaded with.
   const lightDir = look.moon ? new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - look.moon[0]), THREE.MathUtils.degToRad(look.moon[1])) : sunDir;
   sun.castShadow = true;
@@ -140,6 +152,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer): Trac
   scene.add(sun, sun.target);
   scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x4a4030, look.hemi ?? 0.35));
   if (look.moon) scene.add(stars(lightDir, keep));
+  scene.add(backdrop(look.backdrop, keep));
 
   const rng = mulberry(t.def.seed * 7919);
 
@@ -1005,6 +1018,42 @@ function structures(scene: THREE.Scene, t: Track, keep: <T extends { dispose(): 
       }
     }
   }
+}
+
+/** The painted strip's shape: tan(elevation) at its top and bottom edges (as painted by dev/backdrops.py), and its radius. */
+const BACKDROP = { top: 0.26, bottom: -0.06, r: 6000 };
+
+/**
+ * Distant scenery: a painted 360° strip on an open cylinder that rides with the camera, so it sits at the
+ * horizon like the sky does. It's one draw call, drawn after the terrain (transparent, no depth write), so
+ * every real hill in front hides it and only the gaps between show it; it costs no more than the sky
+ * behind it. The image (~100-200 kB WebP) loads after the race starts; until then the map is a clear
+ * placeholder, so the shader is compiled with the track and nothing recompiles when the picture arrives.
+ */
+function backdrop(image: string, keep: <T extends { dispose(): void }>(x: T) => T): THREE.Mesh {
+  const { top, bottom, r } = BACKDROP;
+  const blank = keep(new THREE.DataTexture(new Uint8Array(4), 1, 1));
+  blank.colorSpace = THREE.SRGBColorSpace;
+  blank.needsUpdate = true;
+  const mat = keep(new THREE.MeshBasicMaterial({ map: blank, transparent: true, depthWrite: false, fog: false, side: THREE.BackSide }));
+  const geo = keep(new THREE.CylinderGeometry(r, r, r * (top - bottom), 128, 1, true));
+  geo.translate(0, (r * (top + bottom)) / 2, 0);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -1; // first of the transparent things: smoke and ghosts blend over it
+  mesh.onBeforeRender = (_r, _s, cam) => {
+    mesh.position.copy(cam.position);
+    mesh.updateMatrixWorld();
+  };
+  let gone = false;
+  new THREE.TextureLoader().load(`/race/backdrops/${image}.webp`, (tex) => {
+    if (gone) return void tex.dispose();
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    mat.map = keep(tex);
+  });
+  keep({ dispose: () => (gone = true) });
+  return mesh;
 }
 
 /** Stars and a moon for night tracks. */
