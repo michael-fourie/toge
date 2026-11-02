@@ -1,6 +1,8 @@
 // The car catalogue, upgrades, paint and tuning, and `carSpec()`: everything that turns a saved car into
 // the numbers the physics runs on. Shared so the garage screen, the race and the server agree.
 
+import { type CosKit, cleanKit, cleanPlate, decodeKit, encodeKit } from './cosmetics.ts';
+
 export type CarId = 'pebble' | 'kitsune' | 'bramble' | 'shiro' | 'vanta';
 export type Body = 'hatch' | 'coupe' | 'muscle' | 'super';
 export type Drive = 'FWD' | 'RWD' | 'AWD';
@@ -158,9 +160,13 @@ export interface OwnedCar {
   up: Upgrades;
   look: Look;
   tune: Tune;
+  /** Cosmetics from cases (cosmetics.ts), one per slot; ownership is checked by the garage. */
+  cos: CosKit;
+  /** Custom plate text ('' = the model's stock plate). */
+  plate: string;
 }
 
-export const newOwnedCar = (model: CarId, paint = 0): OwnedCar => ({ model, up: noUpgrades(), look: defaultLook(paint), tune: defaultTune(model) });
+export const newOwnedCar = (model: CarId, paint = 0): OwnedCar => ({ model, up: noUpgrades(), look: defaultLook(paint), tune: defaultTune(model), cos: {}, plate: '' });
 
 const LOOK_LIMITS: Record<keyof Look, number> = {
   paint: PAINTS.length,
@@ -202,19 +208,30 @@ export function cleanUpgrades(x: unknown): Upgrades {
 export function cleanCar(x: unknown): OwnedCar | null {
   const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
   if (!isCarId(o.model)) return null;
-  return { model: o.model, up: cleanUpgrades(o.up), look: cleanLook(o.look), tune: cleanTune(o.tune, o.model) };
+  return { model: o.model, up: cleanUpgrades(o.up), look: cleanLook(o.look), tune: cleanTune(o.tune, o.model), cos: cleanKit(o.cos), plate: cleanPlate(o.plate) };
 }
 
-/** What other racers need to draw your car: model, look and the upgrade levels (for the class badge). */
+/** Longest car code the server accepts. */
+export const CAR_CODE_MAX = 128;
+
+/** What other racers need to draw your car: model, look, upgrade levels (for the class badge), then any cosmetics. */
 export function encodeCar(c: OwnedCar): string {
   const l = c.look;
-  return [c.model, l.paint, l.finish, l.rims, l.rimColor, l.spoiler, l.stripe, l.stripeColor, l.glow, PARTS.map((p) => c.up[p]).join('')].join('.');
+  const parts: (string | number)[] = [c.model, l.paint, l.finish, l.rims, l.rimColor, l.spoiler, l.stripe, l.stripeColor, l.glow, PARTS.map((p) => c.up[p]).join('')];
+  const cos = encodeKit(c.cos ?? {}, c.plate ?? '');
+  if (cos) parts.push(cos);
+  return parts.join('.');
 }
 
 export function decodeCar(code: string | null | undefined): OwnedCar | null {
-  if (typeof code !== 'string' || code.length > 64) return null;
-  const [model, ...rest] = code.split('.');
+  if (typeof code !== 'string' || code.length > CAR_CODE_MAX) return null;
+  const [model, ...all] = code.split('.');
   const keys = Object.keys(LOOK_LIMITS) as (keyof Look)[];
+  // A trailing cosmetics segment is optional (it never matches the 8-digit upgrade levels).
+  const hasKit = all.length > keys.length && !/^[0-5]{8}$/.test(all[all.length - 1]);
+  const kit = hasKit ? decodeKit(all[all.length - 1]) : { kit: {}, plate: '' };
+  if (!kit) return null;
+  const rest = hasKit ? all.slice(0, -1) : all;
   // Codes from before underglow have one look value fewer; it stays off.
   if (!isCarId(model) || (rest.length !== keys.length + 1 && rest.length !== keys.length)) return null;
   const n = rest.slice(0, -1).map(Number);
@@ -227,7 +244,7 @@ export function decodeCar(code: string | null | undefined): OwnedCar | null {
   if (!/^[0-5]{8}$/.test(ups)) return null;
   const up = noUpgrades();
   PARTS.forEach((p, i) => (up[p] = Number(ups[i])));
-  return { model, up, look, tune: defaultTune(model) };
+  return { model, up, look, tune: defaultTune(model), cos: kit.kit, plate: kit.plate };
 }
 
 // ---------------------------------------------------------------------------------------------

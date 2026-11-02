@@ -81,6 +81,12 @@ export class Accounts extends DurableObject {
     return this.stashes.spend(name, coins);
   }
 
+  /** A race car code as an account may show it: cosmetics it doesn't own are taken off. Guests' codes pass as they are. */
+  async raceCar(name: string, code: string): Promise<string> {
+    if (!(await this.ctx.storage.get(`u:${name.toLowerCase()}`))) return code;
+    return this.garages.raceCar(name, code);
+  }
+
   /** A race room pays a signed-in racer (by display name, which for accounts is the username). */
   async raceReward(name: string, amount: number, won: boolean): Promise<void> {
     if (await this.ctx.storage.get(`u:${name.toLowerCase()}`)) await this.garages.award(name, amount, won);
