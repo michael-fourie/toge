@@ -78,6 +78,12 @@ src/client/pad.ts  gamepads for every menu (spatial focus moves, A/B/LB/RB) and 
 - A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts.
 - Circuits (`laps` on the TrackDef: Monza, Spa, Monaco) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
 - Time trial (`mode: 'trial'` on the room, picked by the host in the lobby; switching to it puts up Kodama Ring, the short circuit built for it): the other racers' cars are see-through ghosts (`ghostly()` in carmodel.ts) and never collide, there are no item boxes and the server drops `item` messages. Clients send their best lap with `finish` (shown only, never paid on); the results add each racer's gap to the winner and best lap.
+- Cameras (C / Ⓨ cycles, saved as `atrous.raceCam`): chase, near, cockpit, hood, bumper. Cockpit = the driver's eye: `cockpit.ts`
+  builds each car's interior (dash, gauges, wheel, pillars, headliner) from its DESIGNS roof line, right-hand drive, parented to
+  the car's root; `headcam.ts` is the head on a damped-spring neck, pushed by the car's acceleration (taken from its velocity, so
+  spectated cars work too), looking into corners, shaken by road texture × surface, the engine, hits and landings. The car body
+  is single sided, so from inside its shell vanishes except surfaces facing up at you (hood, fenders, the lower body's top
+  across the cabin, which the dash and lap panel cover). Tune feel in headcam.ts constants, not in racegame.ts.
 - In dev, `window.__race` is the running race. To let the AI drive yours: `const { aiDrive, newAi } = await import('/src/shared/race/driver.ts'); const ai = newAi(0.9, 0); __race.controls.poll = function (dt) { aiDrive(__race.me.car, __race.track, ai, dt, this.input); }`.
 
 ## Adding things
@@ -93,4 +99,4 @@ src/client/pad.ts  gamepads for every menu (spatial focus moves, A/B/LB/RB) and 
   decal kind also needs a painter in client/race/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
 
-Tests: `racephysics`, `garage` (incl. item odds), `cosmetics`, `raceroom`, `standings`, `raceinput`, `pad` in `tests/`.
+Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `pad`, `headcam`, `cosmetics` in `tests/`.

@@ -1,5 +1,5 @@
 // A race: the fixed-tick car simulation (yours, plus AI rivals in a solo race), remote cars interpolated
-// from snapshots online, chase/hood/bumper cameras, the HUD, sound, tyre smoke and skids, rumble, and the
+// from snapshots online, chase/cockpit/hood/bumper cameras, the HUD, sound, tyre smoke and skids, rumble, and the
 // finish (results and prize money).
 
 import * as THREE from 'three';
@@ -17,6 +17,8 @@ import { rumble, setMenuNav } from '../pad.ts';
 import { esc } from '../menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
 import { type CarModel, buildCar, ghostly } from './carmodel.ts';
+import { type Cockpit, buildCockpit } from './cockpit.ts';
+import { Head, ROUGH } from './headcam.ts';
 import { Effects } from './effects.ts';
 import { garage } from './garageStore.ts';
 import { type Dot, type ResultLine, RaceHud, type Tag, fmtTime, money, ordinal } from './hud.ts';
@@ -38,8 +40,8 @@ export interface RaceSetup {
 }
 
 type Phase = 'countdown' | 'racing' | 'finished' | 'done';
-type Cam = 'chase' | 'near' | 'hood' | 'bumper';
-const CAMS: Cam[] = ['chase', 'near', 'hood', 'bumper'];
+type Cam = 'chase' | 'near' | 'cockpit' | 'hood' | 'bumper';
+const CAMS: Cam[] = ['chase', 'near', 'cockpit', 'hood', 'bumper'];
 /** Grass and runoff dirt: they throw up dust rather than smoke, and leave no rubber. */
 const soft = (s: Surface) => s === 'grass' || s === 'dirt';
 const SEND_HZ = 20;
@@ -132,6 +134,12 @@ interface CamTarget {
   fwd: number;
   hit: number;
   boost: boolean;
+  /** For the cockpit camera: the car's numbers, wheel angle, revs, hardest landing and how rough the ground is (0: airborne). */
+  spec: CarSpec;
+  steer: number;
+  rpm: number;
+  land: number;
+  rough: number;
 }
 
 export class RaceGame {
@@ -162,6 +170,15 @@ export class RaceGame {
   private camDir = new THREE.Vector2(0, -1);
   private camY = 2.4;
   private camLook = new THREE.Vector3();
+  /** Cockpit camera: the driver's head, each car's interior (built the first time you sit in it), and what the head last saw. */
+  private head = new Head();
+  private cockpits = new Map<THREE.Object3D, Cockpit>();
+  private headRoot: THREE.Object3D | null = null;
+  private headV = new THREE.Vector3();
+  private headA = new THREE.Vector3();
+  private headYaw = 0;
+  private headHit = 0;
+  private headLand = 0;
   /** Online, after you finish: the remote racer the camera follows (null: your own car). */
   private watching: number | null = null;
   private phase: Phase = 'countdown';
@@ -556,6 +573,8 @@ export class RaceGame {
         if (!m.racers.some((r) => r.id === id)) {
           const r = this.remotes.get(id)!;
           this.view.scene.remove(r.model.root);
+          this.cockpits.get(r.model.root)?.dispose();
+          this.cockpits.delete(r.model.root);
           r.model.dispose();
           r.engine?.stop();
           this.remotes.delete(id);
@@ -1028,12 +1047,18 @@ export class RaceGame {
     const r = this.watching !== null ? this.remotes.get(this.watching) : undefined;
     if (!r?.last) {
       const c = this.me.car;
-      return { root: this.me.model.root, id: c.spec.id, cg: c.spec.cg, v: c.v, yaw: yawOf(c), fwd: forwardSpeed(c), hit: c.hit, boost: c.boost > 0 };
+      const on = c.wheels.filter((w) => w.contact);
+      const rough = on.reduce((a, w) => a + (ROUGH[w.surf] ?? 1), 0) / 4;
+      return { root: this.me.model.root, id: c.spec.id, cg: c.spec.cg, v: c.v, yaw: yawOf(c), fwd: forwardSpeed(c), hit: c.hit, boost: c.boost > 0, spec: c.spec, steer: c.steer, rpm: c.rpm, land: c.land, rough };
     }
     const root = r.model.root;
     const f = new THREE.Vector3(0, 0, -1).applyQuaternion(root.quaternion);
     const v = { x: r.last.c.v[0], y: r.last.c.v[1], z: r.last.c.v[2] };
-    return { root, id: r.spec.id, cg: r.spec.cg, v, yaw: Math.atan2(-f.x, -f.z), fwd: v.x * f.x + v.y * f.y + v.z * f.z, hit: 0, boost: (r.last.c.f & CarFlag.Boost) !== 0 };
+    const f2 = r.last.c.f;
+    return {
+      root, id: r.spec.id, cg: r.spec.cg, v, yaw: Math.atan2(-f.x, -f.z), fwd: v.x * f.x + v.y * f.y + v.z * f.z, hit: 0, boost: (f2 & CarFlag.Boost) !== 0,
+      spec: r.spec, steer: r.last.c.st, rpm: r.rpm, land: 0, rough: f2 & CarFlag.Offroad ? ROUGH.gravel : 1,
+    };
   }
 
   private updateCamera(dt: number, t: CamTarget) {
@@ -1042,7 +1067,13 @@ export class RaceGame {
     const speed = Math.hypot(v.x, v.y, v.z);
     const b = CARS[t.id];
     const back = this.controls.lookBack;
-    if (this.cam === 'hood' || this.cam === 'bumper') {
+    const inside = this.cam === 'cockpit';
+    for (const [r, c] of this.cockpits) c.root.visible = inside && r === root;
+    const nearPlane = inside ? 0.06 : 0.2;
+    if (this.camera.near !== nearPlane) this.camera.near = nearPlane;
+    if (inside) {
+      this.cockpitCamera(dt, t, speed, back);
+    } else if (this.cam === 'hood' || this.cam === 'bumper') {
       const local = this.cam === 'hood' ? new THREE.Vector3(0, b.height - t.cg + 0.05, -0.15) : new THREE.Vector3(0, 0.7 - t.cg, -b.length / 2 + 0.1);
       this.camera.position.copy(local.applyMatrix4(root.matrixWorld));
       const ahead = new THREE.Vector3(0, local.y - 0.4, back ? 50 : -50).applyMatrix4(root.matrixWorld);
@@ -1088,7 +1119,71 @@ export class RaceGame {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Driver's eye: sat in the seat, the head on its neck thrown about by the car's acceleration (felt from how
+   * its velocity changes, so it works for spectated cars too), looking into corners, and shaken by the road,
+   * the engine, impacts and landings (headcam.ts).
+   */
+  private cockpitCamera(dt: number, t: CamTarget, speed: number, back: boolean) {
+    const root = t.root;
+    let pit = this.cockpits.get(root);
+    if (!pit) {
+      pit = buildCockpit(t.id, t.spec);
+      root.add(pit.root);
+      this.cockpits.set(root, pit);
+    }
+    root.updateMatrixWorld();
+    const q = root.quaternion;
+    const v = new THREE.Vector3(t.v.x, t.v.y, t.v.z);
+    if (this.headRoot !== root) {
+      this.headRoot = root;
+      this.head.reset();
+      this.headV.copy(v);
+      this.headA.set(0, 0, 0);
+      this.headYaw = t.yaw;
+    }
+    const h = Math.max(dt, 1e-3);
+    const a = v.clone().sub(this.headV).divideScalar(h);
+    this.headV.copy(v);
+    // A reset or a respawn teleports the car: that's not a force anyone feels.
+    if (a.length() > 120) a.set(0, 0, 0);
+    this.headA.lerp(a, 1 - Math.exp(-dt * 30));
+    const inv = q.clone().invert();
+    const aL = this.headA.clone().applyQuaternion(inv);
+    const vL = v.clone().applyQuaternion(inv);
+    let dYaw = t.yaw - this.headYaw;
+    dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
+    this.headYaw = t.yaw;
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+    // Knocks arrive once per physics tick; only feel each one once, however many frames it's showing for.
+    const hit = t.hit !== this.headHit ? t.hit : 0;
+    const land = t.land !== this.headLand ? t.land : 0;
+    this.headHit = t.hit;
+    this.headLand = t.land;
+    const pose = this.head.update(dt, {
+      aLat: aL.x,
+      aUp: aL.y,
+      aFwd: -aL.z,
+      speed,
+      yawRate: dYaw / h,
+      slip: speed > 3 ? Math.atan2(vL.x, Math.max(2, Math.abs(vL.z))) : 0,
+      bodyRoll: Math.asin(Math.max(-1, Math.min(1, right.y))),
+      rough: t.rough,
+      hit,
+      land,
+      rev: Math.min(1.1, t.rpm / t.spec.redline),
+      boost: t.boost,
+    });
+    const eye = pit.eye.clone().add(new THREE.Vector3(pose.lat, pose.up, -pose.fwd));
+    this.camera.position.copy(eye.applyMatrix4(root.matrixWorld));
+    const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(pose.pitch - 0.05, pose.yaw + (back ? Math.PI : 0), pose.roll, 'YXZ'));
+    this.camera.quaternion.copy(q).multiply(look);
+    this.camera.fov = 60 + pose.fov;
+    pit.update(t.steer, t.rpm, speed * 3.6);
+  }
+
   private snapCamera() {
+    this.headRoot = null;
     const t = this.camTarget();
     const p = t.root.position;
     this.camDir.set(-Math.sin(t.yaw), -Math.cos(t.yaw));
@@ -1218,6 +1313,7 @@ export class RaceGame {
     this.hud.dispose();
     for (const r of [this.me, ...this.rivals]) r.model.dispose();
     for (const r of this.remotes.values()) r.model.dispose();
+    for (const c of this.cockpits.values()) c.dispose();
     this.fx.dispose();
     this.trafficView?.dispose();
     this.cometGeo.dispose();
