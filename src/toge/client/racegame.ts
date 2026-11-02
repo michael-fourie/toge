@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, myRaceCar, newOwnedCar, CAR_IDS, rating } from '../shared/cars.ts';
 import { type Ai, aiDrive, newAi } from '../shared/driver.ts';
+import { DRAFT, type Body, stepDraft, strongestWake } from '../shared/draft.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
 import { CAR_RULES, CarFlag, RACE, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../shared/protocol.ts';
 import { standings } from '../shared/standings.ts';
@@ -216,6 +217,9 @@ export class RaceGame {
   private lastGear = 1;
   private lastLevel = 0;
   private boosting = false;
+  /** Slipstream: the wall-clock time the slingshot label shows until, and whether the charge was ready last tick. */
+  private slingUntil = 0;
+  private draftReady = false;
   private wallClock = 0;
   private exited = false;
   /** Name tags hidden behind a hill, by tag id, and the frame each was last checked. */
@@ -710,6 +714,31 @@ export class RaceGame {
     }
   }
 
+  /**
+   * Slipstreaming (draft.ts): every car we drive (you and the AI) feels the wake of every other car on the
+   * road, including online racers' poses. Not in a time trial, where the others are ghosts.
+   */
+  private slipstream(live: boolean) {
+    const drivers = [this.me, ...this.rivals];
+    const bodies: Body[] = drivers.map((r) => r.car);
+    for (const r of this.remotes.values()) if (r.last && r.finished === null) bodies.push(r.ghost);
+    for (const r of drivers) {
+      const wake = live && !this.trial && r.finished === null ? strongestWake(r.car, bodies) : 0;
+      const slung = stepDraft(r.car, wake, r.input.throttle, TICK_DT);
+      if (r !== this.me) continue;
+      if (slung) {
+        this.slingUntil = this.wallClock + DRAFT.slingSeconds + 0.3;
+        this.audio.burst(0.5, 0.1, 1400, 'highpass');
+      }
+      const ready = r.car.draftArmed > 0;
+      if (ready && !this.draftReady) {
+        this.audio.tone(1180, 0.14, 0.05, 'triangle');
+        rumble(0.1, 0.3, 80);
+      }
+      this.draftReady = ready;
+    }
+  }
+
   private tick() {
     const me = this.me;
     const t = this.track;
@@ -752,6 +781,7 @@ export class RaceGame {
       if (this.phase === 'countdown') Object.assign(r.input, { steer: 0, throttle: Math.random() < 0.02 ? 1 : r.input.throttle * 0.95, brake: 1, handbrake: 1 });
       else aiDrive(r.car, t, r.ai!, TICK_DT, r.input, traffic ? trafficBetween(traffic, this.trafficTime, r.car.s - 10, r.car.s + 300, this.obstacles) : undefined);
     }
+    this.slipstream(live);
     // Step
     for (const r of [me, ...this.rivals]) {
       r.prevP.set(r.car.p.x, r.car.p.y, r.car.p.z);
@@ -1038,6 +1068,7 @@ export class RaceGame {
       this.poseLocal(r, alpha);
       this.tyreEffects(r, r === me ? 0 : 1 + this.rivals.indexOf(r));
     }
+    if (this.watching === null) this.windFx(me.car, me.model.root);
     for (const r of this.remotes.values()) this.poseRemote(r, now, dt);
     this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT);
     const view = this.camTarget();
@@ -1065,6 +1096,18 @@ export class RaceGame {
       if ((smoking && this.puffTick % 3 === 0) || (dirt && this.puffTick % 4 === 0)) this.fx.puff(wp.x, wp.y, wp.z, c.v.x, c.v.z, Math.min(1.5, w.slip - 1.5), dirt);
     });
     this.driftFx(root, c.spec.axleR, c.spec.track, c.spec.cg, c.drift !== 0, c.driftLevel, c.boost > 0, c.v.x, c.v.z);
+  }
+
+  /** In a slipstream: faint air streaming past your car, thicker the deeper you're tucked in. */
+  private windFx(c: Car, root: THREE.Object3D) {
+    if (c.draft < 0.15) return;
+    const n = Math.random() < c.draft ? 2 : 1;
+    for (let k = 0; k < n; k++) {
+      const side = (Math.random() < 0.5 ? -1 : 1) * (0.9 + Math.random() * 1.2);
+      const p = new THREE.Vector3(side, 0.2 + Math.random() * 1.3, -4 - Math.random() * 6).applyMatrix4(root.matrixWorld);
+      // Barely moving in the world: at speed they rush past the car like wind.
+      this.fx.spark(p.x, p.y, p.z, c.v.x * 0.15, 0, c.v.z * 0.15, [0.75, 0.92, 1], 0.35, 0.12 + c.draft * 0.1);
+    }
   }
 
   /** Sparks off the rear wheels while drifting (coloured by the level earned), flames from the exhaust while boosting. */
@@ -1290,6 +1333,9 @@ export class RaceGame {
       drift: c.drift !== 0 ? c.driftLevel : -1,
       item: this.wallClock < this.rouletteUntil ? { icon: ITEMS[(['turbo', 'oil', 'shield', 'triple', 'shock', 'comet'] as Item[])[Math.floor(this.wallClock * 12) % 6]].icon, name: '', spinning: true } : me.item ? { icon: ITEMS[me.item.kind].icon, name: ITEMS[me.item.kind].name + (me.item.uses > 1 ? ` ×${me.item.uses}` : ''), spinning: false } : null,
       boost: c.boost > 0,
+      draft: me.finished === null ? c.draft : 0,
+      charge: c.draftArmed > 0 ? 1 : c.draftCharge / DRAFT.charge,
+      sling: this.wallClock < this.slingUntil && c.boost > 0,
       heading: yaw,
       dots,
       board: order.map((e) => ({ name: e.who.name, color: e.who.color, me: e.who.me, finished: e.finished })),

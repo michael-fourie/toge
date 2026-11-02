@@ -68,6 +68,10 @@ src/toge/shared/
                collideTraffic bumps a car off it; trafficview.ts draws it (instanced, lamps that bloom).
   powerups.ts  items from mystery boxes (`Item`: turbo/triple/oil/shield/shock/comet), `POWER` tuning, `rollItem` with
                catch-up odds; oil/shock/comet are relayed as the `item` message.
+  draft.ts     slipstreaming: `wakeOf` (a cone up to `DRAFT.range` behind any car going your way at speed), `stepDraft`
+               (eases `car.draft`, which cuts aero drag and pulls you on the gas in vehicle.ts; tucked in for `DRAFT.charge`
+               s arms a slingshot that fires as a short boost when you pull out). Run per tick in racegame.ts `slipstream()`
+               for you and the AI against every car incl. online poses; off in time trials. Nothing on the wire.
   props.ts     seeded track props (`placeProps`): mystery boxes, ramps, bales, barrels, cones. Not on circuits; Neon Bay
                gets boxes only. toge/client/propview.ts draws props, oil slicks, the shield bubble.
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial).
@@ -125,5 +129,5 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   decal kind also needs a painter in toge/client/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
 
-Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `headcam`, `cosmetics` in `tests/toge/`
+Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft` in `tests/toge/`
 (`pad` is in `tests/`: the gamepad code is the site's).
