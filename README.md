@@ -16,8 +16,9 @@ Race your lobby down the mountain. Two passes: **Kōri Pass** (alpine, 5.3 km, s
 | --- | --- | --- |
 | RT / LT | W / S (↑ ↓) | Throttle / brake (hold brake when stopped to reverse) |
 | Left stick | A D (← →) | Steer |
-| Ⓐ | Space | Handbrake |
-| Ⓑ / Ⓧ | E / Q | Shift up / down (manual gearbox) |
+| Ⓐ (hold) | Space (hold) | Drift; let go for a mini-turbo |
+| Ⓧ / RB | E | Use item |
+| D-pad ↑ ↓ | Shift / Ctrl | Shift up / down (manual gearbox) |
 | Ⓨ | C | Camera (chase, near, hood, bumper) |
 | LB (hold) | V (hold) | Look back |
 | View | R | Reset to the road |

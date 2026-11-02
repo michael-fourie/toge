@@ -45,7 +45,8 @@ export function targetSpeed(car: Car, t: Track, skill: number): number {
   // Braking downhill: gravity pushes along the road, so the brakes have less to give.
   const i = Math.max(0, Math.min(t.n - 30, car.hint));
   const grade = Math.max(0, (t.y[i] - t.y[i + 25]) / (25 * SAMPLE));
-  const decel = mu * G * 0.75 - G * grade;
+  // Arcade brakes bite harder than the tyres alone (ARCADE.brakeGrip), and the AI brakes as late as you can.
+  const decel = mu * G * 0.75 * (DEFAULT_ASSISTS.arcade ? ARCADE.brakeGrip : 1) - G * grade;
   const reach = (v * v) / (2 * decel) + 40;
   let best = Infinity;
   // Arcade handling corners at the grip it promises; the simulation at the tyres'.

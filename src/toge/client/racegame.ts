@@ -428,7 +428,7 @@ export class RaceGame {
     }
     if (this.pending && now >= this.rouletteUntil) {
       this.me.item = { kind: this.pending, uses: ITEMS[this.pending].uses };
-      this.hud.banner(ITEMS[this.pending].name, this.controls.padSeen ? 'Ⓐ to use' : 'E to use', 1400);
+      this.hud.banner(ITEMS[this.pending].name, this.controls.padSeen ? 'Ⓧ to use' : 'E to use', 1400);
       this.audio.tone(1320, 0.15, 0.05, 'triangle');
       this.pending = null;
     }
@@ -845,7 +845,7 @@ export class RaceGame {
   }
 
   private spectateKey() {
-    return this.controls.padSeen ? 'Ⓐ' : 'E';
+    return this.controls.padSeen ? 'Ⓧ' : 'E';
   }
 
   /** Remote racers still on the road. */
@@ -920,7 +920,7 @@ export class RaceGame {
         <button data-act="abs">ABS: ${onOff(a.abs)}</button>
         <button data-act="tcs">Traction control: ${onOff(a.tcs)}</button>
         <button data-act="steer">Steering assist: ${onOff(a.steer)}</button>
-        <button data-act="arcade">Handling: ${a.arcade ? 'Arcade (drift on LT / Space)' : 'Simulation'}</button>
+        <button data-act="arcade">Handling: ${a.arcade ? 'Arcade (drift on Ⓐ / Space)' : 'Simulation'}</button>
         <button data-act="auto">Gearbox: ${a.auto ? 'Automatic' : 'Manual'}</button>
         <button data-act="leave">${this.setup.online ? 'Leave race' : 'Quit to garage'}</button>
       </div>`);
@@ -1246,9 +1246,9 @@ export class RaceGame {
     const off = me.wheels.filter((w) => w.contact && soft(w.surf)).length / 4;
     const speed = speedOf(me);
     this.audio.surroundings(slip, off, speed);
-    // Rumble: road texture off the tarmac, the tyres at the limit.
+    // Rumble: road texture off the tarmac, the tyres at the limit, ABS chattering under a stamped brake.
     if (this.wallClock > this.rumbleAt && !this.paused) {
-      const strong = off * Math.min(1, speed / 20) * 0.5;
+      const strong = off * Math.min(1, speed / 20) * 0.5 + (me.absOn ? 0.3 : 0);
       const weak = Math.max(0, Math.min(1, slip - 0.95)) * 0.6;
       if (strong + weak > 0.05) rumble(strong, weak, 120);
       this.rumbleAt = this.wallClock + 0.1;

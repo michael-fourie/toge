@@ -17,6 +17,17 @@ raised `ARCADE` grip/yaw on 2026-10-30 because corners felt unmakeable, so don't
 physics only with a test, and keep `tests/toge/racephysics.test.ts` green (it drives every car down every track with the AI).
 Physics runs client-side only; the AI's target speed reads `ARCADE.grip`, so rivals scale with it.
 
+Braking and traction (2026-11-02, after "braking is unintuitive"): arcade brakes bite `ARCADE.brakeGrip` (1.3) times
+the tyres (about 1.1-1.5 g; 100-0 in 26-36 m), because 1 g brakes against `grip`-g corners left every bend arriving
+too fast; the AI's braking distance reads it too. In arcade, cornering slip counts against the drive/brake budget only
+in the share `sp.grip / ARCADE.grip` (the rest of the cornering is the arcade layer's, not the tyres'), so you can brake
+and power through a bend. Traction control brakes a driven wheel that spins on its own (the unloaded inside wheel,
+`Wheel.ex`) and cuts the engine only when both wheels of an axle spin: before, it cut the throttle all through every
+corner and cars lost speed on full throttle out of a bend. `ARCADE.trailBrake` adds yaw on the brakes while turning in.
+Simulation handling (`arcade` off) keeps the tyres' own numbers. Controller layout is the usual one: RT throttle, LT
+brake (analog, `trigger()` dead zone), Ⓐ held to drift, Ⓧ/RB item (`padPedals` in input.ts, tested in raceinput);
+the keyboard brake ramps in at 14/s, the throttle at 5/s.
+
 ## Menus and brand
 
 The home screens (hub.ts: tabs Race, Garage, Performance, Style), the race lobby (lobby.ts) and cosmetics
@@ -125,5 +136,5 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   decal kind also needs a painter in toge/client/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
 
-Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `headcam`, `cosmetics` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `standings`, `raceinput`, `headcam`, `cosmetics` in `tests/toge/`
 (`pad` is in `tests/`: the gamepad code is the site's).
