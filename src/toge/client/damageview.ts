@@ -7,7 +7,7 @@
 // vertices (~1 ms), only on a hit that did damage. `repair()` puts the body back when the car respawns.
 
 import * as THREE from 'three';
-import { type Track, heightAt } from '../shared/track.ts';
+import { type Track, groundBelow } from '../shared/track.ts';
 import type { V3 } from '../shared/vehicle.ts';
 import type { Effects } from './effects.ts';
 
@@ -246,7 +246,7 @@ export class Blasts {
       this.dp[i] += this.dv[i] * dt;
       this.dp[i + 1] += this.dv[i + 1] * dt;
       this.dp[i + 2] += this.dv[i + 2] * dt;
-      const ground = heightAt(this.track, this.dp[i], this.dp[i + 2]) + this.size[k] * 0.2;
+      const ground = groundBelow(this.track, this.dp[i], this.dp[i + 2], this.dp[i + 1]) + this.size[k] * 0.2;
       if (this.dp[i + 1] < ground) {
         // Bounce, scrape, settle.
         this.dp[i + 1] = ground;

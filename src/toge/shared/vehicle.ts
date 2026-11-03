@@ -603,7 +603,7 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
     mt.x = p.x + mount.x;
     mt.y = p.y + mount.y;
     mt.z = p.z + mount.z;
-    const g = groundAt(t, mt.x, mt.z, grounds[i]);
+    const g = groundAt(t, mt.x, mt.z, grounds[i], car.hint);
     // Ray along -up meets the ground's tangent plane at distance d.
     const denom = g.nx * up.x + g.ny * up.y + g.nz * up.z;
     hasHit[i] = false;
@@ -837,14 +837,14 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
   const b = sp.body;
   const kc = m * 420;
   const cc = m * 28;
-  const gh = heightAt(t, p.x, p.z);
+  const gh = heightAt(t, p.x, p.z, undefined, car.hint);
   if (p.y - gh < 3.2) {
     for (let c = 0; c < 8; c++) {
       rot(q, c & 1 ? b.hw : -b.hw, c & 2 ? b.y1 : b.y0, c & 4 ? b.hl : -b.hl, tmp);
       const px = p.x + tmp.x;
       const py = p.y + tmp.y;
       const pz = p.z + tmp.z;
-      const h = heightAt(t, px, pz);
+      const h = heightAt(t, px, pz, undefined, car.hint);
       const pen = h - py;
       if (pen <= 0) continue;
       const w = car.w;
