@@ -63,6 +63,8 @@ export interface DriveInput {
   drift?: number;
   shiftUp?: boolean;
   shiftDown?: boolean;
+  /** Share of the engine's torque that reaches the gearbox (crash damage, damage.ts). Default 1. */
+  power?: number;
 }
 
 export interface Assists {
@@ -334,7 +336,7 @@ export function stepCar(car: Car, input: DriveInput, t: Track, assists: Assists 
       else if (Math.abs(vf) < 2) car.gear = -1;
     }
   }
-  if (assists.auto) autoShift(car, throttle);
+  if (assists.auto) autoShift(car, throttle, Math.hypot(vf, vr));
   car.shift = Math.max(0, car.shift - TICK_DT);
 
   // Steering: less lock at speed, and with the assist the wheels follow a slide.
@@ -353,12 +355,14 @@ export function stepCar(car: Car, input: DriveInput, t: Track, assists: Assists 
   car.tcsOn = false;
   car.absOn = false;
   if (!assists.arcade) stability(car, assists, vf, vr, speed);
-  for (let k = 0; k < SUB; k++) substep(car, t, throttle, brake, clamp01(input.handbrake), assists);
+  const power = input.power ?? 1;
+  for (let k = 0; k < SUB; k++) substep(car, t, throttle, brake, clamp01(input.handbrake), assists, power);
   if (assists.arcade) arcade(car, input, throttle, brake);
   if (t.props.length) props(car, t);
   if (car.spin > 0) {
     car.spin = Math.max(0, car.spin - TICK_DT);
-    if (car.spin === 0) car.gear = 1; // come out of it ready to drive on
+    // Come out of it in a forward gear (the auto box picks the right one); never yank a moving car into first.
+    if (car.spin === 0 && car.gear < 1) car.gear = 1;
     car.w.y = car.spinDir * 7;
     car.v.x *= 1 - TICK_DT * 1.2;
     car.v.z *= 1 - TICK_DT * 1.2;
@@ -533,28 +537,36 @@ function stability(car: Car, assists: Assists, vf: number, vr: number, speed: nu
   car.tcsOn = true;
 }
 
-function autoShift(car: Car, throttle: number) {
+/** Engine rpm that rolling at `speed` (m/s) asks for in `gear`: the wheels turning with the road. */
+export const roadRpm = (sp: CarSpec, gear: number, speed: number) => ((speed / sp.radius) * Math.abs(gearRatio(sp, gear)) * 60) / (Math.PI * 2);
+
+/**
+ * The automatic box. It picks gears from how fast the car is going, not from the engine's revs: those
+ * jump around with wheelspin (a drift, a launch, wheels still turning after a wall stopped the body) and
+ * sit at launch revs while the clutch slips, and a box reading them upshifts mid-slide and stays in a tall
+ * gear after a crash. When the car has slowed a lot it drops straight to the right gear, not one at a time.
+ */
+function autoShift(car: Car, throttle: number, speed: number) {
   const sp = car.spec;
   if (car.shift > 0 || car.gear < 1) return;
   const n = sp.gears.length;
   const grounded = car.wheels.some((w) => w.contact);
-  if (car.gear < n && car.rpm > sp.redline * 0.955 && grounded) {
+  if (car.gear < n && grounded && roadRpm(sp, car.gear, speed) > sp.redline * 0.955) {
     car.gear++;
     car.shift = sp.shiftTime;
     return;
   }
-  if (car.gear > 1) {
-    const lower = (car.rpm * sp.gears[car.gear - 2]) / sp.gears[car.gear - 1];
-    // Off the throttle (braking for a bend) it drops gears early, so you leave the corner in the power band.
-    const lugging = car.rpm < sp.idle + (sp.peakRpm - sp.idle) * (throttle > 0.8 ? 0.85 : 0.6);
-    if (lower < sp.redline * 0.82 && lugging) {
-      car.gear--;
-      car.shift = sp.shiftTime * 0.7;
-    }
+  // Off the throttle (braking for a bend) it drops gears early, so you leave the corner in the power band.
+  const floor = sp.idle + (sp.peakRpm - sp.idle) * (throttle > 0.8 ? 0.85 : 0.6);
+  let g = car.gear;
+  while (g > 1 && roadRpm(sp, g, speed) < floor && roadRpm(sp, g - 1, speed) < sp.redline * 0.82) g--;
+  if (g < car.gear) {
+    car.gear = g;
+    car.shift = sp.shiftTime * 0.7;
   }
 }
 
-function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrake: number, assists: Assists) {
+function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrake: number, assists: Assists, power: number) {
   const sp = car.spec;
   const m = sp.mass;
   const q = car.q;
@@ -653,11 +665,11 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
     if (wheelRpm < launch && wheelRpm < sp.peakRpm) {
       // Clutch slipping: the engine sits at its launch revs and passes its torque on.
       car.rpm += (Math.max(launch, sp.idle) - car.rpm) * Math.min(1, H * 10);
-      driveT = throttle > 0.01 ? torqueAt(sp, car.rpm) * throttle * ratio * 0.9 : 0;
+      driveT = throttle > 0.01 ? torqueAt(sp, car.rpm) * throttle * power * ratio * 0.9 : 0;
     } else {
       coupled = true;
       car.rpm = Math.max(sp.idle * 0.8, wheelRpm);
-      const engine = torqueAt(sp, car.rpm) * throttle - (1 - throttleIn) * (12 + car.rpm * 0.006) * sp.engineDrag;
+      const engine = torqueAt(sp, car.rpm) * throttle * power - (1 - throttleIn) * (12 + car.rpm * 0.006) * sp.engineDrag;
       driveT = engine * ratio * 0.9;
     }
   } else {

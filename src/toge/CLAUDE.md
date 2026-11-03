@@ -96,6 +96,9 @@ src/toge/shared/
                bump stop), tyres (Pacejka-style curve on normalised combined slip, relaxation lengths, low-speed damping),
                drivetrain (torque curve, clutch slip at launch, auto/manual box, LSD, AWD split, engine braking, engine
                inertia through the gears), aero, ABS/TCS/steering assist, body scraping, barrier impulses, collideCars.
+               The auto box (`autoShift`) picks gears from road speed (`roadRpm`), never from `car.rpm`: that jumps with
+               wheelspin and parks at launch revs while the clutch slips, which made it upshift mid-drift and stay in 4th
+               after a crash. It drops several gears at once when the car has slowed a lot.
                Then the `arcade()` layer (tuned by `ARCADE`, on by default in `DEFAULT_ASSISTS`): yaws the car toward
                the stick, swings travel onto the nose, drift levels + mini-turbo boosts, hop, levelling in the air.
   cars.ts      the catalogue (CARS), upgrades (PARTS, levels 0-5), looks, tuning, encode/decodeCar (the wire code), carSpec()
@@ -123,7 +126,7 @@ src/toge/shared/
                for you and the AI against every car incl. online poses; off in time trials. Nothing on the wire.
   damage.ts    Physics mode (crash damage, off unless the host or the solo Race page turns it on): every knock is
                delta-V (`car.crash`, recorded in vehicle.ts with where it hit), damage = DAMAGE.scale × (dv − threshold)^power,
-               dented zones (front/rear/left/right) cost power and pull the steering (`damagedInput`). At 1 the car is
+               dented zones (front/rear/left/right) cost engine power (`DriveInput.power`, not the pedal) and pull the steering (`damagedInput`). At 1 the car is
                wrecked: racegame.ts `crashes()`/`wreck()` blow it up and respawn it DAMAGE.respawnBack m back with a grace.
                Online: zones ride `NetCar.dm`, explosions the `wreck` message (room relays only with `physics` on).
                toge/client/damageview.ts draws it: CarDents (moves the body's own vertices, flat normals in the creases),

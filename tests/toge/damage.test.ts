@@ -56,10 +56,12 @@ test('a crushed nose costs power; a bent side pulls the steering that way', () =
   assert.ok(h.power < 0.6 && h.power >= DAMAGE.minPower);
   assert.ok(h.pull < -0.1, 'pulls left');
   const out = damagedInput(d, { steer: 0, throttle: 1, brake: 0, handbrake: 0 }, { steer: 0, throttle: 0, brake: 0, handbrake: 0 });
-  assert.equal(out.throttle, h.power);
+  // The engine loses power; the pedal stays floored (so the gearbox and engine braking see full throttle).
+  assert.equal(out.throttle, 1);
+  assert.equal(out.power, h.power);
   assert.equal(out.steer, h.pull);
-  const fresh = damagedInput(newDamage(), { steer: 0.3, throttle: 1, brake: 0, handbrake: 0 }, { steer: 0, throttle: 0, brake: 0, handbrake: 0 });
-  assert.deepEqual([fresh.steer, fresh.throttle], [0.3, 1]);
+  const fresh = damagedInput(newDamage(), { steer: 0.3, throttle: 1, brake: 0, handbrake: 0 }, out);
+  assert.deepEqual([fresh.steer, fresh.throttle, fresh.power ?? 1], [0.3, 1, 1]);
 });
 
 test('zones pack into one number for the wire', () => {

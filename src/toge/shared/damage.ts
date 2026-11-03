@@ -107,12 +107,17 @@ export function handling(d: Damage): { power: number; pull: number } {
   return { power, pull: DAMAGE.pull * (z.right - z.left) };
 }
 
-/** The input the car actually gets: less throttle with a crushed nose, the wheel pulling to the bent side. */
+/**
+ * The input the car actually gets: less engine power with a crushed nose, the wheel pulling to the bent side.
+ * The pedal itself stays where the driver put it, so a damaged car at full throttle still shifts like it's
+ * at full throttle and doesn't get engine braking for a pedal that's floored.
+ */
 export function damagedInput(d: Damage, input: DriveInput, out: DriveInput): DriveInput {
   Object.assign(out, input);
+  out.power = undefined;
   if (d.total <= 0) return out;
   const h = handling(d);
-  out.throttle = input.throttle * h.power;
+  out.power = h.power;
   out.steer = Math.max(-1, Math.min(1, input.steer + h.pull));
   return out;
 }
