@@ -50,3 +50,30 @@ export function frameGate(fps: number): (now: number) => boolean {
     return true;
   };
 }
+
+/** The parts of a THREE.WebGLRenderer that `releaseRenderer` uses (typed loosely so tests can pass a stand-in). */
+export interface Releasable {
+  dispose(): void;
+  forceContextLoss(): void;
+  domElement: { remove(): void };
+}
+
+/**
+ * Tears down a renderer for good: frees its GPU objects, gives its WebGL context back, and takes its canvas off
+ * the page. `dispose()` alone isn't enough. Materials, geometries and textures that outlive a race (cached
+ * cosmetics, shared trims, the driver models) keep a dispose listener that points back at every renderer that
+ * ever drew them, so a disposed renderer is never garbage collected and its context, with the screen-sized
+ * buffers, shadow map and every texture it uploaded, stayed alive: hundreds of MB of graphics memory per race until
+ * the GPU ran out and the tab crashed or lost its context. Losing the context on purpose frees that memory now,
+ * whatever still points at the renderer. Every renderer that isn't one long-lived offscreen singleton goes out
+ * through here (tests/graphics.test.ts checks).
+ */
+export function releaseRenderer(r: Releasable) {
+  r.dispose();
+  try {
+    r.forceContextLoss();
+  } catch {
+    // no WEBGL_lose_context, or already lost: nothing more to free
+  }
+  r.domElement.remove();
+}

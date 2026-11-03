@@ -42,7 +42,10 @@ export class RaceRoom extends DurableObject<Env> {
         // A signed-in racer's new car is checked against their garage first (cosmetics they don't own come off).
         if (client.user && msg && msg.t === 'car' && typeof msg.car === 'string') {
           const accounts = this.env.ACCOUNTS.getByName('all');
-          void accounts.raceCar(client.name, msg.car.slice(0, CAR_CODE_MAX)).then((car) => this.race?.handle(client, { t: 'car', car }));
+          void accounts
+            .raceCar(client.name, msg.car.slice(0, CAR_CODE_MAX))
+            .then((car) => this.race?.handle(client, { t: 'car', car }))
+            .catch(() => {}); // the accounts store was busy: keep the old car rather than throw in the room
           return;
         }
         this.race?.handle(client, msg);

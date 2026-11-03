@@ -34,7 +34,7 @@ import { saveHighs } from './highs.ts';
 import { DriveControls } from './input.ts';
 import type { RaceNet } from './racenet.ts';
 import { Post } from './post.ts';
-import { frameGate, lowGraphics, LOW_PIXEL_RATIO } from '../../client/graphics.ts';
+import { frameGate, lowGraphics, LOW_PIXEL_RATIO, releaseRenderer } from '../../client/graphics.ts';
 import { buildTrackView, type TrackView } from './trackview.ts';
 
 export interface RaceSetup {
@@ -1660,8 +1660,7 @@ export class RaceGame {
     this.view.dispose();
     this.post.dispose();
     this.audio.close();
-    this.renderer.dispose();
-    this.renderer.domElement.remove();
+    releaseRenderer(this.renderer); // dispose() alone leaks the whole context (see releaseRenderer)
     setMenuNav(true);
   }
 }

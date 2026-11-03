@@ -51,7 +51,7 @@ import { ScytheFx } from './scythefx.ts';
 import { Horde } from './horde.ts';
 import { HillFx, HillHud } from './hill.ts';
 import { IS_TOUCH, goFullscreen } from '../../client/touch.ts';
-import { frameGate, lowGraphics, LOW_PIXEL_RATIO } from '../../client/graphics.ts';
+import { frameGate, lowGraphics, LOW_PIXEL_RATIO, releaseRenderer } from '../../client/graphics.ts';
 import { TouchControls } from './touchcontrols.ts';
 import { Hud } from './hud.ts';
 import { GrenadeFx } from './grenadefx.ts';
@@ -2012,8 +2012,7 @@ export class Game {
     this.drops?.dispose();
     this.workshop?.dispose();
     disposeScene(this.world.scene); // frees the map's GPU memory: the Foundry is a lot of canvas textures
-    this.renderer.dispose();
-    this.renderer.domElement.remove();
+    releaseRenderer(this.renderer); // dispose() alone leaks the whole context (see releaseRenderer)
     this.opts.onExit(reason);
   }
 }
