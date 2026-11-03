@@ -24,8 +24,7 @@ import { esc } from '../../client/menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
 import { type CarModel, INTERIOR, buildCar, ghostly } from './carmodel.ts';
 import { LAMP_DAY, LAMP_NIGHT, setLampLevel } from './carparts.ts';
-import { type Rider, decodeRider, defaultRider, randomRider } from '../shared/rider.ts';
-import { mulberry } from './tracktextures.ts';
+import { type Rider, decodeRider, defaultRider, rivalRider } from '../shared/rider.ts';
 import { type Cockpit, buildCockpit } from './cockpit.ts';
 import { Head, ROUGH } from './headcam.ts';
 import { Effects } from './effects.ts';
@@ -77,6 +76,8 @@ const SPARK_COLORS = [
   [0.8, 0.4, 1],
 ];
 const SOLO_COUNTDOWN = 3.5;
+/** Past this (m) a driver isn't drawn: they're ~30k triangles, and through tinted glass gone after a few car lengths. */
+const DRIVER_RANGE = 70;
 /** Name tags: fully shown up to TAG_NEAR (m), faded out by TAG_FAR; hills between are checked every TAG_CHECK frames. */
 const TAG_NEAR = 120;
 const TAG_FAR = 280;
@@ -346,7 +347,7 @@ export class RaceGame {
         car.up = { ...setup.car.up };
         const slot = i < mySlot ? i : i + 1;
         // Each rival gets a driver of their own (seen on a bike), the same one every race.
-        const r = this.spawn(car, slot, RIVAL_NAMES[i], false, randomRider(mulberry(0x5eed + i)));
+        const r = this.spawn(car, slot, RIVAL_NAMES[i], false, rivalRider(setup.rider, i));
         r.ai = newAi(0.84 + ((i * 37) % 11) / 100, ((i % 3) - 1) * 1.6);
         this.rivals.push(r);
       }
@@ -1310,6 +1311,7 @@ export class RaceGame {
     this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT);
     const view = this.camTarget();
     this.updateCamera(dt, view);
+    this.driversVisible();
     this.view.follow(this.camera.position.x, view.root.position.y, this.camera.position.z, now);
     this.sound();
     this.updateHud();
@@ -1382,6 +1384,12 @@ export class RaceGame {
       root, id: r.spec.id, cg: r.spec.cg, v, yaw: Math.atan2(-f.x, -f.z), fwd: v.x * f.x + v.y * f.y + v.z * f.z, hit: 0, boost: (f2 & CarFlag.Boost) !== 0,
       spec: r.spec, steer: r.last.c.st, rpm: r.rpm, land: 0, rough: f2 & CarFlag.Offroad ? ROUGH.gravel : 1,
     };
+  }
+
+  private driversVisible() {
+    const cam = this.camera.position;
+    for (const m of [this.me.model, ...this.rivals.map((r) => r.model), ...[...this.remotes.values()].map((r) => r.model)])
+      if (m.driver) m.driver.root.visible = m.root.position.distanceToSquared(cam) < DRIVER_RANGE ** 2;
   }
 
   private updateCamera(dt: number, t: CamTarget) {

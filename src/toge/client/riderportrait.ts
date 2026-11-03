@@ -1,14 +1,15 @@
 // Full-length pictures of drivers for the menus (the race lobby's crew). One small offscreen WebGL renderer draws
-// each rider once into a PNG, cached by rider code, so a lobby of eight costs eight renders and no live canvases.
+// each driver once into a PNG, cached by rider, so a lobby of eight costs at most four renders and no live canvases.
 // Every portrait uses the same camera, so a tall driver stands taller than a short one.
 
 import * as THREE from 'three';
-import { decodeRider, defaultRider } from '../shared/rider.ts';
-import { buildRider } from './ridermodel.ts';
+import { decodeRider, defaultRider, type Rider } from '../shared/rider.ts';
+import { loadDriver } from './driver.ts';
 
 export const PORTRAIT = { w: 160, h: 320 };
 
-const cache = new Map<string, string>();
+const cache = new Map<Rider, string>();
+const pending = new Map<Rider, Promise<void>>();
 let kit: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera } | null = null;
 
 function setup() {
@@ -35,24 +36,35 @@ function setup() {
   return { renderer, scene, camera };
 }
 
-/** A PNG data URL of the rider standing three-quarters to camera. Bad codes draw the default driver. */
-export function riderPortrait(code: string): string {
-  const hit = cache.get(code);
-  if (hit) return hit;
-  try {
-    kit ??= setup();
-    const m = buildRider(decodeRider(code) ?? defaultRider());
-    m.root.rotation.y = 0.28;
-    m.update(0);
-    kit.scene.add(m.root);
-    kit.renderer.render(kit.scene, kit.camera);
-    const url = kit.renderer.domElement.toDataURL('image/png');
-    m.dispose();
-    cache.set(code, url);
-    return url;
-  } catch {
-    return ''; // no WebGL: the lobby still lists names and cars
+/**
+ * A PNG data URL of the driver standing three-quarters to camera, or '' until it's drawn: the model loads first,
+ * and `ready` runs once the picture is in the cache (redraw then). Bad codes draw the default driver.
+ */
+export function riderPortrait(code: string, ready?: () => void): string {
+  const r = decodeRider(code) ?? defaultRider();
+  if (cache.has(r)) return cache.get(r)!;
+  let p = pending.get(r);
+  if (!p) {
+    p = loadDriver(r).then((rig) => {
+      try {
+        kit ??= setup();
+        rig.stand();
+        // The rig faces -Z; turn it to the camera, a little off square.
+        rig.root.rotation.y = Math.PI + 0.28;
+        kit.scene.add(rig.root);
+        kit.renderer.render(kit.scene, kit.camera);
+        cache.set(r, kit.renderer.domElement.toDataURL('image/png'));
+      } catch {
+        cache.set(r, ''); // no WebGL: the lobby still lists names and cars
+      } finally {
+        rig.dispose();
+      }
+    });
+    p.catch(() => {}).finally(() => pending.delete(r));
+    pending.set(r, p);
   }
+  if (ready) p.then(ready, () => {});
+  return '';
 }
 
 /** Frees the renderer (the race needs the WebGL context more than the lobby does). Pictures stay cached. */
