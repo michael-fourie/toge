@@ -466,3 +466,26 @@ test('traffic: hitting a car knocks you off it, and the AI gets every car throug
     assert.ok(crashes <= 6, `${model}: ${crashes} big crashes in traffic`);
   }
 });
+
+test('arcade: holding drift and brake together keeps the car on the road (no repeated drift hops)', () => {
+  const both: DriveInput = { steer: 0.6, throttle: 0, brake: 1, handbrake: 0, drift: 1 };
+  // Pressed together, and the brake pressed in the middle of a drift.
+  for (const lead of [0, 0.5]) {
+    const car = carOn();
+    run(car, gas, 4);
+    run(car, { steer: 0.6, throttle: 1, brake: 0, handbrake: 0, drift: 1 }, lead);
+    const y0 = car.p.y;
+    let starts = 0;
+    let top = 0;
+    let was = car.drift;
+    for (let i = 0; i < 1.5 * TICK_HZ; i++) {
+      stepCar(car, both, flat);
+      if (car.drift !== 0 && was === 0) starts++;
+      was = car.drift;
+      top = Math.max(top, car.p.y - y0);
+    }
+    assert.equal(starts, 0, `lead ${lead}s: a drift (and its hop) started on the brakes`);
+    assert.equal(car.drift, 0);
+    assert.ok(top < 0.15, `lead ${lead}s: the car rose ${top.toFixed(2)} m`);
+  }
+});
