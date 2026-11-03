@@ -31,6 +31,7 @@ import { Head, ROUGH } from './headcam.ts';
 import { Effects } from './effects.ts';
 import { garage } from './garageStore.ts';
 import { type Dot, type ResultLine, RaceHud, type Tag, fmtTime, money, ordinal } from './hud.ts';
+import { saveHighs } from './highs.ts';
 import { DriveControls } from './input.ts';
 import type { RaceNet } from './racenet.ts';
 import { Post } from './post.ts';
@@ -233,6 +234,8 @@ export class RaceGame {
   private lapStart = 0;
   /** Your quickest lap so far (circuits), sent with your finish time. */
   private bestLap = Infinity;
+  /** The fastest you've gone this race (m/s), for your highs on the player card (highs.ts). */
+  private topSpeed = 0;
   /** A time trial: the other racers are ghosts (no contact, no slipstream). */
   private readonly trial: boolean;
   /** A time trial or hill climb: no items, and the results show gaps. */
@@ -857,6 +860,7 @@ export class RaceGame {
       if (!this.setup.online && this.countdown <= 0) this.go();
     }
     const live = this.phase === 'racing';
+    if (live && me.finished === null) this.topSpeed = Math.max(this.topSpeed, speedOf(me.car));
     const myInput = me.input;
     if (this.phase === 'countdown') {
       Object.assign(myInput, { steer: 0, throttle: this.paused ? 0 : this.controls.input.throttle, brake: 1, handbrake: 1, drift: 0 });
@@ -1067,6 +1071,7 @@ export class RaceGame {
     // Solo: the race is over when you cross the line; the AI still out are placed by how far they got.
     // The combo you cross the line in still counts.
     if (comboPoints(this.driftMeter) > 0) this.hud.driftBanked(bankCombo(this.driftMeter), this.driftMeter.total);
+    saveHighs({ drift: this.driftMeter.total, topKmh: this.topSpeed * 3.6 });
     if (!this.setup.online) return void this.soloResults();
     this.setup.online.net.send({ t: 'drift', pts: this.driftMeter.total });
     this.setup.online.net.send({ t: 'finish', time: this.time, best: Number.isFinite(this.bestLap) ? this.bestLap : undefined });

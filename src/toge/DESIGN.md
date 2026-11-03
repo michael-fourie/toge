@@ -164,6 +164,7 @@ All in hub.css (cosmetics-specific ones, `.cz-*`, in cosmetics.css).
 | Friend row | `.tg-friends` > `.tg-friend` | Initial in a ring (`.tg-friend-av`), name in the italic display face, a tag, pill actions. Remove takes two presses, like selling. |
 | Times table | `.tg-times` | Track (name + kind and length) then times in tabular numbers with a small line under each (the car, the date, or the gap: `.good` / `.bad`). |
 | New best | `.rh-pb` (race.css) | Gold tag before a finish time on the results: "New best −0.532". |
+| Player card | `.tg-pcard` (modal) | Your name top right opens it (on a phone, the icon). A trading card drawn on one canvas (playercard.ts) in these tokens: hanko + wordmark, your car and driver under neon, name, the car's class badge, three big numbers (wins, win rate, races), six small ones and personal bests, the kerb and "Own the pass." at the foot. Tilts toward the pointer with a sheen. Download PNG is the red action; Share (where the browser shares files), Account / Sign in, Close. |
 | Face | `.tg-face` | A racer's head cropped from their portrait, ringed in their car's paint. Grid rows. |
 
 ## 8. Motion
