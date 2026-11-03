@@ -5,7 +5,7 @@ import type { Item } from '../shared/powerups.ts';
 import { cleanRiderCode } from '../shared/rider.ts';
 import { CAR_RULES, MODE_TRACK, RACE, RACE_MODES, cleanMode, type CarRule, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
-import type { Socket } from '../../server/rooms.ts';
+import { guarded, type Socket } from '../../server/rooms.ts';
 
 const OPEN = 1;
 /** How often a live room re-announces itself to the directory. */
@@ -92,7 +92,7 @@ export class Race {
     /** The dice for the spec car (tests pass their own). */
     private rand: () => number = Math.random,
   ) {
-    if (tick) this.timer = setInterval(() => this.tick(), 1000 / RACE.snapshotHz);
+    if (tick) this.timer = setInterval(() => guarded(() => this.tick(), `race ${code}`), 1000 / RACE.snapshotHz);
   }
 
   get hostName() {
