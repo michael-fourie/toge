@@ -9,6 +9,7 @@ import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById }
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
 import { type Rider, type RiderKey, RIDER_KEYS, decodeRider, defaultRider, encodeRider, randomRider } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
+import { cardData, openPlayerCard } from './playercard.ts';
 import { PHYSICS } from '../shared/protocol.ts';
 import { settingsTab } from './settingsui.ts';
 import { friendCar, friendsApi, friendsTab } from './friendsui.ts';
@@ -175,8 +176,9 @@ export const driveHub: Render = (root, ctx, screen) => {
   const drawTop = () => {
     $(root, '[data-money]').textContent = money(garage.g.money);
     $(root, '[data-who]').innerHTML = account.user
-      ? `${ICON.user}<span>${esc(account.user)}</span><small>${garage.g.wins} wins</small>`
-      : `${ICON.user}<span>Guest</span><small>Sign in to keep your garage</small>`;
+      ? `${ICON.user}<span>${esc(account.user)}</span><small>${garage.g.wins} wins · Player card</small>`
+      : `${ICON.user}<span>Guest</span><small>Your player card</small>`;
+    $(root, '[data-who]').setAttribute('aria-label', 'Open your player card');
     const tab = tabOf(page);
     root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => {
       b.setAttribute('aria-selected', String(b.dataset.tab === tab.id));
@@ -768,11 +770,14 @@ export const driveHub: Render = (root, ctx, screen) => {
     });
   };
 
-  const closeReel = () => {
+  const closeModal = () => {
     const modal = $(root, '[data-modal]');
     modal.hidden = true;
     modal.innerHTML = '';
     draw(false);
+  };
+  const closeReel = () => {
+    closeModal();
     root.querySelector<HTMLElement>('[data-crate="mystery"], [data-case-open]')?.focus();
   };
 
@@ -824,7 +829,20 @@ export const driveHub: Render = (root, ctx, screen) => {
 
   root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => b.addEventListener('click', () => switchPage(lastPage[b.dataset.tab as TabId])));
   $(root, '[data-home]').addEventListener('click', () => ctx.go({ name: 'games' }));
-  $(root, '[data-who]').addEventListener('click', () => ctx.go({ name: 'account' }));
+  // Your name top right: your player card (Account is a button on it).
+  const showCard = () => {
+    if (busy) return;
+    flushDraft();
+    const name = account.user ?? playerName();
+    openPlayerCard($(root, '[data-modal]'), cardData(garage.g, garage.bests, name, !account.user, viewedRider()), {
+      close: () => {
+        closeModal();
+        root.querySelector<HTMLElement>('[data-who]')?.focus();
+      },
+      account: () => ctx.go({ name: 'account' }),
+    });
+  };
+  $(root, '[data-who]').addEventListener('click', showCard);
   const onPadTab = (e: Event) => {
     if (!root.querySelector<HTMLElement>('[data-modal]')!.hidden) return;
     const i = PAGES.indexOf(page);
@@ -842,6 +860,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     if (e.key === 'Escape' && !modal.hidden) {
       e.stopImmediatePropagation();
       if (modal.querySelector<HTMLElement>('[data-ok]:not([hidden])')) closeReel();
+      else modal.querySelector<HTMLElement>('[data-pcard-close]')?.click();
     }
   };
   addEventListener('keydown', onKey, true);

@@ -135,6 +135,9 @@ src/toge/shared/
   rider.ts     your driver: RIDER_FIELDS (APPEND ONLY, like the cosmetics catalogue: a code is one base-36 digit per field,
                after `r1.`; shorter old codes fill the new fields with 0), encode/decode/cleanRider, randomRider. Racers carry
                the code as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the default).
+  cardstats.ts the player card's numbers: Highs (best drift race, top speed; toge/client/highs.ts keeps them in this
+               browser as `atrous.highs`, racegame.ts `finish()` writes them, solo and online), noteHighs, bestBuild,
+               winRate, cardBests (the newest few of your best times from records.ts).
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
                climb), ghostMode (time trial only), cleanMode (no items + car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
@@ -160,7 +163,9 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   driver's door, `focus('rider')` turns them to the camera), ridermodel.ts (the driver figure: ~70 primitives with cached
   geometry and materials, posed, a breathing idle; tune in `/dev/riders.html`, `window.lab`), riderportrait.ts (one
   offscreen renderer draws each driver to a cached PNG for the lobby; released when the lobby closes), riderui.ts (the
-  Driver page), settingsui.ts (the Settings page: graphics), friendsui.ts (the Friends page: list, add, a friend's
+  Driver page), playercard.ts (the player card: your name top right opens it; one 1080×1350 canvas, drawn in 2D around
+  a single offscreen 3D shot of your car and driver, is both what you see and the PNG you download or share), settingsui.ts
+  (the Settings page: graphics), friendsui.ts (the Friends page: list, add, a friend's
   profile and best times), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
   styled by hub.css), lobby.ts (`drivelobby`), trackart.ts (track tiles and maps for the menus), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts

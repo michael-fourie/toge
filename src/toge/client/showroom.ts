@@ -17,7 +17,7 @@ const CYAN = new THREE.Color(0x38c9ff);
 const MAGENTA = new THREE.Color(0xff3d9a);
 
 /** What the paint reflects: a dark bay, three softbox strips overhead, a neon panel each side. */
-function garageEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
+export function garageEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   const scene = new THREE.Scene();
   const own: { dispose(): void }[] = [];
   const add = (geo: THREE.BufferGeometry, color: THREE.Color, at?: [number, number, number]) => {
