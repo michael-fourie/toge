@@ -138,7 +138,7 @@ Everyone also has a **signature belonging** (Xang's labelled rock sample, Will's
 person's alone, rare as a real clue, and the Degenerates' favourite thing to plant.
 
 Tests check that every trait card is unique, so a full set of real clues always singles out the culprit, and that
-no two categories split the cast the same way, which would make one of them pointless. All ten main characters'
+no two categories split the cast the same way, which would make one of them pointless. All eleven main characters'
 cards pass both today.
 
 ### Crimes leave clues

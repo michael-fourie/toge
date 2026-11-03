@@ -199,6 +199,21 @@ test('house: nobody walks through a wall, and a shove never pushes anyone throug
   assert.ok(moved > 0.35 && moved < 0.8, `stagger was ${moved.toFixed(2)} m`);
 });
 
+test('house: Gare’s teep staggers about twice as far as a shove (and still not through a wall)', () => {
+  // Open floor down the dining room, where a plain shove goes its half metre.
+  const s = newWalker({ x: 2, y: 0, z: 6 });
+  settle(s, SOLIDS, 0.1);
+  shove(s, { x: 0, z: 1 }, 2);
+  settle(s, SOLIDS, 1);
+  const moved = s.pos.z - 6;
+  assert.ok(moved > 0.85 && moved < 1.4, `teep was ${moved.toFixed(2)} m`);
+  const w = newWalker({ x: 3.3, y: 0, z: 15 }, -Math.PI / 2);
+  settle(w, SOLIDS, 0.1);
+  shove(w, { x: 1, z: 0 }, 2);
+  settle(w, SOLIDS, 1);
+  assert.ok(w.pos.x < 3.9 - PLAYER.halfWidth + 0.01, `teeped through the wall to ${w.pos.x}`);
+});
+
 test('house: two overlapping players drift apart (gently, each moving only themselves)', () => {
   const a = newWalker({ x: 6.2, y: 0, z: 10.4 });
   const b = newWalker({ x: 6.25, y: 0, z: 10.4 });
