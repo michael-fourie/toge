@@ -112,6 +112,8 @@ export function buildBike(owned: OwnedCar, rider: Rider | null): CarModel {
   const own: { dispose(): void }[] = [];
   const job = cosPaint(owned);
   const paint = job?.mat ?? paintMaterial(look);
+  // The fairings are open-backed shells: draw their insides, or the bike goes see-through from behind and below.
+  paint.side = THREE.DoubleSide;
   if (job) own.push(...job.own);
   else if (look.stripe) {
     const tex = stripeTexture(look);
