@@ -5,7 +5,7 @@
 // you stopped), or null for a miss: too soon, the wrong button, or nothing at all. Reactions are timed on each
 // player's own screen, so a slow connection never costs anyone a round.
 
-export type Kind = 'draw' | 'clock' | 'ink' | 'ducks';
+export type Kind = 'draw' | 'clock' | 'ink' | 'ducks' | 'odd' | 'maths' | 'arrow' | 'pour' | 'simon';
 
 export type Round =
   /** Wait for SNAP! and press. Decoy words flash first (ms after the wait starts); pressing on one is too soon. */
@@ -15,7 +15,17 @@ export type Round =
   /** A colour's name in a different ink: pick the INK. `word` and `ink` index COLOURS. */
   | { kind: 'ink'; delay: number; word: number; ink: number }
   /** Ducks flash up for DUCK_FLASH ms: pick how many there were. `options[answer]` is right. */
-  | { kind: 'ducks'; ducks: { x: number; y: number; flip: boolean }[]; options: number[]; answer: number };
+  | { kind: 'ducks'; ducks: { x: number; y: number; flip: boolean }[]; options: number[]; answer: number }
+  /** Four lookalikes on the buttons (`pair` indexes ODD_PAIRS): pick the one that's different, `odd`. */
+  | { kind: 'odd'; delay: number; pair: number; odd: number }
+  /** A sum (`a op b`): pick the answer, `options[answer]`. */
+  | { kind: 'maths'; delay: number; a: number; b: number; op: '+' | '−' | '×'; options: number[]; answer: number }
+  /** An arrow (`dir` in pick order: ↓ → ← ↑): press that way, or the opposite way when `flip`. */
+  | { kind: 'arrow'; delay: number; dir: number; flip: boolean }
+  /** A glass fills faster and faster, reaching the brim at `brim` ms: stop at the line (`line`, 0-1 of the glass). */
+  | { kind: 'pour'; line: number; brim: number }
+  /** Colours flash in order (SIMON_STEP ms each): press them back in the same order. */
+  | { kind: 'simon'; seq: number[] };
 
 /** The four pick buttons, in pad order: Ⓐ green, Ⓑ red, Ⓧ blue, Ⓨ yellow (also ↓ → ← ↑ and 1–4). */
 export const COLOURS = [
@@ -25,13 +35,31 @@ export const COLOURS = [
   { name: 'YELLOW', hex: '#ffcf2e' },
 ] as const;
 
-export const KINDS: Kind[] = ['draw', 'clock', 'ink', 'ducks'];
+export const KINDS: Kind[] = ['draw', 'clock', 'ink', 'ducks', 'odd', 'maths', 'arrow', 'pour', 'simon'];
 export const TITLES: Record<Kind, { title: string; how: string }> = {
   draw: { title: 'QUICKDRAW', how: 'Press when it says SNAP! Not before.' },
   clock: { title: 'BLIND CLOCK', how: 'Stop the clock on the target. It hides after 3 seconds.' },
   ink: { title: 'INK, NOT WORD', how: 'Press the colour of the INK, not what the word says.' },
   ducks: { title: 'DUCK COUNT', how: 'Ducks! Count them, quick.' },
+  odd: { title: 'ODD ONE OUT', how: 'Three match. One doesn’t. Pick it.' },
+  maths: { title: 'QUICK MATHS', how: 'Pick the answer. No calculators.' },
+  arrow: { title: 'WHICH WAY', how: 'Press the way the arrow points. Unless it says OPPOSITE!' },
+  pour: { title: 'POUR', how: 'Stop pouring at the line. Over it and it spills.' },
+  simon: { title: 'SIMON SNAPS', how: 'Watch the colours, then press them back in order.' },
 };
+
+/** Lookalikes for Odd One Out: three of the first, one of the second (or the other way round). */
+export const ODD_PAIRS = [
+  ['🐸', '🐢'], ['😀', '😃'], ['🍎', '🍅'], ['🐶', '🐺'], ['🌕', '🌝'], ['🍩', '🥯'],
+  ['🦆', '🐤'], ['🐱', '🐯'], ['⚽', '🏐'], ['🍪', '🥠'], ['🌲', '🌳'], ['🙈', '🙊'],
+] as const;
+/** Which Way's arrows, in pick order (Ⓐ ↓, Ⓑ →, Ⓧ ←, Ⓨ ↑): the opposite of pick `i` is `3 - i`. */
+export const ARROWS = ['⬇', '➡', '⬅', '⬆'] as const;
+/** Simon: each colour is lit this long, then a short gap (ms). */
+export const SIMON_STEP = 600;
+export const SIMON_LIT = 450;
+/** Pour: how the level rises, level = (t / brim)^POUR_EASE (it speeds up as it goes). */
+export const POUR_EASE = 1.6;
 
 /** The round's title card, before anything can be pressed (ms). */
 export const INTRO = 1800;
@@ -42,10 +70,14 @@ export const DUCK_FLASH = 1300;
 const REACT = 2500;
 const CLOCK_GRACE = 4000;
 const PICK = 3500;
+/** Simon: time to press the sequence back, per colour, on top of a base (ms). */
+const SIMON_BASE = 1500;
+const SIMON_PER = 900;
 /** Silly near-misses for Quickdraw. */
 const DECOYS = ['SNACK!', 'SNAIL!', 'SNORE!', 'SNOT!', 'SNAPE?', 'NAPS!', 'SNOOP!', 'SPAN!'];
 
-export const ROUNDS = 8;
+/** Enough rounds that a match plays every kind once. */
+export const ROUNDS = 10;
 /** Points for 1st, 2nd and 3rd; anyone else who didn't miss gets the last entry. */
 export const POINTS = [5, 3, 2, 1];
 
@@ -91,6 +123,20 @@ function makeRound(kind: Kind, r: () => number): Round {
     return { kind, delay, decoys };
   }
   if (kind === 'clock') return { kind, target: 5000 + Math.floor(r() * 9) * 500 };
+  if (kind === 'odd') return { kind, delay: Math.round(600 + r() * 1400), pair: Math.floor(r() * ODD_PAIRS.length), odd: Math.floor(r() * 4) };
+  if (kind === 'maths') return makeMaths(r);
+  if (kind === 'arrow') return { kind, delay: Math.round(700 + r() * 1800), dir: Math.floor(r() * 4), flip: r() < 0.5 };
+  if (kind === 'pour') return { kind, line: Math.round((0.55 + r() * 0.3) * 100) / 100, brim: Math.round(3600 + r() * 1800) };
+  if (kind === 'simon') {
+    const seq: number[] = [];
+    const n = 4 + Math.floor(r() * 2); // 4 or 5 colours
+    // Never the same colour twice in a row: a repeat is hard to see as two flashes.
+    while (seq.length < n) {
+      const c = Math.floor(r() * 4);
+      if (c !== seq[seq.length - 1]) seq.push(c);
+    }
+    return { kind, seq };
+  }
   if (kind === 'ink') {
     const word = Math.floor(r() * 4);
     const ink = (word + 1 + Math.floor(r() * 3)) % 4; // never the colour it names
@@ -119,10 +165,50 @@ function makeRound(kind: Kind, r: () => number): Round {
   return { kind, ducks, options, answer: options.indexOf(real) };
 }
 
+/** A sum with four close answers: + and − up to 40ish, × up to 9 × 9. */
+function makeMaths(r: () => number): Round {
+  const op = (['+', '−', '×'] as const)[Math.floor(r() * 3)];
+  let a: number;
+  let b: number;
+  if (op === '×') {
+    a = 3 + Math.floor(r() * 7);
+    b = 3 + Math.floor(r() * 7);
+  } else {
+    a = 8 + Math.floor(r() * 32);
+    b = 3 + Math.floor(r() * 18);
+    if (op === '−' && b > a) [a, b] = [b, a];
+  }
+  const real = op === '+' ? a + b : op === '−' ? a - b : a * b;
+  // Wrong answers a slip away: off by one or two, or by ten (a carry gone wrong).
+  const wrong = [real - 10, real - 2, real - 1, real + 1, real + 2, real + 10].filter((v) => v >= 0);
+  const options = [real];
+  while (options.length < 4) options.push(wrong.splice(Math.floor(r() * wrong.length), 1)[0]);
+  for (let i = 3; i > 0; i--) {
+    const j = Math.floor(r() * (i + 1));
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+  return { kind: 'maths', delay: Math.round(600 + r() * 1400), a, b, op, options, answer: options.indexOf(real) };
+}
+
+/** Pour: how full the glass is (0-1+) `t` ms into the round. */
+export const pourLevel = (round: { brim: number }, t: number) => (t <= 0 ? 0 : (t / round.brim) ** POUR_EASE);
+/** Pour: when the level reaches the line (ms). */
+export const pourLine = (round: { line: number; brim: number }) => round.brim * round.line ** (1 / POUR_EASE);
+
+/** The right pick for a one-pick round (-1 for the rounds that aren't). */
+export function rightPick(round: Round): number {
+  if (round.kind === 'ink') return round.ink;
+  if (round.kind === 'ducks' || round.kind === 'maths') return round.answer;
+  if (round.kind === 'odd') return round.odd;
+  if (round.kind === 'arrow') return round.flip ? 3 - round.dir : round.dir;
+  return -1;
+}
+
 /** When a round's picks or presses open, ms after the title card (the "go" moment the reaction is timed from). */
 export function goAt(round: Round): number {
-  if (round.kind === 'draw' || round.kind === 'ink') return round.delay;
+  if (round.kind === 'draw' || round.kind === 'ink' || round.kind === 'odd' || round.kind === 'maths' || round.kind === 'arrow') return round.delay;
   if (round.kind === 'ducks') return DUCK_WAIT + DUCK_FLASH;
+  if (round.kind === 'simon') return round.seq.length * SIMON_STEP + 300;
   return 0;
 }
 
@@ -130,11 +216,16 @@ export function goAt(round: Round): number {
 export function timeLimit(round: Round): number {
   if (round.kind === 'draw') return round.delay + REACT;
   if (round.kind === 'clock') return round.target + CLOCK_GRACE;
+  // A pour nobody stops overflows soon after the brim.
+  if (round.kind === 'pour') return round.brim * 1.1;
+  if (round.kind === 'simon') return goAt(round) + SIMON_BASE + SIMON_PER * round.seq.length;
   return goAt(round) + PICK;
 }
 
 /** Does this round want a single press (any button) or one of four picks? */
-export const picks = (round: Round) => round.kind === 'ink' || round.kind === 'ducks';
+export const picks = (round: Round) => round.kind !== 'draw' && round.kind !== 'clock' && round.kind !== 'pour';
+/** Rounds you watch and stop (no go moment to react to): reactions aren't timed from a frame. */
+export const untimed = (round: Round) => round.kind === 'clock' || round.kind === 'pour';
 
 /**
  * Judges one answer. `at` is when it came, ms after the title card; `shown` is when the go moment actually
@@ -144,10 +235,28 @@ export const picks = (round: Round) => round.kind === 'ink' || round.kind === 'd
 export function judge(round: Round, at: number | null, pick = -1, shown = goAt(round)): number | null {
   if (at === null || !Number.isFinite(at) || at > timeLimit(round)) return null;
   if (round.kind === 'clock') return Math.round(Math.abs(at - round.target));
+  // Pour: over the line spills; the result is how far short of it you stopped (ms of pouring).
+  if (round.kind === 'pour') return at < 0 || at > pourLine(round) ? null : Math.round(pourLine(round) - at);
+  if (round.kind === 'simon') return null; // judged press by press: judgeSimon
   if (at < goAt(round)) return null; // too soon (or a decoy)
-  if (round.kind === 'ink' && pick !== round.ink) return null;
-  if (round.kind === 'ducks' && pick !== round.answer) return null;
+  const right = rightPick(round);
+  if (right >= 0 && pick !== right) return null;
   return Math.round(Math.max(0, at - Math.max(shown, goAt(round))));
+}
+
+/**
+ * Simon: the presses so far (ms after the title card, and which colour). 'more' while they're right but not done;
+ * null on a wrong colour, a press before the sequence finished, or too late; otherwise the time from the go
+ * moment to the last press.
+ */
+export function judgeSimon(round: { kind: 'simon'; seq: number[] }, presses: { at: number; pick: number }[], shown = goAt(round)): number | null | 'more' {
+  const go = Math.max(shown, goAt(round));
+  for (let i = 0; i < presses.length; i++) {
+    const p = presses[i];
+    if (i >= round.seq.length || p.pick !== round.seq[i] || p.at < goAt(round) || p.at > timeLimit(round)) return null;
+  }
+  if (presses.length < round.seq.length) return 'more';
+  return Math.round(Math.max(0, presses[presses.length - 1].at - go));
 }
 
 /** A result from another player, checked before it's trusted (null = a miss). */
@@ -178,5 +287,6 @@ export function standings(totals: Map<number, number>, names: Map<number, string
 export function describe(round: Round, v: number | null): string {
   if (v === null) return 'missed';
   if (round.kind === 'clock') return v < 10 ? 'dead on!' : `${(v / 1000).toFixed(2)} s off`;
+  if (round.kind === 'pour') return v < 40 ? 'right on the line!' : `${(v / 1000).toFixed(2)} s short`;
   return `${v} ms`;
 }
