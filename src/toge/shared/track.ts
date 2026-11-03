@@ -13,7 +13,7 @@ import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -85,7 +85,50 @@ export interface TrackDef {
    * rocks lie on the road's edges instead (props.ts), and the forest crowds right up to the barrier.
    */
   climb?: boolean;
+  /**
+   * A figure 8 (circuits only): the lap crosses itself once, and the first pass through the crossing goes over
+   * the second on a bridge this many metres up (the leg underneath dips OVERPASS.dip into a cutting). The ground
+   * then has two layers there, so ask heightAt / groundAt with the car's `hint` (see Crossing).
+   */
+  overpass?: number;
   features?: Feature[];
+}
+
+/** A figure 8's crossing: how long the bridge deck is and how the road rises to it (m). */
+export const OVERPASS = {
+  /** The deck reaches this far along the upper road either side of the crossing; past it the road is on an embankment. */
+  deck: 48,
+  /** The upper road rises (and the lower dips) over this far either side of the crossing. */
+  ramp: 125,
+  rampUnder: 75,
+  dip: 1.5,
+  /** Cars this far along the upper road from the crossing drive on the deck's layer of the ground. */
+  over: 80,
+  /** ...where the lower road this far either side of the crossing doesn't exist. */
+  under: 60,
+};
+
+/**
+ * Where a figure 8 crosses itself. Near it the ground has two layers: the upper road on its bridge deck, and
+ * the world underneath (the lower road, the hills). Every sample is flagged by which stretch it belongs to,
+ * and a ground query picks its layer by the car's hint: a car on the upper road near the crossing (`up`)
+ * sees a world without the lower road there (`low`); anyone else (the terrain mesh, the lower road, any
+ * query without a hint) sees a world without the deck (`deck`).
+ */
+export interface Crossing {
+  x: number;
+  z: number;
+  /** 1 on the samples of the bridge deck. */
+  deck: Uint8Array;
+  /** 1 on the samples of the upper road near the crossing (wider than the deck), where the deck's layer applies. */
+  up: Uint8Array;
+  /** 1 on the samples of the lower road near the crossing. */
+  low: Uint8Array;
+  /** The deck on the lap the renderer draws: samples i0..i1. */
+  i0: number;
+  i1: number;
+  /** A sample on the deck (a hint that puts a query on the upper layer). */
+  over: number;
 }
 
 export const SAMPLE = 2; // metres between centreline samples
@@ -142,6 +185,8 @@ export interface Track {
   /** Mystery boxes and obstacles (sorted by s), and launch ramps (part of the ground). */
   props: Prop[];
   ramps: Ramp[];
+  /** A figure 8's crossing, or null. */
+  cross: Crossing | null;
   bounds: { x0: number; x1: number; z0: number; z1: number };
 }
 
@@ -375,6 +420,28 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [203, 62, 165], [133, 61, 156], [70, 61, 167], [23, 60, 148], [3, 60, 101], [0, 60, 47],
     ],
   },
+  // A figure 8 for drifting: two big sweeping loops joined by a crossing, the first pass over it on a bridge.
+  hachi: {
+    id: 'hachi',
+    name: 'Hachi-no-ji',
+    tag: 'Figure 8 · 3 laps · drift · overpass',
+    blurb: 'A figure 8 on the desert flats, built for big slides: a long right-hand carousel, over the bridge, a left-hand loop that tightens at the far end, and back under the bridge you just crossed.',
+    theme: 'desert',
+    seed: 233,
+    width: 14,
+    relief: 60,
+    laps: 3,
+    overpass: 7.5,
+    points: [
+      [56.6, 100, -41.1], [89.1, 100, -64.7], [125, 100, -79.2], [163.5, 101.4, -75.2], [195.6, 103, -53.5],
+      [213.7, 103.9, -19.4], [213.7, 103.9, 19.4], [195.6, 103, 53.5], [163.5, 101.4, 75.2], [125, 100, 79.2],
+      [89.1, 100, 64.7], [72.9, 100, 53], [40.5, 100, 29.5], [8.2, 100, 5.9], [-24.2, 100, -17.6],
+      [-56.5, 100, -41.1], [-88.9, 100, -64.6], [-98, 100, -71.2], [-126.9, 100, -85], [-159.2, 99.7, -87.5],
+      [-194.2, 98.6, -78.4], [-227.3, 97.8, -58.9], [-251, 97.2, -31.5], [-259.7, 97, 0], [-251, 97.2, 31.5],
+      [-227.3, 97.8, 58.9], [-194.2, 98.6, 78.4], [-159.2, 99.7, 87.5], [-126.9, 100, 85], [-98, 100, 71.2],
+      [-81.8, 100, 59.4], [-49.4, 100, 35.9], [-17.1, 100, 12.4], [15.3, 100, -11.1]
+    ],
+  },
   // The hill climb (the lobby's Hill climb mode): uphill all the way, narrow, rough and crowded by the forest.
   karasu: {
     id: 'karasu',
@@ -604,6 +671,7 @@ export function buildTrack(def: TrackDef): Track {
   const z = Float64Array.from(zs);
   smooth(y, 18, 3); // no steps in the grade, even through hairpins
   if (lap) retile(y, lap, pre);
+  const cross = def.overpass ? crossing(def, x, y, z, lap, pre) : null;
   const first = pts[0];
   const last = pts[pts.length - 1];
   const nearestS = (p: P3) => {
@@ -791,6 +859,7 @@ export function buildTrack(def: TrackDef): Track {
     props: [],
     ramps: [],
     cuts: [],
+    cross,
   };
   for (const f of def.features ?? []) if (f.kind === 'cut') t.cuts.push(makeCut(t, f.s0, f.s1));
   if (lap) return t; // circuits are clean racing: no item boxes, obstacles or ramps
@@ -799,6 +868,51 @@ export function buildTrack(def: TrackDef): Track {
   t.ramps = placed.ramps;
   return t;
 }
+/**
+ * Finds where a figure 8's lap crosses itself, raises the first pass over it (a raised cosine, so the grade
+ * stays gentle) and dips the second under it, and flags the samples of each stretch. Every lap alike.
+ */
+function crossing(def: TrackDef, x: Float64Array, y: Float64Array, z: Float64Array, lap: number, pre: number): Crossing {
+  if (!lap) throw new Error(`${def.id}: only a circuit can cross itself`);
+  // The closest two samples of one lap that aren't neighbours along it.
+  const L = pre + lap; // the second lap (clear of the ends)
+  let bd = Infinity;
+  let pa = 0;
+  let pb = 0;
+  for (let i = 0; i < lap; i++)
+    for (let j = i + 60; j < lap - 60 + i && j < lap; j++) {
+      const d = (x[L + i] - x[L + j]) ** 2 + (z[L + i] - z[L + j]) ** 2;
+      if (d < bd) {
+        bd = d;
+        pa = i;
+        pb = j;
+      }
+    }
+  if (bd > 4 * SAMPLE * SAMPLE) throw new Error(`${def.id}: a figure 8 has to cross itself`);
+  const n = x.length;
+  // Lap distance (m) between sample i and lap position p.
+  const gap = (i: number, p: number) => {
+    const k = Math.abs((((i - pre) % lap) + lap) % lap - p);
+    return Math.min(k, lap - k) * SAMPLE;
+  };
+  const deck = new Uint8Array(n);
+  const up = new Uint8Array(n);
+  const low = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = gap(i, pa);
+    const b = gap(i, pb);
+    if (a < OVERPASS.ramp) y[i] += (def.overpass! * (1 + Math.cos((Math.PI * a) / OVERPASS.ramp))) / 2;
+    if (b < OVERPASS.rampUnder) y[i] -= (OVERPASS.dip * (1 + Math.cos((Math.PI * b) / OVERPASS.rampUnder))) / 2;
+    deck[i] = a < OVERPASS.deck ? 1 : 0;
+    up[i] = a < OVERPASS.over ? 1 : 0;
+    low[i] = b < OVERPASS.under ? 1 : 0;
+  }
+  const i0 = pre + pa - OVERPASS.deck / SAMPLE;
+  const i1 = pre + pa + OVERPASS.deck / SAMPLE;
+  if (i0 < 1 || i1 > lap) throw new Error(`${def.id}: put the start line farther from the bridge`);
+  return { x: (x[L + pa] + x[L + pb]) / 2, z: (z[L + pa] + z[L + pb]) / 2, deck, up, low, i0, i1, over: pre + pa };
+}
+
 /** A point-to-point road's centreline: a straight run-up to the start, the points, a straight runoff past the finish. */
 function roadSamples(pts: P3[], xs: number[], ys: number[], zs: number[]) {
   const dir = (a: P3, b: P3) => {
@@ -1011,8 +1125,12 @@ export function locate(t: Track, x: number, z: number, hint: number, out: Loc): 
   }
   if (bi < 0 || bi === Math.max(0, hint - 30) || bi === Math.min(t.n - 1, hint + 30)) {
     const list = t.grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    // At a figure 8's crossing, keep to the road the car is on.
+    const c = t.cross;
+    const skip = c && hint >= 0 ? (c.up[hint] ? c.low : c.low[hint] ? c.up : null) : null;
     if (list)
       for (const i of list) {
+        if (skip && skip[i]) continue;
         const d = (t.x[i] - x) ** 2 + (t.z[i] - z) ** 2;
         if (d < bd) {
           bd = d;
@@ -1127,9 +1245,9 @@ const SOFTMIN = 3;
  * function of distances, so the ground has no seams, even inside hairpins. `onRoad` receives the nearest
  * road location when the point is on the road plane.
  */
-export function heightAt(t: Track, x: number, z: number, onRoad?: Loc): number {
+export function heightAt(t: Track, x: number, z: number, onRoad?: Loc, hint = -1): number {
   roadHit = false;
-  const h = roadHeight(t, x, z, onRoad);
+  const h = roadHeight(t, x, z, onRoad, hint);
   if (roadHit || !t.cuts.length) return h;
   // A shortcut's track takes over near it, easing back into the hills.
   const c = nearCut(t, x, z);
@@ -1143,16 +1261,22 @@ let roadHit = false;
 /** Distance to the nearest road sample in the last roadHeight call (Infinity when none is near). */
 let roadDist = Infinity;
 
-function roadHeight(t: Track, x: number, z: number, onRoad?: Loc): number {
+function roadHeight(t: Track, x: number, z: number, onRoad: Loc | undefined, hint: number): number {
   const list = t.grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
   roadDist = Infinity;
   if (!list) return terrainAt(t, x, z);
   const L = list.length;
   if (d2s.length < L) d2s = new Float64Array(L * 2);
+  // A figure 8's crossing: the layer the hint is on leaves the other one out (see Crossing).
+  const skip = t.cross ? (hint >= 0 && t.cross.up[hint] ? t.cross.low : t.cross.deck) : null;
   let dmin2 = Infinity;
   let imin = -1;
   for (let k = 0; k < L; k++) {
     const i = list[k];
+    if (skip && skip[i]) {
+      d2s[k] = Infinity;
+      continue;
+    }
     const d2 = (t.x[i] - x) ** 2 + (t.z[i] - z) ** 2;
     d2s[k] = d2;
     if (d2 < dmin2) {
@@ -1198,7 +1322,17 @@ function roadHeight(t: Track, x: number, z: number, onRoad?: Loc): number {
     const j = Math.min(t.n - 2, i);
     const rx = x - t.x[i];
     const rz = z - t.z[i];
-    const along = rx * t.tx[i] + rz * t.tz[i];
+    let along = rx * t.tx[i] + rz * t.tz[i];
+    // Never carry a stretch's plane on past where the road leaves this layer (a bridge's ends), or the ground
+    // would ramp on up to nothing.
+    if (skip) {
+      const dir = along > 0 ? 1 : -1;
+      for (let k = 1; k * SAMPLE < Math.abs(along) + SAMPLE && k < 24; k++)
+        if (skip[Math.max(0, Math.min(t.n - 1, i + dir * k))]) {
+          along = dir * Math.min(Math.abs(along), k * SAMPLE);
+          break;
+        }
+    }
     const lat = -rx * t.tz[i] + rz * t.tx[i];
     const h = t.y[i] + ((t.y[j + 1] - t.y[j]) / SAMPLE) * along - t.bank[i] * lat;
     wsum += w;
@@ -1218,9 +1352,9 @@ export interface Ground {
 export const newGround = (): Ground => ({ h: 0, nx: 0, ny: 1, nz: 0, surf: 'asphalt' });
 
 /** Height, normal and surface at (x, z). On the road the normal is exact; off it, from finite differences. */
-export function groundAt(t: Track, x: number, z: number, out: Ground): Ground {
+export function groundAt(t: Track, x: number, z: number, out: Ground, hint = -1): Ground {
   tmpLoc.i = -1;
-  const h = heightAt(t, x, z, tmpLoc);
+  const h = heightAt(t, x, z, tmpLoc, hint);
   out.h = h;
   if (tmpLoc.i >= 0 && !(t.ramps.length && rampLift(t.ramps, tmpLoc.s, tmpLoc.d) > 0)) {
     const i = tmpLoc.i;
@@ -1252,8 +1386,8 @@ export function groundAt(t: Track, x: number, z: number, out: Ground): Ground {
   }
   const onRamp = tmpLoc.i >= 0;
   const e = onRamp ? 0.25 : 0.6;
-  const hx = heightAt(t, x + e, z);
-  const hz = heightAt(t, x, z + e);
+  const hx = heightAt(t, x + e, z, undefined, hint);
+  const hz = heightAt(t, x, z + e, undefined, hint);
   const nx = -(hx - h) / e;
   const nz = -(hz - h) / e;
   const l = Math.hypot(nx, 1, nz);
@@ -1262,6 +1396,21 @@ export function groundAt(t: Track, x: number, z: number, out: Ground): Ground {
   out.nz = nz / l;
   out.surf = onRamp ? 'asphalt' : onCut(t, x, z) ? 'gravel' : 'grass';
   return out;
+}
+
+const deckLoc = newLoc();
+
+/**
+ * The ground under something at height `y` that has no hint (debris, a dropped wreck): on a figure 8's
+ * bridge deck when it's over the deck and above it, otherwise the ground heightAt gives.
+ */
+export function groundBelow(t: Track, x: number, z: number, y: number): number {
+  const h = heightAt(t, x, z);
+  const c = t.cross;
+  if (!c || (x - c.x) ** 2 + (z - c.z) ** 2 > (OVERPASS.deck + t.edge) ** 2) return h;
+  deckLoc.i = -1;
+  const top = heightAt(t, x, z, deckLoc, c.over);
+  return deckLoc.i >= 0 && c.deck[deckLoc.i] && top > h && y > top - 1 ? top : h;
 }
 
 /** A shortcut from `s0` to `s1`: a gently curving chord, its height running straight between the ends. */

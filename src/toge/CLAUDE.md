@@ -40,7 +40,8 @@ a component or a page.
 
 - **Tracks** (`TrackId` in track.ts): passes `koripass` (alpine), `saltwind` (coast), `redmesa` (desert rally:
   gravel, crests, canyon), `tsukiyo` (night: bridge, tunnel), `momiji` (autumn), `sakura` (spring);
-  circuits `monza` (3 laps), `spa`, `monaco` (2 laps), `kodama` (the time trial's ring); city `neonbay` (Neon Bay, live
+  circuits `monza` (3 laps), `spa`, `monaco` (2 laps), `kodama` (the time trial's ring), `hachi` (Hachi-no-ji: a 1.2 km figure 8 for drifting, 3 laps,
+  the first pass over the crossing on a bridge); city `neonbay` (Neon Bay, live
   traffic); hill climb `karasu` (Karasu Peak: uphill, 4.1 km and 336 m up, narrow, `climb: true`, only in a Hill climb lobby).
   Track `Feature`s: gravel, canyon, bridge, tunnel, crest, `cut` (a gravel shortcut through gaps in the barrier) and
   `bumps` (heaved tarmac between two control points; the grade test skips them, like crests).
@@ -206,6 +207,15 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 - **Drift and item bonus:** racegame.ts runs your `DriftMeter` each tick (the HUD shows the live combo over the spark readout and the banked total in the top bar) and counts your item uses (a gold `+$` pops by the item slot). Online it sends `drift` (the total) as each combo banks and before `finish`, and `used` for turbos and shields; the room counts relayed attack items itself, caps drift by its own clock, and puts `drift` + `bonus` on each `ResultRow` (`prize` includes the bonus). Solo sends `drift` + `uses` with the `solo` action. Time trials pay drift but not items. Limits are in docs/SECURITY.md.
 - A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts.
 - Circuits (`laps` on the TrackDef: Monza, Spa, Monaco) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
+- **Figure 8** (`overpass: <rise m>` on a circuit's TrackDef, Hachi-no-ji): `crossing()` in track.ts finds where the lap
+  crosses itself, raises the first pass over it (a raised cosine over `OVERPASS.ramp`, so the grade stays under ~10%) and
+  dips the second, and flags samples in `t.cross`: `deck` (the bridge), `up` (the upper road near it) and `low` (the lower
+  road near it). There the ground has two layers, so **ground queries for a car pass its hint**: `groundAt(t, x, z, out,
+  car.hint)` / `heightAt(t, x, z, onRoad, car.hint)` (vehicle.ts does); a hint on `up` sees the deck and no lower road,
+  anything else (no hint: the terrain mesh, scenery) sees the world under the bridge. `locate` keeps a car to its own road
+  there, `groundBelow(t, x, z, y)` is for things with no hint (wreck debris). trackview.ts `overpass()` draws the deck and
+  its piers (kept clear of the lower road). Cars on the two levels never collide (collideCars checks height). The leg
+  spacing test skips the crossing; `figure 8` in racephysics tests the bridge. Put the start line well clear of the bridge.
 - Time trial (`mode: 'trial'` on the room, picked by the host in the lobby; switching to it puts up Kodama Ring, the short circuit built for it): the other racers' cars are see-through ghosts (`ghostly()` in carmodel.ts) and never collide, there are no item boxes and the server drops `item` messages. Clients send their best lap with `finish` (shown only, never paid on); the results add each racer's gap to the winner and best lap.
 - Hill climb (`mode: 'climb'`): solid cars (you bump and draft each other, and take damage with Physics on), but like the
   time trial no items and the host's car rule (`cleanMode()`), run only on `climb` tracks (`modeTracks`; the server ignores any other pick, and leaving the mode puts Kōri

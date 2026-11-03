@@ -32,6 +32,8 @@ test('tracks: legs of the road never come close enough to overlap, and no grade 
     for (let i = 0; i < n; i += 3)
       for (let j = i + 100; j < n; j += 3) {
         if (t.lap && j - i > t.lap - 100) continue;
+        // (A figure 8 crosses itself on purpose: its own test checks the bridge.)
+        if (t.cross && [i, j].every((k) => Math.hypot(t.x[k] - t.cross!.x, t.z[k] - t.cross!.z) < 90)) continue;
         const d = Math.hypot(t.x[i] - t.x[j], t.z[i] - t.z[j]);
         const wide = (k: number) => t.edge + Math.max(t.runL[k], t.runR[k]);
         assert.ok(d > wide(i) + wide(j) + 40, `${id}: s=${i * SAMPLE} and s=${j * SAMPLE} are only ${d.toFixed(1)} m apart`);
@@ -53,7 +55,8 @@ test('tracks: the ground under the road is the road, and it is continuous everyw
         const x = t.x[i] - t.tz[i] * d;
         const z = t.z[i] + t.tx[i] * d;
         locate(t, x, z, i, loc);
-        assert.ok(Math.abs(heightAt(t, x, z) - roadY(t, loc)) < 1e-6, `${id}: off the road plane at s=${s}, d=${d}`);
+        // (Asked from the road's own sample: at a figure 8's bridge the ground has two layers.)
+        assert.ok(Math.abs(heightAt(t, x, z, undefined, i) - roadY(t, loc)) < 1e-6, `${id}: off the road plane at s=${s}, d=${d}`);
       }
     }
     // A walk across the map near the road (where it blends into the hills): no seams. A seam shows as the
@@ -103,13 +106,48 @@ test('circuits: every lap is the same road, the race is every lap, and a car kee
   }
 });
 
+test('figure 8: the first pass crosses the second on a bridge, and cars on each level stay on it', () => {
+  const t = getTrack('hachi');
+  const c = t.cross!;
+  assert.ok(c, 'hachi crosses itself');
+  // The lower road's sample under the bridge, and the angle the legs cross at.
+  let low = -1;
+  for (let i = 0; i < t.lap + 200; i++) if (c.low[i] && (low < 0 || Math.hypot(t.x[i] - c.x, t.z[i] - c.z) < Math.hypot(t.x[low] - c.x, t.z[low] - c.z))) low = i;
+  assert.ok(t.y[c.over] - t.y[low] > 7.5, `clearance ${(t.y[c.over] - t.y[low]).toFixed(1)} m`);
+  assert.ok(Math.abs(t.tx[c.over] * t.tx[low] + t.tz[c.over] * t.tz[low]) < 0.5, 'the legs cross nearly square');
+  // The same spot answers per layer: the deck from the upper road, the road below from the lower one and without a hint.
+  const p = pointAt(t, c.over * SAMPLE, 0);
+  assert.ok(Math.abs(heightAt(t, p.x, p.z, undefined, c.over) - t.y[c.over]) < 0.01);
+  assert.ok(Math.abs(heightAt(t, p.x, p.z) - roadY(t, locate(t, p.x, p.z, low, newLoc()))) < 0.01);
+  assert.ok(Math.abs(heightAt(t, p.x, p.z, undefined, low) - heightAt(t, p.x, p.z)) < 1e-9);
+  // The AI drives a whole race: over the bridge on the first pass, under it on the second, every lap.
+  const car = carOn(t, 'kitsune');
+  const ai = newAi(0.9, 0);
+  const inp = { ...idle };
+  let over = 0;
+  let under = 0;
+  for (let time = 0; car.s < t.finishS && time < 300; time += TICK_DT) {
+    aiDrive(car, t, ai, TICK_DT, inp);
+    stepCar(car, inp, t);
+    if (Math.hypot(car.p.x - c.x, car.p.z - c.z) < 4) {
+      const onDeck = c.deck[car.hint] === 1;
+      const y = car.p.y - (onDeck ? t.y[c.over] : t.y[low]);
+      assert.ok(y > -0.5 && y < 2, `${onDeck ? 'on' : 'under'} the bridge at ${y.toFixed(2)} m from its road`);
+      if (onDeck) over++;
+      else under++;
+    }
+  }
+  assert.ok(car.s >= t.finishS, `stuck at s=${car.s.toFixed(0)}`);
+  assert.ok(over > 0 && under > 0, `over ${over}, under ${under}`);
+});
+
 test('runoff: dirt before the barrier on the outside of fast bends and after every jump, never on structures', () => {
   const g = newGround();
   for (const id of TRACKS) {
     const t = getTrack(id);
-    // Some, but not so much that the rail stops mattering.
+    // Some, but not so much that the rail stops mattering (a figure 8 is nearly all fast loop, built to slide wide).
     const covered = Array.from(t.runL, (l, i) => Math.max(l, t.runR[i]) > 1).filter(Boolean).length / t.n;
-    assert.ok(covered > 0.12 && covered < 0.4, `${id}: runoff on ${(covered * 100).toFixed(0)}% of the road`);
+    assert.ok(covered > 0.12 && covered < (t.cross ? 0.5 : 0.4), `${id}: runoff on ${(covered * 100).toFixed(0)}% of the road`);
     // Where it's wide, it's dirt you can drive on: flat road plane out to a barrier that stands back.
     let wide = 0;
     for (let i = 0; i < t.n; i++)

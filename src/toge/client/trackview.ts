@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import { CUT_HALF, SAMPLE, SHOULDER, type Theme, type Track, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
+import { CUT_HALF, type Crossing, SAMPLE, SHOULDER, type Theme, type Track, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
 import type { Grade } from './post.ts';
 import { FACADE_H, FACADE_W, NEON_SIGNS, ROAD_TILE, TOWER_H, TOWER_W, asphalt, banner, facade, gravel, ground, mulberry, neonSigns, roofTiles, stone, towerFacade, vendingFront } from './tracktextures.ts';
 
@@ -985,6 +985,7 @@ function structures(scene: THREE.Scene, t: Track, keep: <T extends { dispose(): 
     scene.add(mesh);
   };
   const box = keep(new THREE.BoxGeometry(1, 1, 1));
+  if (t.cross) overpass(t, t.cross, ribbon, box, concrete, w, scene);
   for (const sp of t.spans) {
     const i0 = Math.max(0, Math.floor(sp.s0 / SAMPLE));
     const i1 = Math.min(t.n - 1, Math.ceil(sp.s1 / SAMPLE));
@@ -1041,6 +1042,62 @@ function structures(scene: THREE.Scene, t: Track, keep: <T extends { dispose(): 
         lamp.rotation.y = Math.atan2(-t.tx[i], -t.tz[i]);
         scene.add(lamp);
       }
+    }
+  }
+}
+
+/**
+ * A figure 8's bridge: the deck under the upper road, and rows of piers with a crossbeam, the first pair of
+ * rows just clear of the lower road's barriers either side, then every 14 m out to the embankments.
+ */
+function overpass(
+  t: Track, c: Crossing, ribbon: (i0: number, i1: number, profile: [number, number][]) => void, box: THREE.BoxGeometry, concrete: THREE.Material, w: number, scene: THREE.Scene,
+) {
+  ribbon(c.i0, c.i1, [
+    [-w, 0.02],
+    [-w, -1.4],
+    [-w + 1.2, -1.9],
+    [w - 1.2, -1.9],
+    [w, -1.4],
+    [w, 0.02],
+  ]);
+  // How far a point is from the lower road's centreline.
+  const lower: number[] = [];
+  for (let i = 0; i < t.n; i++) if (c.low[i]) lower.push(i);
+  const clear = (x: number, z: number) => Math.min(...lower.map((i) => Math.hypot(t.x[i] - x, t.z[i] - z)));
+  const at = (i: number, d: number) => ({ x: t.x[i] - t.tz[i] * d, z: t.z[i] + t.tx[i] * d, top: t.y[i] - t.bank[i] * d - 1.8 });
+  for (const dir of [-1, 1]) {
+    let next = -1;
+    for (let i = c.over; i > c.i0 + 2 && i < c.i1 - 2; i += dir) {
+      // A row stands where both its piers (and a metre more) are clear of the lower road's barrier.
+      const ok = [-0.62, 0.62].every((f) => {
+        const p = at(i, f * w);
+        return clear(p.x, p.z) > t.rail + 2.5;
+      });
+      if (!ok || (next >= 0 && (i - next) * dir < 0)) continue;
+      next = i + dir * 7;
+      const yaw = Math.atan2(-t.tx[i], -t.tz[i]);
+      let low = Infinity;
+      for (const f of [-0.62, 0.62]) {
+        const p = at(i, f * w);
+        const ground = heightAt(t, p.x, p.z) - 1;
+        low = Math.min(low, ground);
+        if (p.top - ground < 1) continue;
+        const pier = new THREE.Mesh(box, concrete);
+        pier.scale.set(1.8, p.top - ground, 1.8);
+        pier.position.set(p.x, (p.top + ground) / 2, p.z);
+        pier.rotation.y = yaw;
+        pier.castShadow = true;
+        pier.receiveShadow = true;
+        scene.add(pier);
+      }
+      if (low === Infinity || at(i, 0).top - low < 1) continue;
+      const beam = new THREE.Mesh(box, concrete);
+      beam.scale.set(w * 2 - 1, 1.1, 2.2);
+      beam.position.set(t.x[i], t.y[i] - 2.3, t.z[i]);
+      beam.rotation.y = yaw;
+      beam.castShadow = true;
+      scene.add(beam);
     }
   }
 }
