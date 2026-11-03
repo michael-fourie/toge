@@ -58,7 +58,9 @@ Cloudflare Worker  src/server/worker.ts  (one Worker also serves dist/ as static
 - **Rendering:** plain `THREE.WebGLRenderer` everywhere, toon materials and canvas-painted textures in the shooter,
   a bloom/grade post chain in TŌGE. A WebGPU rewrite was merged and then reverted (too slow): don't bring it back.
 - **Hosting:** Cloudflare Workers + Durable Objects on the free plan (`wrangler.jsonc`, `docs/DEPLOYMENT.md`).
-  Branch pushes get Cloudflare preview builds.
+  Branch pushes get Cloudflare preview builds. Production deploys from the `production` branch, which
+  `.github/workflows/deploy.yml` moves to master at night when nobody is playing: a deploy restarts every Durable
+  Object and drops every live game, so merging to master no longer deploys (docs/DEPLOYMENT.md).
 
 ## Repo layout
 
