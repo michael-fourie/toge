@@ -334,11 +334,16 @@ test('AI drivers get every car down every track, with no NaNs and few big crashe
       const inp = { ...idle };
       let time = 0;
       let crashes = 0;
+      let lastHit = -9;
       while (car.s < t.finishS && time < 400 * Math.max(1, TRACK_LENGTH_KM[id] / 5)) {
         aiDrive(car, t, ai, TICK_DT, inp);
         stepCar(car, inp, t);
         assert.ok(Number.isFinite(car.p.x + car.p.y + car.p.z), `${model} on ${id}: NaN at ${time}`);
-        if (car.hit > 12) crashes++;
+        // One crash can land a few hard hits in a row (nose, then the side swinging in): count it once.
+        if (car.hit > 12) {
+          if (time - lastHit > 1) crashes++;
+          lastHit = time;
+        }
         time += TICK_DT;
       }
       assert.ok(car.s >= t.finishS, `${model} didn't finish ${id} (stuck at s=${car.s.toFixed(0)})`);
