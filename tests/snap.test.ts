@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DUCK_FLASH, DUCK_WAIT, KINDS, ODD_PAIRS, POINTS, ROUNDS, cleanResult, describe, goAt, judge, judgeSimon, makeMatch, pourLevel, pourLine, rightPick, scoreRound, standings, timeLimit } from '../src/games/snap/rules.ts';
+import { CATEGORIES, DUCK_FLASH, DUCK_WAIT, KINDS, MASH, ODD_PAIRS, POINTS, ROUNDS, SWEET_HALF, cleanResult, describe, goAt, judge, judgeMash, judgeSimon, makeMatch, pourLevel, pourLine, rightPick, scoreRound, standings, sweetAt, timeLimit } from '../src/games/snap/rules.ts';
 
-test('snap: the same seed builds the same match; every kind comes up, never twice in a row', () => {
+test('snap: the same seed builds the same match: a different kind every round, and every kind turns up across matches', () => {
+  const seen = new Set<string>();
   for (let seed = 1; seed < 200; seed++) {
     const a = makeMatch(seed);
     assert.deepEqual(a, makeMatch(seed));
     assert.equal(a.length, ROUNDS);
-    for (const k of KINDS) assert.ok(a.some((r) => r.kind === k), `seed ${seed}: no ${k}`);
-    for (let i = 1; i < a.length; i++) assert.notEqual(a[i].kind, a[i - 1].kind, `seed ${seed}: ${a[i].kind} twice`);
+    assert.equal(new Set(a.map((r) => r.kind)).size, ROUNDS, `seed ${seed}: a kind came up twice`);
+    for (const r of a) seen.add(r.kind);
   }
+  assert.deepEqual([...seen].sort(), [...KINDS].sort());
 });
 
 test('snap: rounds are fair: decoys come well before SNAP!, ink never matches its word, duck options are distinct', () => {
@@ -134,4 +136,56 @@ test('snap: judging the newer rounds: wrong picks miss, OPPOSITE! flips the arro
   const all = simon.seq.map((pick, i) => ({ at: go + 300 * (i + 1), pick }));
   assert.equal(judgeSimon(simon, all), 1200);
   assert.equal(judgeSimon(simon, [...all.slice(0, 3), { at: timeLimit(simon) + 1, pick: 3 }]), null, 'too slow');
+});
+
+test('snap: the third batch is fair: one colour has the most dots, the biggest is unique, one word fits, the zone fits on the bar', () => {
+  for (let seed = 1; seed < 400; seed++)
+    for (const r of makeMatch(seed)) {
+      if (r.kind === 'most') {
+        const n = [0, 1, 2, 3].map((c) => r.dots.filter((d) => d.c === c).length);
+        assert.ok(n.every((v, c) => c === r.answer || v < n[r.answer]), `seed ${seed}: ${n} for ${r.answer}`);
+        assert.equal(rightPick(r), r.answer);
+      } else if (r.kind === 'big') {
+        assert.equal(new Set(r.options).size, 4);
+        assert.equal(r.options[r.answer], Math.max(...r.options));
+        assert.ok(r.options.every((o) => o >= 100 && o <= 999));
+      } else if (r.kind === 'which') {
+        const fits = r.options.filter((w) => (CATEGORIES[r.cat].words as readonly string[]).includes(w));
+        assert.deepEqual(fits, [r.options[r.answer]]);
+        assert.equal(new Set(r.options).size, 4);
+      } else if (r.kind === 'sweet') {
+        assert.ok(r.zone - SWEET_HALF >= 0 && r.zone + SWEET_HALF <= 1);
+        assert.ok(r.period >= 1300 && r.period <= 2000);
+      } else if (r.kind === 'mash') assert.equal(r.need, MASH);
+    }
+  // No word is in two categories.
+  const all = CATEGORIES.flatMap((c) => c.words);
+  assert.equal(new Set(all).size, all.length);
+});
+
+test('snap: judging the third batch: mash to the count, a sweet spot outside the zone misses', () => {
+  const mash = { kind: 'mash' as const, need: 3 };
+  assert.equal(judgeMash(mash, [100, 200]), 'more');
+  assert.equal(judgeMash(mash, [100, 200, 340]), 340);
+  assert.equal(judgeMash(mash, [100, 200, timeLimit(mash) + 1]), null, 'too slow');
+
+  const sweet = { kind: 'sweet' as const, period: 2000, zone: 0.5 };
+  assert.equal(sweetAt(sweet, 0), 0);
+  assert.equal(sweetAt(sweet, 1000), 1, 'the far end, halfway through a sweep');
+  assert.equal(sweetAt(sweet, 2000), 0, 'and back');
+  assert.equal(judge(sweet, 500), 0, 'dead centre on the way out');
+  assert.equal(judge(sweet, 1500), 0, 'and on the way back');
+  assert.equal(judge(sweet, 540), 40);
+  assert.equal(judge(sweet, 500 + 1000 * (SWEET_HALF + 0.01)), null, 'just outside');
+  assert.equal(describe(sweet, 5), 'bullseye!');
+
+  const big = { kind: 'big' as const, delay: 900, options: [618, 861, 186, 681], answer: 1 };
+  assert.equal(judge(big, 1300, 1), 400);
+  assert.equal(judge(big, 1300, 3), null);
+  const which = { kind: 'which' as const, delay: 900, cat: 0, options: ['OTTER', 'TUBA', 'MANGO', 'GOLF'], answer: 2 };
+  assert.equal(judge(which, 1500, 2), 600);
+  assert.equal(judge(which, 1500, 0), null);
+  const most = { kind: 'most' as const, dots: [], answer: 3 };
+  assert.equal(judge(most, DUCK_WAIT + DUCK_FLASH + 700, 3), 700);
+  assert.equal(judge(most, DUCK_WAIT + DUCK_FLASH - 1, 3), null, 'while the dots were still up');
 });

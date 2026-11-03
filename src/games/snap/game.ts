@@ -7,6 +7,7 @@ import type { Party } from '../party.ts';
 import type { GameApi } from '../types.ts';
 import {
   ARROWS,
+  CATEGORIES,
   COLOURS,
   DUCK_FLASH,
   DUCK_WAIT,
@@ -17,15 +18,18 @@ import {
   SHOW_CLOCK,
   SIMON_LIT,
   SIMON_STEP,
+  SWEET_HALF,
   TITLES,
   cleanResult,
   describe,
   goAt,
   judge,
+  judgeMash,
   judgeSimon,
   makeMatch,
   picks,
   pourLevel,
+  sweetAt,
   scoreRound,
   standings,
   timeLimit,
@@ -125,8 +129,8 @@ export function mount(root: HTMLElement, api: GameApi): () => void {
   let raf = 0;
   /** In solo, the result that just beat a personal best. */
   let newBest = false;
-  /** Simon: the colours pressed back so far this round. */
-  let simonPresses: { at: number; pick: number }[] = [];
+  /** Simon and Mash!: the presses so far this round. */
+  let presses: { at: number; pick: number }[] = [];
 
   const me = () => party?.id ?? 0;
   const referee = () => !party || party.isHost;
@@ -222,6 +226,7 @@ export function mount(root: HTMLElement, api: GameApi): () => void {
         <header class="snap-hud"><span>Round ${index + 1}/${rounds.length}</span><span>${info.title}</span><span data-score></span></header>
         <div class="snap-stage" data-stage>
           <div class="snap-ducks" data-ducks></div>
+          <div class="snap-bar" data-bar hidden><div class="snap-zone" data-zone></div><div class="snap-marker" data-marker></div></div>
           <div class="snap-glass" data-glass hidden><div class="snap-fill" data-fill></div><div class="snap-line" data-line></div></div>
           <div class="snap-big" data-big></div>
           <div class="snap-sub" data-sub></div>
@@ -251,6 +256,23 @@ export function mount(root: HTMLElement, api: GameApi): () => void {
         box.append(el);
       }
     }
+    if (round.kind === 'most') {
+      const box = root.querySelector('[data-ducks]')!;
+      for (const d of round.dots) {
+        const el = document.createElement('span');
+        el.className = 'dot';
+        el.style.left = `${d.x * 100}%`;
+        el.style.top = `${d.y * 100}%`;
+        el.style.background = COLOURS[d.c].hex;
+        box.append(el);
+      }
+    }
+    if (round.kind === 'sweet') {
+      root.querySelector<HTMLElement>('[data-bar]')!.hidden = false;
+      const zone = root.querySelector<HTMLElement>('[data-zone]')!;
+      zone.style.left = `${(round.zone - SWEET_HALF) * 100}%`;
+      zone.style.width = `${SWEET_HALF * 200}%`;
+    }
     if (round.kind === 'pour') {
       root.querySelector<HTMLElement>('[data-glass]')!.hidden = false;
       root.querySelector<HTMLElement>('[data-line]')!.style.bottom = `${round.line * 100}%`;
@@ -263,7 +285,8 @@ export function mount(root: HTMLElement, api: GameApi): () => void {
 
   /** What's written on each pick button (null: the round fills them in later, or they're plain colours). */
   const pickFaces = (round: Round): string[] | null => {
-    if (round.kind === 'ink') return COLOURS.map((c) => c.name);
+    if (round.kind === 'ink' || round.kind === 'most') return COLOURS.map((c) => c.name);
+    if (round.kind === 'big' || round.kind === 'which') return round.options.map(String);
     if (round.kind === 'ducks' || round.kind === 'maths') return round.options.map(String);
     if (round.kind === 'odd') return [0, 1, 2, 3].map((i) => ODD_PAIRS[round.pair][i === round.odd ? 1 : 0]);
     if (round.kind === 'arrow') return [...ARROWS];
@@ -424,8 +447,36 @@ export function mount(root: HTMLElement, api: GameApi): () => void {
       const lit = t < goAt(round) && step < round.seq.length && t % SIMON_STEP < SIMON_LIT ? round.seq[step] : -1;
       root.querySelectorAll<HTMLElement>('[data-pick]').forEach((b, i) => b.classList.toggle('lit', i === lit));
       mode = t < goAt(round) ? 'watch' : 'go-pick';
-      set('[data-big]', t < goAt(round) ? 'Watch…' : `${simonPresses.length}/${round.seq.length}`);
+      set('[data-big]', t < goAt(round) ? 'Watch…' : `${presses.length}/${round.seq.length}`);
       set('[data-sub]', t < goAt(round) ? '' : 'Your turn!');
+    } else if (round.kind === 'mash') {
+      mode = 'go';
+      set('[data-big]', `${presses.length}/${round.need}`);
+      set('[data-sub]', 'MASH!');
+    } else if (round.kind === 'most') {
+      if (t < DUCK_WAIT) set('[data-big]', 'Ready…');
+      else if (t < DUCK_WAIT + DUCK_FLASH) {
+        mode = 'ducks';
+        set('[data-big]', '');
+      } else {
+        mode = 'count';
+        set('[data-big]', 'Most?');
+      }
+      set('[data-sub]', '');
+    } else if (round.kind === 'big' || round.kind === 'which') {
+      if (t >= round.delay) {
+        mode = 'go-pick';
+        set('[data-big]', round.kind === 'big' ? 'Biggest?' : `Which is ${CATEGORIES[round.cat].name}?`);
+        set('[data-sub]', '');
+      } else {
+        set('[data-big]', '…');
+        set('[data-sub]', 'get ready');
+      }
+    } else if (round.kind === 'sweet') {
+      mode = 'sweet';
+      root.querySelector<HTMLElement>('[data-marker]')!.style.left = `${sweetAt(round, t) * 100}%`;
+      set('[data-big]', '');
+      set('[data-sub]', 'Stop it in the green!');
     }
     if (mode !== 'ink') big.style.color = '';
     stage.dataset.mode = mode;
@@ -446,13 +497,19 @@ export function mount(root: HTMLElement, api: GameApi): () => void {
       if (pick < 0 || t < goAt(round)) return; // picks aren't open yet: no penalty
     }
     if (round.kind === 'simon') {
-      simonPresses.push({ at: t, pick });
-      const v = judgeSimon(round, simonPresses, shown < 0 ? goAt(round) : shown);
+      presses.push({ at: t, pick });
+      const v = judgeSimon(round, presses, shown < 0 ? goAt(round) : shown);
       if (v !== 'more') answer(v, v !== null ? describe(round, v) : 'Wrong colour!');
       return;
     }
+    if (round.kind === 'mash') {
+      presses.push({ at: t, pick });
+      const v = judgeMash(round, presses.map((p) => p.at));
+      if (v !== 'more') answer(v, v !== null ? describe(round, v) : 'Too slow!');
+      return;
+    }
     const v = judge(round, t, pick, shown < 0 ? goAt(round) : shown);
-    answer(v, v !== null ? describe(round, v) : round.kind === 'draw' ? 'Too soon!' : round.kind === 'pour' ? 'Spilled!' : 'Wrong!');
+    answer(v, v !== null ? describe(round, v) : round.kind === 'draw' ? 'Too soon!' : round.kind === 'pour' ? 'Spilled!' : round.kind === 'sweet' ? 'Outside the zone!' : 'Wrong!');
   };
 
   const answer = (v: number | null, text: string) => {
@@ -525,7 +582,7 @@ export function mount(root: HTMLElement, api: GameApi): () => void {
     shown = -1;
     feedback = '';
     newBest = false;
-    simonPresses = [];
+    presses = [];
     stageStart = performance.now() + INTRO;
     screen = 'play';
     render();
