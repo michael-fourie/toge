@@ -13,7 +13,7 @@ export type Cat = keyof Traits | 'belonging';
 export const CATS: Cat[] = ['notes', 'smoke', 'temper', 'room', 'drinking', 'footprint', 'hairColour', 'hairLength', 'belonging'];
 
 export const VALUES: Record<Exclude<Cat, 'belonging'>, string[]> = {
-  notes: ['engineering', 'computing', 'teaching', 'commerce', 'science'],
+  notes: ['engineering', 'computing', 'teaching', 'commerce', 'science', 'trade'],
   smoke: ['weed', 'cigarettes', 'none'],
   temper: ['short fuse', 'calm'],
   room: ['spotless', 'tidy', 'messy', 'chaos', 'the couch'],
@@ -33,6 +33,8 @@ export const WIPE_SECONDS = 3;
 // ---------------------------------------------------------------------------------------------
 // Trait cards
 
+/** Guests are students: nobody but Gare leaves trade notes. */
+const GUEST_NOTES = ['engineering', 'computing', 'teaching', 'commerce', 'science'] as const;
 const GUEST_HAIR: Record<string, Traits['hairColour']> = { '#15130f': 'black', '#a14a2a': 'red' };
 
 /** A character's trait card. Guests share a card, so theirs comes from their name (and their hair from their look). */
@@ -42,7 +44,7 @@ export function traitsFor(char: CharId, name: string): Traits {
   for (const ch of name) h = (h * 131 + ch.charCodeAt(0)) >>> 0;
   const pick = <T>(list: readonly T[], k: number) => list[(h >>> k) % list.length];
   return {
-    notes: pick(VALUES.notes, 0) as Traits['notes'],
+    notes: pick(GUEST_NOTES, 0),
     smoke: pick(['weed', 'none', 'none'] as const, 3),
     temper: pick(['short fuse', 'calm'] as const, 6),
     room: 'the couch',
@@ -84,6 +86,7 @@ const DETAIL: Record<string, string> = {
   'notes:teaching': 'A grade-4 lesson plan. Activity 2: “feelings circle”. Feelings were had.',
   'notes:commerce': 'A case-study handout. “Synergy” is highlighted three times.',
   'notes:science': 'A lab report. Hypothesis: “it’ll be fine”. Conclusion: “it wasn’t”.',
+  'notes:trade': 'A wiring diagram on the back of a pizza box. Every wire labelled. One just says “DON’T”.',
   'smoke:weed': 'A roach folded into a receipt. Smells exactly like Bike Stu.',
   'smoke:cigarettes': 'A cigarette butt. An actual cigarette. In this house.',
   'temper:short fuse': 'A sticky note that just says “WHO DID THIS”, underlined so hard it tore. A fist-sized dent nearby.',
@@ -119,6 +122,7 @@ export function hint(cat: Cat, value: string): string {
     'notes:teaching': 'a future teacher',
     'notes:commerce': 'a commerce kid',
     'notes:science': 'a science kid',
+    'notes:trade': 'a sparky (an actual electrician)',
     'smoke:weed': 'someone who smelled like weed',
     'smoke:cigarettes': 'someone smoking an actual cigarette',
     'temper:short fuse': 'someone yelling at a door',

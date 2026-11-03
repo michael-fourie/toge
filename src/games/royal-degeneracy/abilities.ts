@@ -1,16 +1,16 @@
 // Each character's ability, pure: what it's called, its uses or cooldown, and the referee's side of each one
-// (who was where for Router Logs, Jung's Proof, what Bongus Mode lights up, Inspection, Swab, Spill the Tea). Quirks
+// (who was where for Router Logs, Jung's Proof, what Bongus Mode lights up, Inspection, Trip Wire, Swab, Spill the Tea). Quirks
 // that only change how your own screen works (Rock Hound, Supervisor, Couch Lock, Illogical!) live in night.ts.
 // Guests draw from the guest pool by name. An ability helps; it never decides a night alone.
 
 import type { Vec3 } from '../../shared/math.ts';
 import { tagFor, type CharId } from './cast.ts';
-import { fits } from './clues.ts';
+import { fits, traitsFor } from './clues.ts';
 import { ROOMS, roomAt } from './house.ts';
 import type { Night } from './rules.ts';
 
 export type Power =
-  | 'toboggan' | 'router' | 'proof' | 'bongus' | 'bikestu' | 'lookout' | 'legend' | 'inspection' | 'wallhack' | 'ruck'
+  | 'toboggan' | 'router' | 'proof' | 'bongus' | 'bikestu' | 'lookout' | 'legend' | 'inspection' | 'wallhack' | 'ruck' | 'tripwire'
   | 'swab' | 'tea' | 'objection' | 'eavesdrop';
 
 export interface PowerDef {
@@ -36,6 +36,7 @@ export const POWERS: Record<Power, PowerDef> = {
   inspection: { name: 'Inspection', cd: 40, text: 'Q, then stand still 3 s: anything planted in this room sparkles.' },
   wallhack: { name: 'Wallhack', uses: 2, dur: 4, text: 'Q: for 4 s, everyone within 12 m glows through walls and floors.' },
   ruck: { name: 'Ruck', cd: 30, text: 'Q: burst through every door in front of you and bowl over whoever’s there.' },
+  tripwire: { name: 'Trip Wire', uses: 2, dur: 60, text: 'Q in a room: for 60 s, anyone who walks in trips your sensor, and you get a text about their footsteps.' },
   swab: { name: 'Swab', uses: 2, text: 'Q at a clue: real or planted. Twice a night.' },
   tea: { name: 'Spill the Tea', uses: 1, text: 'Q: one true thing from tonight (who was where, when).' },
   objection: { name: 'Objection!', uses: 1, text: 'Once a night, at a vote: void it and vote again.' },
@@ -53,6 +54,7 @@ const BY_CHAR: Record<Exclude<CharId, 'guest'>, Power> = {
   jj: 'inspection',
   nash: 'wallhack',
   shota: 'ruck',
+  gare: 'tripwire',
 };
 const GUEST_POOL: Power[] = ['swab', 'tea', 'objection', 'eavesdrop'];
 
@@ -83,9 +85,11 @@ export interface Powers {
   /** Bike Stu's randoms are out until this roam time (for Selby). */
   stuUntil: number;
   stuBy: number;
+  /** Gare's Trip Wire: the wired room, whose sensor it is, and until when (roam). */
+  wire: { room: string; by: number; until: number } | null;
 }
 
-export const newPowers = (): Powers => ({ used: new Map(), readyAt: new Map(), guard: new Map(), history: new Map(), doubled: null, stuUntil: -1, stuBy: -1 });
+export const newPowers = (): Powers => ({ used: new Map(), readyAt: new Map(), guard: new Map(), history: new Map(), doubled: null, stuUntil: -1, stuBy: -1, wire: null });
 
 const player = (n: Night, id: number) => n.players.find((p) => p.id === id);
 
@@ -167,6 +171,27 @@ export function teaFact(n: Night, about: number, rand: () => number): string | n
     for (const [t, r] of h) if (t > 1) facts.push(`${tagFor(p.char, p.name)} went into ${roomName(r)} at ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}.`);
   }
   return facts.length ? facts[Math.floor(rand() * facts.length)] : null;
+}
+
+/** The room each player was last seen in (what `recordRooms` will compare against). */
+export const lastRooms = (n: Night) => new Map([...n.powers.history].map(([id, h]) => [id, h.at(-1)?.[1]]));
+
+/**
+ * Trip Wire: who just walked into the wired room (since `before`, from `lastRooms`), as the texts Gare gets.
+ * Only their footsteps: big, medium or small. Gare tripping his own sensor doesn't count.
+ */
+export function wireTrips(n: Night, before: ReadonlyMap<number, string | undefined>): string[] {
+  const w = n.powers.wire;
+  if (!w || w.until <= n.roam) return [];
+  const name = roomName(w.room);
+  const out: string[] = [];
+  for (const [id, h] of n.powers.history) {
+    const p = player(n, id);
+    const now = h.at(-1)?.[1];
+    if (!p || id === w.by || now !== w.room || before.get(id) === w.room) continue;
+    out.push(`Sensor tripped in ${name}: ${traitsFor(p.char, p.name).footprint} footsteps.`);
+  }
+  return out;
 }
 
 /** Look Out: is `who` being guarded right now? */

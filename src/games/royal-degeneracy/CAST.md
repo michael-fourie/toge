@@ -1,6 +1,6 @@
 # Royal Degeneracy: the cast
 
-The eight people who lived at 282, and two regulars who didn't but were always there. Side characters (friends who
+The eight people who lived at 282, two regulars who didn't but were always there, and Gare, Shota's friend, in town for homecoming. Side characters (friends who
 play as guests) come later. How the cast fits into the game is in [DESIGN.md](DESIGN.md); this file is who they are.
 
 The house is called **282** in the game. The number on its own is fine; the street name never goes in.
@@ -22,6 +22,7 @@ name tags below and leaves out everything marked **Stays here**. Show each perso
 | JJ | Jacob | Chemical Engineering | Inspection | Spare Keys | a page torn off the chore chart |
 | Nash | Nash | Commerce | Wallhack | Couch Lock | a potted bonsai tree |
 | Shota | Shota | Sciences | Ruck | Always Down | a miniature bong |
+| Gare | Gare | an electrician, visiting | Trip Wire | Teep | a roll of electrical tape |
 
 ## Looks and catchphrases
 
@@ -40,6 +41,7 @@ Photos will fill in faces, builds and outfits.
 | JJ | 170 cm | short, black | "Hey, how are you?" |
 | Nash | 170 cm | very short, brown | "Yo." |
 | Shota | 185 cm | very long, black | "Broooooo no broooooo." |
+| Gare | 180 cm (5'11") | short, brown | none: he burps ("*BUUURP*") |
 
 A catchphrase pops up as a speech bubble whenever they wave, high-five or hug. When Wags, Will and JJ all greet each
 other at once it's three slightly different "how's it going"s.
@@ -66,6 +68,7 @@ whoever did it.
 | JJ | engineering | none | short fuse | spotless | heavy | small | black | short |
 | Nash | commerce | weed | short fuse | tidy | light | small | brown | short |
 | Shota | science | weed | calm | messy | light | big | black | long |
+| Gare | trade | none | short fuse | messy | heavy | medium | brown | short |
 
 How the values come from your answers:
 
@@ -74,7 +77,7 @@ How the values come from your answers:
 - **Footprint**: big is 185 cm and up, medium 175, small 170 and under.
 - **Room**: for Nash and Shota it's their own place's mess level: something from there, left at the scene.
 
-All ten cards are different, so a full set of real clues always pins down one person. Will Palmer and JJ match on
+All eleven cards are different (Gare is the only one with trade notes: a wiring diagram on a pizza box; guests never draw it), so a full set of real clues always pins down one person. Will Palmer and JJ match on
 the first six; their hair (medium brown against short black) is what tells them apart.
 
 ### Tells
@@ -88,6 +91,8 @@ Some characters give themselves away and can't switch it off:
   to a body.
 - **Wags's cigarettes**: he's the only one who smokes them, so a cigarette butt at a crime scene points straight at
   him. Nobody will believe it, and the Degenerates will plant them constantly.
+- **Gare's burps**: he's had a few. Every 30 to 65 s a huge burp rolls out wherever he is: everyone hears it from
+  that direction, and anyone within 10 m gets "*BUUUUURP*. Someone nearby has had a few." Hard to sneak about.
 
 ## The housemates
 
@@ -274,6 +279,29 @@ each wakes up where he always is.
 - **Tell**: he overheats and drops his shirt (see Tells).
 - **Catchphrase**: "Broooooo no broooooo." Accused, shoved, or taken out: "Broooooo what broooooo."
 - **Lines** (drafts): "I'm down." · "Who's down?" · Evicted: "Broooooo what broooooo."
+
+## The visitor
+
+### Gare
+
+*Shota's friend from back home. Here for homecoming, here to party.*
+
+- **Studies**: nothing. He didn't go to school with the house: he's an electrician, and he gets crazy with anything
+  that has wires in it.
+- **Looks**: 180 cm (5'11"), short brown hair, a stocky fighter's build. He went to Thailand to fight Muay Thai, so
+  he's a little crazy.
+- **Who he is**: in town for homecoming and absolutely down for a drink. Burps a lot once he's had a few.
+- **Room**: none at 282. His duffel bag has exploded somewhere: messy.
+- **Wakes up** on the front porch, just off the bus.
+- **Ability: Trip Wire.** He wires a motion sensor into the lights of the room he's in. For 60 s, whenever someone
+  walks in, his phone buzzes with an arrow to the room and their footsteps: big, medium or small. Never who. Twice a
+  night.
+- **Quirk: Teep.** Muay Thai: his shoves send people twice as far, and nobody can shove him (or Ruck him over).
+- **Tell**: the burps (see Tells).
+- **Catchphrase**: none; he burps.
+- **Lines** (drafts): "I'm just here for homecoming, boys." · "I rewired your kitchen and this is the thanks I get?" ·
+  Evicted: "Fine. I'll go party somewhere that appreciates me. *BURP*"
+- Picked by Claude, change freely: no smoking, the short fuse, short hair, the orange shirt.
 
 ## Cases from the house's own stories
 

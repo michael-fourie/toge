@@ -153,10 +153,10 @@ export function nudgeApart(w: Walker, others: readonly Vec3[], dt: number, boxes
   w.pos.y = Math.max(w.pos.y, y);
 }
 
-/** Starts a shove's stagger away from `from` (horizontal). */
-export function shove(w: Walker, dir: { x: number; z: number }) {
+/** Starts a shove's stagger away from `from` (horizontal). `k` stretches it: Gare's teep (k = 2) goes twice as far. */
+export function shove(w: Walker, dir: { x: number; z: number }, k = 1) {
   const l = Math.hypot(dir.x, dir.z) || 1;
   w.push.x = (dir.x / l) * WALK.shoveSpeed;
   w.push.z = (dir.z / l) * WALK.shoveSpeed;
-  w.pushLeft = WALK.shoveTime;
+  w.pushLeft = WALK.shoveTime * k;
 }
