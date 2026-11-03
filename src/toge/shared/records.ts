@@ -1,0 +1,89 @@
+// Best times: each racer's quickest finish on every track, and what a friend sees of your garage.
+// Kept by the server for accounts (toge/server/recordStore.ts), in localStorage for guests; the same rules run on both.
+
+import { encodeCar, decodeCar } from './cars.ts';
+import { type Garage, TRACK_LENGTH_KM } from './garage.ts';
+import { encodeRider } from './rider.ts';
+import { TRACK_DEFS, type TrackId } from './track.ts';
+
+/** A racer's quickest finish on one track. */
+export interface BestTime {
+  /** Seconds, to the millisecond. */
+  time: number;
+  /** The car code it was set in ('' if unknown). */
+  car: string;
+  /** When (ms since 1970). */
+  at: number;
+}
+
+export type Bests = Partial<Record<TrackId, BestTime>>;
+
+/** A finish that beat the racer's best on that track. `prev` is the old best (null: their first finish there). */
+export interface NewBest {
+  track: TrackId;
+  time: number;
+  prev: number | null;
+}
+
+export const RECORDS = {
+  /**
+   * No car averages more than this over a whole race (m/s, about 324 km/h). Solo times come from the client, so a
+   * time quicker than the track's length at this speed is refused (`minTime`).
+   */
+  maxAvgSpeed: 90,
+  /** Slower than this isn't a finish worth keeping (s). */
+  maxTime: 3600,
+} as const;
+
+/** The quickest time a track will accept. */
+export const minTime = (track: TrackId) => (TRACK_LENGTH_KM[track] * 1000) / RECORDS.maxAvgSpeed;
+
+const isTrack = (x: unknown): x is TrackId => typeof x === 'string' && Object.hasOwn(TRACK_DEFS, x);
+
+/** A plausible finish time for `track`, rounded to the millisecond, or null. */
+export function cleanTime(track: TrackId, time: unknown): number | null {
+  if (typeof time !== 'number' || !Number.isFinite(time) || time < minTime(track) || time > RECORDS.maxTime) return null;
+  return Math.round(time * 1000) / 1000;
+}
+
+/** Bests as stored (or sent): unknown tracks and bad entries dropped. */
+export function cleanBests(x: unknown): Bests {
+  const out: Bests = {};
+  if (!x || typeof x !== 'object') return out;
+  for (const [k, v] of Object.entries(x)) {
+    if (!isTrack(k) || !v || typeof v !== 'object') continue;
+    const b = v as Partial<BestTime>;
+    const time = cleanTime(k, b.time);
+    if (time === null) continue;
+    out[k] = { time, car: typeof b.car === 'string' && decodeCar(b.car) ? b.car : '', at: Number.isFinite(b.at) ? Number(b.at) : 0 };
+  }
+  return out;
+}
+
+/** Keeps `time` if it's a plausible finish and beats the best on `track`; null (nothing changes) otherwise. */
+export function recordTime(b: Bests, track: unknown, time: unknown, car: string, at: number): { bests: Bests; best: NewBest } | null {
+  if (!isTrack(track)) return null;
+  const t = cleanTime(track, time);
+  if (t === null) return null;
+  const old = b[track];
+  if (old && old.time <= t) return null;
+  return { bests: { ...b, [track]: { time: t, car: decodeCar(car) ? car : '', at } }, best: { track, time: t, prev: old?.time ?? null } };
+}
+
+/** What a friend sees of your TŌGE garage: cars, driver, record and best times (not your money). */
+export interface TogeProfile {
+  name: string;
+  races: number;
+  wins: number;
+  /** Which of `cars` you drive. */
+  sel: number;
+  /** Car codes (encodeCar), cosmetics included. */
+  cars: string[];
+  /** encodeRider() */
+  rider: string;
+  bests: Bests;
+}
+
+export function profileOf(name: string, g: Garage, bests: Bests): TogeProfile {
+  return { name, races: g.races, wins: g.wins, sel: g.sel, cars: g.cars.map(encodeCar), rider: encodeRider(g.rider), bests };
+}

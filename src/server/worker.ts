@@ -8,6 +8,7 @@ import type { GarageAction } from '../toge/shared/garage.ts';
 import { CAR_CODE_MAX } from '../toge/shared/cars.ts';
 import { RIDER_CODE_MAX } from '../toge/shared/rider.ts';
 import type { StashAction } from '../gambol/shared/stash.ts';
+import type { FriendAction } from '../shared/friends.ts';
 
 export { Accounts } from './accounts.ts';
 export { Directory } from './directory.ts';
@@ -76,13 +77,30 @@ async function accountApi(req: Request, url: URL, accounts: DurableObjectStub<Ac
   return Response.json({ ok: true, user: result.name }, { headers: { 'Set-Cookie': sessionCookie(result.token, url) } });
 }
 
-/** The driving game's garage: GET reads it, POST applies one action (crate, buy, paint...). Signed-in only. */
+/**
+ * The driving game's garage: GET reads yours and your best times (`?u=<name>`: a friend's profile instead), POST applies
+ * one action (crate, buy, paint...). Signed-in only.
+ */
 async function garageApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
   const token = readCookie(req);
-  if (req.method === 'GET') return Response.json({ garage: await accounts.garage(token) });
+  if (req.method === 'GET') {
+    const u = url.searchParams.get('u');
+    if (u !== null) return Response.json({ profile: await accounts.profile(token, u.slice(0, 16)) });
+    const own = await accounts.garage(token);
+    return Response.json({ garage: own?.garage ?? null, bests: own?.bests ?? null });
+  }
   const action = await jsonBody<GarageAction>(req, url, 2048);
   if (!action) return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
   return Response.json(await accounts.garageAct(token, action));
+}
+
+/** Friends (site-wide): GET lists yours and who added you, POST `{a: 'add' | 'remove', name}`. Signed-in only. */
+async function friendsApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
+  const token = readCookie(req);
+  if (req.method === 'GET') return Response.json({ friends: await accounts.friends(token) });
+  const action = await jsonBody<FriendAction>(req, url, 256);
+  if (!action || typeof action !== 'object') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
+  return Response.json(await accounts.friendAct(token, action));
 }
 
 /**
@@ -183,6 +201,7 @@ export default {
     if (url.pathname === '/api/lobbies') return Response.json(await dir.list());
     if (url.pathname === '/api/races') return Response.json(await env.DIRECTORY.getByName('race').listRaces());
     if (url.pathname === '/api/garage') return garageApi(req, url, env.ACCOUNTS.getByName('all'));
+    if (url.pathname === '/api/friends') return friendsApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/stash') return stashApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/parties') {
       const game = url.searchParams.get('game');

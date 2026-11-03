@@ -682,6 +682,30 @@
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+.rh-results .rh-pb {
+  display: inline-block;
+  margin-right: 10px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: #ffc940;
+  color: #1a1200;
+  font: 800 italic 12px 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+  animation: rh-pb-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes rh-pb-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rh-results .rh-pb {
+    animation: none;
+  }
+}
 .rh-results .gap,
 .rh-results .best {
   font-variant-numeric: tabular-nums;

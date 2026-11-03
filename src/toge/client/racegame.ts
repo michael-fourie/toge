@@ -12,6 +12,7 @@ import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
 import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { SOLO_SHARE } from '../shared/garage.ts';
 import { CAR_RULES, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../shared/protocol.ts';
+import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
 import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../shared/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
@@ -172,6 +173,12 @@ function bonusNote(b: { drift: number; items: number } | undefined): string {
   return ` (incl. ${parts.join(' and ')})`;
 }
 
+/** " · New best on Kōri Pass (−1.234 s)" for a results note. */
+function bestNote(b: NewBest | null | undefined, track: string): string {
+  if (!b) return '';
+  return ` · New best on ${track}${b.prev === null ? '' : ` (−${(b.prev - b.time).toFixed(3)} s)`}`;
+}
+
 export class RaceGame {
   private renderer: THREE.WebGLRenderer;
   private camera = new THREE.PerspectiveCamera(62, 1, 0.2, 9000);
@@ -243,6 +250,8 @@ export class RaceGame {
   private offNet: (() => void) | null = null;
   private resetAt = 0;
   private myPrize: number | null = null;
+  /** The online results on screen, kept so `records` (new best times) can mark them. */
+  private shownResults: { lines: (ResultLine & { id: number })[]; title: string } | null = null;
   private puffTick = 0;
   private rumbleAt = 0;
   private lastGear = 1;
@@ -686,7 +695,8 @@ export class RaceGame {
         if (this.phase !== 'done') this.hud.banner(`${r.name} finished`, fmtTime(m.time), 2000);
         if (this.watching === m.id) this.spectateNext();
       }
-    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id })));
+    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id })));
+    else if (m.t === 'records') this.records(m.rows);
     else if (m.t === 'room') {
       // Someone left mid-race: drop their car.
       for (const id of [...this.remotes.keys()])
@@ -1090,11 +1100,11 @@ export class RaceGame {
     const behind = field.filter((r) => r.finished === null).sort((a, b) => b.car.s - a.car.s);
     const myPlace = done.indexOf(this.me) + 1;
     const drift = this.driftMeter.total;
-    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift, uses: this.uses });
+    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift, uses: this.uses, time: this.me.finished ?? undefined });
     this.myPrize = res.ok ? (res.paid ?? 0) : 0;
     const bonus = res.ok ? res.bonus : undefined;
-    const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined }));
-    const note = res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`;
+    const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined, newBest: r === this.me ? res.best : undefined }));
+    const note = (res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`) + bestNote(res.best, this.track.def.name);
     const p = this.hud.panel(`${this.hud.resultsHtml(this.track.def.name, lines)}
       <p class="rh-note">${esc(note)}</p>
       <div class="rh-buttons"><button data-act="again" data-autofocus>Race again</button><button data-act="garage">Garage</button></div>`);
@@ -1103,14 +1113,18 @@ export class RaceGame {
     p.querySelector('[data-act="garage"]')!.addEventListener('click', () => this.exit('garage'));
   }
 
-  private onlineResults(lines: ResultLine[]) {
+  private onlineResults(lines: (ResultLine & { id: number })[]) {
     this.phase = 'done';
     this.watching = null;
     this.hud.watching('', '');
     const mine = lines.find((l) => l.me);
     if (mine) garage.credit(mine.prize, mine.place === 1 && lines.length > 1);
-    const p = this.hud.panel(`${this.hud.resultsHtml(this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results', lines, this.clean)}
-      <p class="rh-note">${mine ? `You earned ${money(mine.prize)}${bonusNote(mine.bonus)}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}</p>
+    // A guest's best is kept here; an account's comes from the server a moment later (`records`).
+    if (mine && mine.time !== null && !garage.onServer) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
+    const title = this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
+    this.shownResults = { lines, title };
+    const p = this.hud.panel(`${this.hud.resultsHtml(title, lines, this.clean)}
+      <p class="rh-note">${mine ? `You earned ${money(mine.prize)}${bonusNote(mine.bonus)}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}<span data-best-note>${esc(bestNote(mine?.newBest, this.track.def.name))}</span></p>
       <div class="rh-buttons"><button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button></div>`);
     setMenuNav(true);
     p.querySelector('[data-act="lobby"]')!.addEventListener('click', () => this.exit('lobby'));
@@ -1118,6 +1132,23 @@ export class RaceGame {
       this.setup.online!.net.leave();
       this.exit('garage');
     });
+  }
+
+  /** The server kept new best times for some of the field: mark them on the results. */
+  private records(rows: { id: number; time: number; prev: number | null }[]) {
+    const shown = this.shownResults;
+    if (!shown || !Array.isArray(rows)) return;
+    for (const r of rows) {
+      const line = shown.lines.find((l) => l.id === r.id);
+      if (!line) continue;
+      line.newBest = { track: this.setup.track, time: r.time, prev: r.prev };
+      if (line.me) garage.noteBest(line.newBest, line.car);
+    }
+    const el = this.hud.root.querySelector('[data-results]');
+    if (el) el.outerHTML = this.hud.resultsHtml(shown.title, shown.lines, this.clean);
+    const mine = shown.lines.find((l) => l.me);
+    const note = this.hud.root.querySelector('[data-best-note]');
+    if (note) note.textContent = bestNote(mine?.newBest, this.track.def.name);
   }
 
   private restart() {

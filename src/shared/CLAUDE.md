@@ -8,6 +8,7 @@ Code here runs on the client and in the Worker. **No three.js, no DOM, no `cloud
   math.ts     tiny {x,y,z} helpers (yaw 0 looks down -Z, three.js convention); Gambol and Royal Degeneracy use them
   account.ts  checkCredentials (username/password rules shared by the sign-up form and the server)
   party.ts    wire types + PARTY limits for plug-in game rooms (src/games, src/server/party.ts)
+  friends.ts  friend lists (FriendAction, FriendList, FRIENDS_MAX, friendName); kept by src/server/friendStore.ts
 ```
 
 A game's own rules live in its folder: Gambol's in `src/gambol/shared/` (guide: `src/gambol/shared/CLAUDE.md`),

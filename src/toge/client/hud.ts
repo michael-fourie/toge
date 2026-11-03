@@ -5,6 +5,7 @@
 import { PAINTS, decodeCar, CARS } from '../shared/cars.ts';
 import type { Track } from '../shared/track.ts';
 import type { Damage, Zone } from '../shared/damage.ts';
+import type { NewBest } from '../shared/records.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { KEY_HELP, PAD_HELP } from './input.ts';
 import './race.css';
@@ -83,6 +84,8 @@ export interface ResultLine {
   /** Drift points, and the money drifting and items added to `prize`, when known. */
   drift?: number;
   bonus?: { drift: number; items: number };
+  /** This finish was the racer's new best on the track (known for you, and for signed-in rivals online). */
+  newBest?: NewBest | null;
 }
 
 export const fmtTime = (t: number) => {
@@ -468,13 +471,13 @@ export class RaceHud {
           <td class="pl">${l.place ? ordinal(l.place) : 'DNF'}</td>
           <td><i class="swatch" style="background:${color}"></i>${esc(l.name)}</td>
           <td class="car">${car ? esc(CARS[car.model].name) : ''}</td>
-          <td class="tm">${l.time !== null ? fmtTime(l.time) : '—'}</td>
+          <td class="tm">${l.newBest ? `<b class="rh-pb" title="${l.newBest.prev === null ? 'First finish here' : `Old best ${fmtTime(l.newBest.prev)}`}">New best${l.newBest.prev === null ? '' : ` −${(l.newBest.prev - l.newBest.time).toFixed(3)}`}</b>` : ''}${l.time !== null ? fmtTime(l.time) : '—'}</td>
           ${trial ? `<td class="gap">${l.time !== null && win !== null && l.place > 1 ? '+' + (l.time - win).toFixed(3) : ''}</td><td class="best">${l.best ? `<small>best lap</small> ${fmtTime(l.best)}` : ''}</td>` : ''}
           ${drifts ? `<td class="dr">${l.drift ? `${pts(l.drift)} <small>drift</small>` : ''}</td>` : ''}
           <td class="pz">+${money(l.prize)}</td></tr>`;
       })
       .join('');
-    return `<h2>${esc(title)}</h2><table class="rh-results"><tbody>${rows}</tbody></table>`;
+    return `<div data-results><h2>${esc(title)}</h2><table class="rh-results"><tbody>${rows}</tbody></table></div>`;
   }
 
   dispose() {
