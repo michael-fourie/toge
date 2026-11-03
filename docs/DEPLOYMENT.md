@@ -24,6 +24,24 @@ BASE=https://your.domain npx tsx tests/lobby.smoke.ts   # two bots, join/shoot/k
 
 First time: `npx wrangler login`, then `npm run deploy`. That publishes to `https://atrous.<account>.workers.dev`.
 
+## When deploys happen (why games used to "crash" at random)
+
+Every deploy restarts all Durable Objects, and a restart closes every WebSocket: everyone in a shooter match, a race
+or a plug-in room is dropped at the same moment, whatever the game. When Workers Builds deployed every push to master,
+a day of merges (33 deploys on 2026-11-02/03, one every ~12 minutes at the peak) looked like the games crashing at random.
+
+So production deploys from its own branch, `production`, and `.github/workflows/deploy.yml` moves it to master:
+
+- every hour from 09:00 to 14:00 UTC (1-6 am Pacific), only when master has something new and `/api/lobbies`,
+  `/api/races` and `/api/parties?game=<id>` (every `src/games/<id>/channel.ts`) show nobody playing;
+- by hand: GitHub, Actions, "Deploy to production", Run workflow (tick "even if people are playing" to skip the check),
+  or `git push origin master:production` for an urgent fix.
+
+One-time setup in Cloudflare: Workers & Pages, atrous, Settings, Build, Branch control: set the production branch to
+`production`. While there, untick builds for non-production branches unless you want previews (each preview uses 5 of
+the free plan's 100 Durable Object namespaces). The site to check is `https://gambol.lol` (override with an Actions
+variable `SITE_URL`).
+
 ## Custom domain (domain registered at Namecheap)
 
 1. Cloudflare dashboard, Add a site, enter the domain, choose the Free plan.
