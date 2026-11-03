@@ -438,8 +438,9 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
   // Off the tarmac there's less grip to steer with.
   const surf = car.wheels.reduce((a, w) => a + (w.contact ? SURF[w.surf].mu : 1), 0) / 4;
 
-  // Drifts.
-  if (car.drift === 0 && held && grounded && speed > 9 && vf > 0 && Math.abs(steer) > 0.25) {
+  // Drifts. Not started on the brakes: the brakes end a drift, so starting one there would hop the car
+  // every other tick while both are held (it bounced along the road).
+  if (car.drift === 0 && held && grounded && speed > 9 && vf > 0 && Math.abs(steer) > 0.25 && brake <= 0.5) {
     car.drift = Math.sign(steer);
     car.driftTime = 0;
     car.driftLevel = 0;
