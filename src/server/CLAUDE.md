@@ -25,7 +25,8 @@ imports the other game's (`tests/boundaries.test.ts`).
 | `/api/races` | Directory `"race"` `.listRaces()` |
 | `/api/parties?game=<id>` | Directory `"party:<id>"` `.listParties()` (`isGameId` checked) |
 | `/api/me`, `POST /api/register`, `/api/login`, `/api/logout` | Accounts `"all"` (`accountApi`; cookie `gambol_session`) |
-| `/api/stash`, `/api/garage` (GET reads, POST applies one action) | Accounts `"all"` |
+| `/api/stash`, `/api/garage` (GET reads, POST applies one action) | Accounts `"all"`. `GET /api/garage` also returns your TŌGE best times; `?u=<name>` returns a friend's TŌGE profile instead (null unless you've added them) |
+| `/api/friends` (GET your list, POST `{a: 'add' \| 'remove', name}`) | Accounts `"all"` (`friendStore.ts`; rules in `src/shared/friends.ts`) |
 | WS `/ws?game=race` | Directory `"race"` hands out a code, then RaceRoom `<code>` |
 | WS `/ws?game=party&kind=<id>` | Directory `"party:<kind>"`, then PartyRoom `<kind>:<code>` |
 | WS `/ws` (anything else) | the shooter: Directory `"all"`, then LobbyRoom `<code>` |
@@ -45,7 +46,7 @@ imports the other game's (`tests/boundaries.test.ts`).
 |---|---|
 | `LobbyRoom` (`gambol/server/room.ts`, game logic in `lobby.ts`) | One per shooter match. Normalises params (`koth` forces teams, `br` forces FFA, `map` only for Battle). Messages ≤ 4096 B, `Limiter` 100 msg/s. `lobby.bank` pays/charges accounts via Accounts `reward` / `spend`. |
 | `Directory` (`directory.ts`) | Registry per namespace (`"all"`, `"race"`, `"party:<id>"`): 4-letter codes, lobby lists, entries expire after 3 missed 30 s heartbeats. Rate-limits hosting per IP. |
-| `Accounts` (`accounts.ts` + `accountStore.ts`, `gambol/server/stashStore.ts`, `toge/server/garageStore.ts`) | One global instance `"all"`: users, sessions, the shooter stash, the TŌGE garage. PBKDF2 runs here (the free-plan Worker only gets 10 ms CPU). |
+| `Accounts` (`accounts.ts` + `accountStore.ts`, `friendStore.ts`, `gambol/server/stashStore.ts`, `toge/server/garageStore.ts` + `recordStore.ts`) | One global instance `"all"`: users, sessions, friends, the shooter stash, the TŌGE garage and best times. PBKDF2 runs here (the free-plan Worker only gets 10 ms CPU). |
 | `RaceRoom` (`toge/server/raceroom.ts`, logic in `race.ts`) | One TŌGE race. Messages ≤ 2048 B, 60 msg/s. One prize per account per race. |
 | `PartyRoom` (`partyroom.ts`, logic in `party.ts`) | Generic roster + relay for plug-in games in `src/games`; never reads payloads. Limits in `PARTY` (`src/shared/party.ts`). |
 
@@ -89,14 +90,18 @@ shooter) and the server sanity-checks distance and fire rate.
 - Usernames 3-16 `[A-Za-z0-9_-]`, passwords 6-72 (`checkCredentials`, shared). PBKDF2-SHA256, 100k iterations, 16-byte
   salt, constant-time compare; unknown names still hash (no timing leak); 5 misses lock a name for 30 s.
 - Session token: 64 hex chars in an HttpOnly, SameSite=Lax cookie, 30 days, not sliding. Only `sha256(token)` is
-  stored (`s:<hash>`). Users are `u:<lowercase name>`, stash `i:<user>` / `t:<user>`, garage `g:<user>`.
+  stored (`s:<hash>`). Users are `u:<lowercase name>`, stash `i:<user>` / `t:<user>`, garage `g:<user>`, TŌGE best
+  times `b:<user>`, friends `f:<user>` (who they added) and `fi:<user>` (who added them), all lower-cased names.
+- Friends are site-wide and one way (`FriendStore`): adding needs the account to exist, `FRIENDS_MAX` each, a
+  per-account `Limiter`. A game decides what a friend sees; TŌGE shows `profileOf()` (no money).
 - TŌGE cosmetic cases are a garage action like crates: the server rolls with `secureRandom` (crypto, garageStore.ts),
   charges, grants or refunds. `Accounts.raceCar(name, code)` strips cosmetics an account doesn't own from its race car
   code; the Worker runs it on `car=` when an account joins a race, RaceRoom on every `{t:'car'}` from an account.
 - Guests keep stash and garage in localStorage and run the same pure rules (`applyStash` in `gambol/shared/stash.ts`,
   `applyAction` in `toge/shared/garage.ts`). Signed in, the server runs them with its own dice and clock.
 - Paying: shooter rooms call `Lobby.pay` → `Accounts.reward` (only for `client.user`; killing your own second tab pays
-  nothing). Races call `Accounts.raceReward`. Amounts must match what the client floats up for guests.
+  nothing). Races call `Accounts.raceReward`, and `Accounts.raceTime` for each account's finish (a new best comes back
+  and the room tells everyone with `records`). A solo finish's `time` rides on the `solo` garage action. Amounts must match what the client floats up for guests.
 
 ## Rules for server changes
 

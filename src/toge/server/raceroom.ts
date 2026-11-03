@@ -69,13 +69,24 @@ export class RaceRoom extends DurableObject<Env> {
         this.race = null;
         this.ctx.waitUntil(dir.remove(r.code));
       },
-      (rows, users) => {
+      (rows, users, track) => {
         // One prize per account per race, its best finish (rows are in finishing order): a second tab can't double it.
         const paid = new Set<string>();
+        const times: Promise<{ id: number; time: number; prev: number | null } | null>[] = [];
         for (const row of rows) {
           if (!users.has(row.id) || paid.has(row.name.toLowerCase())) continue;
           paid.add(row.name.toLowerCase());
           this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && rows.length > 1));
+          // The room timed this finish itself, so it can count as a best time.
+          if (row.time !== null) times.push(accounts.raceTime(row.name, track, row.time, row.car).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev } : null)));
+        }
+        if (times.length) {
+          this.ctx.waitUntil(
+            Promise.all(times).then((all) => {
+              const news = all.filter((x) => x !== null);
+              if (news.length) this.race?.announce({ t: 'records', rows: news });
+            }),
+          );
         }
       },
     );

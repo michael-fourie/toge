@@ -1,16 +1,19 @@
-// TŌGE's home: the garage. Four tabs (DESIGN.md §6): Race; Garage (My cars, Dealer); Performance (Upgrades,
+// TŌGE's home: the garage. Seven tabs (DESIGN.md §6): Race; Garage (My cars, Dealer); Performance (Upgrades,
 // Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts); Driver (your character: riderui.ts); Settings (graphics:
-// settingsui.ts). LB / RB walk every page in that order. The showroom fills
+// settingsui.ts); Friends (friendsui.ts: add friends, their garages and best times). LB / RB walk every page in that order. The showroom fills
 // the window behind the glass rail, with your car framed in the free space and its card bottom right.
 
 import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, HOODS, LIPS, MIRRORS, RIMS, RIM_COLORS, RIM_COLOR_NAMES, ROOFS, SPOILERS, STRIPES, TINTS, TRIMS, type BaseCar, TUNE_RANGE, type Tune, carSpec, isBike, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
 import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, payout, tunerCost } from '../shared/garage.ts';
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById } from '../shared/cosmetics.ts';
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
-import { type Rider, type RiderKey, RIDER_KEYS, defaultRider, encodeRider, randomRider } from '../shared/rider.ts';
+import { type Rider, type RiderKey, RIDER_KEYS, decodeRider, defaultRider, encodeRider, randomRider } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
 import { PHYSICS } from '../shared/protocol.ts';
 import { settingsTab } from './settingsui.ts';
+import { friendCar, friendsApi, friendsTab } from './friendsui.ts';
+import type { FriendList } from '../../shared/friends.ts';
+import type { TogeProfile } from '../shared/records.ts';
 import { type Graphics, graphics, setGraphics } from '../../client/graphics.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
@@ -25,14 +28,15 @@ import { TRACK_IDS, trackKind, trackMap, trackStyle, trackTile } from './trackar
 import './race.css';
 import './hub.css';
 
-type Page = 'race' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'settings';
-type TabId = 'race' | 'garage' | 'perf' | 'style' | 'driver' | 'settings';
+type Page = 'race' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'friends' | 'settings';
+type TabId = 'race' | 'garage' | 'perf' | 'style' | 'driver' | 'friends' | 'settings';
 const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
   { id: 'race', label: 'Race', pages: [['race', 'Race']] },
   { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['dealer', 'Dealer']] },
   { id: 'perf', label: 'Performance', pages: [['upgrades', 'Upgrades'], ['tuning', 'Tuning']] },
   { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['cases', 'Cases']] },
   { id: 'driver', label: 'Driver', pages: [['driver', 'Driver']] },
+  { id: 'friends', label: 'Friends', pages: [['friends', 'Friends']] },
   { id: 'settings', label: 'Settings', pages: [['settings', 'Settings']] },
 ];
 /** Every page in LB / RB order. */
@@ -74,7 +78,7 @@ const statBar = (label: string, v: number) =>
 export const driveHub: Render = (root, ctx, screen) => {
   let page: Page = PAGES.find((p) => p === screen.dtab) ?? 'race';
   /** The page each tab opens on (the last one you looked at). */
-  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint', driver: 'driver', settings: 'settings' };
+  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint', driver: 'driver', friends: 'friends', settings: 'settings' };
   lastPage[tabOf(page).id] = page;
   let track = (read(TRACK_KEY, 'koripass') in TRACK_DEFS ? read(TRACK_KEY, 'koripass') : 'koripass') as TrackId;
   let rivals = Number(read(RIVALS_KEY, '5'));
@@ -92,6 +96,13 @@ export const driveHub: Render = (root, ctx, screen) => {
   let saveTimer = 0;
   let listTimer = 0;
   let busy = false;
+  /** Friends: the list (null until loaded), the friend whose garage is open and which of their cars is shown. */
+  let friendList: FriendList | null = null;
+  let friendsLoading = false;
+  let friendOpen: TogeProfile | null = null;
+  let friendCarI = 0;
+  const friendsView = () => ({ user: account.user, list: friendList, open: friendOpen, openCar: friendCarI, bests: garage.bests, status });
+  const visiting = () => (page === 'friends' ? friendOpen : null);
 
   root.innerHTML = `
     <main class="tg" aria-label="TŌGE garage">
@@ -151,10 +162,15 @@ export const driveHub: Render = (root, ctx, screen) => {
   /** The car as shown: the saved one with any unsaved paint/tune edits. */
   const viewed = (): OwnedCar => {
     if (preview) return preview;
+    const theirs = visiting() && friendCar(friendsView());
+    if (theirs) return theirs;
     const c = draft ? { ...car(), look: draft.look, tune: draft.tune } : car();
     return trying ? { ...c, cos: { ...c.cos, [lockerSlot]: trying } } : c;
   };
-  const viewedRider = (): Rider => riderDraft ?? garage.g.rider;
+  const viewedRider = (): Rider => {
+    const f = visiting();
+    return f ? (decodeRider(f.rider) ?? defaultRider()) : (riderDraft ?? garage.g.rider);
+  };
 
   const drawTop = () => {
     $(root, '[data-money]').textContent = money(garage.g.money);
@@ -179,9 +195,11 @@ export const driveHub: Render = (root, ctx, screen) => {
     const st = stats(sp);
     const ribbon = preview
       ? `<p class="tg-card-ribbon">Dealer · ${b.price ? money(b.price) : 'Free'}</p>`
-      : trying
-        ? `<p class="tg-card-ribbon cyan">Trying on · ${esc(cosById(trying)?.name ?? '')}</p>`
-        : '';
+      : visiting()
+        ? `<p class="tg-card-ribbon cyan">${esc(visiting()!.name)}'s garage</p>`
+        : trying
+          ? `<p class="tg-card-ribbon cyan">Trying on · ${esc(cosById(trying)?.name ?? '')}</p>`
+          : '';
     $(root, '[data-card]').innerHTML = `
       ${ribbon}
       <div class="tg-card-head"><div><small>${esc(b.maker)} · ${driveLabel(b)}</small><h2 class="tg-title">${esc(b.name)}</h2></div>${classBadge(c)}</div>
@@ -399,7 +417,11 @@ export const driveHub: Render = (root, ctx, screen) => {
   const casesPage = () => casesTab(garage.g, status);
   const driverPage = () => driverTab(viewedRider(), status);
   const settingsPage = () => settingsTab(graphics(), status);
-  const BODIES: Record<Page, () => string> = { race: racePage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, settings: settingsPage };
+  const friendsPage = () => {
+    if (account.user && !friendList) void loadFriends();
+    return friendsTab(friendsView(), classBadge);
+  };
+  const BODIES: Record<Page, () => string> = { race: racePage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, friends: friendsPage, settings: settingsPage };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -566,6 +588,37 @@ export const driveHub: Render = (root, ctx, screen) => {
       plateIn.addEventListener('keydown', (e) => e.key === 'Enter' && save());
       panel.querySelector('[data-plate-save]')?.addEventListener('click', save);
     }
+    // Friends: add (the form, or "Add back"), remove (two presses), open a garage, pick one of their cars.
+    panel.querySelector('[data-friends-signin]')?.addEventListener('click', () => ctx.go({ name: 'account' }));
+    panel.querySelector<HTMLFormElement>('[data-friend-form]')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = panel.querySelector<HTMLInputElement>('[data-friend-name]')!.value.trim();
+      if (name) void friendAct('add', name);
+    });
+    panel.querySelectorAll<HTMLElement>('[data-friend-add]').forEach((b) => b.addEventListener('click', () => void friendAct('add', b.dataset.friendAdd!)));
+    panel.querySelectorAll<HTMLButtonElement>('[data-friend-remove]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (!b.dataset.sure) {
+          b.dataset.sure = '1';
+          b.textContent = 'Sure? Press again';
+          return;
+        }
+        void friendAct('remove', b.dataset.friendRemove!);
+      }),
+    );
+    panel.querySelectorAll<HTMLElement>('[data-friend-open]').forEach((b) => b.addEventListener('click', () => void openFriend(b.dataset.friendOpen!)));
+    panel.querySelectorAll<HTMLElement>('[data-friend-car]').forEach((b) =>
+      b.addEventListener('click', () => {
+        friendCarI = Number(b.dataset.friendCar);
+        draw();
+      }),
+    );
+    panel.querySelector('[data-friend-close]')?.addEventListener('click', () => {
+      friendOpen = null;
+      status = '';
+      draw(false);
+      root.querySelector<HTMLElement>('[data-panel] [data-autofocus]')?.focus({ preventScroll: true });
+    });
     panel.querySelectorAll<HTMLElement>('[data-buy]').forEach((b) =>
       b.addEventListener('click', () => {
         const id = b.dataset.buy as (typeof CAR_IDS)[number];
@@ -582,6 +635,42 @@ export const driveHub: Render = (root, ctx, screen) => {
     busy = false;
     if (!r.ok) setStatus(r.error);
     return r.ok ? (r.paid ?? 0) : null;
+  };
+
+  const loadFriends = async () => {
+    if (friendsLoading) return;
+    friendsLoading = true;
+    const list = await friendsApi.list();
+    friendsLoading = false;
+    friendList = list ?? { friends: [], mutual: [], fans: [] };
+    if (!list) status = 'Could not load your friends.';
+    if (page === 'friends') draw();
+  };
+  const friendAct = async (a: 'add' | 'remove', name: string) => {
+    if (busy) return;
+    busy = true;
+    const r = await friendsApi.act(a, name);
+    busy = false;
+    if (!r.ok) return setStatus(r.error);
+    friendList = r.list;
+    const added = r.list.friends.find((n) => n.toLowerCase() === name.toLowerCase());
+    status = a === 'add' ? `${added ?? name} is on your list.` : `Removed ${name}.`;
+    if (page === 'friends') draw(false);
+  };
+  const openFriend = async (name: string) => {
+    if (busy) return;
+    busy = true;
+    setStatus(`Opening ${name}'s garage…`);
+    const p = await friendsApi.profile(name);
+    busy = false;
+    if (!p) return setStatus(`Could not open ${name}'s garage.`);
+    friendOpen = p;
+    friendCarI = p.sel;
+    status = '';
+    if (page !== 'friends') return;
+    draw(false);
+    $(root, '[data-panel]').scrollTop = 0;
+    root.querySelector<HTMLElement>('[data-panel] [data-autofocus]')?.focus({ preventScroll: true });
   };
 
   const scheduleSave = () => {
@@ -760,7 +849,12 @@ export const driveHub: Render = (root, ctx, screen) => {
     if (root.querySelector<HTMLElement>('[data-modal]')!.hidden) draw();
     else drawTop();
   });
-  const offAccount = account.onChange(() => drawTop());
+  const offAccount = account.onChange(() => {
+    friendList = null;
+    friendOpen = null;
+    if (page === 'friends') draw();
+    else drawTop();
+  });
   void garage.refresh();
   draw(false);
   frameCar();
@@ -787,10 +881,10 @@ function focusId(el: Element | null): string | null {
   if (look) return `[data-look="${look}"][data-v="${el.getAttribute('data-v')}"]`;
   const rider = el.getAttribute('data-rider');
   if (rider) return `[data-rider="${rider}"][data-v="${el.getAttribute('data-v')}"]`;
-  for (const attr of ['data-track', 'data-rivals', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos']) {
+  for (const attr of ['data-track', 'data-rivals', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }
-  for (const attr of ['data-solo', 'data-host', 'data-join', 'data-code', 'data-rider-random', 'data-rider-reset']) if (el.hasAttribute(attr)) return `[${attr}]`;
+  for (const attr of ['data-solo', 'data-host', 'data-join', 'data-code', 'data-rider-random', 'data-rider-reset', 'data-friend-name']) if (el.hasAttribute(attr)) return `[${attr}]`;
   return null;
 }

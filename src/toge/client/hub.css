@@ -1608,6 +1608,117 @@ html:not(.pad) .tg-bumper {
 }
 
 /* ============================================================================================
+   Friends (friendsui.ts): the add box, friend rows, a friend's profile and best-time tables
+   ============================================================================================ */
+.tg-friend-add {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.tg-friend-add label {
+  flex: 1;
+  display: grid;
+  gap: 8px;
+}
+.tg-friend-add input {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--tg-line-2);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font: 500 16px var(--tg-body);
+}
+.tg-friend-add input::placeholder {
+  color: var(--tg-faint);
+}
+.tg-friends {
+  display: grid;
+  gap: 8px;
+}
+.tg-friend {
+  display: grid;
+  grid-template-columns: 36px 1fr auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+}
+.tg-friend b {
+  font: italic 800 20px/1 var(--tg-display);
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tg-friend-av {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--tg-ink-3);
+  box-shadow: inset 0 0 0 1px var(--tg-line-2);
+  font: italic 800 18px var(--tg-display);
+  color: var(--tg-dim);
+}
+.tg-friends-guest {
+  padding: 4px 18px 18px;
+}
+.tg-friends-guest p {
+  margin: 0 0 14px;
+  color: var(--tg-dim);
+}
+.tg-back {
+  margin-bottom: 6px;
+}
+.tg-friend-name {
+  margin: 0 0 14px;
+  text-transform: uppercase;
+}
+.tg-times {
+  width: 100%;
+  border-collapse: collapse;
+  clip-path: none;
+  font-size: 14px;
+}
+.tg-times th,
+.tg-times td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--tg-line);
+  text-align: left;
+  vertical-align: middle;
+}
+.tg-times tr:last-child > * {
+  border-bottom: 0;
+}
+.tg-times thead th {
+  font: 700 12px/1 var(--tg-display);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tg-dim);
+}
+.tg-times tbody th b {
+  display: block;
+  font: italic 800 17px/1.1 var(--tg-display);
+  text-transform: uppercase;
+}
+.tg-times small {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tg-dim);
+}
+.tg-times td b {
+  font-size: 16px;
+}
+.tg-times small.good {
+  color: var(--tg-good);
+}
+.tg-times small.bad {
+  color: var(--tg-bad);
+}
+
+/* ============================================================================================
    Small screens
    ============================================================================================ */
 @media (max-width: 1100px) {

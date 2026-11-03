@@ -7,6 +7,7 @@ import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part
 import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, rollCosCase } from './cosmetics.ts';
 import { clampDrift, driftPay, itemPay } from './drift.ts';
 import type { Item } from './powerups.ts';
+import type { NewBest } from './records.ts';
 import { type Rider, cleanRider, defaultRider } from './rider.ts';
 import type { TrackId } from './track.ts';
 import { TRACK_DEFS } from './track.ts';
@@ -182,14 +183,18 @@ export type GarageAction =
   | { a: 'select'; i: number }
   | { a: 'style'; i: number; look: Look; tune: Tune }
   | { a: 'sell'; i: number }
-  /** `drift`: drift points banked; `uses`: items used, per kind (both client-reported, clamped). */
-  | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number; uses?: Partial<Record<Item, number>> }
+  /**
+   * `drift`: drift points banked; `uses`: items used, per kind (both client-reported, clamped). `time`: your finish
+   * (s), for best times (records.ts; not part of applyAction, which only pays).
+   */
+  | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number; uses?: Partial<Record<Item, number>>; time?: number }
   | { a: 'case'; id: CaseId }
   | { a: 'equip'; i: number; slot: CosSlot; id: string | null }
   | { a: 'plate'; i: number; text: string }
   | { a: 'rider'; rider: Rider };
 
-export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number; bonus?: { drift: number; items: number } } | { ok: false; error: string };
+/** `best`: a solo finish that set a new best time (filled in by the garage's keeper, not applyAction). */
+export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number; bonus?: { drift: number; items: number }; best?: NewBest | null } | { ok: false; error: string; best?: NewBest | null };
 
 /** Selling gives back this share of the car's price. */
 export const SELL_SHARE = 0.5;

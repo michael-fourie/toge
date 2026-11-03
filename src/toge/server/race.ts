@@ -86,7 +86,7 @@ export class Race {
     private onChange: (r: Race) => void,
     private onEmpty: (r: Race) => void,
     /** Results are in: pay the signed-in racers. */
-    private onResults: (rows: ResultRow[], users: Set<number>) => void,
+    private onResults: (rows: ResultRow[], users: Set<number>, track: TrackId) => void,
     private now: () => number = Date.now,
     tick = true,
     /** The dice for the spec car (tests pass their own). */
@@ -331,7 +331,7 @@ export class Race {
     this.phaseEnds = now + RACE.resultsSeconds * 1000;
     for (const m of field) m.racing = false;
     this.broadcast({ t: 'results', track: this.track, mode: this.mode, rows });
-    this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)));
+    this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track);
     this.onChange(this);
   }
 
@@ -364,6 +364,11 @@ export class Race {
   private room(): RaceServerMsg {
     const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user }));
     return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, phase: this.phase, racers };
+  }
+
+  /** Tells the room something the platform worked out after the fact (new best times). */
+  announce(msg: RaceServerMsg) {
+    this.broadcast(msg);
   }
 
   private broadcastRoom() {

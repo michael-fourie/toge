@@ -137,6 +137,8 @@ export type RaceServerMsg =
   | { t: 'snap'; cars: NetCar[] }
   | { t: 'finished'; id: number; time: number }
   | { t: 'results'; track: TrackId; mode: RaceMode; rows: ResultRow[] }
+  /** Shortly after `results`: the signed-in racers whose finish was a new best on this track (`prev`: the old one). */
+  | { t: 'records'; rows: { id: number; time: number; prev: number | null }[] }
   | { t: 'pong'; n: number }
   /** Someone used an item that reaches other racers: an oil slick dropped at `p`, or a shockwave. */
   | { t: 'item'; by: number; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number }

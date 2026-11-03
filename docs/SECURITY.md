@@ -63,6 +63,15 @@ player sees is decided or checked by the server; anything the server can't check
   shields from rate-limited `used` messages, none in a time trial). Either way drifting pays at most `DRIFT.payPerKm`
   per km of race and items at most `ITEM_PAY_CAP`, both well under a win; solo pays its usual share and is still
   limited to one payout per `SOLO_GAP_MS`. A cheat client can max both caps, not exceed them.
+- **TŌGE best times** (`src/toge/shared/records.ts`, kept per account as `b:<user>`) never pay anything. Online
+  finishes are the room's own (timed within the window above, at least `MIN_RACE_SECONDS`). Solo times come from
+  the client with the `solo` action, so they're only bounded: nothing quicker than the track's length at
+  `RECORDS.maxAvgSpeed` (90 m/s average) or slower than an hour. A cheat client can post a fake solo best inside that
+  bound; friends would see it.
+- **Friends** (`/api/friends`, `src/server/friendStore.ts`) are one way, like following: anyone signed in can add any
+  username (20 adds or removes per account at once, then one per 3 s), which also tells them the name exists (as
+  sign-up already does). Adding someone lets you open their TŌGE profile (`/api/garage?u=`): cars with their looks
+  and cosmetics, driver, races, wins and best times, never money. Names reach the page only through `esc()`.
 - **Plug-in games** (`PartyRoom`) relay players' messages unopened: each game must validate what it receives and
   render names with `textContent`.
 - **No full Content-Security-Policy** yet (only `frame-ancestors`): a `script-src` policy needs a pass over inline

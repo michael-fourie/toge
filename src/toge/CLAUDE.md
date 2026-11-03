@@ -30,7 +30,7 @@ the keyboard brake ramps in at 14/s, the throttle at 5/s.
 
 ## Menus and brand
 
-The home screens (hub.ts: tabs Race, Garage, Performance, Style, Driver, Settings), the race lobby (lobby.ts) and cosmetics
+The home screens (hub.ts: tabs Race, Garage, Performance, Style, Driver, Friends, Settings), the race lobby (lobby.ts) and cosmetics
 (cosmeticsui.ts) follow the design system in **`src/toge/DESIGN.md`**: the brand, colour roles (red acts, cyan selects,
 gold pays), type, the screen anatomy, the tab map and the components. Its tokens and components are in
 `src/toge/client/hub.css`; reuse them rather than styling a new screen from scratch, and update DESIGN.md when you add
@@ -69,6 +69,16 @@ a component or a page.
   8 tops from tees to souvenir jackets and long coats with a kanji back print, bottoms, shoes, headwear, eyewear, masks,
   neck pieces, gloves, 5 poses), all free, saved in the garage (`rider`, the `rider` action). Your driver stands by your car
   in the showroom (the Driver tab walks the camera in), and the lobby shows every racer's driver in the Crew row.
+- **Best times** (records.ts): every racer's quickest finish per track (`Bests`), whatever the mode or car. Accounts'
+  live on the server (`b:<user>`, toge/server/recordStore.ts): online finishes go in from the room's results
+  (`Accounts.raceTime`, then the room sends `records` so every client marks the new bests), solo ones ride on the `solo`
+  garage action as `time` (kept even when the prize is on cooldown). Guests keep theirs in localStorage
+  (`garage.noteTime`, `atrous.bests`). The results screen tags a new best (`ResultLine.newBest`, gold "New best −0.532").
+  Solo times are client-reported, so `cleanTime` refuses anything quicker than the track at `RECORDS.maxAvgSpeed`.
+- **Friends** (the Friends tab, friendsui.ts): add accounts by username (site-wide lists, `src/shared/friends.ts`,
+  `/api/friends`), see who added you, open a friend's garage (`/api/garage?u=`, a `TogeProfile`: cars, driver, races,
+  wins, best times, no money). Their car goes on the turntable with their driver beside it, and their best times sit next
+  to yours with the gap. Guests see a sign-in prompt and their own times.
 - **Solo**: 0/3/5/7 AI rivals (hub.ts, saved as `atrous.rivals`) picked near your PI with your upgrades; you start mid-pack.
 - **Online**: Directory instance `"race"`, sockets `/ws?game=race`, up to `RACE.maxPlayers` (8).
 
@@ -120,13 +130,15 @@ src/toge/shared/
                gets boxes only. A `climb` track gets rockfall instead (`placeRockfall`): boulders and rocks, each its own
                radius, bitten into the road's edges, always leaving `ROCKFALL_GAP` of clear tarmac; solid, and the AI
                steers round them by their radius. toge/client/propview.ts draws props, oil slicks, the shield bubble.
+  records.ts   best times: Bests per track, recordTime (keeps a time only if it beats the old one and is plausible: cleanTime,
+               minTime), cleanBests, and TogeProfile / profileOf (what a friend sees of your garage).
   rider.ts     your driver: RIDER_FIELDS (APPEND ONLY, like the cosmetics catalogue: a code is one base-36 digit per field,
                after `r1.`; shorter old codes fill the new fields with 0), encode/decode/cleanRider, randomRider. Racers carry
                the code as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the default).
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
                climb), ghostMode (time trial only), cleanMode (no items + car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
-  garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`). Race lobbies use the Directory instance 'race'
+  garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`), recordStore.ts (accounts' best times, `b:<user>`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.
 src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), tracktextures.ts
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
@@ -148,7 +160,8 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   driver's door, `focus('rider')` turns them to the camera), ridermodel.ts (the driver figure: ~70 primitives with cached
   geometry and materials, posed, a breathing idle; tune in `/dev/riders.html`, `window.lab`), riderportrait.ts (one
   offscreen renderer draws each driver to a cached PNG for the lobby; released when the lobby closes), riderui.ts (the
-  Driver page), settingsui.ts (the Settings page: graphics), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
+  Driver page), settingsui.ts (the Settings page: graphics), friendsui.ts (the Friends page: list, add, a friend's
+  profile and best times), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
   styled by hub.css), lobby.ts (`drivelobby`), trackart.ts (track tiles and maps for the menus), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
@@ -217,5 +230,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   decal kind also needs a painter in toge/client/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider`, `damage` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider`, `damage`, `records` in `tests/toge/`
+(friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).
