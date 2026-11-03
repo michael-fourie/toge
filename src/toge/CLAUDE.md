@@ -130,7 +130,8 @@ src/toge/shared/
                wrecked: racegame.ts `crashes()`/`wreck()` blow it up and respawn it DAMAGE.respawnBack m back with a grace.
                Online: zones ride `NetCar.dm`, explosions the `wreck` message (room relays only with `physics` on).
                toge/client/damageview.ts draws it: CarDents (moves the body's own vertices, flat normals in the creases),
-               Blasts (fireball, black cloud, instanced debris, a flash light that only exists with the mode on), smokeFrom.
+               Blasts (fireball, black cloud, instanced debris, a flash light that only exists with the mode on).
+               A damaged car doesn't smoke: the engine plume hid the road.
   props.ts     seeded track props (`placeProps`): mystery boxes, ramps, bales, barrels, cones. Not on circuits; Neon Bay
                gets boxes only. A `climb` track gets rockfall instead (`placeRockfall`): boulders and rocks, each its own
                radius, bitten into the road's edges, always leaving `ROCKFALL_GAP` of clear tarmac; solid, and the AI

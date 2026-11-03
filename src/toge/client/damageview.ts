@@ -1,4 +1,4 @@
-// Physics mode, drawn: dents in the body where a car was hit, smoke from a broken engine, and the explosion
+// Physics mode, drawn: dents in the body where a car was hit, and the explosion
 // when it's wrecked (fireball, black cloud, flying debris and a flash). The rules are in shared/damage.ts.
 //
 // Dents move the body's own vertices (every car's merged body geometry is its own, see mergeByMaterial), pushing
@@ -270,18 +270,4 @@ export class Blasts {
     (this.debris.material as THREE.Material).dispose();
     this.light.dispose();
   }
-}
-
-/**
- * A damaged engine smoking: grey wisps from the engine bay past half damage, thick black smoke and flames
- * near the end. `bay` is the engine bay in world space; `rate` scales with frame time.
- */
-export function smokeFrom(fx: Effects, bay: THREE.Vector3, vx: number, vz: number, damage: number, dt: number) {
-  if (damage < 0.45) return;
-  const k = (damage - 0.45) / 0.55;
-  if (Math.random() < dt * (8 + k * 30)) {
-    const g = 0.55 - k * 0.5;
-    fx.plume(bay.x, bay.y, bay.z, vx * 0.5 + (Math.random() - 0.5), 1.2 + Math.random() * 1.5 + k * 1.5, vz * 0.5 + (Math.random() - 0.5), [g, g, g], 0.5 + k * 0.6, 2.5 + k * 3, 1.6 + k * 1.4, 0.35 + k * 0.4);
-  }
-  if (k > 0.65 && Math.random() < dt * 22) fx.spark(bay.x + (Math.random() - 0.5) * 0.5, bay.y, bay.z + (Math.random() - 0.5) * 0.5, vx * 0.6, 1.5 + Math.random() * 1.5, vz * 0.6, [5, 1.8, 0.3], 0.3 + Math.random() * 0.25, 0.5 + Math.random() * 0.5);
 }

@@ -7,7 +7,7 @@ import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeC
 import { type Ai, aiDrive, newAi } from '../shared/driver.ts';
 import { DRAFT, type Body, stepDraft, strongestWake } from '../shared/draft.ts';
 import { DAMAGE, type Damage, ZONES, damagedInput, newDamage, packZones, repair, takeHit, unpackZones } from '../shared/damage.ts';
-import { Blasts, CarDents, smokeFrom } from './damageview.ts';
+import { Blasts, CarDents } from './damageview.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
 import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { SOLO_SHARE } from '../shared/garage.ts';
@@ -1037,15 +1037,6 @@ export class RaceGame {
     }
   }
 
-  private bay = new THREE.Vector3();
-  /** Smoke (then fire) from a damaged car's engine bay. */
-  private engineSmoke(root: THREE.Object3D, spec: CarSpec, damage: number, vx: number, vz: number, dt: number) {
-    if (damage < 0.45) return;
-    const b = CARS[spec.id];
-    this.bay.set(0, b.height * 0.62 - spec.cg, -b.length / 2 + 0.8).applyMatrix4(root.matrixWorld);
-    smokeFrom(this.fx, this.bay, vx, vz, damage, dt);
-  }
-
   private go() {
     if (this.phase !== 'countdown') return;
     this.phase = 'racing';
@@ -1297,16 +1288,10 @@ export class RaceGame {
     for (const r of [me, ...this.rivals]) {
       this.poseLocal(r, alpha);
       this.tyreEffects(r, r === me ? 0 : 1 + this.rivals.indexOf(r));
-      if (this.physics && !this.paused) this.engineSmoke(r.model.root, r.car.spec, r.dmg.total, r.car.v.x, r.car.v.z, dt);
     }
     if (this.watching === null) this.windFx(me.car, me.model.root);
     for (const r of this.remotes.values()) {
       this.poseRemote(r, now, dt);
-      if (this.physics && r.dm && r.last) {
-        // The sender only says how bent each side is; the zones fill 1.4× faster than the total.
-        const z = unpackZones(r.dm);
-        this.engineSmoke(r.model.root, r.spec, Math.min(1, (z.front + z.rear + z.left + z.right) / 1.4), r.last.c.v[0], r.last.c.v[2], dt);
-      }
     }
     this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT);
     const view = this.camTarget();
