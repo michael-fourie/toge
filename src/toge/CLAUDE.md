@@ -17,6 +17,17 @@ raised `ARCADE` grip/yaw on 2026-10-30 because corners felt unmakeable, so don't
 physics only with a test, and keep `tests/toge/racephysics.test.ts` green (it drives every car down every track with the AI).
 Physics runs client-side only; the AI's target speed reads `ARCADE.grip`, so rivals scale with it.
 
+Braking and traction (2026-11-02, after "braking is unintuitive"): arcade brakes bite `ARCADE.brakeGrip` (1.3) times
+the tyres (about 1.1-1.5 g; 100-0 in 26-36 m), because 1 g brakes against `grip`-g corners left every bend arriving
+too fast; the AI's braking distance reads it too. In arcade, cornering slip counts against the drive/brake budget only
+in the share `sp.grip / ARCADE.grip` (the rest of the cornering is the arcade layer's, not the tyres'), so you can brake
+and power through a bend. Traction control brakes a driven wheel that spins on its own (the unloaded inside wheel,
+`Wheel.ex`) and cuts the engine only when both wheels of an axle spin: before, it cut the throttle all through every
+corner and cars lost speed on full throttle out of a bend. `ARCADE.trailBrake` adds yaw on the brakes while turning in.
+Simulation handling (`arcade` off) keeps the tyres' own numbers. Controller layout is the usual one: RT throttle, LT
+brake (analog, `trigger()` dead zone), Ⓐ held to drift, Ⓧ/RB item (`padPedals` in input.ts, tested in raceinput);
+the keyboard brake ramps in at 14/s, the throttle at 5/s.
+
 ## Menus and brand
 
 The home screens (hub.ts: tabs Race, Garage, Performance, Style, Driver, Settings), the race lobby (lobby.ts) and cosmetics
@@ -46,6 +57,11 @@ a component or a page.
   each online rival's from `Racer.rider`, a seeded `randomRider` per AI. `buildCar(owned, rider)` passes it on; the
   showroom passes `null` (empty saddle, your driver stands beside it). Rider meshes are shared page-wide, so the bike
   never merges or disposes them.
+- **Free looks** (`Look` in cars.ts, the Style → Paint page): paint (18), finish, rims (6 designs, 7 colours), spoiler,
+  stripes, underglow, then the body options (cars only; the garage hides them for bikes): window `tint`, `roof` and `hood` (body colour / black / carbon), `trim`
+  (window seals and door handles), `mirrors` and front `lip`. Every list is append-only (codes store indexes). A car
+  code always carries the first eight look values; the body options go on the end only when one is off its default,
+  so a car without them keeps its old code (`decodeCar` takes either; the 8-digit upgrades segment marks the end).
 - **Cosmetics** (cosmetics.ts): 160 items in 11 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
   underglow, plates, plate frames/covers, exhaust tips), 5 rarities, won from 5 cases (Street, Night Run, Livery,
   Chrome, Legend) bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
@@ -116,7 +132,19 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
   post chain: clamp, bloom, film grade per theme (`Look.grade`), then tone mapping), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
-  textures in carparts.ts, merged by material; bikes in bikemodel.ts; tune them in `/dev/cars.html`, `window.lab`), showroom.ts (the turntable; `place()` frames the car beside the rail; `showRider()` stands your driver by the
+  textures in carparts.ts, merged by material; bikes in bikemodel.ts; tune them in `/dev/cars.html`, `window.lab`, `lab.info()` for draw
+  calls and triangles). The glass is see-through (`GLASS` per tint in carparts.ts; cosmetic tints are too), so every
+  car has a cabin behind it: the greenhouse loft drawn again from inside (`MAT.liner`, back faces, glass faces skipped),
+  a dark cabin floor (the lower body's top inside the greenhouse), dash, wheel and bucket seats (`cabinParts`), a rear
+  bench when there's room. It's the group named `INTERIOR`, which the race hides for the car the cockpit camera is in.
+  `panelZones` says where the hood, doors and boot are, so the hood option and the shut lines (`details`: grooves,
+  handles, repeaters, fuel flap, wipers, third brake light, badge) agree. Flanks carry a character line
+  (`Section.crease`, `Design.crease`, default 0.012 m; carloft.ts samples the side finely enough to hold it, and every
+  ring keeps the same point count). Round headlamps are shallow buckets standing proud of the panel (reflector bowl,
+  bulb and shield, chrome rim, glass), since a flush one sits behind the paint; slit lamps are a housing with projectors
+  under a clear cover; tail lamps are a dark red lens (`MAT.redLens`) with lit elements (`tailLamp`). Lamp glow is
+  global: `setLampLevel` (carparts.ts) scales every registered lamp material (`lamp()`; cosmetic lamp tints too). The
+  race sets `LAMP_NIGHT` on night and city tracks and `LAMP_DAY` otherwise, so headlamps don't blaze white by day. showroom.ts (the turntable; `place()` frames the car beside the rail; `showRider()` stands your driver by the
   driver's door, `focus('rider')` turns them to the camera), ridermodel.ts (the driver figure: ~70 primitives with cached
   geometry and materials, posed, a breathing idle; tune in `/dev/riders.html`, `window.lab`), riderportrait.ts (one
   offscreen renderer draws each driver to a cached PNG for the lobby; released when the lobby closes), riderui.ts (the
@@ -189,5 +217,5 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   decal kind also needs a painter in toge/client/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
 
-Tests: `racephysics`, `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider`, `damage` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider`, `damage` in `tests/toge/`
 (`pad` is in `tests/`: the gamepad code is the site's).

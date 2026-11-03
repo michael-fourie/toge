@@ -1,8 +1,8 @@
-// Driving controls: a controller (analog triggers and stick, kart-racer buttons: RT go, LT drift) and/or
+// Driving controls: a controller (the usual racing layout: RT throttle, LT brake, Ⓐ held to drift) and/or
 // the keyboard, merged into one DriveInput. Keys are digital, so steering and pedals ramp instead of snapping.
 
 import type { DriveInput } from '../shared/vehicle.ts';
-import { BTN, readPad } from '../../client/pad.ts';
+import { BTN, type Pad, readPad } from '../../client/pad.ts';
 
 export type Action = 'camera' | 'reset' | 'pause' | 'shiftUp' | 'shiftDown' | 'item';
 
@@ -21,10 +21,10 @@ export const KEY_HELP: [string, string][] = [
 
 export const PAD_HELP: [string, string][] = [
   ['RT', 'Accelerate'],
-  ['LT (hold)', 'Drift (let go for a boost)'],
+  ['LT', 'Brake / reverse'],
   ['Left stick', 'Steer'],
-  ['Ⓑ / stick back', 'Brake / reverse'],
-  ['Ⓐ / RB', 'Use item'],
+  ['Ⓐ (hold)', 'Drift (let go for a boost)'],
+  ['Ⓧ / RB', 'Use item'],
   ['Ⓨ', 'Camera'],
   ['LB (hold)', 'Look back'],
   ['View', 'Reset to road'],
@@ -32,12 +32,21 @@ export const PAD_HELP: [string, string][] = [
   ['Menu', 'Pause'],
 ];
 
+/** A trigger's travel as a pedal: a small dead zone at rest, full a little before the stop (worn triggers). */
+export function trigger(v: number): number {
+  return Math.max(0, Math.min(1, (v - 0.04) / 0.9));
+}
+
 /**
- * Pulling the left stick back brakes, harder the further back. It starts past a third of the travel so a
- * stick that's mostly steering, a little low, doesn't drag the brakes.
+ * The pedals and the drift button from a controller, laid out like every other racing game: RT throttle,
+ * LT brake (analog, so you can trail off it into a corner), Ⓐ held to drift. Ⓑ brakes fully too.
  */
-export function stickBrake(ly: number): number {
-  return Math.max(0, Math.min(1, (ly - 0.3) / 0.55));
+export function padPedals(pad: Pick<Pad, 'lt' | 'rt' | 'down'>): { throttle: number; brake: number; drift: number } {
+  return {
+    throttle: trigger(pad.rt),
+    brake: pad.down[BTN.B] ? 1 : trigger(pad.lt),
+    drift: pad.down[BTN.A] ? 1 : 0,
+  };
 }
 
 export class DriveControls {
@@ -83,9 +92,11 @@ export class DriveControls {
     // Steering ramps in fast, and back to centre faster still.
     const rate = want === 0 || Math.sign(want) !== Math.sign(this.kSteer) ? 10 : 8;
     this.kSteer += Math.max(-rate * dt, Math.min(rate * dt, want - this.kSteer));
-    const ramp = (cur: number, on: boolean) => Math.max(0, Math.min(1, cur + (on ? 5 : -8) * dt));
-    this.kThrottle = ramp(this.kThrottle, k('KeyW', 'ArrowUp'));
-    this.kBrake = ramp(this.kBrake, k('KeyS', 'ArrowDown'));
+    const ramp = (cur: number, on: boolean, rise: number) => Math.max(0, Math.min(1, cur + (on ? rise : -10) * dt));
+    // The throttle squeezes in (a stab of a digital key would only spin the wheels); the brake bites at once,
+    // as a brake should, while ABS keeps a stamped pedal from locking up.
+    this.kThrottle = ramp(this.kThrottle, k('KeyW', 'ArrowUp'), 5);
+    this.kBrake = ramp(this.kBrake, k('KeyS', 'ArrowDown'), 14);
     let steer = this.kSteer;
     let throttle = this.kThrottle;
     let brake = this.kBrake;
@@ -96,22 +107,22 @@ export class DriveControls {
       // Nearly linear: quick to react, still fine near centre.
       const sx = Math.sign(pad.lx) * Math.abs(pad.lx) ** 1.2;
       if (Math.abs(sx) > Math.abs(steer)) steer = sx;
-      throttle = Math.max(throttle, pad.rt);
-      if (pad.down[BTN.B] || pad.down[BTN.X]) brake = 1;
-      brake = Math.max(brake, stickBrake(pad.ly));
-      drift = Math.max(drift, pad.lt);
+      const pedals = padPedals(pad);
+      throttle = Math.max(throttle, pedals.throttle);
+      brake = Math.max(brake, pedals.brake);
+      drift = Math.max(drift, pedals.drift);
       if (pad.down[BTN.LB]) this.lookBack = true;
       const map: [number, Action][] = [
         [BTN.Y, 'camera'],
         [BTN.View, 'reset'],
         [BTN.Menu, 'pause'],
-        [BTN.A, 'item'],
+        [BTN.X, 'item'],
         [BTN.RB, 'item'],
         [BTN.Up, 'shiftUp'],
         [BTN.Down, 'shiftDown'],
       ];
       for (const [b, a] of map) if (pad.pressed[b]) this.queued.push(a);
-      if (pad.rt > 0.1 || pad.lt > 0.1 || Math.abs(pad.lx) > 0.2 || pad.ly > 0.3 || pad.pressed.some(Boolean)) this.padSeen = true;
+      if (pad.rt > 0.1 || pad.lt > 0.1 || Math.abs(pad.lx) > 0.2 || pad.pressed.some(Boolean)) this.padSeen = true;
     }
     const inp = this.input;
     inp.steer = steer;

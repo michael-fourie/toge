@@ -127,7 +127,7 @@ Six top tabs; a tab with more than one page shows sub-tabs at the top of the rai
 | **Race** | (one page) | The selected track as a hero with its map, rivals and *Race solo*; the track grid; Online (host, join by code, open races). |
 | **Garage** | My cars · Dealer | Your cars (drive, sell) and driver stats; buying new cars. |
 | **Performance** | Upgrades · Tuning | Upgrade crates per part; the tuning sliders. |
-| **Style** | Paint · Locker · Cases | Free paint/wheels/body; cosmetics you own (equip, try on, plates); buying cases. |
+| **Style** | Paint · Locker · Cases | Free paint/wheels/body/glass and trim (cars only for the body and glass options); cosmetics you own (equip, try on, plates); buying cases. |
 | **Driver** | (one page) | Your character (riderui.ts): body, face, hair, top, bottoms, gear, pose, all free; Randomise. The showroom walks in to the driver and the card describes them. |
 | **Settings** | (one page) | Device settings (settingsui.ts), saved in this browser: Graphics High / Low as two option cards (`.tg-gfx`). Michael asked for it as its own tab (2026-11-02). |
 

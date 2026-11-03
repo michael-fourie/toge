@@ -3,7 +3,7 @@
 // settingsui.ts). LB / RB walk every page in that order. The showroom fills
 // the window behind the glass rail, with your car framed in the free space and its card bottom right.
 
-import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, RIMS, RIM_COLORS, RIM_COLOR_NAMES, SPOILERS, STRIPES, type BaseCar, TUNE_RANGE, type Tune, carSpec, isBike, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
+import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, HOODS, LIPS, MIRRORS, RIMS, RIM_COLORS, RIM_COLOR_NAMES, ROOFS, SPOILERS, STRIPES, TINTS, TRIMS, type BaseCar, TUNE_RANGE, type Tune, carSpec, isBike, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
 import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, payout, tunerCost } from '../shared/garage.ts';
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById } from '../shared/cosmetics.ts';
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
@@ -377,12 +377,21 @@ export const driveHub: Render = (root, ctx, screen) => {
       </div>
       <div class="tg-group tg-cardbox">
         <h2 class="tg-h">Body</h2>
-        ${isBike(viewed().model) ? '' : `<div class="tg-field"><span class="tg-label">Spoiler</span>${pills('spoiler', SPOILERS)}</div>`}
+        ${isBike(viewed().model) ? '' : `<div class="tg-field"><span class="tg-label">Spoiler</span>${pills('spoiler', SPOILERS)}</div>
+        <div class="tg-field"><span class="tg-label">Front lip</span>${pills('lip', LIPS)}</div>
+        <div class="tg-field"><span class="tg-label">Hood</span>${pills('hood', HOODS)}</div>
+        <div class="tg-field"><span class="tg-label">Roof</span>${pills('roof', ROOFS)}</div>`}
         <div class="tg-field"><span class="tg-label">Stripes</span>${pills('stripe', STRIPES)}</div>
         ${L.stripe ? `<div class="tg-swatches">${swatches('stripeColor', PAINTS, PAINT_NAMES)}</div>` : ''}
         <div class="tg-field"><span class="tg-label">Underglow</span></div>
         <div class="tg-swatches">${swatches('glow', GLOWS, GLOW_NAMES)}</div>
       </div>
+      ${isBike(viewed().model) ? '' : `<div class="tg-group tg-cardbox">
+        <h2 class="tg-h">Glass and trim</h2>
+        <div class="tg-field"><span class="tg-label">Window tint</span>${pills('tint', TINTS)}</div>
+        <div class="tg-field"><span class="tg-label">Trim</span>${pills('trim', TRIMS)}</div>
+        <div class="tg-field"><span class="tg-label">Mirrors</span>${pills('mirrors', MIRRORS)}</div>
+      </div>`}
       ${statusLine()}`;
   };
 

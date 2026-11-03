@@ -123,6 +123,8 @@ requestAnimationFrame(frame);
     spinning = on;
   },
   render: () => renderer.render(scene, camera),
+  /** Draw calls and triangles of the last frame, to keep an eye on what a car costs. */
+  info: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
   /** Steers every model shown and leans the bikes (lat: cornering force, m/s², + left); pose() repeats until settled. */
   pose(steer = 0.2, lat = 0) {
     for (const [i, m] of models.entries()) {

@@ -38,6 +38,47 @@ const carbonTex = canvasTexture(64, (g, s) => {
 });
 carbonTex.wrapS = carbonTex.wrapT = THREE.RepeatWrapping;
 carbonTex.repeat.set(6, 6);
+/** The same weave on a lofted panel (hood, roof): the body's UVs span the whole car, so it repeats far more. */
+const carbonSkinTex = carbonTex.clone();
+carbonSkinTex.repeat.set(70, 48);
+
+/** Honeycomb mesh for grilles and intakes: dark cells with a faint rim of light on their edges. */
+const honeyTex = canvasTexture(128, (g, s) => {
+  g.fillStyle = '#2b2e34';
+  g.fillRect(0, 0, s, s);
+  const r = s / 8;
+  const h = r * Math.sqrt(3);
+  g.fillStyle = '#050607';
+  for (let row = -1; row < s / h + 1; row++)
+    for (let col = -1; col < s / (r * 3) + 1; col++)
+      for (const off of [0, 1]) {
+        const cx = col * r * 3 + off * r * 1.5;
+        const cy = row * h + off * (h / 2);
+        g.beginPath();
+        for (let i = 0; i < 6; i++) g.lineTo(cx + Math.cos((i * Math.PI) / 3) * r * 0.82, cy + Math.sin((i * Math.PI) / 3) * r * 0.82);
+        g.fill();
+      }
+});
+honeyTex.wrapS = honeyTex.wrapT = THREE.RepeatWrapping;
+honeyTex.repeat.set(3, 2);
+
+/** Seat fabric: a fine quilted diamond, as a colour map in greys so a material colour tints it. */
+const quiltTex = canvasTexture(64, (g, s) => {
+  g.fillStyle = '#d8d8d8';
+  g.fillRect(0, 0, s, s);
+  g.strokeStyle = '#8c8c8c';
+  g.lineWidth = 2;
+  for (let i = -s; i < s * 2; i += 16) {
+    g.beginPath();
+    g.moveTo(i, 0);
+    g.lineTo(i + s, s);
+    g.moveTo(i, s);
+    g.lineTo(i + s, 0);
+    g.stroke();
+  }
+});
+quiltTex.wrapS = quiltTex.wrapT = THREE.RepeatWrapping;
+quiltTex.repeat.set(3, 4);
 
 /** White lettering round a tyre's sidewall (a RingGeometry's planar UVs map this square onto it). */
 const sidewallTex = canvasTexture(512, (g, s) => {
@@ -178,7 +219,19 @@ export const MAT = {
   chrome: new THREE.MeshStandardMaterial({ color: 0xe6e9ee, roughness: 0.08, metalness: 1 }),
   alloy: new THREE.MeshStandardMaterial({ color: 0xa9adb3, roughness: 0.3, metalness: 1 }),
   carbon: new THREE.MeshPhysicalMaterial({ color: 0xffffff, map: carbonTex, roughness: 0.35, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.05 }),
-  grille: new THREE.MeshStandardMaterial({ color: 0x07080a, roughness: 0.85 }),
+  grille: new THREE.MeshStandardMaterial({ color: 0x9a9da3, map: honeyTex, roughness: 0.7, metalness: 0.3 }),
+  /** Carbon on a lofted body panel (hood and roof options). */
+  carbonSkin: new THREE.MeshPhysicalMaterial({ color: 0xffffff, map: carbonSkinTex, roughness: 0.35, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.4 }),
+  /** A dark hole (exhaust mouths and the like): no mesh pattern. */
+  hole: new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.95 }),
+  matte: new THREE.MeshStandardMaterial({ color: 0x141518, roughness: 0.75, metalness: 0.1 }),
+  /** Shut lines: thin dark grooves laid just proud of the paint. */
+  seam: new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+  /** The cabin: headliner and pillar insides (seen from inside, so back faces), dash and floor, seats, wheel. */
+  liner: new THREE.MeshStandardMaterial({ color: 0x2a2b30, roughness: 1, side: THREE.BackSide }),
+  cabin: new THREE.MeshStandardMaterial({ color: 0x1a1b1f, roughness: 0.85 }),
+  seat: new THREE.MeshStandardMaterial({ color: 0x3a3c42, map: quiltTex, roughness: 0.9 }),
+  bolster: new THREE.MeshStandardMaterial({ color: 0x141518, roughness: 0.55 }),
   tyre: new THREE.MeshStandardMaterial({ color: 0x1a1a1c, roughness: 0.82, normalMap: treadTex, normalScale: new THREE.Vector2(1.2, 1.2) }),
   sidewall: new THREE.MeshStandardMaterial({ map: sidewallTex, transparent: true, roughness: 0.8, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
   disc: new THREE.MeshStandardMaterial({ map: discTex, roughness: 0.35, metalness: 0.85 }),
@@ -188,12 +241,61 @@ export const MAT = {
   drl: new THREE.MeshBasicMaterial({ color: new THREE.Color(8, 9, 10) }),
   amber: new THREE.MeshStandardMaterial({ color: 0xffa21a, emissive: 0xff8a00, emissiveIntensity: 1.6, roughness: 0.2 }),
   lens: new THREE.MeshPhysicalMaterial({ color: 0x9aa5b1, metalness: 1, roughness: 0.05, clearcoat: 1 }),
+  /** The polished bowl behind a headlamp bulb, seen from the open side. */
+  reflector: new THREE.MeshStandardMaterial({ color: 0xf2f4f7, metalness: 1, roughness: 0.22, side: THREE.DoubleSide, emissive: 0xfff2dc, emissiveIntensity: 1.6 }),
+  /** Clear lamp covers: nearly invisible, but they catch the light. */
+  lampGlass: new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: 0.02, clearcoat: 1, transparent: true, opacity: 0.18, depthWrite: false, envMapIntensity: 2.5 }),
+  /** A tail lamp's red lens where it isn't lit. */
+  redLens: new THREE.MeshPhysicalMaterial({ color: 0x4a0408, metalness: 0.1, roughness: 0.08, clearcoat: 1, emissive: 0x3a0000, emissiveIntensity: 0.4 }),
   rubber: new THREE.MeshStandardMaterial({ color: 0x0f0f10, roughness: 0.95 }),
   red: new THREE.MeshStandardMaterial({ color: 0xc8102e, roughness: 0.5 }),
   pink: new THREE.MeshStandardMaterial({ color: 0xff7eb6, roughness: 0.35, emissive: 0xff3d8f, emissiveIntensity: 0.25 }),
   blob: new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: blobTex, transparent: true, depthWrite: false, opacity: 0.8 }),
 };
-const SHARED = new Set<THREE.Material>(Object.values(MAT));
+/**
+ * Window glass per tint (TINTS in cars.ts): see-through, so the cabin shows, and still a mirror for the sky.
+ * Glass reflects more at a glancing angle, and a darker tint shows less of the inside.
+ */
+export const GLASS: THREE.MeshPhysicalMaterial[] = [0.36, 0.55, 0.74, 0.9].map(
+  (opacity) =>
+    new THREE.MeshPhysicalMaterial({ color: 0x16212b, metalness: 0.1, roughness: 0.02, clearcoat: 1, clearcoatRoughness: 0.01, envMapIntensity: 3, transparent: true, opacity, depthWrite: false, ior: 1.52 }),
+);
+
+const SHARED = new Set<THREE.Material>([...Object.values(MAT), ...GLASS]);
+
+/**
+ * Headlamp glow. The race's bloom only catches values above its threshold, so at night lamps must be far
+ * brighter than white; by day that turns every headlamp into a white blob, when a real one is a reflector
+ * behind clear glass with a modest glow in it. `setLampLevel` scales every registered lamp material
+ * (the stock ones and any cosmetic lamp tint): 1 at night, less by day.
+ */
+const lamps: { mat: THREE.Material; base: number }[] = [];
+export const LAMP_DAY = 0.3;
+export const LAMP_NIGHT = 1;
+let lampLevel = LAMP_DAY;
+export function lamp<T extends THREE.MeshStandardMaterial | THREE.MeshBasicMaterial>(m: T): T {
+  const base = (m as THREE.MeshStandardMaterial).isMeshStandardMaterial ? (m as THREE.MeshStandardMaterial).emissiveIntensity : 1;
+  if ((m as THREE.MeshBasicMaterial).isMeshBasicMaterial) m.userData.lampColor = (m as THREE.MeshBasicMaterial).color.clone();
+  lamps.push({ mat: m, base });
+  applyLamp(lamps[lamps.length - 1]);
+  return m;
+}
+function applyLamp({ mat, base }: { mat: THREE.Material; base: number }) {
+  const std = mat as THREE.MeshStandardMaterial;
+  if (std.isMeshStandardMaterial) std.emissiveIntensity = base * lampLevel;
+  else {
+    // Basic materials have no intensity: scale the colour, never below plain white (it still reads as lit).
+    const c = mat.userData.lampColor as THREE.Color;
+    (mat as THREE.MeshBasicMaterial).color.copy(c).multiplyScalar(Math.max(lampLevel, 1 / Math.max(c.r, c.g, c.b, 1e-3)));
+  }
+}
+export function setLampLevel(level: number) {
+  lampLevel = level;
+  for (const l of lamps) applyLamp(l);
+}
+lamp(MAT.head);
+lamp(MAT.drl);
+lamp(MAT.reflector);
 export const isShared = (m: THREE.Material) => SHARED.has(m);
 /** Marks a cached material as shared between cars, so disposing a car leaves it alone (cosmeticsview.ts). */
 export function share<T extends THREE.Material>(m: T): T {
@@ -340,9 +442,29 @@ export function wheel(b: BaseCar, look: Look, rim?: THREE.Material): { spin: THR
       const a = (i / 14) * Math.PI * 2;
       spoke(a, a + 0.3, 0.05, rimMat, 0.02, 0.6, rimR * 0.3);
     }
-  } else {
+  } else if (style === 3) {
     // Deep dish: six fat spokes deep in the barrel.
     for (let i = 0; i < 6; i++) spoke((i / 6) * Math.PI * 2, (i / 6) * Math.PI * 2, 0.055);
+  } else if (style === 4) {
+    // Ten slim straight spokes, each with a lug nut between it and the next at the hub.
+    for (let i = 0; i < 10; i++) spoke((i / 10) * Math.PI * 2, (i / 10) * Math.PI * 2, 0.022, rimMat, 0.035);
+  } else {
+    // Y-spoke: five spokes forking halfway out.
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      spoke(a, a, 0.034, rimMat, 0.035, 0, rimR * 0.2, rimR * 0.58);
+      for (const f of [-0.2, 0.2]) spoke(a + f * 0.35, a + f, 0.022, rimMat, 0.03, 0, rimR * 0.55, rimR * 0.97);
+    }
+  }
+  // Lug nuts round the hub.
+  if (style !== 1) {
+    const lug = new THREE.CylinderGeometry(0.009, 0.009, 0.014, 6);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + Math.PI / 5;
+      const m = add(lug, MAT.chrome);
+      m.rotation.z = Math.PI / 2;
+      m.position.set(sx + 0.02, Math.cos(a) * rimR * 0.3, Math.sin(a) * rimR * 0.3);
+    }
   }
   // Centre lock: a hub cap and a hex nut.
   const hub = add(new THREE.CylinderGeometry(rimR * 0.22, rimR * 0.26, 0.05, 20), rimMat);

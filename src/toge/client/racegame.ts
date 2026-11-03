@@ -21,7 +21,8 @@ import { TrafficView } from './trafficview.ts';
 import { rumble, setMenuNav } from '../../client/pad.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
-import { type CarModel, buildCar, ghostly } from './carmodel.ts';
+import { type CarModel, INTERIOR, buildCar, ghostly } from './carmodel.ts';
+import { LAMP_DAY, LAMP_NIGHT, setLampLevel } from './carparts.ts';
 import { type Rider, decodeRider, defaultRider, randomRider } from '../shared/rider.ts';
 import { mulberry } from './tracktextures.ts';
 import { type Cockpit, buildCockpit } from './cockpit.ts';
@@ -202,6 +203,8 @@ export class RaceGame {
   /** Cockpit camera: the driver's head, each car's interior (built the first time you sit in it), and what the head last saw. */
   private head = new Head();
   private cockpits = new Map<THREE.Object3D, Cockpit>();
+  /** The cabin of the car the cockpit camera is in (hidden). */
+  private hiddenCabin: THREE.Object3D | null = null;
   private headRoot: THREE.Object3D | null = null;
   private headV = new THREE.Vector3();
   private headA = new THREE.Vector3();
@@ -271,6 +274,8 @@ export class RaceGame {
 
   constructor(private setup: RaceSetup) {
     this.track = getTrack(setup.track);
+    // Headlamps blaze at night (the bloom catches them) and only glow by day.
+    setLampLevel(this.track.def.theme === 'night' || this.track.def.theme === 'city' ? LAMP_NIGHT : LAMP_DAY);
     this.trial = !!setup.online && ghostMode(setup.online.mode);
     this.clean = !!setup.online && cleanMode(setup.online.mode);
     this.climb = setup.online?.mode === 'climb';
@@ -484,7 +489,7 @@ export class RaceGame {
     }
     if (this.pending && now >= this.rouletteUntil) {
       this.me.item = { kind: this.pending, uses: ITEMS[this.pending].uses };
-      this.hud.banner(ITEMS[this.pending].name, this.controls.padSeen ? 'Ⓐ to use' : 'E to use', 1400);
+      this.hud.banner(ITEMS[this.pending].name, this.controls.padSeen ? 'Ⓧ to use' : 'E to use', 1400);
       this.audio.tone(1320, 0.15, 0.05, 'triangle');
       this.pending = null;
     }
@@ -1059,7 +1064,7 @@ export class RaceGame {
   }
 
   private spectateKey() {
-    return this.controls.padSeen ? 'Ⓐ' : 'E';
+    return this.controls.padSeen ? 'Ⓧ' : 'E';
   }
 
   /** Remote racers still on the road. */
@@ -1136,7 +1141,7 @@ export class RaceGame {
         <button data-act="abs">ABS: ${onOff(a.abs)}</button>
         <button data-act="tcs">Traction control: ${onOff(a.tcs)}</button>
         <button data-act="steer">Steering assist: ${onOff(a.steer)}</button>
-        <button data-act="arcade">Handling: ${a.arcade ? 'Arcade (drift on LT / Space)' : 'Simulation'}</button>
+        <button data-act="arcade">Handling: ${a.arcade ? 'Arcade (drift on Ⓐ / Space)' : 'Simulation'}</button>
         <button data-act="auto">Gearbox: ${a.auto ? 'Automatic' : 'Manual'}</button>
         <button data-act="leave">${this.setup.online ? 'Leave race' : 'Quit to garage'}</button>
       </div>`);
@@ -1356,6 +1361,13 @@ export class RaceGame {
       const rider = r.userData.rider as THREE.Object3D | undefined;
       if (rider) rider.visible = !c.root.visible;
     }
+    // The outside model's cabin would wall you in: the cockpit draws its own.
+    const hide = inside ? root.getObjectByName(INTERIOR) ?? null : null;
+    if (hide !== this.hiddenCabin) {
+      if (this.hiddenCabin) this.hiddenCabin.visible = true;
+      if (hide) hide.visible = false;
+      this.hiddenCabin = hide;
+    }
     const nearPlane = inside ? 0.06 : 0.2;
     if (this.camera.near !== nearPlane) this.camera.near = nearPlane;
     if (inside) {
@@ -1496,9 +1508,9 @@ export class RaceGame {
     const off = me.wheels.filter((w) => w.contact && soft(w.surf)).length / 4;
     const speed = speedOf(me);
     this.audio.surroundings(slip, off, speed);
-    // Rumble: road texture off the tarmac, the tyres at the limit.
+    // Rumble: road texture off the tarmac, the tyres at the limit, ABS chattering under a stamped brake.
     if (this.wallClock > this.rumbleAt && !this.paused) {
-      const strong = off * Math.min(1, speed / 20) * 0.5;
+      const strong = off * Math.min(1, speed / 20) * 0.5 + (me.absOn ? 0.3 : 0);
       const weak = Math.max(0, Math.min(1, slip - 0.95)) * 0.6;
       if (strong + weak > 0.05) rumble(strong, weak, 120);
       this.rumbleAt = this.wallClock + 0.1;
@@ -1602,6 +1614,7 @@ export class RaceGame {
 
   private dispose() {
     this.exited = true;
+    setLampLevel(LAMP_DAY);
     cancelAnimationFrame(this.raf);
     removeEventListener('resize', this.resize);
     this.offNet?.();

@@ -26,6 +26,8 @@ const RHO = 1.2;
 /** Tyre curve: peak at normalised slip 1. C sets how much grip is left when sliding (sin(C·π/2)). */
 const TIRE_C = 1.45;
 const TIRE_B = Math.tan(Math.PI / (2 * TIRE_C));
+/** Grip (share of peak) at normalised slip rho. */
+const tireCurve = (rho: number) => Math.sin(TIRE_C * Math.atan(TIRE_B * rho));
 const SLIP_PEAK_X = 0.11; // slip ratio at peak longitudinal grip
 const SLIP_PEAK_Y = 0.15; // slip angle (rad) at peak lateral grip
 const RELAX_X = 0.25; // relaxation lengths (m)
@@ -103,6 +105,8 @@ export interface Wheel {
   slip: number;
   surf: Surface;
   fx: number;
+  /** Driven wheel spinning past what traction control allows (0 none, 1 twice the allowance). */
+  ex: number;
 }
 
 export interface Car {
@@ -164,7 +168,7 @@ export interface Car {
   touched: number[];
 }
 
-const newWheel = (): Wheel => ({ comp: 0, w: 0, angle: 0, sx: 0, sy: 0, contact: false, load: 0, slip: 0, surf: 'asphalt', fx: 0 });
+const newWheel = (): Wheel => ({ comp: 0, w: 0, angle: 0, sx: 0, sy: 0, contact: false, load: 0, slip: 0, surf: 'asphalt', fx: 0, ex: 0 });
 
 // --- small vector helpers ------------------------------------------------------------------
 
@@ -399,6 +403,13 @@ export const ARCADE = {
   boosts: [0, 0.7, 1.1, 1.6],
   boostAccel: 9,
   hop: 2.2,
+  /**
+   * Braking grip over the tyres' own (1.3: about 1.3 g from 100 km/h instead of 1.0). Corners promise
+   * `grip`, so brakes that only gave the tyres' 1 g made every bend arrive too fast to stop for.
+   */
+  brakeGrip: 1.3,
+  /** Extra yaw on the brakes while turning in (weight on the nose), at full pedal: trail braking. */
+  trailBrake: 0.25,
 };
 
 /** Fastest arcade yaw rate (rad/s) at a speed: the lateral grip promised, capped at low speed. */
@@ -455,7 +466,7 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
     const max = arcadeMaxYaw(speed) * (0.55 + 0.45 * surf) * (grounded ? 1 : 0.3);
     let want: number;
     if (drifting) want = -car.drift * max * (1.05 + 0.45 * steer * car.drift);
-    else want = -steer * max * (speed < 0.5 ? 0 : Math.min(1, speed / 3));
+    else want = -steer * max * (speed < 0.5 ? 0 : Math.min(1, speed / 3)) * (1 + ARCADE.trailBrake * (grounded && vf > 0 ? brake : 0));
     car.w.y += (want - car.w.y) * Math.min(1, dt * ARCADE.yawResponse * (grounded ? 1 : 0.4));
   }
   if (grounded) {
@@ -669,6 +680,8 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
 
   // --- Tyres
   let wantCut = 0;
+  const arcadeOn = assists.arcade;
+  const latShare = Math.min(1, sp.grip / ARCADE.grip);
   for (let i = 0; i < 4; i++) {
     const wh = car.wheels[i];
     const a = i < 2 ? 0 : 1;
@@ -676,7 +689,17 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
     let brakeT = brake * sp.brake * (a === 0 ? sp.bias : 1 - sp.bias) * 0.5;
     if (a === 1) brakeT += handbrake * sp.handbrake;
     if (i === car.escWheel) brakeT += car.escBrake;
+    // Traction control brakes a driven wheel that spins on its own (the unloaded inside wheel out of a
+    // bend), which leaves the drive on the wheel that grips instead of cutting the engine for both.
+    if (assists.tcs && isDriven && throttleIn > 0.05) {
+      const lone = wh.ex - Math.max(0, car.wheels[i ^ 1].ex);
+      if (lone > 0) {
+        brakeT += Math.min(1, lone * 2) * Math.abs(wheelT[i]);
+        if (lone > 0.3) car.tcsOn = true;
+      }
+    }
     wh.fx = 0;
+    wh.ex = 0;
     if (wh.contact) {
       const g = grounds[i];
       const mt = mounts[i];
@@ -722,21 +745,27 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
       const nx = wh.sx / SLIP_PEAK_X;
       const ny = Math.atan(wh.sy) / SLIP_PEAK_Y;
       const rho = Math.hypot(nx, ny);
+      // Arcade: the layer promises more cornering than the tyres have, and the difference must not eat
+      // the traction circle, or every corner leaves the tyres no grip to brake or drive with (the car
+      // bogged out of bends with traction control choking it). Drive and brake see cornering slip only in
+      // proportion to the grip the tyres really give against what the arcade promises.
+      const rhoX = arcadeOn ? Math.hypot(nx, ny * latShare) : rho;
       const surf = SURF[wh.surf];
       const loadSens = 1 - 0.08 * (wh.load / ((m * G) / 4) - 1);
       const D = sp.grip * surf.mu * wh.load * clamp(loadSens, 0.75, 1.1);
+      // Arcade brakes bite harder than the tyres alone would (slowing down, never speeding up).
+      const Dx = arcadeOn && nx * vx < 0 ? D * ARCADE.brakeGrip : D;
       let fx = 0;
       let fy = 0;
       if (rho > 1e-6) {
-        const mag = D * Math.sin(TIRE_C * Math.atan(TIRE_B * rho));
-        fx = (mag * nx) / rho;
-        fy = (-mag * ny) / rho;
+        fy = (-D * tireCurve(rho) * ny) / rho;
+        fx = (Dx * tireCurve(rhoX) * nx) / rhoX;
       }
       // Low-speed damping: near a standstill the relaxation is an undamped spring (wheel against tyre,
       // car against tyre), so without this a stopped car rings instead of settling.
       const slow = Math.max(0, 1 - avx / 3);
       fy = clamp(fy - slow * vy * wh.load * 0.3, -D, D) * car.latGrip;
-      fx = clamp(fx + slow * (wh.w * sp.radius - vx) * wh.load * 0.8, -D, D);
+      fx = clamp(fx + slow * (wh.w * sp.radius - vx) * wh.load * 0.8, -Dx, Dx);
       wh.slip = rho;
       wh.fx = fx;
       const ax = cx + up.x * ROLL_HEIGHT;
@@ -753,9 +782,9 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
         brakeT *= Math.max(0.1, 1 - (-spin - allowed) / allowed);
         car.absOn = true;
       }
-      if (isDriven && throttleIn > 0.05 && spin > allowed) wantCut = Math.max(wantCut, Math.min(1, (spin - allowed) / allowed));
+      if (isDriven && throttleIn > 0.05 && spin > allowed) wh.ex = Math.min(1, (spin - allowed) / allowed);
       // Mid-corner, cornering and drive share one grip budget: ease off once drive pushes the tyre past its peak.
-      if (isDriven && throttleIn > 0.05 && wh.sx > 0 && Math.abs(ny) > 0.4 && rho > 1.15) wantCut = Math.max(wantCut, Math.min(1, (rho - 1.15) * 1.5));
+      if (isDriven && throttleIn > 0.05 && wh.sx > 0 && Math.abs(ny) > 0.4 && rhoX > 1.15) wh.ex = Math.max(wh.ex, Math.min(1, (rhoX - 1.15) * 1.5));
     } else brakeT += 4;
     // Wheel spin.
     const I = sp.wheelInertia + (isDriven ? engineI : 0);
@@ -766,7 +795,8 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
     wh.w = ww;
     wh.angle = (wh.angle + ww * H) % (Math.PI * 2);
   }
-  // Traction control eases the throttle while driven wheels spin up.
+  // Traction control eases the throttle once both wheels of a driven axle spin up (one alone is braked, above).
+  for (let a = 0; a < 2; a++) if (axleT[a] !== 0) wantCut = Math.max(wantCut, Math.min(car.wheels[a * 2].ex, car.wheels[a * 2 + 1].ex));
   if (assists.tcs && wantCut > 0) {
     car.tcsCut = Math.min(1, car.tcsCut + wantCut * H * 40);
     car.tcsOn = true;

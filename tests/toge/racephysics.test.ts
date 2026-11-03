@@ -5,7 +5,7 @@ import { aiDrive, newAi } from '../../src/toge/shared/driver.ts';
 import { TRACK_LENGTH_KM } from '../../src/toge/shared/garage.ts';
 import { SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/toge/shared/track.ts';
 import { LANES, type Obstacle, TRAFFIC_KINDS, collideTraffic, getTraffic, newPose, trafficBetween, trafficPose, trafficS } from '../../src/toge/shared/traffic.ts';
-import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, stepCar } from '../../src/toge/shared/vehicle.ts';
+import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, stepCar, yawOf } from '../../src/toge/shared/vehicle.ts';
 
 const TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
 
@@ -207,7 +207,8 @@ test('acceleration and braking are in a believable range, and quicker cars are q
       bt += TICK_DT;
     }
     const g = (v0 - forwardSpeed(car)) / bt / 9.81;
-    assert.ok(g > 0.85 && g < 1.4, `${id} brakes at ${g.toFixed(2)} g`);
+    // Arcade brakes bite harder than the tyres alone (ARCADE.brakeGrip), to match the cornering it promises.
+    assert.ok(g > 1.05 && g < 1.6, `${id} brakes at ${g.toFixed(2)} g`);
     assert.ok(Math.abs(car.d + 2.4) < 0.3, `${id} pulled ${(car.d + 2.4).toFixed(2)} m off line`);
   }
   assert.ok(zeroTo100.pebble > 8 && zeroTo100.pebble < 13, `pebble 0-100 ${zeroTo100.pebble}`);
@@ -224,6 +225,62 @@ test('ABS stops shorter than locked wheels', () => {
     return car.s - s0;
   };
   assert.ok(stop(true) < stop(false) * 0.95);
+});
+
+test('simulation handling brakes at what the tyres give', () => {
+  const sim = { ...DEFAULT_ASSISTS, arcade: false };
+  for (const id of CAR_IDS) {
+    const car = carOn(flat, id);
+    while (forwardSpeed(car) < 100 / 3.6) stepCar(car, gas, flat, sim);
+    const v0 = forwardSpeed(car);
+    let bt = 0;
+    while (forwardSpeed(car) > 1) {
+      stepCar(car, { ...idle, brake: 1 }, flat, sim);
+      bt += TICK_DT;
+    }
+    const g = (v0 - forwardSpeed(car)) / bt / 9.81;
+    assert.ok(g > 0.8 && g < 1.35, `${id} brakes at ${g.toFixed(2)} g`);
+  }
+});
+
+/** Wide open tarmac, so a car can turn without meeting a rail. */
+const open = buildTrack({ ...flat.def, width: 400 });
+
+test('braking in a turn still stops the car, and turning in on the brakes rotates it more (trail braking)', () => {
+  for (const id of CAR_IDS) {
+    const lost = (steer: number) => {
+      const car = carOn(open, id);
+      while (speedOf(car) < 100 / 3.6) stepCar(car, gas, open);
+      const v0 = speedOf(car);
+      run(car, { ...idle, brake: 1, steer }, 1, open);
+      return v0 - speedOf(car);
+    };
+    assert.ok(lost(1) > lost(0) * 0.85, `${id}: braking on full lock loses ${lost(1).toFixed(1)} m/s against ${lost(0).toFixed(1)} straight`);
+    const turned = (brake: number) => {
+      const car = carOn(open, id);
+      while (speedOf(car) < 22) stepCar(car, gas, open);
+      const y0 = yawOf(car);
+      run(car, { ...idle, brake, steer: 0.8 }, 0.5, open);
+      return Math.abs(yawOf(car) - y0);
+    };
+    assert.ok(turned(0.7) > turned(0) * 1.1, `${id}: turned ${turned(0.7).toFixed(3)} on the brakes, ${turned(0).toFixed(3)} coasting`);
+  }
+});
+
+test('traction: full throttle out of a bend gains speed, and traction control never chokes the engine for it', () => {
+  for (const id of CAR_IDS) {
+    const car = carOn(open, id);
+    while (speedOf(car) < 50 / 3.6) stepCar(car, gas, open);
+    const v0 = speedOf(car);
+    let cut = 0;
+    for (let i = 0; i < 2 * TICK_HZ; i++) {
+      stepCar(car, { ...gas, steer: 0.7 }, open);
+      cut += car.tcsCut / (2 * TICK_HZ);
+    }
+    // The unloaded inside wheel is braked rather than the engine cut, so the outside wheel keeps driving.
+    assert.ok(speedOf(car) - v0 > 1, `${id} gained only ${((speedOf(car) - v0) * 3.6).toFixed(1)} km/h`);
+    assert.ok(cut < 0.45, `${id}: traction control cut ${(cut * 100).toFixed(0)}% of the throttle`);
+  }
 });
 
 test('cornering: steady lateral grip is about what the tyres promise, and the body rolls the right way', () => {
@@ -250,8 +307,7 @@ test('cornering: steady lateral grip is about what the tyres promise, and the bo
 });
 
 test('arcade cornering: full lock at 90 km/h turns tighter than a touge hairpin needs', () => {
-  // Wide open tarmac, so the circle never meets a rail.
-  const pad = buildTrack({ ...flat.def, width: 400 });
+  const pad = open;
   const car = carOn(pad);
   while (speedOf(car) < 25) stepCar(car, gas, pad);
   for (let i = 0; i < TICK_HZ * 0.5; i++) stepCar(car, { steer: 1, throttle: 0.5, brake: 0, handbrake: 0 }, pad);

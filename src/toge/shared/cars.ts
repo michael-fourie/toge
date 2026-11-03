@@ -134,17 +134,28 @@ export const PART_INFO: Record<Part, { name: string; icon: string; effect: strin
 export type Upgrades = Record<Part, number>;
 export const noUpgrades = (): Upgrades => ({ engine: 0, turbo: 0, tires: 0, brakes: 0, suspension: 0, weight: 0, gearbox: 0, aero: 0 });
 
-export const PAINTS = [0xc8102e, 0xf2f2f0, 0x111317, 0x1d4ed8, 0xf5b301, 0x0f9d58, 0xff6a13, 0x7c3aed, 0x9aa3ad, 0x0bb4c9, 0xf472b6, 0x6b3e26];
-export const PAINT_NAMES = ['Rosso', 'Chalk', 'Onyx', 'Cobalt', 'Saffron', 'Racing Green', 'Tangerine', 'Violet', 'Gunmetal', 'Lagoon', 'Sakura', 'Mocha'];
+// Append only: a car code stores the index.
+export const PAINTS = [0xc8102e, 0xf2f2f0, 0x111317, 0x1d4ed8, 0xf5b301, 0x0f9d58, 0xff6a13, 0x7c3aed, 0x9aa3ad, 0x0bb4c9, 0xf472b6, 0x6b3e26, 0x7f8486, 0x2b1d4f, 0x9bd22b, 0x14306b, 0xb08d57, 0x5d0d16];
+export const PAINT_NAMES = ['Rosso', 'Chalk', 'Onyx', 'Cobalt', 'Saffron', 'Racing Green', 'Tangerine', 'Violet', 'Gunmetal', 'Lagoon', 'Sakura', 'Mocha', 'Cement', 'Midnight Purple', 'Wasabi', 'Bayside Blue', 'Champagne', 'Burgundy'];
 export const FINISHES = ['Gloss', 'Metallic', 'Matte', 'Pearl'] as const;
-export const RIMS = ['Five-spoke', 'Mesh', 'Turbofan', 'Deep dish'] as const;
-export const RIM_COLORS = [0xc9ccd1, 0x1a1b1e, 0xd4a017, 0xffffff, 0xb91c1c];
-export const RIM_COLOR_NAMES = ['Silver', 'Black', 'Gold', 'White', 'Red'];
+export const RIMS = ['Five-spoke', 'Mesh', 'Turbofan', 'Deep dish', 'Ten-spoke', 'Y-spoke'] as const;
+export const RIM_COLORS = [0xc9ccd1, 0x1a1b1e, 0xd4a017, 0xffffff, 0xb91c1c, 0x8a5a2b, 0x4a4e55];
+export const RIM_COLOR_NAMES = ['Silver', 'Black', 'Gold', 'White', 'Red', 'Bronze', 'Gunmetal'];
 export const SPOILERS = ['None', 'Ducktail', 'Wing'] as const;
 export const STRIPES = ['None', 'Twin stripes', 'Side stripe'] as const;
 /** Underglow: index 0 is off (its swatch colour is only for the picker). */
 export const GLOWS = [0x2a2c31, 0x22e6ff, 0xff2bd6, 0x7dff3a, 0xffa31a, 0xe8f1ff];
 export const GLOW_NAMES = ['Off', 'Cyan', 'Magenta', 'Lime', 'Amber', 'Ice'];
+/** Window tint: how much of the cabin shows through the glass. */
+export const TINTS = ['Clear', 'Light', 'Dark', 'Limo'] as const;
+/** The roof panel and the hood: in the body colour or swapped for another finish. */
+export const ROOFS = ['Body colour', 'Gloss black', 'Carbon'] as const;
+export const HOODS = ['Body colour', 'Carbon', 'Matte black'] as const;
+/** Window surround, beltline and door handles. */
+export const TRIMS = ['Black', 'Chrome', 'Body colour'] as const;
+export const MIRRORS = ['Body colour', 'Gloss black', 'Carbon'] as const;
+/** Under the nose. */
+export const LIPS = ['None', 'Lip', 'Splitter'] as const;
 
 export interface Look {
   paint: number;
@@ -155,6 +166,12 @@ export interface Look {
   stripe: number;
   stripeColor: number;
   glow: number;
+  tint: number;
+  roof: number;
+  hood: number;
+  trim: number;
+  mirrors: number;
+  lip: number;
 }
 
 export interface Tune {
@@ -175,7 +192,7 @@ export const TUNE_RANGE: Record<keyof Tune, { min: number; max: number; step: nu
   final: { min: 0.85, max: 1.15, step: 0.01, label: 'Final drive' },
 };
 
-export const defaultLook = (paint = 0): Look => ({ paint, finish: 1, rims: 0, rimColor: 0, spoiler: 0, stripe: 0, stripeColor: 1, glow: 0 });
+export const defaultLook = (paint = 0): Look => ({ paint, finish: 1, rims: 0, rimColor: 0, spoiler: 0, stripe: 0, stripeColor: 1, glow: 0, tint: 1, roof: 0, hood: 0, trim: 0, mirrors: 0, lip: 0 });
 export const defaultTune = (car: CarId): Tune => ({ ride: 0, bias: CARS[car].bias, diff: 0.35, final: 1 });
 
 export interface OwnedCar {
@@ -200,6 +217,12 @@ const LOOK_LIMITS: Record<keyof Look, number> = {
   stripe: STRIPES.length,
   stripeColor: PAINTS.length,
   glow: GLOWS.length,
+  tint: TINTS.length,
+  roof: ROOFS.length,
+  hood: HOODS.length,
+  trim: TRIMS.length,
+  mirrors: MIRRORS.length,
+  lip: LIPS.length,
 };
 
 const int = (x: unknown, n: number, fallback: number) => (Number.isInteger(x) && (x as number) >= 0 && (x as number) < n ? (x as number) : fallback);
@@ -234,13 +257,22 @@ export function cleanCar(x: unknown): OwnedCar | null {
   return { model: o.model, up: cleanUpgrades(o.up), look: cleanLook(o.look), tune: cleanTune(o.tune, o.model), cos: cleanKit(o.cos), plate: cleanPlate(o.plate) };
 }
 
+/** Look values every code carries (paint .. glow); the body options after them are optional. */
+const CODE_LOOK_MIN = 8;
+
 /** Longest car code the server accepts. */
 export const CAR_CODE_MAX = 128;
 
 /** What other racers need to draw your car: model, look, upgrade levels (for the class badge), then any cosmetics. */
 export function encodeCar(c: OwnedCar): string {
   const l = c.look;
-  const parts: (string | number)[] = [c.model, l.paint, l.finish, l.rims, l.rimColor, l.spoiler, l.stripe, l.stripeColor, l.glow, PARTS.map((p) => c.up[p]).join('')];
+  // The body options (tint onwards) only go on the end when they're set, so a car without them keeps the
+  // code it always had and older clients still read it.
+  const d = defaultLook();
+  const vals = (Object.keys(LOOK_LIMITS) as (keyof Look)[]).map((k) => l[k]);
+  let n = vals.length;
+  while (n > CODE_LOOK_MIN && vals[n - 1] === d[(Object.keys(LOOK_LIMITS) as (keyof Look)[])[n - 1]]) n--;
+  const parts: (string | number)[] = [c.model, ...vals.slice(0, n), PARTS.map((p) => c.up[p]).join('')];
   const cos = encodeKit(c.cos ?? {}, c.plate ?? '');
   if (cos) parts.push(cos);
   return parts.join('.');
@@ -250,21 +282,21 @@ export function decodeCar(code: string | null | undefined): OwnedCar | null {
   if (typeof code !== 'string' || code.length > CAR_CODE_MAX) return null;
   const [model, ...all] = code.split('.');
   const keys = Object.keys(LOOK_LIMITS) as (keyof Look)[];
-  // A trailing cosmetics segment is optional (it never matches the 8-digit upgrade levels).
-  const hasKit = all.length > keys.length && !/^[0-5]{8}$/.test(all[all.length - 1]);
-  const kit = hasKit ? decodeKit(all[all.length - 1]) : { kit: {}, plate: '' };
+  // model, the look values, the 8-digit upgrade levels, then an optional cosmetics segment. Look values are
+  // never 8 digits long, so the first such segment is the upgrades. Older codes carry fewer look values
+  // (from before underglow: 7; the body options are left off while they're at their defaults); the missing ones
+  // take their defaults.
+  const u = all.findIndex((x) => /^[0-5]{8}$/.test(x));
+  if (!isCarId(model) || u < CODE_LOOK_MIN - 1 || u > keys.length || all.length > u + 2) return null;
+  const kit = all.length === u + 2 ? decodeKit(all[u + 1]) : { kit: {}, plate: '' };
   if (!kit) return null;
-  const rest = hasKit ? all.slice(0, -1) : all;
-  // Codes from before underglow have one look value fewer; it stays off.
-  if (!isCarId(model) || (rest.length !== keys.length + 1 && rest.length !== keys.length)) return null;
-  const n = rest.slice(0, -1).map(Number);
+  const n = all.slice(0, u).map((x) => (/^\d{1,2}$/.test(x) ? Number(x) : NaN));
   const look = defaultLook();
   for (let i = 0; i < n.length; i++) {
     if (!Number.isInteger(n[i]) || n[i] < 0 || n[i] >= LOOK_LIMITS[keys[i]]) return null;
     look[keys[i]] = n[i];
   }
-  const ups = rest[rest.length - 1];
-  if (!/^[0-5]{8}$/.test(ups)) return null;
+  const ups = all[u];
   const up = noUpgrades();
   PARTS.forEach((p, i) => (up[p] = Number(ups[i])));
   return { model, up, look, tune: defaultTune(model), cos: kit.kit, plate: kit.plate };
