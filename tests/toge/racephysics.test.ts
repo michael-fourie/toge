@@ -5,7 +5,7 @@ import { aiDrive, newAi } from '../../src/toge/shared/driver.ts';
 import { TRACK_LENGTH_KM } from '../../src/toge/shared/garage.ts';
 import { SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/toge/shared/track.ts';
 import { LANES, type Obstacle, TRAFFIC_KINDS, collideTraffic, getTraffic, newPose, trafficBetween, trafficPose, trafficS } from '../../src/toge/shared/traffic.ts';
-import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, stepCar, yawOf } from '../../src/toge/shared/vehicle.ts';
+import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, spinOut, stepCar, yawOf } from '../../src/toge/shared/vehicle.ts';
 
 const TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
 
@@ -488,4 +488,94 @@ test('arcade: holding drift and brake together keeps the car on the road (no rep
     assert.equal(car.drift, 0);
     assert.ok(top < 0.15, `lead ${lead}s: the car rose ${top.toFixed(2)} m`);
   }
+});
+
+// --- the gearbox -------------------------------------------------------------------------------
+
+/** Full throttle down the flat strip until the car is in a tall gear, then a wall stops the body dead. */
+function crashAtSpeed(model: (typeof CAR_IDS)[number]): Car {
+  const car = carOn(flat, model);
+  run(car, gas, 12);
+  assert.ok(car.gear >= 3, `${model} should be in a tall gear at speed, is in ${car.gear}`);
+  car.v.x *= 0.05;
+  car.v.z *= 0.05; // the wheels are still turning at the old speed
+  return car;
+}
+
+test('gearbox: after a crash at full throttle the auto box drops straight to a low gear and pulls away', () => {
+  for (const model of CAR_IDS) {
+    const car = crashAtSpeed(model);
+    run(car, gas, 0.5);
+    assert.ok(car.gear <= 2, `${model} still in gear ${car.gear} half a second after the crash`);
+    run(car, gas, 3.5);
+    // Stuck in 4th with the clutch slipping, these crawled to ~30-50 km/h; in the right gear they all clear 45.
+    assert.ok(forwardSpeed(car) * 3.6 > 45, `${model} only got back to ${(forwardSpeed(car) * 3.6).toFixed(0)} km/h in 4 s`);
+  }
+});
+
+test('gearbox: wheelspin does not make the auto box upshift', () => {
+  const car = carOn(flat, 'shiro');
+  run(car, gas, 1);
+  assert.equal(car.gear, 1);
+  // Driven wheels spinning way past the road speed (a burnout, a drift, wheels in the air): still 1st.
+  for (let i = 0; i < 10; i++) {
+    for (const w of car.wheels.slice(2)) w.w = 400;
+    stepCar(car, gas, flat);
+  }
+  assert.equal(car.gear, 1);
+});
+
+test('gearbox: the AI never hunts between gears (up and straight back down)', () => {
+  for (const arcade of [true, false]) {
+    const assists = { ...DEFAULT_ASSISTS, arcade };
+    for (const id of ['koripass', 'momiji'] as TrackId[]) {
+      const t = getTrack(id);
+      for (const model of CAR_IDS) {
+        const car = carOn(t, model);
+        const ai = newAi(0.9, 0);
+        const inp = { ...idle };
+        let last = car.gear;
+        let lastDir = 0;
+        let lastT = -9;
+        let hunts = 0;
+        for (let time = 0; car.s < t.finishS && time < 300; time += TICK_DT) {
+          aiDrive(car, t, ai, TICK_DT, inp);
+          stepCar(car, inp, t, assists);
+          if (car.gear !== last && car.gear >= 1 && last >= 1) {
+            const dir = Math.sign(car.gear - last);
+            if (dir !== lastDir && time - lastT < 1) hunts++;
+            [lastDir, lastT] = [dir, time];
+          }
+          last = car.gear;
+        }
+        assert.ok(hunts <= 2, `${model} on ${id} (${arcade ? 'arcade' : 'simulation'}): hunted ${hunts} times`);
+      }
+    }
+  }
+});
+
+test('gearbox: coming out of a spin never drops a moving car into first', () => {
+  const car = carOn(flat, 'shiro');
+  run(car, gas, 8);
+  const gear = car.gear;
+  assert.ok(gear >= 3);
+  spinOut(car, 0.3);
+  const manual = { ...DEFAULT_ASSISTS, auto: false };
+  for (let i = 0; i < TICK_HZ; i++) stepCar(car, idle, flat, manual);
+  assert.equal(car.spin, 0);
+  assert.equal(car.gear, gear, 'a manual car keeps the gear it was in');
+});
+
+test('gearbox: crash damage costs engine power, not pedal, so a damaged car shifts like it is flat out', () => {
+  const speedAfter = (input: DriveInput) => {
+    const car = carOn(flat, 'kitsune');
+    run(car, input, 8);
+    return forwardSpeed(car);
+  };
+  const fresh = speedAfter(gas);
+  const damaged = speedAfter({ ...gas, power: 0.5 });
+  const halfPedal = speedAfter({ ...gas, throttle: 0.5 });
+  assert.ok(damaged < fresh, 'damage costs speed');
+  // Half the pedal also lugs in tall gears and gets engine braking for the lifted half; half the power doesn't.
+  assert.ok(damaged > halfPedal, `damaged ${damaged.toFixed(1)} vs half pedal ${halfPedal.toFixed(1)}`);
 });
