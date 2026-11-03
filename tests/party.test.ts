@@ -80,3 +80,15 @@ test('the room closes when the last player leaves', () => {
   r.party.remove(a);
   assert.ok(r.isEmpty());
 });
+
+test('a room tick that throws is logged with its room, not thrown out of the timer', async () => {
+  const { guarded } = await import('../src/server/rooms.ts');
+  const logged: unknown[][] = [];
+  guarded(() => { throw new Error('boom'); }, 'race ABCD', (...a) => logged.push(a));
+  assert.equal(logged.length, 1);
+  assert.match(String(logged[0][0]), /race ABCD/);
+  assert.match(String(logged[0][1]), /boom/);
+  let ran = false;
+  guarded(() => (ran = true), 'lobby WXYZ', () => assert.fail('nothing to log'));
+  assert.ok(ran);
+});

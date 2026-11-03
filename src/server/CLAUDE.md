@@ -52,6 +52,10 @@ imports the other game's (`tests/boundaries.test.ts`).
 
 Rooms use `ws.accept()` (not the hibernation API) and keep state in memory; a room ends when it empties.
 Rate limiters (`limiter.ts`, token bucket) and login lockouts are in memory too, so they reset if a DO is evicted.
+Every deploy restarts all DOs and drops every live game (production deploys at night, docs/DEPLOYMENT.md). Room game
+loops run through `guarded()` (rooms.ts) so a throwing tick is logged with its room code; Workers Logs are on
+(`observability` in wrangler.jsonc), so look in the dashboard's Observability tab when games drop. The free plan's
+100k requests a day (WebSocket messages count 1/20) runs out in a few hours of a full lobby: that drops everyone too.
 
 The room *logic* (`lobby.ts`, `survival.ts`, `workshop.ts`, `royale.ts`, `race.ts`, `party.ts`) is plain TypeScript with
 no Cloudflare imports; the DO classes are thin wrappers. Keep it that way: it's what makes the logic unit-testable.

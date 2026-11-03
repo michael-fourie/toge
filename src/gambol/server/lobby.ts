@@ -11,7 +11,7 @@ import { type KothState, inZone, newKoth, stepKoth } from '../shared/koth.ts';
 import { KILL_LIMIT, MATCH_OVER_SECONDS, TEAMS, type Team, type Winner, sameTeam, shuffleTeams, smallerTeam, winner } from '../shared/teams.ts';
 import { Royale } from './royale.ts';
 import { Survival } from './survival.ts';
-import { HEARTBEAT_SECONDS, type Socket } from '../../server/rooms.ts';
+import { guarded, HEARTBEAT_SECONDS, type Socket } from '../../server/rooms.ts';
 
 const OPEN = 1;
 
@@ -97,7 +97,7 @@ export class Lobby {
     this.hill = koth ? newKoth() : null;
     this.royale = br && mode === 'battle' ? new Royale(this, this.data) : null;
     this.survival = mode === 'survival' ? new Survival(this) : null;
-    this.timer = setInterval(() => this.tick(), 1000 / NET.snapshotRate);
+    this.timer = setInterval(() => guarded(() => this.tick(), `lobby ${code}`), 1000 / NET.snapshotRate);
   }
 
   get hostName() {

@@ -2,6 +2,9 @@
   "name": "atrous",
   "main": "src/server/worker.ts",
   "compatibility_date": "2026-09-01",
+  // Workers Logs: exceptions, Durable Object resets and limit errors show up in the dashboard (Observability), so a
+  // dropped game can be traced. Free plan: 200k log events a day, plenty for a group of friends.
+  "observability": { "enabled": true },
   "assets": {
     "directory": "./dist",
     // The router uses history paths, so unknown paths serve index.html. The worker only runs for the game endpoints.
