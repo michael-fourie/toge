@@ -1,0 +1,14 @@
+{
+  "name": "Gambol",
+  "short_name": "Gambol",
+  "description": "Free multiplayer browser games to play with friends: a sky-island movement shooter, TŌGE mountain-pass racing and party games.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#8cc6ee",
+  "theme_color": "#8cc6ee",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

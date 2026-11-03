@@ -74,7 +74,7 @@ src/games/    plug-in games for the chooser (registry.ts finds <id>/channel.ts; 
 tests/        node:test files, run by an explicit list in package.json: gambol/, toge/, the rest at the top
 dev/          dev-only labs served by Vite: viewmodel.html (guns/hands), cars.html (TŌGE car models); backdrops.py paints TŌGE's sky backdrops
 docs/         ADDING_A_GAME, DEPLOYMENT, FOUNDRY (Survival map), MAP_PLAN (Windward), MENU_PLAN, SECURITY
-public/       _headers (security headers), models/ (optional awp.glb, see README), race/backdrops/ (TŌGE distant scenery, painted by dev/backdrops.py)
+public/       _headers (security headers), models/ (optional awp.glb, see README), race/backdrops/ (TŌGE distant scenery, painted by dev/backdrops.py), favicon/icons/og-image.png/site.webmanifest (site icon and link preview; meta tags in index.html)
 wrangler.jsonc  Worker config: assets, Durable Object bindings, migrations, previews
 ```
 
