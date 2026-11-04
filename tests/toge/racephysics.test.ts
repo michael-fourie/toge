@@ -568,8 +568,40 @@ test('arcade drift: the E-brake kicks the tail out on the ground (no hop), it ea
       stepCar(slow, { steer: 1, throttle: 0.6, brake: 0, handbrake: 0, drift: 1 }, open);
       most = Math.max(most, Math.abs(slipOf(slow)));
     }
-    assert.ok(most < 0.8, `${id}: a drift held on full lock swung ${((most * 180) / Math.PI).toFixed(0)}° sideways`);
-    assert.ok(slow.drift !== 0 && forwardSpeed(slow) > 5, `${id}: the drift fell apart`);
+    assert.ok(most < 0.9, `${id}: a drift held on full lock swung ${((most * 180) / Math.PI).toFixed(0)}° sideways`);
+    assert.ok(slow.drift !== 0 && speedOf(slow) > 6, `${id}: the drift fell apart`);
+  }
+});
+
+test('arcade drift: holding the wheel into a drift tightens it, bit by bit, round a hairpin; easing off opens it again', () => {
+  for (const id of CAR_IDS) {
+    // 80 km/h into a hairpin, full lock into the drift: a neutral-stick drift needed 21 m across to come round.
+    const car = carOn(open, id);
+    while (speedOf(car) < 22) stepCar(car, gas, open);
+    const ux = car.v.x / speedOf(car);
+    const uz = car.v.z / speedOf(car);
+    const x0 = car.p.x;
+    const z0 = car.p.z;
+    let turned = 0;
+    let most = 0;
+    let early = 0;
+    let t = 0;
+    while (Math.abs(turned) < Math.PI && t < 4) {
+      const h = Math.atan2(car.v.x, car.v.z);
+      stepCar(car, { steer: 1, throttle: 1, brake: 0, handbrake: 0, drift: 1 }, open);
+      const nh = Math.atan2(car.v.x, car.v.z);
+      turned += Math.atan2(Math.sin(nh - h), Math.cos(nh - h));
+      most = Math.max(most, Math.abs(slipOf(car)));
+      t += TICK_DT;
+      if (Math.abs(t - 0.3) < TICK_DT / 2) early = Math.abs(slipOf(car));
+    }
+    const across = Math.abs((car.p.x - x0) * uz - (car.p.z - z0) * ux);
+    assert.ok(Math.abs(turned) >= Math.PI && across < 17, `${id}: ${((Math.abs(turned) * 180) / Math.PI).toFixed(0)}° of hairpin took ${across.toFixed(0)} m across`);
+    assert.ok(early < 0.35, `${id}: tightening snapped the car ${((early * 180) / Math.PI).toFixed(0)}° sideways in 0.3 s`);
+    assert.ok(most < 0.9 && car.drift !== 0, `${id}: the tightened drift swung ${((most * 180) / Math.PI).toFixed(0)}° sideways or fell apart`);
+    // Steering out of it opens the slide back up to an ordinary drift.
+    run(car, { steer: -0.5, throttle: 1, brake: 0, handbrake: 0, drift: 1 }, 0.6, open);
+    assert.ok(car.tight === 0 && Math.abs(slipOf(car)) < 0.6, `${id}: still ${((Math.abs(slipOf(car)) * 180) / Math.PI).toFixed(0)}° sideways after steering out`);
   }
 });
 

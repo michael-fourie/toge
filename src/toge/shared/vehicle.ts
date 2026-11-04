@@ -169,6 +169,8 @@ export interface Car {
    */
   loose: number;
   stick: number;
+  /** Arcade: how far a drift has been tightened by steering into it (0-1, builds over ARCADE.driftIn.build). */
+  tight: number;
   /** Spinning out (hit by oil or a shockwave): seconds left, and which way. */
   spin: number;
   spinDir: number;
@@ -237,6 +239,7 @@ export function newCar(spec: CarSpec, x: number, y: number, z: number, yaw: numb
     latGrip: 1,
     loose: 0,
     stick: 0,
+    tight: 0,
     spin: 0,
     spinDir: 1,
     touched: [],
@@ -266,7 +269,7 @@ export function resetCar(car: Car, t: Track, s = car.s, d = 0) {
   car.boost = 0;
   car.draft = car.draftCharge = car.draftArmed = 0;
   car.latGrip = 1;
-  car.loose = car.stick = 0;
+  car.loose = car.stick = car.tight = 0;
   car.spin = 0;
   for (const w of car.wheels) Object.assign(w, newWheel());
 }
@@ -422,6 +425,13 @@ export const ARCADE = {
    */
   driftAngle: 0.45,
   driftHold: 15,
+  /**
+   * Holding the wheel into a drift tightens it, for hairpins: over `build` s the slide gains up to `yaw` more
+   * rotation (on top of the 0.45 that steering in or out always adds or takes away) and is let out `angle` rad
+   * wider before it's held. Gradual, so a drift never whips round at once, and never past ARCADE.maxYaw; easing
+   * off the wheel opens it again over `ease` s.
+   */
+  driftIn: { yaw: 1, angle: 0.2, build: 0.8, ease: 0.3 },
   /** Drift hold times (s) for blue, orange and purple sparks, and the boost each pays out (s). */
   levels: [0.7, 1.6, 2.7],
   boosts: [0, 0.7, 1.1, 1.6],
@@ -499,6 +509,8 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
   }
   const drifting = car.drift !== 0;
   car.latGrip = drifting ? ARCADE.driftGrip : 1;
+  const into = drifting ? Math.max(0, steer * car.drift) : 0;
+  car.tight = into > car.tight ? Math.min(into, car.tight + dt / ARCADE.driftIn.build) : Math.max(into, car.tight - dt / ARCADE.driftIn.ease);
 
   {
     // Yaw toward what's asked (reversing turns the other way). In the air you get a little say, to line
@@ -506,7 +518,9 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
     const max = arcadeMaxYaw(car.spec, speed) * (0.55 + 0.45 * surf) * (grounded ? 1 : 0.3);
     let want = -steer * max * (1 + ARCADE.trailBrake * (grounded && vf > 0 ? brake : 0));
     if (drifting) {
-      const slide = -car.drift * max * (1.05 + 0.45 * steer * car.drift);
+      // Tightening never spins it faster than ARCADE.maxYaw: slow drifts already turn tight enough.
+      const base = max * (1.05 + 0.45 * steer * car.drift);
+      const slide = -car.drift * Math.max(base, Math.min(ARCADE.maxYaw, base + max * ARCADE.driftIn.yaw * car.tight));
       want += (slide - want) * Math.min(1, car.driftTime / ARCADE.driftEase);
     }
     // A yank of the wheel at speed: the weight is thrown across faster than the tail can follow, and it steps out.
@@ -525,7 +539,8 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
     if (speed > 0.5 && vf > 0) {
       const beta = Math.atan2(-v.x * fz + v.z * fx, v.x * fx + v.z * fz); // velocity relative to the nose
       let grip = drifting ? ARCADE.driftAlign : ARCADE.align + (ARCADE.driftAlign - ARCADE.align) * car.loose;
-      if (drifting || car.loose > 0) grip += ARCADE.driftHold * Math.max(0, Math.abs(beta) - ARCADE.driftAngle);
+      const hold = ARCADE.driftAngle + ARCADE.driftIn.angle * car.tight;
+      if (drifting || car.loose > 0) grip += ARCADE.driftHold * Math.max(0, Math.abs(beta) - hold);
       const rate = grip * (0.5 + 0.5 * surf);
       const turn = -beta * (1 - Math.exp(-dt * rate));
       const c = Math.cos(turn);

@@ -34,7 +34,11 @@ settles around 30-40° instead of 80-90° or a spin, still turning far tighter t
 car (it pivoted on a 1 m circle and scrubbed to a crawl); a yank of the stick against its own 0.25 s average at speed
 (`ARCADE.loose`: none below 22 m/s, full from 35) slows the travel's swing onto the nose and over-rotates, so a
 lock-to-lock flick at 126 km/h slides ~25° and catches itself. Smooth steering never triggers it; the AI only
-swerving hard round something at speed (rockfall on Karasu Peak), and the AI test still passes. Controller layout is the usual one: RT throttle, LT
+swerving hard round something at speed (rockfall on Karasu Peak), and the AI test still passes. Then "let me drift
+hairpins; steering against the drift is good as it is": holding the wheel into a drift tightens it (`ARCADE.driftIn`,
+`car.tight`), building over 0.8 s to 1× more rotation and a slide held ~10° wider (about 45°), never past
+`ARCADE.maxYaw`; easing off undoes it over 0.3 s. From 80 km/h a drift comes round a hairpin in ~15 m instead of
+21 m; below ~50 km/h nothing changes (those drifts were already tight). Controller layout is the usual one: RT throttle, LT
 brake (analog, `trigger()` dead zone), Ⓐ held to drift, Ⓧ/RB item (`padPedals` in input.ts, tested in raceinput);
 the keyboard brake ramps in at 14/s, the throttle at 5/s.
 
@@ -113,7 +117,7 @@ src/toge/shared/
                Then the `arcade()` layer (tuned by `ARCADE`, on by default in `DEFAULT_ASSISTS`): yaws the car toward
                the stick (never tighter than full lock's turning circle: `arcadeMaxYaw` takes the spec), swings travel
                onto the nose, drift levels + mini-turbo boosts (a drift starts with an `ARCADE.kick` E-brake: the rear
-               wheels lock, declutched on a rear-driven car; it used to hop), a loose tail after a yank of the wheel at
+               wheels lock, declutched on a rear-driven car; it used to hop; held into, it tightens: `ARCADE.driftIn`), a loose tail after a yank of the wheel at
                speed (`ARCADE.loose`, `car.loose`), levelling in the air.
   cars.ts      the catalogue (CARS), upgrades (PARTS, levels 0-5), looks, tuning, encode/decodeCar (the wire code), carSpec()
                (everything -> physics numbers), torqueAt, rating (PI + class), stats (garage bars).
