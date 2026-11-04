@@ -163,6 +163,12 @@ export interface Car {
   draftArmed: number;
   /** Lateral tyre grip scale (drifting lets the tyres slide). */
   latGrip: number;
+  /**
+   * Arcade: how loose the tail is after a yank of the wheel at speed (0-1; it settles back on its own), and the
+   * stick smoothed over ARCADE.loose.lag, which a yank stands out against.
+   */
+  loose: number;
+  stick: number;
   /** Spinning out (hit by oil or a shockwave): seconds left, and which way. */
   spin: number;
   spinDir: number;
@@ -229,6 +235,8 @@ export function newCar(spec: CarSpec, x: number, y: number, z: number, yaw: numb
     draftCharge: 0,
     draftArmed: 0,
     latGrip: 1,
+    loose: 0,
+    stick: 0,
     spin: 0,
     spinDir: 1,
     touched: [],
@@ -258,6 +266,7 @@ export function resetCar(car: Car, t: Track, s = car.s, d = 0) {
   car.boost = 0;
   car.draft = car.draftCharge = car.draftArmed = 0;
   car.latGrip = 1;
+  car.loose = car.stick = 0;
   car.spin = 0;
   for (const w of car.wheels) Object.assign(w, newWheel());
 }
@@ -356,7 +365,9 @@ export function stepCar(car: Car, input: DriveInput, t: Track, assists: Assists 
   car.absOn = false;
   if (!assists.arcade) stability(car, assists, vf, vr, speed);
   const power = input.power ?? 1;
-  for (let k = 0; k < SUB; k++) substep(car, t, throttle, brake, clamp01(input.handbrake), assists, power);
+  // An arcade drift starts with an E-brake kick: the rear wheels lock for a moment.
+  const kick = assists.arcade && car.drift !== 0 && car.driftTime < ARCADE.kick ? 1 : 0;
+  for (let k = 0; k < SUB; k++) substep(car, t, throttle, brake, Math.max(clamp01(input.handbrake), kick), assists, power);
   if (assists.arcade) arcade(car, input, throttle, brake);
   if (t.props.length) props(car, t);
   if (car.spin > 0) {
@@ -402,11 +413,31 @@ export const ARCADE = {
   align: 10,
   driftAlign: 1.3,
   driftGrip: 0.35,
+  /** A drift eases into its extra rotation over this many seconds (it used to snap the car sideways at once). */
+  driftEase: 0.4,
+  /**
+   * A slide holds its angle: past `driftAngle` (rad) the travel swings back onto the nose `driftHold` per second
+   * faster for every radian over, so a drift settles around 35° (the drift meter scores up to 40°) instead of
+   * carrying on until the car is sideways.
+   */
+  driftAngle: 0.45,
+  driftHold: 15,
   /** Drift hold times (s) for blue, orange and purple sparks, and the boost each pays out (s). */
   levels: [0.7, 1.6, 2.7],
   boosts: [0, 0.7, 1.1, 1.6],
   boostAccel: 9,
-  hop: 2.2,
+  /**
+   * Seconds of E-brake at the start of a drift: the rear wheels lock and the tail steps out, on the ground (it
+   * used to hop). Longer adds more rotation than the drift needs and spins rear-drive cars.
+   */
+  kick: 0.1,
+  /**
+   * Yanking the wheel at speed breaks the tail loose. The stick is compared with itself smoothed over `lag` s:
+   * past `yank` apart (a keyboard turn-in from straight peaks near 0.9, a flick from lock to lock near 1.6, a
+   * smooth analog turn-in stays under) it loosens, fully from `fast` m/s and not at all below `slow`. Loose, the
+   * travel lags the nose like a drift and the car over-rotates by up to `looseYaw`; it settles at `settle` per second.
+   */
+  loose: { slow: 22, fast: 35, lag: 0.25, yank: 0.5, gain: 20, looseYaw: 2, settle: 0.9 },
   /**
    * Braking grip over the tyres' own (1.3: about 1.3 g from 100 km/h instead of 1.0). Corners promise
    * `grip`, so brakes that only gave the tyres' 1 g made every bend arrive too fast to stop for.
@@ -416,16 +447,21 @@ export const ARCADE = {
   trailBrake: 0.25,
 };
 
-/** Fastest arcade yaw rate (rad/s) at a speed: the lateral grip promised, capped at low speed. */
-export function arcadeMaxYaw(speed: number): number {
-  return Math.min(ARCADE.maxYaw, (ARCADE.grip * G) / Math.max(4, speed));
+/**
+ * Fastest arcade yaw rate (rad/s) at a speed: the lateral grip promised, capped at low speed, and never
+ * tighter than the car's turning circle on full lock (below ~40 km/h it used to pivot on the spot and scrub
+ * all its speed).
+ */
+export function arcadeMaxYaw(sp: CarSpec, speed: number): number {
+  return Math.min(ARCADE.maxYaw, (ARCADE.grip * G) / Math.max(4, speed), (speed * Math.tan(sp.steer)) / (sp.axleF + sp.axleR));
 }
 
 /**
  * The arcade layer, run after the physics each tick. It yaws the car toward what the stick asks, swings the
  * direction of travel round to the nose (so it grips and goes where it points, keeping its speed), and runs
- * drifts: hold the drift button while steering to hop into a slide that turns tighter (steer in) or wider
- * (steer out), charging sparks; let go for a mini-turbo.
+ * drifts: hold the drift button while steering to kick the tail out on the E-brake into a slide that turns
+ * tighter (steer in) or wider (steer out), charging sparks; let go for a mini-turbo. A flick of the wheel at
+ * speed breaks the tail loose for a moment (`car.loose`).
  */
 function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
   const dt = TICK_DT;
@@ -442,13 +478,12 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
   // Off the tarmac there's less grip to steer with.
   const surf = car.wheels.reduce((a, w) => a + (w.contact ? SURF[w.surf].mu : 1), 0) / 4;
 
-  // Drifts. Not started on the brakes: the brakes end a drift, so starting one there would hop the car
-  // every other tick while both are held (it bounced along the road).
+  // Drifts (stepCar pulls the E-brake for the first ARCADE.kick seconds). Not started on the brakes: the brakes
+  // end a drift, so starting one there would restart it every other tick while both are held.
   if (car.drift === 0 && held && grounded && speed > 9 && vf > 0 && Math.abs(steer) > 0.25 && brake <= 0.5) {
     car.drift = Math.sign(steer);
     car.driftTime = 0;
     car.driftLevel = 0;
-    v.y += ARCADE.hop;
   } else if (car.drift !== 0) {
     if (!held || speed < 6 || brake > 0.5) {
       if (!held && car.driftLevel > 0) {
@@ -468,10 +503,19 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
   {
     // Yaw toward what's asked (reversing turns the other way). In the air you get a little say, to line
     // up a landing.
-    const max = arcadeMaxYaw(speed) * (0.55 + 0.45 * surf) * (grounded ? 1 : 0.3);
-    let want: number;
-    if (drifting) want = -car.drift * max * (1.05 + 0.45 * steer * car.drift);
-    else want = -steer * max * (speed < 0.5 ? 0 : Math.min(1, speed / 3)) * (1 + ARCADE.trailBrake * (grounded && vf > 0 ? brake : 0));
+    const max = arcadeMaxYaw(car.spec, speed) * (0.55 + 0.45 * surf) * (grounded ? 1 : 0.3);
+    let want = -steer * max * (1 + ARCADE.trailBrake * (grounded && vf > 0 ? brake : 0));
+    if (drifting) {
+      const slide = -car.drift * max * (1.05 + 0.45 * steer * car.drift);
+      want += (slide - want) * Math.min(1, car.driftTime / ARCADE.driftEase);
+    }
+    // A yank of the wheel at speed: the weight is thrown across faster than the tail can follow, and it steps out.
+    const L = ARCADE.loose;
+    const fast = clamp((speed - L.slow) / (L.fast - L.slow), 0, 1);
+    const yank = grounded && !drifting && vf > 0 ? Math.abs(steer - car.stick) - L.yank : 0;
+    car.stick += (steer - car.stick) * Math.min(1, dt / L.lag);
+    car.loose = clamp(car.loose + (yank > 0 ? yank * L.gain * fast : -L.settle) * dt, 0, 1);
+    want *= 1 + L.looseYaw * car.loose;
     car.w.y += (want - car.w.y) * Math.min(1, dt * ARCADE.yawResponse * (grounded ? 1 : 0.4));
   }
   if (grounded) {
@@ -480,7 +524,9 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
     // backwards (after a spin) the car is left free to come round, not locked into reversing.
     if (speed > 0.5 && vf > 0) {
       const beta = Math.atan2(-v.x * fz + v.z * fx, v.x * fx + v.z * fz); // velocity relative to the nose
-      const rate = (drifting ? ARCADE.driftAlign : ARCADE.align) * (0.5 + 0.5 * surf);
+      let grip = drifting ? ARCADE.driftAlign : ARCADE.align + (ARCADE.driftAlign - ARCADE.align) * car.loose;
+      if (drifting || car.loose > 0) grip += ARCADE.driftHold * Math.max(0, Math.abs(beta) - ARCADE.driftAngle);
+      const rate = grip * (0.5 + 0.5 * surf);
       const turn = -beta * (1 - Math.exp(-dt * rate));
       const c = Math.cos(turn);
       const s = Math.sin(turn);
@@ -658,7 +704,10 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
   if (car.rpm > sp.redline) throttle = 0; // limiter
   let driveT = 0;
   let coupled = false;
-  if (ratio !== 0 && car.shift <= 0) {
+  // A drift's E-brake kick dips the clutch on a car that drives its rear wheels, so they lock instead of
+  // fighting the engine.
+  const declutch = handbrake > 0.5 && car.drift !== 0 && sp.drive !== 'FWD';
+  if (ratio !== 0 && car.shift <= 0 && !declutch) {
     const wheelRpm = (wheelW * ratio * 60) / tau;
     // Launch revs follow the pedal (the driver holds them), not traction control's cut.
     const launch = sp.idle + throttleIn * (Math.min(sp.peakRpm, sp.redline * 0.6) - sp.idle);

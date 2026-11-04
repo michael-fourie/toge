@@ -24,7 +24,17 @@ in the share `sp.grip / ARCADE.grip` (the rest of the cornering is the arcade la
 and power through a bend. Traction control brakes a driven wheel that spins on its own (the unloaded inside wheel,
 `Wheel.ex`) and cuts the engine only when both wheels of an axle spin: before, it cut the throttle all through every
 corner and cars lost speed on full throttle out of a bend. `ARCADE.trailBrake` adds yaw on the brakes while turning in.
-Simulation handling (`arcade` off) keeps the tyres' own numbers. Controller layout is the usual one: RT throttle, LT
+Simulation handling (`arcade` off) keeps the tyres' own numbers.
+
+Arcade refinements (2026-11-04, Devlin: "the drift hops", "turning radius and medium speeds", "losing traction at
+speed should be possible"; then "the drift turns me 90° at once"), grip left as it was: the drift button is an
+E-brake (`ARCADE.kick`, 0.1 s; longer spins rear-drive cars), not a hop; a drift eases into its rotation over
+`driftEase` and holds its angle (past `driftAngle` the travel swings back onto the nose `driftHold` faster), so it
+settles around 30-40° instead of 80-90° or a spin, still turning far tighter than grip; yaw is capped by the turning circle on full lock, so below ~40 km/h the car turns like a
+car (it pivoted on a 1 m circle and scrubbed to a crawl); a yank of the stick against its own 0.25 s average at speed
+(`ARCADE.loose`: none below 22 m/s, full from 35) slows the travel's swing onto the nose and over-rotates, so a
+lock-to-lock flick at 126 km/h slides ~25° and catches itself. Smooth steering never triggers it; the AI only
+swerving hard round something at speed (rockfall on Karasu Peak), and the AI test still passes. Controller layout is the usual one: RT throttle, LT
 brake (analog, `trigger()` dead zone), Ⓐ held to drift, Ⓧ/RB item (`padPedals` in input.ts, tested in raceinput);
 the keyboard brake ramps in at 14/s, the throttle at 5/s.
 
@@ -101,7 +111,10 @@ src/toge/shared/
                wheelspin and parks at launch revs while the clutch slips, which made it upshift mid-drift and stay in 4th
                after a crash. It drops several gears at once when the car has slowed a lot.
                Then the `arcade()` layer (tuned by `ARCADE`, on by default in `DEFAULT_ASSISTS`): yaws the car toward
-               the stick, swings travel onto the nose, drift levels + mini-turbo boosts, hop, levelling in the air.
+               the stick (never tighter than full lock's turning circle: `arcadeMaxYaw` takes the spec), swings travel
+               onto the nose, drift levels + mini-turbo boosts (a drift starts with an `ARCADE.kick` E-brake: the rear
+               wheels lock, declutched on a rear-driven car; it used to hop), a loose tail after a yank of the wheel at
+               speed (`ARCADE.loose`, `car.loose`), levelling in the air.
   cars.ts      the catalogue (CARS), upgrades (PARTS, levels 0-5), looks, tuning, encode/decodeCar (the wire code), carSpec()
                (everything -> physics numbers), torqueAt, rating (PI + class), stats (garage bars).
   garage.ts    money, owned cars, crates (the gamble), payouts, applyAction (every garage change; run by the server for

@@ -169,7 +169,7 @@ export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput,
   const kappa = (2 * Math.sin(alpha)) / ld;
   if (DEFAULT_ASSISTS.arcade) {
     // Arcade handling turns at a yaw rate set by the stick.
-    out.steer = Math.max(-1, Math.min(1, (speedOf(car) * kappa) / arcadeMaxYaw(speedOf(car))));
+    out.steer = Math.max(-1, Math.min(1, (speedOf(car) * kappa) / arcadeMaxYaw(sp, speedOf(car))));
   } else {
     const delta = Math.atan((sp.axleF + sp.axleR) * kappa);
     out.steer = Math.max(-1, Math.min(1, delta / steerLimit(car, DEFAULT_ASSISTS)));

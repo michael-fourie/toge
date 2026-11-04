@@ -533,6 +533,99 @@ test('arcade: holding drift and brake together keeps the car on the road (no rep
   }
 });
 
+/** Body slip (rad): how far the direction of travel is off the nose. */
+const slipOf = (car: Car) => {
+  const d = Math.atan2(-car.v.x, -car.v.z) - yawOf(car);
+  return Math.atan2(Math.sin(d), Math.cos(d));
+};
+
+test('arcade drift: the E-brake kicks the tail out on the ground (no hop), it eases in and holds its angle, and letting go still boosts', () => {
+  for (const id of CAR_IDS) {
+    const car = carOn(open, id);
+    while (speedOf(car) < 20) stepCar(car, gas, open);
+    const y0 = car.p.y;
+    let rise = 0;
+    let rear = 1;
+    let slip = 0;
+    for (let i = 0; i < 1.2 * TICK_HZ; i++) {
+      stepCar(car, { steer: 0.7, throttle: 1, brake: 0, handbrake: 0, drift: 1 }, open);
+      rise = Math.max(rise, car.p.y - y0);
+      rear = Math.min(rear, ((Math.abs(car.wheels[2].w) + Math.abs(car.wheels[3].w)) * car.spec.radius) / 2 / speedOf(car));
+      if (i === Math.round(0.3 * TICK_HZ)) slip = Math.abs(slipOf(car));
+    }
+    assert.ok(rise < 0.05, `${id} rose ${rise.toFixed(2)} m starting a drift`);
+    assert.ok(rear < 0.5, `${id}: the E-brake only slowed the rear wheels to ${(rear * 100).toFixed(0)}% of road speed`);
+    // Into the slide, but not snapped sideways at once.
+    assert.ok(slip > 0.1 && slip < 0.35, `${id}: ${((slip * 180) / Math.PI).toFixed(0)}° of slide after 0.3 s`);
+    assert.ok(car.driftLevel >= 1, `${id}: no sparks`);
+    stepCar(car, { steer: 0.7, throttle: 1, brake: 0, handbrake: 0, drift: 0 }, open);
+    assert.ok(car.boost > 0, `${id}: letting go of the drift paid no boost`);
+    // Held on full lock in a slow bend (it used to spin right round): the slide settles, the car keeps going.
+    const slow = carOn(open, id);
+    while (speedOf(slow) < 15) stepCar(slow, gas, open);
+    let most = 0;
+    for (let i = 0; i < 2.5 * TICK_HZ; i++) {
+      stepCar(slow, { steer: 1, throttle: 0.6, brake: 0, handbrake: 0, drift: 1 }, open);
+      most = Math.max(most, Math.abs(slipOf(slow)));
+    }
+    assert.ok(most < 0.8, `${id}: a drift held on full lock swung ${((most * 180) / Math.PI).toFixed(0)}° sideways`);
+    assert.ok(slow.drift !== 0 && forwardSpeed(slow) > 5, `${id}: the drift fell apart`);
+  }
+});
+
+test("arcade turning circle: full lock at walking pace is a car's turning circle, and holding it keeps the speed", () => {
+  for (const id of CAR_IDS) {
+    // It used to pivot on a 1 m circle and scrub down to a crawl.
+    const circle = (v: number) => {
+      const car = carOn(open, id);
+      while (speedOf(car) < v) stepCar(car, gas, open);
+      const cruise = () => Math.max(0, Math.min(1, 0.3 + (v - forwardSpeed(car)) * 0.5));
+      run(car, { steer: 1, throttle: cruise(), brake: 0, handbrake: 0 }, 1.5, open);
+      let turned = 0;
+      let dist = 0;
+      for (let i = 0; i < TICK_HZ; i++) {
+        const h = Math.atan2(car.v.x, car.v.z);
+        stepCar(car, { steer: 1, throttle: cruise(), brake: 0, handbrake: 0 }, open);
+        const nh = Math.atan2(car.v.x, car.v.z);
+        turned += Math.atan2(Math.sin(nh - h), Math.cos(nh - h));
+        dist += speedOf(car) * TICK_DT;
+      }
+      return { radius: dist / Math.abs(turned), kept: speedOf(car) };
+    };
+    const walk = circle(4);
+    assert.ok(walk.radius > 2.5 && walk.radius < 6.5, `${id}: turning radius ${walk.radius.toFixed(1)} m at walking pace`);
+    const slow = circle(8);
+    assert.ok(slow.kept > 4.8, `${id}: full lock at 8 m/s scrubbed down to ${slow.kept.toFixed(1)} m/s`);
+  }
+});
+
+test('arcade: yanking the wheel at speed breaks the tail loose for a moment; smooth steering never does', () => {
+  // Keyboard-speed steering (it ramps at 10/s): a flick from lock to lock, and a smooth analog turn-in.
+  const ramp = (from: number, to: number, t0: number, t1: number, t: number) => (t <= t0 ? from : t >= t1 ? to : from + ((to - from) * (t - t0)) / (t1 - t0));
+  const flick = (t: number) => (t < 0.5 ? ramp(0, -1, 0, 0.1, t) : t < 1.2 ? ramp(-1, 1, 0.5, 0.7, t) : ramp(1, 0, 1.2, 1.3, t));
+  const smooth = (t: number) => (t < 1.2 ? ramp(0, 0.8, 0, 0.6, t) : ramp(0.8, 0, 1.2, 1.8, t));
+  const drive = (id: (typeof CAR_IDS)[number], v: number, steerAt: (t: number) => number) => {
+    const car = carOn(open, id);
+    while (speedOf(car) < v) stepCar(car, gas, open);
+    let slip = 0;
+    let loose = 0;
+    for (let i = 0; i < 3 * TICK_HZ; i++) {
+      stepCar(car, { steer: steerAt(i / TICK_HZ), throttle: Math.max(0, Math.min(1, 0.3 + (v - forwardSpeed(car)) * 0.5)), brake: 0, handbrake: 0 }, open);
+      slip = Math.max(slip, Math.abs(slipOf(car)));
+      loose = Math.max(loose, car.loose);
+    }
+    return { slip, loose, end: Math.abs(slipOf(car)) };
+  };
+  for (const id of CAR_IDS) {
+    const fast = drive(id, 35, flick);
+    assert.ok(fast.slip > 0.25 && fast.slip < 1, `${id}: a flick at 126 km/h slid ${((fast.slip * 180) / Math.PI).toFixed(0)}°`);
+    assert.ok(fast.end < 0.05, `${id}: still sliding after the flick`);
+    const calm = drive(id, 35, smooth);
+    assert.ok(calm.loose === 0 && calm.slip < 0.08, `${id}: a smooth turn-in at speed slid`);
+    assert.equal(drive(id, 15, flick).loose, 0, `${id}: a flick at town speed loosened the tail`);
+  }
+});
+
 // --- the gearbox -------------------------------------------------------------------------------
 
 /** Full throttle down the flat strip until the car is in a tall gear, then a wall stops the body dead. */
