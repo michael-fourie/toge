@@ -1538,6 +1538,13 @@ html:not(.pad) .tg-bumper {
 .tg-mode:disabled[aria-pressed='true'] {
   opacity: 1;
 }
+.tg-ghost-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.tg-ghost-note b {
+  color: var(--tg-text);
+}
 .tg-lobby .tg-tracks {
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
 }
@@ -2207,4 +2214,201 @@ html:not(.pad) .tg-bumper {
 .tg-racers .tg-kick:focus-visible {
   color: var(--tg-bad) !important;
   border-color: rgba(255, 107, 107, 0.5) !important;
+}
+
+/* ============================================================================================
+   The lobby's car: the Your car card (lobby.ts) and the garage over the lobby (hub.ts with a Pit)
+   ============================================================================================ */
+.tg-mycar {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px 14px 22px;
+  overflow: hidden;
+}
+/* A stripe of your paint down the left edge, with a soft wash of it behind the name. */
+.tg-mycar-paint {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 6px;
+  background: var(--paint);
+  box-shadow: 0 0 40px 18px color-mix(in srgb, var(--paint) 22%, transparent);
+  pointer-events: none;
+}
+.tg-mycar-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tg-mycar-head small {
+  display: block;
+  color: var(--tg-dim);
+  font-size: 12px;
+}
+.tg-mycar-meta {
+  margin: 0;
+  font-size: 13px;
+  color: var(--tg-dim);
+}
+.tg-mycar-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--tg-cyan);
+}
+.tg-mycar-act {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  padding-left: 6px;
+}
+.tg-mycar-swap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 14px/1 var(--tg-display);
+  letter-spacing: 0.08em;
+  color: var(--tg-dim);
+}
+.tg-mycar-swap .tg-pill {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+.tg-mycar-swap svg {
+  width: 16px;
+  height: 16px;
+}
+.tg-mycar-swap .flip svg {
+  transform: scaleX(-1);
+}
+/* Someone in the garage: a cyan tag on their grid row. */
+.tg-tag.pit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tg-tag.pit svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* The garage over the lobby slides up over it, and back down when you're done. */
+.tg.tg-pit {
+  z-index: 6;
+  animation: tg-pit-in 0.24s var(--tg-ease);
+}
+.tg.tg-pit.out {
+  pointer-events: none;
+  animation: tg-pit-out 0.2s ease-in forwards;
+}
+@keyframes tg-pit-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+@keyframes tg-pit-out {
+  to {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tg.tg-pit,
+  .tg.tg-pit.out {
+    animation: none;
+  }
+}
+/* The lobby at a glance, in the garage's top bar: code, track and grid, what you're waiting on, the host's Start. */
+.tg-pitbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--tg-line-2);
+  background: rgba(255, 255, 255, 0.04);
+}
+.tg-pitbar-code {
+  display: grid;
+  line-height: 1;
+}
+.tg-pitbar-code small {
+  font: 700 10px/1 var(--tg-display);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--tg-dim);
+}
+.tg-pitbar-code b {
+  font: italic 800 22px/1 var(--tg-display);
+  letter-spacing: 0.12em;
+}
+.tg-pitbar-state {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tg-pitbar-state small {
+  grid-column: 2;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--tg-dim);
+}
+.tg-pitbar-state i {
+  grid-row: span 2;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tg-faint);
+}
+.tg-pitbar-state i.live {
+  background: var(--tg-cyan);
+  box-shadow: 0 0 10px var(--tg-cyan);
+  animation: tg-pit-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tg-pit-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tg-pitbar-state i.live {
+    animation: none;
+  }
+}
+.tg-pitbar .tg-go.small {
+  min-height: 36px;
+  padding: 0 18px;
+  font-size: 15px !important;
+}
+@media (max-width: 1100px) {
+  .tg-pit .tg-wallet > b {
+    font-size: 22px;
+  }
+  .tg-pitbar-state small {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .tg-pitbar {
+    gap: 10px;
+    padding-left: 10px;
+  }
+  .tg-pitbar-state {
+    display: none;
+  }
+  .tg-pit .tg-wallet {
+    gap: 10px;
+  }
+  /* Only the host picks the mode and track: everyone else gets their car, the crew and the grid first. */
+  .tg-lobby-body.guest > .tg-lobby-col:last-child {
+    order: -1;
+  }
 }

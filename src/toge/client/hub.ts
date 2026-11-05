@@ -19,7 +19,7 @@ import type { BoardRow, TogeProfile } from '../shared/records.ts';
 import { type Graphics, graphics, setGraphics } from '../../client/graphics.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
-import type { Render } from '../../client/menu/router.ts';
+import type { Ctx, Render, Screen } from '../../client/menu/router.ts';
 import { $, esc, playerName } from '../../client/menu/ui.ts';
 import { DEFAULT_LOOK, decodeLook, encodeLook, type Look as DriverLook } from '../shared/look.ts';
 import { lookAfter } from './creator.ts';
@@ -79,8 +79,27 @@ export function classBadge(car: OwnedCar) {
 const statBar = (label: string, v: number) =>
   `<div class="tg-stat"><span>${label}</span><i style="--v:${v}"></i><em class="tg-num">${v.toFixed(1)}</em></div>`;
 
-export const driveHub: Render = (root, ctx, screen) => {
-  let page: Page = PAGES.find((p) => p === screen.dtab) ?? 'race';
+/**
+ * The garage opened from a race lobby (lobby.ts mounts it over the lobby): only the pages that change your car and
+ * driver, Back returns to the lobby (so does Esc / B), and the top bar carries a strip with the lobby's state that
+ * lobby.ts fills (`[data-pitbar]`). Edits save as usual and the lobby sends them to the room.
+ */
+export interface Pit {
+  close(): void;
+}
+/** The tabs the lobby's garage shows. */
+const PIT_TABS: TabId[] = ['garage', 'perf', 'style', 'driver'];
+/** The page the lobby's garage opens on: the last one used there. */
+let pitPage: Page = 'paint';
+
+export const driveHub: Render = (root, ctx, screen) => mountHub(root, ctx, screen, null);
+/** The garage over a race lobby. Returns its cleanup. */
+export const pitGarage = (root: HTMLElement, ctx: Ctx, pit: Pit) => mountHub(root, ctx, { name: 'drivelobby' }, pit);
+
+function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null): () => void {
+  const tabs = pit ? TABS.filter((t) => PIT_TABS.includes(t.id)) : TABS;
+  const pages: Page[] = tabs.flatMap((t) => t.pages.map(([p]) => p));
+  let page: Page = pit ? pitPage : (PAGES.find((p) => p === screen.dtab) ?? 'race');
   /** The page each tab opens on (the last one you looked at). */
   const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint', driver: 'driver', friends: 'friends', settings: 'settings' };
   lastPage[tabOf(page).id] = page;
@@ -118,17 +137,17 @@ export const driveHub: Render = (root, ctx, screen) => {
   let lbFailed = false;
 
   root.innerHTML = `
-    <main class="tg" aria-label="TŌGE garage">
+    <main class="tg${pit ? ' tg-pit' : ''}" aria-label="${pit ? 'Your car, from the race lobby' : 'TŌGE garage'}" ${pit ? 'data-nav-scope' : ''}>
       <canvas class="tg-showroom" aria-label="Your car. Drag to spin it."></canvas>
       <header class="tg-top">
-        <button class="tg-home" data-home aria-label="Back to the game menu">${ICON.back}</button>
+        <button class="tg-home" data-home aria-label="${pit ? 'Back to the lobby' : 'Back to the game menu'}">${ICON.back}</button>
         ${LOGO}
         <nav class="tg-tabs" role="tablist" aria-label="Garage sections">
           <span class="tg-bumper" aria-hidden="true">LB</span>
-          ${TABS.map((t) => `<button role="tab" data-tab="${t.id}">${esc(t.label)}</button>`).join('')}
+          ${tabs.map((t) => `<button role="tab" data-tab="${t.id}">${esc(t.label)}</button>`).join('')}
           <span class="tg-bumper" aria-hidden="true">RB</span>
         </nav>
-        <div class="tg-wallet"><b class="tg-num" data-money></b><button class="tg-who" data-who></button></div>
+        <div class="tg-wallet">${pit ? '<div class="tg-pitbar" data-pitbar></div>' : ''}<b class="tg-num" data-money></b>${pit ? '' : '<button class="tg-who" data-who></button>'}</div>
       </header>
       <section class="tg-body">
         <div class="tg-rail">
@@ -187,10 +206,11 @@ export const driveHub: Render = (root, ctx, screen) => {
 
   const drawTop = () => {
     $(root, '[data-money]').textContent = money(garage.g.money);
-    $(root, '[data-who]').innerHTML = account.user
+    const who = root.querySelector<HTMLElement>('[data-who]');
+    if (who) who.innerHTML = account.user
       ? `${ICON.user}<span>${esc(account.user)}</span><small>${garage.g.wins} wins · Player card</small>`
       : `${ICON.user}<span>Guest</span><small>Your player card</small>`;
-    $(root, '[data-who]').setAttribute('aria-label', 'Open your player card');
+    who?.setAttribute('aria-label', 'Open your player card');
     const tab = tabOf(page);
     root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => {
       b.setAttribute('aria-selected', String(b.dataset.tab === tab.id));
@@ -488,7 +508,8 @@ export const driveHub: Render = (root, ctx, screen) => {
     page = p;
     lastPage[tabOf(p).id] = p;
     status = '';
-    history.replaceState({ ...(history.state ?? {}), dtab: p }, '');
+    if (pit) pitPage = p;
+    else history.replaceState({ ...(history.state ?? {}), dtab: p }, '');
     if (p === 'leaderboard') void loadBoard(lbTrack);
     const panel = $(root, '[data-panel]');
     draw(false);
@@ -901,7 +922,7 @@ export const driveHub: Render = (root, ctx, screen) => {
   // --- events ------------------------------------------------------------------------------------
 
   root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => b.addEventListener('click', () => switchPage(lastPage[b.dataset.tab as TabId])));
-  $(root, '[data-home]').addEventListener('click', () => ctx.go({ name: 'games' }));
+  $(root, '[data-home]').addEventListener('click', () => (pit ? pit.close() : ctx.go({ name: 'games' })));
   // Your name top right: your player card (Account is a button on it).
   const showCard = () => {
     if (busy) return;
@@ -915,11 +936,11 @@ export const driveHub: Render = (root, ctx, screen) => {
       account: () => ctx.go({ name: 'account' }),
     });
   };
-  $(root, '[data-who]').addEventListener('click', showCard);
+  root.querySelector('[data-who]')?.addEventListener('click', showCard);
   const onPadTab = (e: Event) => {
     if (!root.querySelector<HTMLElement>('[data-modal]')!.hidden) return;
-    const i = PAGES.indexOf(page);
-    switchPage(PAGES[(i + (e as CustomEvent<number>).detail + PAGES.length) % PAGES.length]);
+    const i = pages.indexOf(page);
+    switchPage(pages[(i + (e as CustomEvent<number>).detail + pages.length) % pages.length]);
   };
   addEventListener('padtab', onPadTab);
   // Start: the Race page's main action.
@@ -934,6 +955,10 @@ export const driveHub: Render = (root, ctx, screen) => {
       e.stopImmediatePropagation();
       if (modal.querySelector<HTMLElement>('[data-ok]:not([hidden])')) closeReel();
       else modal.querySelector<HTMLElement>('[data-pcard-close]')?.click();
+    } else if (e.key === 'Escape' && pit) {
+      // In the lobby's garage Back returns to the lobby, not out of it.
+      e.stopImmediatePropagation();
+      pit.close();
     }
   };
   addEventListener('keydown', onKey, true);
@@ -965,7 +990,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     removeEventListener('keydown', onKey, true);
     showroom.dispose();
   };
-};
+}
 
 /** A selector that finds "the same control" after a redraw, so focus survives it. */
 function focusId(el: Element | null): string | null {

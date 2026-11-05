@@ -73,7 +73,7 @@ export class RaceRoom extends DurableObject<Env> {
         this.race = null;
         this.ctx.waitUntil(dir.remove(r.code));
       },
-      (rows, users, track) => {
+      (rows, users, track, tapes) => {
         // One prize per account per race, its best finish (rows are in finishing order): a second tab can't double it.
         const paid = new Set<string>();
         // A win counts against other people, not just CPU racers.
@@ -86,7 +86,7 @@ export class RaceRoom extends DurableObject<Env> {
           this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && people > 1));
           // The room timed this finish itself, so it can count as a best time.
           const time = row.time;
-          if (time !== null) timed.push(() => accounts.raceTime(row.name, track, time, row.car).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev, rank: b.rank ?? null, beat: b.beat ?? null } : null)));
+          if (time !== null) timed.push(() => accounts.raceTime(row.name, track, time, row.car, tapes.get(row.id)).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev, rank: b.rank ?? null, beat: b.beat ?? null } : null)));
         }
         if (timed.length) {
           this.ctx.waitUntil(
@@ -102,6 +102,7 @@ export class RaceRoom extends DurableObject<Env> {
         }
       },
     );
+    this.race.ghostSource ??= (track) => accounts.recordGhost(track);
     return this.race;
   }
 }

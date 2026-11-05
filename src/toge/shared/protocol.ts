@@ -7,6 +7,7 @@
 // with its time (and `drift` / `used` along the way for the bonus) → `results` (places, prize money) → back to the lobby.
 
 import { TRACK_DEFS, type TrackId } from './track.ts';
+import type { GhostRun } from './ghost.ts';
 
 /** One signed-in racer's new best in `records` (NewBest in records.ts, keyed by racer id). */
 export interface RecordRow {
@@ -61,6 +62,13 @@ export const CAR_RULES: Record<CarRule, { name: string; blurb: string }> = {
  * damage. Hard knocks against cars and walls dent the car and hurt how it drives; too much and it blows up and
  * respawns a few metres back. Works in either mode (in a time trial only the walls can hurt you).
  */
+/** The lobby's record ghost toggle (the host's pick). */
+export const RECORD_GHOST = {
+  name: 'Record ghost',
+  off: { name: 'Off', blurb: 'Just the racers in the room.' },
+  on: { name: 'Race the record', blurb: "The track record's run rides along as a see-through ghost. Beat it to take the record." },
+};
+
 export const PHYSICS = {
   name: 'Physics',
   off: { name: 'Off', blurb: 'Cars bounce off each other and the rails. No damage.' },
@@ -78,6 +86,8 @@ export interface Racer {
   user: boolean;
   /** A CPU racer the host added: the host's client drives it (see CPU below). */
   cpu?: boolean;
+  /** In the lobby's garage, editing their car (sent only while true). */
+  pit?: boolean;
 }
 
 /** A car's pose as relayed between clients. */
@@ -136,12 +146,16 @@ export interface RaceLobbyInfo {
 
 export type RaceServerMsg =
   | { t: 'welcome'; id: number }
-  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; phase: RacePhase; racers: Racer[] }
+  /**
+   * `ghost`: the host turned the record ghost on. `record`: whose run it would be on this track (null: none kept, or
+   * not fetched yet).
+   */
+  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; ghost: boolean; record: { name: string; time: number } | null; phase: RacePhase; racers: Racer[] }
   /**
    * The race is on: build the track and say `ready`. Nobody moves until `countdown` then `go`. `rule` and `cars`
    * (each racer's car code for this race) settle what everyone drives; see raceCars().
    */
-  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string>; physics: boolean }
+  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost: GhostRun | null }
   /** Who in the field has loaded so far (ids), sent whenever that changes. */
   | { t: 'loading'; ready: number[]; field: number[] }
   /** Everyone's loaded: `go` comes in `ms`. A racer who loads late hears the time that's left. */
@@ -168,12 +182,16 @@ export type RaceClientMsg =
   | { t: 'cars'; cars: CarRule }
   /** The host turns Physics mode (crash damage) on or off. */
   | { t: 'physics'; on: boolean }
+  /** Host: race the track record's ghost too. */
+  | { t: 'ghost'; on: boolean }
   | { t: 'start' }
   /** The track is built and on screen: this racer can take the countdown. */
   | { t: 'ready' }
   | { t: 'car'; car: string }
   /** Your driver changed (lobby only, like `car`). */
   | { t: 'rider'; rider: string }
+  /** You opened (or closed) the garage in the lobby, so the others see you're editing your car. Lobby only. */
+  | { t: 'pit'; on: boolean }
   | ({ t: 'state' } & Omit<NetCar, 'id'>)
   | { t: 'finish'; time: number; best?: number }
   /** Your drift total so far (sent as each combo banks, and just before `finish`). The server caps it by the clock. */

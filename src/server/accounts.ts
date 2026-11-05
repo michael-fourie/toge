@@ -3,6 +3,7 @@ import { type ActionResult, type Garage, type GarageAction, current } from '../t
 import { encodeCar } from '../toge/shared/cars.ts';
 import { type Bests, type BoardRow, type NewBest, type TogeProfile, cleanBests, profileOf } from '../toge/shared/records.ts';
 import type { TrackId } from '../toge/shared/track.ts';
+import type { GhostRun, GhostTape } from '../toge/shared/ghost.ts';
 import type { FriendAction, FriendList, FriendResult } from '../shared/friends.ts';
 import type { Inv } from '../gambol/shared/inventory.ts';
 import type { StashAction, StashResult } from '../gambol/shared/stash.ts';
@@ -65,7 +66,7 @@ export class Accounts extends DurableObject {
     const result = await this.garages.act(user, action);
     if (before && action.a === 'solo' && Number(action.place) >= 1) {
       await this.boardsBuilt();
-      return { ...result, best: await this.records.record(user, action.track, action.time, encodeCar(current(before))) };
+      return { ...result, best: await this.records.record(user, action.track, action.time, encodeCar(current(before)), action.ghost) };
     }
     return result;
   }
@@ -150,10 +151,16 @@ export class Accounts extends DurableObject {
   }
 
   /** A race room keeps a signed-in racer's finish as a best time if it is one; the new best, or null. */
-  async raceTime(name: string, track: string, time: number, car: string): Promise<NewBest | null> {
+  async raceTime(name: string, track: string, time: number, car: string, tape?: GhostTape): Promise<NewBest | null> {
     if (!(await this.ctx.storage.get(`u:${name.toLowerCase()}`))) return null;
     await this.boardsBuilt();
-    return this.records.record(name, track, time, car);
+    return this.records.record(name, track, time, car, tape);
+  }
+
+  /** A track record's run, for a race room whose host turned the record ghost on (null: none kept). */
+  async recordGhost(track: string): Promise<GhostRun | null> {
+    await this.boardsBuilt();
+    return this.records.ghost(track);
   }
 
   /** A race room pays a signed-in racer (by display name, which for accounts is the username). */

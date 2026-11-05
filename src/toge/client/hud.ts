@@ -32,7 +32,8 @@ export interface Tag {
   id: number | string;
   name: string;
   color: string;
-  place: number;
+  /** The place shown before the name ('TR': the track record's ghost). */
+  place: number | string;
   at: { x: number; y: number; alpha: number } | null;
 }
 
