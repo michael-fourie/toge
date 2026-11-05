@@ -166,3 +166,17 @@ test('GarageStore rolls cases with its own dice and persists unlocks; raceCar st
     assert.ok(x >= 0 && x < 1);
   }
 });
+
+test('body parts: a car wearing every slot (last item each, longest plate) still fits a car code and round-trips', () => {
+  const car = newOwnedCar('vanta');
+  for (const s of COS_SLOTS) car.cos[s] = CATALOG[s][CATALOG[s].length - 1].id;
+  car.plate = 'WWWWWWWW';
+  const code = encodeCar(car);
+  assert.ok(code.length <= CAR_CODE_MAX, `${code.length} chars`);
+  assert.deepEqual(decodeCar(code)?.cos, car.cos);
+  assert.equal(decodeCar(code)?.plate, car.plate);
+  // The new slots came after the old ones, so a code from before them still decodes to the same kit.
+  assert.deepEqual(decodeKit('3-1')?.kit, { paint: CATALOG.paint[3].id, decal: CATALOG.decal[1].id });
+  // The Aero Case drops only body parts... and holds every rarity it weights.
+  assert.ok(caseItems('aero').every((i) => ['wing', 'hood', 'roof', 'lip', 'skirts', 'flaps'].includes(i.slot)));
+});

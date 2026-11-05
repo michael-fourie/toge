@@ -47,8 +47,30 @@ function swatch(it: CosItem): { bg: string; glyph?: string; glow?: string } {
       return { bg: `linear-gradient(rgba(5,6,8,${it.fx.cover}), rgba(5,6,8,${it.fx.cover})), #f4f1e8`, glyph: 'ABC', glow: it.fx.glow ? hex(it.fx.color) : undefined };
     case 'exhaust':
       return { bg: `radial-gradient(circle, ${it.fx.heat ? hex(it.fx.heat) : '#050505'} 0 30%, ${hex(it.fx.color)} 34% 58%, #0b0e14 62%)`, glow: it.fx.heat ? hex(it.fx.heat) : undefined };
+    default: {
+      // Body parts: the material as the background, a glyph for the part.
+      const fx = it.fx;
+      const bg =
+        fx.mat === 'carbon'
+          ? 'repeating-linear-gradient(45deg, #1b1d22 0 4px, #2c2f36 4px 8px)'
+          : fx.mat === 'chrome'
+            ? 'linear-gradient(135deg, #fff 0%, #9aa3ad 30%, #2a2d33 50%, #c9d0d8 75%, #fff 100%)'
+            : fx.mat === 'paint'
+              ? 'linear-gradient(135deg, #5a6170, #2a2f3a)'
+              : `radial-gradient(circle at 35% 30%, rgba(255,255,255,.4), transparent 50%), ${hex(fx.color ?? 0x888888)}`;
+      return { bg, glyph: PART_GLYPH[('style' in fx ? fx.style : it.slot) as string] ?? SLOT_INFO[it.slot].icon, glow: fx.glow !== undefined ? hex(fx.glow) : undefined };
+    }
   }
 }
+
+/** Glyphs for body parts on cards (by style; mudflaps by slot). */
+const PART_GLYPH: Record<string, string> = {
+  ducktail: '⌒', trunklip: '‿', gt: '⊤', swan: '⟙', dual: '⫪', bosozoku: '⥣',
+  vents: '≋', naca: '⌄', scoop: '⏏', louvres: '☰', snorkels: '⫴', shaker: '⏏', blower: '⚙',
+  fin: '🦈', rack: '⊞', lightbar: '💡', box: '🧳', surf: '🏄', duck: '🦆', halo: '😇',
+  lip: '⌣', splitter: '▁', canards: '⋀', tow: '🪝', bullbar: '🐂',
+  skirts: '▬', flares: '◖', rivets: '⁘', sidepipes: '🔥', flaps: '▮',
+};
 
 function art(it: CosItem): string {
   const s = swatch(it);

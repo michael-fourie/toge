@@ -77,9 +77,10 @@ a component or a page.
   (window seals and door handles), `mirrors` and front `lip`. Every list is append-only (codes store indexes). A car
   code always carries the first eight look values; the body options go on the end only when one is off its default,
   so a car without them keeps its old code (`decodeCar` takes either; the 8-digit upgrades segment marks the end).
-- **Cosmetics** (cosmetics.ts): 160 items in 11 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
-  underglow, plates, plate frames/covers, exhaust tips), 5 rarities, won from 5 cases (Street, Night Run, Livery,
-  Chrome, Legend) bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
+- **Cosmetics** (cosmetics.ts): 200 items in 17 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
+  underglow, plates, plate frames/covers, exhaust tips, and bolt-on body parts: rear wing, hood, roof, front lip, sides,
+  mudflaps), 5 rarities, won from 6 cases (Street, Night Run, Livery, Chrome, Aero, Legend) bought with garage money;
+  equipped per car, plus free custom plate text. No effect on physics.
 - **Drivers** (rider.ts): four realistic characters, steampunk crossed with cyberpunk (Marlowe, Kirika, Okonkwo,
   Inès), GLBs built in Blender by `tools/drivers` (docs/DRIVERS.md). Free, saved in the garage (`rider`, the `rider`
   action; a rider's code is its id). Your driver sits in your car (seen through the tinted glass, hands on their own
@@ -295,6 +296,9 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 - **A cosmetic:** append it to its slot's list in `CATALOG` (cosmetics.ts) with a rarity and its cases; a new pattern or
   decal kind also needs a painter in toge/client/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
+  A body part (wing/hood/roof/lip/skirts/flaps) is a `style` plus a `PartLook` (paint, carbon, chrome or a colour, and an
+  optional glowing edge); a new style needs building in toge/client/bodykits.ts, from the Kit helpers so it fits every car.
+  Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
 Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
 (friend lists: `tests/friends.test.ts`)
