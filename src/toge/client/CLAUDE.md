@@ -15,6 +15,12 @@ The rules that bite most often in this folder:
 - Never add or remove a light mid-race (every lit shader recompiles: a multi-second freeze). Add it at load and change its intensity.
 - At night bloom only catches values above 1: lamps, reflectors and signs must be brighter than white.
 - Watch triangle counts with `__race.renderer.info`; forests dominate, a car is ~30k triangles in ~40 draw calls.
+- Adaptive resolution (`adaptResolution` + `RES` in racegame.ts): when frames average slower than `RES.slowMs` for
+  `RES.slowFor` s, the render scale drops a step (to `RES.min` of the pixel ratio at worst); with headroom it climbs back.
+  `__race.resScale` shows it. A machine that keeps up never leaves full resolution.
+- The HUD runs every frame, so keep it cheap: no `innerHTML` rebuilds per frame (the strip reuses its dots), cache what
+  doesn't move (the tach face, the minimap's road outline as a Path2D), and never read layout (`clientWidth`) after
+  writing the DOM (the view size is kept from `resize`). City traffic further than `TRAFFIC_DRAW` isn't drawn.
 - Driving physics is shared (`src/toge/shared/vehicle.ts`); don't put handling logic in this folder.
 - Menus (hub.ts, lobby.ts, cosmeticsui.ts) follow `src/toge/DESIGN.md`; tokens and components are in hub.css. race.css is
   only the in-race HUD. Page ids (`dtab`) are restored on reload: keep them stable.
