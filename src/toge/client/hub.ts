@@ -51,6 +51,8 @@ const TRACK_KEY = 'atrous.track';
 const RIVALS_KEY = 'atrous.rivals';
 /** Physics mode (crash damage) for solo races, on or off. */
 const PHYSICS_KEY = 'atrous.physics';
+/** A page's slide-in: the last child starts 0.09 s late and runs 0.24 s (hub.css `.tg-panel.enter`). */
+const ENTER_MS = 400;
 const read = (k: string, d: string) => {
   try {
     return localStorage.getItem(k) ?? d;
@@ -500,6 +502,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     if (el) el.textContent = text;
   };
 
+  let enterTimer = 0;
   const switchPage = (p: Page) => {
     if (p === page) return;
     flushDraft();
@@ -517,6 +520,9 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     panel.classList.remove('enter');
     void panel.offsetWidth; // restart the slide-in
     panel.classList.add('enter');
+    // Only the page switch slides in: left on, the class replayed it on every redraw (a garage change, a save).
+    clearTimeout(enterTimer);
+    enterTimer = window.setTimeout(() => panel.classList.remove('enter'), ENTER_MS);
     root.querySelector<HTMLElement>('[data-panel] [data-autofocus], [data-panel] button:not([disabled]), [data-panel] input')?.focus({ preventScroll: true });
   };
 
@@ -981,6 +987,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   return () => {
     flushDraft();
     clearTimeout(listTimer);
+    clearTimeout(enterTimer);
     offNet?.();
     offGarage();
     offAccount();
