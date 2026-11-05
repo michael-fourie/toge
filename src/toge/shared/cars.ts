@@ -551,3 +551,19 @@ export function stats(sp: CarSpec) {
     braking: clamp((sp.brake / sp.mass) * 0.9 + (sp.grip - 0.9) * 10 - 1),
   };
 }
+
+/**
+ * The car AI rival `i` drives against `mine`: a model near your PI (a touch slower or faster), its own paint and
+ * stripes, and your upgrades so the field stays close. A solo race's rivals and an online lobby's CPU racers.
+ */
+export function rivalCar(mine: OwnedCar, i: number): OwnedCar {
+  const myPi = rating(carSpec(mine)).pi;
+  const pool = CAR_IDS.slice().sort((a, b) => Math.abs(rating(carSpec(newOwnedCar(a))).pi - myPi) - Math.abs(rating(carSpec(newOwnedCar(b))).pi - myPi));
+  const model = pool[i % 2 === 0 ? 0 : Math.min(pool.length - 1, 1 + (i % 3))];
+  const car = newOwnedCar(model, (i * 5 + 3) % PAINTS.length);
+  car.look.rims = i % 4;
+  car.look.stripe = i % 3;
+  car.look.stripeColor = (i * 7 + 1) % PAINTS.length;
+  car.up = { ...mine.up };
+  return car;
+}

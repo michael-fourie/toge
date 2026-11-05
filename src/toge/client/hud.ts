@@ -81,6 +81,8 @@ export interface ResultLine {
   best?: number | null;
   prize: number;
   me: boolean;
+  /** A CPU racer in an online lobby. */
+  cpu?: boolean;
   /** Drift points, and the money drifting and items added to `prize`, when known. */
   drift?: number;
   bonus?: { drift: number; items: number };
@@ -469,7 +471,7 @@ export class RaceHud {
         const color = car ? '#' + PAINTS[car.look.paint].toString(16).padStart(6, '0') : '#888';
         return `<tr class="${l.me ? 'me' : ''}">
           <td class="pl">${l.place ? ordinal(l.place) : 'DNF'}</td>
-          <td><i class="swatch" style="background:${color}"></i>${esc(l.name)}</td>
+          <td><i class="swatch" style="background:${color}"></i>${esc(l.name)}${l.cpu ? ' <small class="rh-cpu">CPU</small>' : ''}</td>
           <td class="car">${car ? esc(CARS[car.model].name) : ''}</td>
           <td class="tm">${bestTag(l.newBest)}${l.time !== null ? fmtTime(l.time) : '—'}</td>
           ${trial ? `<td class="gap">${l.time !== null && win !== null && l.place > 1 ? '+' + (l.time - win).toFixed(3) : ''}</td><td class="best">${l.best ? `<small>best lap</small> ${fmtTime(l.best)}` : ''}</td>` : ''}

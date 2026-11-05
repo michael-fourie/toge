@@ -76,6 +76,8 @@ export interface Racer {
   rider: string;
   /** Signed in: prize money goes to the account's garage on the server. */
   user: boolean;
+  /** A CPU racer the host added: the host's client drives it (see CPU below). */
+  cpu?: boolean;
 }
 
 /** A car's pose as relayed between clients. */
@@ -116,6 +118,8 @@ export interface ResultRow {
   drift: number;
   /** The part of `prize` earned by drifting and by using items. */
   bonus: { drift: number; items: number };
+  /** A CPU racer (never paid). */
+  cpu?: boolean;
 }
 
 export interface RaceLobbyInfo {
@@ -180,7 +184,28 @@ export type RaceClientMsg =
   /** Physics mode: your car blew up at `p`. */
   | { t: 'wreck'; p: [number, number, number] }
   /** `target` and `s` (where it was fired from) for a comet. */
-  | { t: 'item'; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number };
+  | { t: 'item'; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number; cpu?: number }
+  /** The host adds a CPU racer to the lobby, or takes one (`id`) off the grid. */
+  | { t: 'cpu'; op: 'add' }
+  | { t: 'cpu'; op: 'remove'; id: number }
+  /** The host's CPU racers' poses, all in one message (relayed as one `snap`). */
+  | { t: 'cpus'; cars: NetCar[] }
+  /** The host says one of its CPU racers crossed the line. */
+  | { t: 'cpufinish'; id: number; time: number }
+  /** The host says one of its CPU racers blew up. */
+  | { t: 'cpuwreck'; id: number; p: [number, number, number] };
+
+/**
+ * CPU racers in an online lobby. The host adds them; the room keeps them as racers with negative ids (so they never
+ * clash with a socket's), and the host's client drives them with the same AI as a solo race (driver.ts), sending
+ * their poses in one `cpus` message, their items with `cpu`, and their finishes and wrecks. They leave with the host
+ * if the host goes mid-race, give up their seat to a person who joins a full lobby, and are never paid. A race
+ * with CPUs in it pays like a solo race against them, but never less than the people alone would earn.
+ */
+export const CPU = {
+  /** CPU racers' names, the same as a solo race's rivals. */
+  names: ['Haruki', 'Mika', 'Bunta', 'Rin', 'Kenji', 'Sora', 'Aiko', 'Daichi'],
+};
 
 export const RACE = {
   maxPlayers: 8,

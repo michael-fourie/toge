@@ -3,7 +3,7 @@
 // finish (results and prize money).
 
 import * as THREE from 'three';
-import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, myRaceCar, newOwnedCar, CAR_IDS, rating } from '../shared/cars.ts';
+import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, myRaceCar, newOwnedCar, rivalCar } from '../shared/cars.ts';
 import { type Ai, aiDrive, newAi } from '../shared/driver.ts';
 import { DRAFT, type Body, stepDraft, strongestWake } from '../shared/draft.ts';
 import { DAMAGE, type Damage, ZONES, damagedInput, newDamage, packZones, repair, takeHit, unpackZones } from '../shared/damage.ts';
@@ -11,7 +11,7 @@ import { Blasts, CarDents } from './damageview.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
 import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { SOLO_SHARE } from '../shared/garage.ts';
-import { CAR_RULES, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
+import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
 import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../shared/track.ts';
@@ -83,7 +83,7 @@ const TAG_NEAR = 120;
 const TAG_FAR = 280;
 const TAG_CHECK = 6;
 
-const RIVAL_NAMES = ['Haruki', 'Mika', 'Bunta', 'Rin', 'Kenji', 'Sora', 'Aiko', 'Daichi'];
+const RIVAL_NAMES = CPU.names;
 
 interface Racing {
   car: Car;
@@ -96,6 +96,8 @@ interface Racing {
   color: string;
   finished: number | null;
   ai?: Ai;
+  /** Online, a CPU racer this (host's) client drives: its racer id in the room. */
+  netId?: number;
   input: DriveInput;
   /** The item held (and uses left), when an AI uses it, and how long its shield lasts (wall clock). */
   item: { kind: Item; uses: number } | null;
@@ -231,6 +233,8 @@ export class RaceGame {
   private frames = 0;
   private lastBeep = 99;
   private time = 0;
+  /** Online: seconds since GO, still running after you finish (it times the host's CPU racers). */
+  private clock = 0;
   /** The lap you're on (circuits) and when you started it. */
   private lap = 1;
   private lapStart = 0;
@@ -329,23 +333,29 @@ export class RaceGame {
       this.carNote = online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}, the same for everyone` : online.rule === 'maxed' ? `${CAR_RULES.maxed.name}: every part at level 5` : '';
       if (this.carNote) this.hud.banner(online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}` : CAR_RULES.maxed.name, online.rule === 'spec' ? 'Everyone drives the same car' : 'Every part at level 5', 3500);
       else this.hud.banner('Waiting for racers', 'Loading the track…', 0);
-      for (const r of online.racers) if (r.id !== online.net.id && r.id in online.grid) this.addRemote({ ...r, car: online.cars[r.id] ?? r.car });
+      // The host drives the lobby's CPU racers here, with the solo race's AI; everyone else sees them as racers.
+      const host = online.net.room?.hostId === online.net.id;
+      let k = 0;
+      for (const r of online.racers) {
+        if (r.id === online.net.id || !(r.id in online.grid)) continue;
+        const car = online.cars[r.id] ?? r.car;
+        if (!(r.cpu && host)) {
+          this.addRemote({ ...r, car });
+          continue;
+        }
+        const bot = this.spawn(decodeCar(car) ?? newOwnedCar('pebble'), online.grid[r.id], r.name, false, decodeRider(r.rider) ?? defaultRider());
+        bot.ai = newAi(0.84 + ((k * 37) % 11) / 100, ((k % 3) - 1) * 1.6);
+        bot.netId = r.id;
+        this.rivals.push(bot);
+        k++;
+      }
       this.countdown = RACE.countdownMs / 1000;
       this.held = true;
       this.offNet = online.net.on((m) => this.onNet(m));
     } else {
-      const n = rivals;
-      const myPi = rating(carSpec(setup.car)).pi;
-      // Rivals in cars near your class, a touch slower or faster, spread over the grid ahead of you.
-      const pool = CAR_IDS.slice().sort((a, b) => Math.abs(rating(carSpec(newOwnedCar(a))).pi - myPi) - Math.abs(rating(carSpec(newOwnedCar(b))).pi - myPi));
-      for (let i = 0; i < n; i++) {
-        const model = pool[i % 2 === 0 ? 0 : Math.min(pool.length - 1, 1 + (i % 3))];
-        const car = newOwnedCar(model, (i * 5 + 3) % PAINTS.length);
-        car.look.rims = i % 4;
-        car.look.stripe = i % 3;
-        car.look.stripeColor = (i * 7 + 1) % PAINTS.length;
-        // Match your upgrades so the field stays close.
-        car.up = { ...setup.car.up };
+      for (let i = 0; i < rivals; i++) {
+        // Rivals in cars near your class, a touch slower or faster, spread over the grid ahead of you.
+        const car = rivalCar(setup.car, i);
         const slot = i < mySlot ? i : i + 1;
         // Each rival gets a driver of their own (seen on a bike), the same one every race.
         const r = this.spawn(car, slot, RIVAL_NAMES[i], false, rivalRider(setup.rider, i));
@@ -549,12 +559,12 @@ export class RaceGame {
         const z = c.p.z + Math.cos(yaw) * back;
         const y = c.p.y - c.spec.cg;
         this.propView.addSlick(x, y, z, now);
-        if (r === this.me) this.setup.online?.net.send({ t: 'item', kind: 'oil', p: [x, y, z] });
+        if (r === this.me || r.netId !== undefined) this.setup.online?.net.send({ t: 'item', kind: 'oil', p: [x, y, z], cpu: r.netId });
         break;
       }
       case 'shock':
         this.shockwave(r, r.name);
-        if (r === this.me) this.setup.online?.net.send({ t: 'item', kind: 'shock' });
+        if (r === this.me || r.netId !== undefined) this.setup.online?.net.send({ t: 'item', kind: 'shock', cpu: r.netId });
         break;
       case 'comet': {
         const target = this.leaderFor(r);
@@ -563,7 +573,9 @@ export class RaceGame {
           break;
         }
         this.launchComet(c.s, target, r.name);
-        if (r === this.me && typeof target === 'number') this.setup.online?.net.send({ t: 'item', kind: 'comet', target, s: c.s });
+        // Online, the others hear who it's for by racer id (you, or a CPU racer, if the target is a car we drive).
+        const id = typeof target === 'number' ? target : target === this.me ? this.setup.online?.net.id : target.netId;
+        if ((r === this.me || r.netId !== undefined) && id !== undefined) this.setup.online?.net.send({ t: 'item', kind: 'comet', target: id, s: c.s, cpu: r.netId });
         break;
       }
     }
@@ -700,7 +712,7 @@ export class RaceGame {
         if (this.phase !== 'done') this.hud.banner(`${r.name} finished`, fmtTime(m.time), 2000);
         if (this.watching === m.id) this.spectateNext();
       }
-    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id })));
+    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id, cpu: r.cpu })));
     else if (m.t === 'records') this.records(m.rows);
     else if (m.t === 'room') {
       // Someone left mid-race: drop their car.
@@ -717,32 +729,41 @@ export class RaceGame {
         }
       if (m.phase === 'lobby' && this.phase === 'done') this.exit('lobby');
     } else if (m.t === 'item') {
-      const from = this.remotes.get(m.by)?.name ?? 'Someone';
+      const from = this.remotes.get(m.by)?.name ?? this.rivals.find((r) => r.netId === m.by)?.name ?? 'Someone';
       if (m.kind === 'oil' && m.p) this.propView.addSlick(m.p[0], m.p[1], m.p[2], this.wallClock);
       else if (m.kind === 'shock') this.shockwave(null, from);
       else if (m.kind === 'comet' && m.target !== undefined && m.s !== undefined) {
-        const target = m.target === this.setup.online!.net.id ? this.me : this.remotes.has(m.target) ? m.target : null;
+        const target = m.target === this.setup.online!.net.id ? this.me : this.remotes.has(m.target) ? m.target : (this.rivals.find((r) => r.netId === m.target) ?? null);
         if (target !== null) this.launchComet(m.s, target, from);
       }
     } else if (m.t === 'error') this.exit('garage', m.message);
   }
 
   private send() {
+    this.setup.online?.net.send({ t: 'state', ...this.pose(this.me) });
+  }
+
+  /** The host's CPU racers still out, all in one message. */
+  private sendCpus() {
     const net = this.setup.online?.net;
-    if (!net) return;
-    const c = this.me.car;
+    const cars = this.rivals.filter((r) => r.netId !== undefined && r.finished === null).map((r) => ({ id: r.netId!, ...this.pose(r) }));
+    if (net && cars.length) net.send({ t: 'cpus', cars });
+  }
+
+  /** A car we drive, as the others see it. */
+  private pose(x: Racing): Omit<NetCar, 'id'> {
+    const c = x.car;
     const f =
-      (this.me.input.brake > 0.1 ? CarFlag.Brake : 0) |
+      (x.input.brake > 0.1 ? CarFlag.Brake : 0) |
       (c.gear < 0 ? CarFlag.Reverse : 0) |
       (c.wheels.some((w) => w.slip > 1.1) ? CarFlag.Skid : 0) |
       (c.wheels.some((w) => w.surf === 'grass' || w.surf === 'gravel' || w.surf === 'dirt') ? CarFlag.Offroad : 0) |
       (c.drift ? CarFlag.Drift : 0) |
       (c.boost > 0 ? CarFlag.Boost : 0) |
       (c.driftLevel << CarFlag.LevelShift) |
-      (this.wallClock < this.me.shieldUntil ? CarFlag.Shield : 0);
-    const r = (x: number) => Math.round(x * 1000) / 1000;
-    net.send({
-      t: 'state',
+      (this.wallClock < x.shieldUntil ? CarFlag.Shield : 0);
+    const r = (n: number) => Math.round(n * 1000) / 1000;
+    return {
       p: [r(c.p.x), r(c.p.y), r(c.p.z)],
       q: [r(c.q.x), r(c.q.y), r(c.q.z), r(c.q.w)],
       v: [r(c.v.x), r(c.v.y), r(c.v.z)],
@@ -752,8 +773,8 @@ export class RaceGame {
       ws: r((c.wheels[2].w + c.wheels[3].w) / 2),
       rpm: Math.round(c.rpm),
       f,
-      dm: this.physics ? packZones(this.me.dmg) : undefined,
-    });
+      dm: this.physics ? packZones(x.dmg) : undefined,
+    };
   }
 
   // --- the loop --------------------------------------------------------------------------------
@@ -902,9 +923,11 @@ export class RaceGame {
     this.pickups();
     // Bumps
     const all = [me, ...this.rivals];
-    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) collideCars(all[i].car, all[j].car, true);
-    // In a time trial the others are ghosts: you drive straight through them.
-    if (!this.trial) for (const r of this.remotes.values()) collideCars(me.car, r.ghost, false);
+    // In a time trial the others are ghosts: you (and the host's CPU racers) drive straight through them.
+    if (!this.trial) {
+      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) collideCars(all[i].car, all[j].car, true);
+      for (const r of this.remotes.values()) for (const x of all) if (x === me || x.finished === null) collideCars(x.car, r.ghost, false);
+    }
     if (traffic) for (const r of all) collideTraffic(t, traffic, r.car, this.trafficTime);
     if (live && me.finished === null) this.scoreDrift();
     if (live && this.physics) this.crashes();
@@ -941,7 +964,16 @@ export class RaceGame {
       this.hud.banner(this.lap === t.def.laps ? 'Final lap' : `Lap ${this.lap}/${t.def.laps}`, `${best && this.lap > 2 ? 'Best lap' : 'Last lap'} ${fmtTime(lapTime)}`, 2200);
       this.lapStart = this.time;
     }
-    for (const r of this.rivals) if (r.finished === null && this.phase === 'racing' && r.car.s >= t.finishS) r.finished = this.time;
+    if (live || this.phase === 'finished') this.clock += TICK_DT;
+    for (const r of this.rivals) {
+      if (r.finished !== null || r.car.s < t.finishS) continue;
+      // Solo the race ends when you cross the line; online the host's CPU racers race on after you.
+      if (this.phase === 'racing' && r.netId === undefined) r.finished = this.time;
+      else if (r.netId !== undefined && (live || this.phase === 'finished')) {
+        r.finished = this.clock;
+        this.setup.online?.net.send({ t: 'cpufinish', id: r.netId, time: this.clock });
+      }
+    }
     // Network
     if (this.setup.online && (live || this.phase === 'countdown' || this.phase === 'finished')) {
       this.pingAcc += TICK_DT;
@@ -953,6 +985,7 @@ export class RaceGame {
       if (this.sendAcc >= 1 / SEND_HZ) {
         this.sendAcc = 0;
         if (me.finished === null) this.send();
+        this.sendCpus();
       }
     }
   }
@@ -991,8 +1024,10 @@ export class RaceGame {
     this.blasts?.boom(c.p.x, c.p.y, c.p.z, c.v.x, c.v.z, PAINTS[decodeCar(r.code)?.look.paint ?? 0]);
     const mine = r === this.me;
     this.boomSound(mine ? 0 : Math.hypot(c.p.x - this.me.car.p.x, c.p.z - this.me.car.p.z));
+    const at = [c.p.x, c.p.y, c.p.z].map((x) => Math.round(x * 100) / 100) as [number, number, number];
+    if (r.netId !== undefined) this.setup.online?.net.send({ t: 'cpuwreck', id: r.netId, p: at });
     if (mine) {
-      this.setup.online?.net.send({ t: 'wreck', p: [c.p.x, c.p.y, c.p.z].map((x) => Math.round(x * 100) / 100) as [number, number, number] });
+      this.setup.online?.net.send({ t: 'wreck', p: at });
       rumble(1, 1, 900);
       this.hud.banner('Wrecked!', 'Back on the road', 1600);
     }
@@ -1116,7 +1151,7 @@ export class RaceGame {
     this.watching = null;
     this.hud.watching('', '');
     const mine = lines.find((l) => l.me);
-    if (mine) garage.credit(mine.prize, mine.place === 1 && lines.length > 1);
+    if (mine) garage.credit(mine.prize, mine.place === 1 && lines.filter((l) => !l.cpu).length > 1);
     // A guest's best is kept here; an account's comes from the server a moment later (`records`).
     if (mine && mine.time !== null && !garage.onServer) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
     const title = this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
