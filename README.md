@@ -7,7 +7,8 @@ The site opens on a **game chooser**, a grid of channels in the style of a class
 Race your lobby down the mountain. Two passes: **Kōri Pass** (alpine, 5.3 km, six stacked hairpins, forest esses, a run into the village) and **Saltwind Cliffs** (coastal, 3.6 km, clifftops, a zigzag down the cliff face, the harbour wall).
 
 - **Physics**: a rigid body on four raycast wheels at 480 Hz. Springs, dampers and anti-roll bars, so the car squats, dives and rolls. Pacejka-style tyres with combined slip and relaxation, a torque curve, clutch, gearbox, limited-slip diffs, AWD split, aero drag and downforce. Assists (ABS, traction control, steering assist, automatic gears) can each be turned off in the pause menu.
-- **Garage**: five cars from a 100 hp hatch to a 600 hp mid-engined V10, each with a class and PI. Paint (gloss, metallic, matte, pearl), rims, spoiler and stripes; tune ride height, brake bias, diff lock and final drive.
+- **Garage**: five cars from a 100 hp hatch to a 600 hp mid-engined V10, each with a class and PI. Paint (gloss, metallic, matte, pearl), rims, spoiler, stripes, front lip, carbon or black hood and roof, window tint, chrome or black trim and mirror caps; tune ride height, brake bias, diff lock and final drive.
+- **Drivers**: four realistic, steampunk-meets-cyberpunk drivers (a clockwork gentleman with a brass arm, a neon courier in a respirator, a steam-age mechanic, a monocled night-runner) sit in every car behind the tinted glass, hands on their own wheels, turning it with you, and ride the bike tucked over the tank. Pick yours on the Driver tab; rivals get the others. See [docs/DRIVERS.md](docs/DRIVERS.md).
 - **Money and crates**: races pay prize money (more for a win, a bigger field and a longer pass; solo races vs AI pay 60%). Upgrades only come from crates: a Mystery Crate (any part, a chance of +2 or a jackpot, or scrap or nothing) or a Tuner Crate (the part you pick, pricier per level). Buy more cars at the dealer.
 - **Cosmetic cases**: paint jobs, decals, tints, lamps, rims, underglow, plates, exhaust tips and, from the **Aero Case**, bolt-on body parts: rear wings (up to a towering Bōsōzoku), hood scoops and superchargers, roof racks, light bars, surfboards and a lucky duck, front splitters and bull bars, side skirts and flares, mudflaps. Looks only, never handling.
 - **Your garage follows your account** when you're signed in (it's stored on the server). Guests keep theirs in the browser.
@@ -17,8 +18,9 @@ Race your lobby down the mountain. Two passes: **Kōri Pass** (alpine, 5.3 km, s
 | --- | --- | --- |
 | RT / LT | W / S (↑ ↓) | Throttle / brake (hold brake when stopped to reverse) |
 | Left stick | A D (← →) | Steer |
-| Ⓐ | Space | Handbrake |
-| Ⓑ / Ⓧ | E / Q | Shift up / down (manual gearbox) |
+| Ⓐ (hold) | Space (hold) | Drift; let go for a mini-turbo |
+| Ⓧ / RB | E | Use item |
+| D-pad ↑ ↓ | Shift / Ctrl | Shift up / down (manual gearbox) |
 | Ⓨ | C | Camera (chase, near, hood, bumper) |
 | LB (hold) | V (hold) | Look back |
 | View | R | Reset to the road |

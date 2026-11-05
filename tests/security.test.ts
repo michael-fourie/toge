@@ -2,19 +2,19 @@
 // rate limits. Coins of a signed-in player must only change through the server's own rules and dice.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type Bank, Lobby } from '../src/server/lobby.ts';
+import { type Bank, Lobby } from '../src/gambol/server/lobby.ts';
 import { Limiter } from '../src/server/limiter.ts';
 import type { KV } from '../src/server/accountStore.ts';
-import { STASH_IMPORT_COINS, StashStore } from '../src/server/stashStore.ts';
+import { STASH_IMPORT_COINS, StashStore } from '../src/gambol/server/stashStore.ts';
 import { cleanName } from '../src/shared/account.ts';
-import { CRASH, crashMult, crashTime } from '../src/shared/casino.ts';
-import { CONTRAPTIONS } from '../src/shared/contraptions.ts';
-import { newInv } from '../src/shared/inventory.ts';
-import { COIN } from '../src/shared/items.ts';
-import { XP } from '../src/shared/levels.ts';
-import type { ServerMsg } from '../src/shared/protocol.ts';
-import { type Table, applyStash } from '../src/shared/stash.ts';
-import { KILL_LIMIT } from '../src/shared/teams.ts';
+import { CRASH, crashMult, crashTime } from '../src/gambol/shared/casino.ts';
+import { CONTRAPTIONS } from '../src/gambol/shared/contraptions.ts';
+import { newInv } from '../src/gambol/shared/inventory.ts';
+import { COIN } from '../src/gambol/shared/items.ts';
+import { XP } from '../src/gambol/shared/levels.ts';
+import type { ServerMsg } from '../src/gambol/shared/protocol.ts';
+import { type Table, applyStash } from '../src/gambol/shared/stash.ts';
+import { KILL_LIMIT } from '../src/gambol/shared/teams.ts';
 
 function seeded(seed: number) {
   return () => {
@@ -33,7 +33,7 @@ function kv() {
   return { data, store };
 }
 
-// --- The stash rules (shared/stash.ts) ----------------------------------------------------------------------
+// --- The stash rules (gambol/shared/stash.ts) ----------------------------------------------------------------------
 
 test('stash: cases cost their price and drop an owned item; selling and equipping only work on your own items', () => {
   const inv = newInv();
@@ -135,7 +135,7 @@ test('stash: cashing out after the string snapped pays nothing', () => {
   }
 });
 
-// --- The account's stash on the server (server/stashStore.ts) --------------------------------------------------
+// --- The account's stash on the server (gambol/server/stashStore.ts) --------------------------------------------------
 
 test('stash store: the server pays and charges, never below zero, and a browser stash is adopted once, coins capped', async () => {
   const { store } = kv();
@@ -158,7 +158,7 @@ test('stash store: the server pays and charges, never below zero, and a browser 
   assert.equal((await s.get('Mike')).coins, r.inv.coins, 'saved');
 });
 
-// --- Match pay (server/lobby.ts) ---------------------------------------------------------------------------------
+// --- Match pay (gambol/server/lobby.ts) ---------------------------------------------------------------------------------
 
 function battle(users: boolean[]) {
   const paid: { name: string; coins: number; xp: number }[] = [];
@@ -237,7 +237,7 @@ test('messages: malformed state and shots are dropped, not relayed or trusted', 
   }
 });
 
-// --- Workbench builds (server/workshop.ts) -----------------------------------------------------------------------
+// --- Workbench builds (gambol/server/workshop.ts) -----------------------------------------------------------------------
 
 test('workbench: a signed-in builder is charged by the server; no coins, no contraption', async () => {
   let coins = CONTRAPTIONS.tacks.price;

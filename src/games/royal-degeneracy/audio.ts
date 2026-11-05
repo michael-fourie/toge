@@ -5,7 +5,7 @@
 import type { Mat } from './house.ts';
 import type { Vec3 } from '../../shared/math.ts';
 
-export type Sound = 'door' | 'bonk' | 'bell' | 'oof' | 'rattle' | 'ding' | 'evict' | 'horn' | 'click' | 'fail' | 'toboggan' | 'slap' | 'buzz' | 'alarm' | 'gag' | 'lighter' | 'inhale' | 'bubble' | 'cough' | 'sniff' | 'heart' | 'gulp';
+export type Sound = 'door' | 'bonk' | 'bell' | 'oof' | 'rattle' | 'ding' | 'evict' | 'horn' | 'click' | 'fail' | 'toboggan' | 'slap' | 'buzz' | 'alarm' | 'gag' | 'lighter' | 'inhale' | 'bubble' | 'cough' | 'sniff' | 'heart' | 'gulp' | 'burp';
 
 /** 0 = clear line, 1 = through a wall, 2 = through a floor too. */
 export type Muffle = 0 | 1 | 2;
@@ -282,6 +282,12 @@ export class Audio {
         break;
       case 'gulp':
         this.tone(dst, t, 0.15, 'sine', 420, 180, 0.25);
+        break;
+      case 'burp':
+        // Gare, after a few: a long wet rumble that drops in pitch, with a rasp on top.
+        this.tone(dst, t, 0.9, 'sawtooth', 95, 62, 0.35);
+        this.tone(dst, t + 0.05, 0.8, 'square', 140, 88, 0.08);
+        this.burst(dst, t, 0.85, 'bandpass', 380, 2.5, 0.5);
         break;
       case 'alarm':
         this.tone(dst, t, 0.22, 'square', 3100, 3100, 0.12);

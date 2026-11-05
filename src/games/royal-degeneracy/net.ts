@@ -16,7 +16,7 @@ export const PF = { crouch: 1, torch: 2, ghost: 4, sit: 8, point: 16, busy: 32, 
 export const EMOTES = ['', 'wave', 'point', 'shrug', 'facepalm', 'dance', 'five', 'hug'] as const;
 export type Emote = (typeof EMOTES)[number];
 
-type FxKind = 'bonk' | 'bell' | 'rattle' | 'chore' | 'oof' | 'evict' | 'toboggan';
+type FxKind = 'bonk' | 'bell' | 'rattle' | 'chore' | 'oof' | 'evict' | 'toboggan' | 'burp';
 
 export type Msg =
   // anyone → everyone
@@ -59,7 +59,7 @@ export type Msg =
   | { t: 'st'; v: PublicView }
   | { t: 'me'; v: PrivateView }
   | { t: 'doors'; open: string[] }
-  | { t: 'shoved'; id: number; x: number; z: number }
+  | { t: 'shoved'; id: number; x: number; z: number; k?: number }
   | { t: 'fx'; k: FxKind; x: number; y: number; z: number }
   | { t: 'end'; why: string }
   /** What a clue you picked up says (to you only). */
@@ -94,7 +94,7 @@ const SPOT_IDS = new Set(SPOTS.map((s) => s.id));
 const PHASES: Phase[] = ['intro', 'night', 'meeting', 'vote', 'result', 'over'];
 const STATUSES: Status[] = ['in', 'dead', 'out', 'gone'];
 const ROLES: Role[] = ['housemate', 'degenerate'];
-const FX: FxKind[] = ['bonk', 'bell', 'rattle', 'chore', 'oof', 'evict', 'toboggan'];
+const FX: FxKind[] = ['bonk', 'bell', 'rattle', 'chore', 'oof', 'evict', 'toboggan', 'burp'];
 const ROOM_IDS = new Set(ROOMS.map((r) => r.id));
 const isCat = (v: unknown): v is Cat => typeof v === 'string' && (CATS as string[]).includes(v);
 
@@ -268,7 +268,8 @@ export function readMsg(d: unknown): Msg | null {
     case 'doors':
       return arr(m.open, DOORS.length) && m.open.every((id) => typeof id === 'string' && DOOR_IDS.has(id)) ? { t: 'doors', open: m.open as string[] } : null;
     case 'shoved':
-      return int(m.id) && num(m.x, 2) && num(m.z, 2) ? { t: 'shoved', id: m.id, x: m.x, z: m.z } : null;
+      if (m.k !== undefined && !(num(m.k, 3) && m.k >= 1)) return null;
+      return int(m.id) && num(m.x, 2) && num(m.z, 2) ? { t: 'shoved', id: m.id, x: m.x, z: m.z, ...(m.k !== undefined && { k: m.k }) } : null;
     case 'fx':
       return FX.includes(m.k as FxKind) && num(m.x, 100) && num(m.y, 100) && num(m.z, 100) ? { t: 'fx', k: m.k as FxKind, x: m.x, y: m.y, z: m.z } : null;
     case 'end':

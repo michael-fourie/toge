@@ -15,7 +15,7 @@ pill: pure state and timings, plus the dose (weed) and load (stimulants) that bu
 signs, flags and posters, merged per colour; world.ts skips the plain boxes it replaces), `sabotage.ts` (sabotages and fixes,
 pure), `stats.ts` (your nights, in this browser), `touch.ts` (phone controls: they drive Input's touch methods), `voice.ts` (proximity voice: WebRTC signalled through party messages `{t:'vc'}`, checked by `readVoice`; game.ts routes them to `session.voice`). `smoke.ts` (the bong and joint models, the smoke particles, and HeldView: your hands in first person, drawn over the world after a depth clear), `weather.ts` (the drizzle round the house: never indoors or under the porch/balcony roofs), `housefront.ts` (the painted house front: the channel banner and the lobby's backdrop), `coon.ts` (the raccoon as a herding game: a doorway graph with escape routes, pure; referee.ts runs it). The raccoon, Bike Stu's randoms and the reveal's replay frames run
 in `referee.ts`. Quirks that
-only change your own screen (Rock Hound, Supervisor, Couch Lock, Illogical!, Will's cologne) live in `night.ts`. Tests: `tests/royal-degeneracy.test.ts` (rules, messages, cards),
+only change your own screen (Rock Hound, Supervisor, Couch Lock, Illogical!, Will's cologne) live in `night.ts`; Gare's teep, burps and Trip Wire texts are the referee's. Tests: `tests/royal-degeneracy.test.ts` (rules, messages, cards),
 `tests/royal-degeneracy-clues.test.ts` (the mystery), `tests/royal-degeneracy-cast.test.ts` (abilities, locked
 clues, two-person chores), `tests/royal-degeneracy-house-alive.test.ts` (sabotages, sneak routes, Cosy mode, the
 Sink, awards, stats), `tests/royal-degeneracy-vices.test.ts`, `tests/royal-degeneracy-step8.test.ts` (every case deals, voice gain and messages) and `tests/royal-degeneracy-house.test.ts` (spawns, doorways,
@@ -35,7 +35,8 @@ Read these first, in this order:
 
 1. `src/games/CLAUDE.md`: the plug-in rules (stay in this folder, `three` only, scoped CSS, controllers, cleanup).
 2. `DESIGN.md`: the whole design, the tech plan, the file layout and the build order.
-3. `CAST.md`: the ten main characters (8 housemates + 2 regulars): abilities, quirks, trait cards, lines.
+3. `CAST.md`: the main characters (8 housemates, 2 regulars and Gare, Shota's friend visiting for homecoming):
+   abilities, quirks, trait cards, lines.
 
 ## What's here
 
