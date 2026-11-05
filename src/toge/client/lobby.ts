@@ -20,9 +20,9 @@ import './hub.css';
 
 const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb' };
 
-/** A racer's face for the grid list: their portrait, cropped to the head. */
-const face = (rider: string) => {
-  const pic = riderPortrait(rider);
+/** A racer's face for the grid list: their portrait, cropped to the head (`ready`: redraw once it's drawn). */
+const face = (rider: string, ready: () => void) => {
+  const pic = riderPortrait(rider, ready);
   return pic ? `background-image:url(${pic})` : '';
 };
 
@@ -37,6 +37,10 @@ export const driveLobby: Render = (root, ctx, screen) => {
     }
   }
 
+  // Portraits are drawn once each driver's model has loaded: redraw the lobby when one lands.
+  const redraw = () => {
+    if (root.isConnected) draw();
+  };
   const draw = () => {
     const room = raceNet.room;
     if (!room) {
@@ -54,7 +58,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
           const cls = c ? rating(carSpec(c)) : null;
           return `<li class="${r.id === raceNet.id ? 'me' : ''}">
           <span class="tg-slot">${i + 1}</span>
-          <div class="tg-racer"><i class="tg-face" aria-hidden="true" style="--paint:${c ? '#' + PAINTS[c.look.paint].toString(16).padStart(6, '0') : '#888'};${face(r.rider)}"></i><b>${esc(r.name)}</b>${r.id === room.hostId ? '<span class="tg-tag">Host</span>' : ''}${r.id === raceNet.id ? '<span class="tg-tag you">You</span>' : ''}</div>
+          <div class="tg-racer"><i class="tg-face" aria-hidden="true" style="--paint:${c ? '#' + PAINTS[c.look.paint].toString(16).padStart(6, '0') : '#888'};${face(r.rider, redraw)}"></i><b>${esc(r.name)}</b>${r.id === room.hostId ? '<span class="tg-tag">Host</span>' : ''}${r.id === raceNet.id ? '<span class="tg-tag you">You</span>' : ''}</div>
           <span class="car">${c ? esc(CARS[c.model].name) : ''}</span>
           ${cls ? `<span class="tg-class" style="--c:${CLASS_COLORS[cls.cls]}"><b>${cls.cls}</b>${cls.pi}</span>` : '<span></span>'}
         </li>`;
@@ -63,7 +67,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     // The crew: everyone's driver side by side, you in the middle of the light.
     const crew = room.racers
       .map((r) => {
-        const pic = riderPortrait(r.rider);
+        const pic = riderPortrait(r.rider, redraw);
         const c = decodeCar(r.car);
         return `<figure class="tg-crew-m ${r.id === raceNet.id ? 'me' : ''}">
           ${pic ? `<img src="${pic}" alt="" width="${PORTRAIT.w}" height="${PORTRAIT.h}" />` : '<span class="tg-crew-none"></span>'}
