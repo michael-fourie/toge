@@ -10,7 +10,7 @@ import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { $, copy, esc, playerName } from '../../client/menu/ui.ts';
 import { garage } from './garageStore.ts';
-import { raceNet } from './racenet.ts';
+import { raceNet, roomRace } from './racenet.ts';
 import { fmtTime } from './hud.ts';
 import { ICON, LOGO } from './brand.ts';
 import { pitGarage } from './hub.ts';
@@ -277,8 +277,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     }
     else if (m.t === 'load') {
       starting = true;
-      const room = raceNet.room!;
-      ctx.drive({ track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, racers: room.racers, rule: m.rule, cars: m.cars, physics: m.physics, ghost: m.ghost } });
+      ctx.drive(roomRace(m));
     } else if (m.t === 'error') {
       starting = true; // the socket is gone anyway
       ctx.replace({ name: 'drive', notice: m.message });

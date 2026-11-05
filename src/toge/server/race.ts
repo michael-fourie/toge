@@ -278,7 +278,8 @@ export class Race {
         this.wrecked(m, msg.p, c.id);
         break;
       case 'start':
-        if (c.id === this.hostId && this.phase === 'lobby') this.startLoading();
+        // From the lobby, or straight from the results (Race again: the same track and settings, no wait).
+        if (c.id === this.hostId && (this.phase === 'lobby' || this.phase === 'results')) this.startLoading();
         break;
       case 'ready': {
         if (!m.racing || m.ready) return;

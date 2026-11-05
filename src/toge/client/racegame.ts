@@ -34,7 +34,8 @@ import { garage } from './garageStore.ts';
 import { type Dot, type ResultLine, RaceHud, type Tag, fmtTime, money, ordinal } from './hud.ts';
 import { saveHighs } from './highs.ts';
 import { DriveControls } from './input.ts';
-import type { RaceNet } from './racenet.ts';
+import { type RaceNet, roomRace } from './racenet.ts';
+import type { DriveOpts } from '../../client/menu/router.ts';
 import { Post } from './post.ts';
 import { frameGate, lowGraphics, LOW_PIXEL_RATIO, releaseRenderer } from '../../client/graphics.ts';
 import { buildTrackView, type TrackView } from './trackview.ts';
@@ -57,6 +58,8 @@ export interface RaceSetup {
   /** Solo: Physics mode (crash damage, damage.ts). Online it comes with the race (`online.physics`). */
   physics?: boolean;
   onExit(to: 'garage' | 'lobby', notice?: string): void;
+  /** Online: the host raced again while we sat on the results; this race hands over to the next one. */
+  onNext?(next: DriveOpts): void;
 }
 
 type Phase = 'countdown' | 'racing' | 'finished' | 'done';
@@ -731,6 +734,10 @@ export class RaceGame {
         if (this.phase !== 'done') this.hud.banner(`${r.name} finished`, fmtTime(m.time), 2000);
         if (this.watching === m.id) this.spectateNext();
       }
+    } else if (m.t === 'load' && this.phase === 'done') {
+      // The host raced again from the results: straight to the next start.
+      this.dispose();
+      this.setup.onNext?.(roomRace(m));
     } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id, cpu: r.cpu })));
     else if (m.t === 'records') this.records(m.rows);
     else if (m.t === 'room') {
@@ -747,6 +754,7 @@ export class RaceGame {
           if (this.watching === id) this.spectateNext();
         }
       if (m.phase === 'lobby' && this.phase === 'done') this.exit('lobby');
+      else if (this.phase === 'done') this.resultActs(); // the host may have changed
     } else if (m.t === 'item') {
       const from = this.remotes.get(m.by)?.name ?? this.rivals.find((r) => r.netId === m.by)?.name ?? 'Someone';
       if (m.kind === 'oil' && m.p) this.propView.addSlick(m.p[0], m.p[1], m.p[2], this.wallClock);
@@ -1210,15 +1218,39 @@ export class RaceGame {
     if (mine && mine.time !== null && !garage.onServer) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
     const title = this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
     this.shownResults = { lines, title };
-    const p = this.hud.panel(`${this.hud.resultsHtml(title, lines, this.clean)}
+    this.hud.panel(`${this.hud.resultsHtml(title, lines, this.clean)}
       <p class="rh-note">${mine ? `You earned ${money(mine.prize)}${bonusNote(mine.bonus)}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}<span data-best-note>${esc(bestNote(mine?.newBest, this.track.def.name))}</span></p>
-      <div class="rh-buttons"><button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button></div>`);
+      <div class="rh-buttons" data-result-acts></div>`);
     setMenuNav(true);
-    p.querySelector('[data-act="lobby"]')!.addEventListener('click', () => this.exit('lobby'));
-    p.querySelector('[data-act="leave"]')!.addEventListener('click', () => {
-      this.setup.online!.net.leave();
+    this.resultActs();
+  }
+
+  /**
+   * The results' buttons. The host can race again (same track and settings, everyone straight to the start);
+   * everyone else is told they'll be pulled in if that happens. Redrawn when the host changes.
+   */
+  private resultActs() {
+    const box = this.hud.root.querySelector<HTMLElement>('[data-result-acts]');
+    const net = this.setup.online?.net;
+    if (!box || !net) return;
+    const host = net.room?.hostId === net.id;
+    if (box.dataset.host === String(host)) return;
+    box.dataset.host = String(host);
+    box.innerHTML = host
+      ? `<button data-act="again" data-autofocus>Race again</button><button data-act="lobby">Back to lobby</button><button data-act="leave">Leave race</button>`
+      : `<button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button><p class="rh-note">If the host races again, you go straight to the start.</p>`;
+    const again = box.querySelector<HTMLButtonElement>('[data-act="again"]');
+    again?.addEventListener('click', () => {
+      again.disabled = true;
+      again.textContent = 'Starting…';
+      net.send({ t: 'start' });
+    });
+    box.querySelector('[data-act="lobby"]')!.addEventListener('click', () => this.exit('lobby'));
+    box.querySelector('[data-act="leave"]')!.addEventListener('click', () => {
+      net.leave();
       this.exit('garage');
     });
+    box.querySelector<HTMLElement>('[data-autofocus]')?.focus({ preventScroll: true });
   }
 
   /** The server kept new best times for some of the field: mark them on the results. */
