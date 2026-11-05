@@ -92,6 +92,14 @@ a component or a page.
   garage action as `time` (kept even when the prize is on cooldown). Guests keep theirs in localStorage
   (`garage.noteTime`, `atrous.bests`). The results screen tags a new best (`ResultLine.newBest`, gold "New best −0.532").
   Solo times are client-reported, so `cleanTime` refuses anything quicker than the track at `RECORDS.maxAvgSpeed`.
+- **All-time boards** (records.ts `placeOnBoard`, recordStore.ts `lb:<track>`): every track keeps the top `BOARD.size`
+  accounts, one row each (their best there). Each new account best goes on its board, and the `NewBest` comes back with
+  `rank` (1 = a new track record) and `beat` (the record it took); the room's `records` rows carry both. Bests from
+  before the boards are put on once (`Accounts.boardsBuilt`, flag `lb:built`). Guests never reach the board. Online,
+  the room keeps finishers' times one at a time in finishing order, so two racers can't both take the record. The
+  results show a red "Track record" banner + tag (`.rh-record`, `.rh-tr`) and a `#4` all-time tag (`.rh-rank`).
+  Read with `GET /api/leaderboard` (every track's record) or `?t=<track>` (its board); the page is Race → Leaderboard
+  (leaderboardui.ts).
 - **Friends** (the Friends tab, friendsui.ts): add accounts by username (site-wide lists, `src/shared/friends.ts`,
   `/api/friends`), see who added you, open a friend's garage (`/api/garage?u=`, a `TogeProfile`: cars, driver, races,
   wins, best times, no money). Their car goes on the turntable with their driver beside it, and their best times sit next
@@ -155,7 +163,8 @@ src/toge/shared/
                radius, bitten into the road's edges, always leaving `ROCKFALL_GAP` of clear tarmac; solid, and the AI
                steers round them by their radius. toge/client/propview.ts draws props, oil slicks, the shield bubble.
   records.ts   best times: Bests per track, recordTime (keeps a time only if it beats the old one and is plausible: cleanTime,
-               minTime), cleanBests, and TogeProfile / profileOf (what a friend sees of your garage).
+               minTime), cleanBests, the all-time boards (BoardRow, BOARD, cleanBoard, placeOnBoard), and
+               TogeProfile / profileOf (what a friend sees of your garage).
   rider.ts     your driver: RIDER_IDS / RIDERS (names, bios, glow colours), encode/decode/cleanRider, rivalRider. Racers
                carry the id as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the
                default, and old saves of the customisable drivers get it too).
@@ -165,7 +174,7 @@ src/toge/shared/
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
                climb), ghostMode (time trial only), cleanMode (no items + car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
-  garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`), recordStore.ts (accounts' best times, `b:<user>`). Race lobbies use the Directory instance 'race'
+  garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`), recordStore.ts (accounts' best times, `b:<user>`, and the all-time boards, `lb:<track>`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.
 src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), tracktextures.ts
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
@@ -191,7 +200,7 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   Driver page), playercard.ts (the player card: your name top right opens it; one 1080×1350 canvas, drawn in 2D around
   a single offscreen 3D shot of your car and driver, is both what you see and the PNG you download or share), settingsui.ts
   (the Settings page: graphics), friendsui.ts (the Friends page: list, add, a friend's
-  profile and best times), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
+  profile and best times), leaderboardui.ts (Race → Leaderboard: a track's all-time board and every track's record), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
   styled by hub.css), lobby.ts (`drivelobby`), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),

@@ -202,6 +202,7 @@ export default {
     if (url.pathname === '/api/races') return Response.json(await env.DIRECTORY.getByName('race').listRaces());
     if (url.pathname === '/api/garage') return garageApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/friends') return friendsApi(req, url, env.ACCOUNTS.getByName('all'));
+    if (url.pathname === '/api/leaderboard') return Response.json(await env.ACCOUNTS.getByName('all').leaderboard(url.searchParams.get('t')?.slice(0, 32) ?? null));
     if (url.pathname === '/api/stash') return stashApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/parties') {
       const game = url.searchParams.get('game');

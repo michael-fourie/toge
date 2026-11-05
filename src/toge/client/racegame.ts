@@ -11,7 +11,7 @@ import { Blasts, CarDents } from './damageview.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
 import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { SOLO_SHARE } from '../shared/garage.ts';
-import { CAR_RULES, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer } from '../shared/protocol.ts';
+import { CAR_RULES, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
 import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../shared/track.ts';
@@ -175,10 +175,11 @@ function bonusNote(b: { drift: number; items: number } | undefined): string {
   return ` (incl. ${parts.join(' and ')})`;
 }
 
-/** " · New best on Kōri Pass (−1.234 s)" for a results note. */
+/** " · New best on Kōri Pass (−1.234 s), 4th all-time" (or a new track record) for a results note. */
 function bestNote(b: NewBest | null | undefined, track: string): string {
   if (!b) return '';
-  return ` · New best on ${track}${b.prev === null ? '' : ` (−${(b.prev - b.time).toFixed(3)} s)`}`;
+  if (b.rank === 1) return ` · New track record on ${track}${b.beat ? ` (−${(b.beat.time - b.time).toFixed(3)} s)` : ''}`;
+  return ` · New best on ${track}${b.prev === null ? '' : ` (−${(b.prev - b.time).toFixed(3)} s)`}${b.rank ? `, ${ordinal(b.rank)} all-time` : ''}`;
 }
 
 export class RaceGame {
@@ -1132,13 +1133,13 @@ export class RaceGame {
   }
 
   /** The server kept new best times for some of the field: mark them on the results. */
-  private records(rows: { id: number; time: number; prev: number | null }[]) {
+  private records(rows: RecordRow[]) {
     const shown = this.shownResults;
     if (!shown || !Array.isArray(rows)) return;
     for (const r of rows) {
       const line = shown.lines.find((l) => l.id === r.id);
       if (!line) continue;
-      line.newBest = { track: this.setup.track, time: r.time, prev: r.prev };
+      line.newBest = { track: this.setup.track, time: r.time, prev: r.prev, rank: r.rank ?? null, beat: r.beat ?? null };
       if (line.me) garage.noteBest(line.newBest, line.car);
     }
     const el = this.hud.root.querySelector('[data-results]');

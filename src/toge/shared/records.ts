@@ -23,6 +23,13 @@ export interface NewBest {
   track: TrackId;
   time: number;
   prev: number | null;
+  /**
+   * Where it put them on the track's all-time board (1: the track record), or null (a guest, or off the board).
+   * Absent from guests' own bests, which never reach the board.
+   */
+  rank?: number | null;
+  /** When `rank` is 1: the record it beat (null: the track had none). It may be the racer's own. */
+  beat?: { name: string; time: number } | null;
 }
 
 export const RECORDS = {
@@ -68,6 +75,59 @@ export function recordTime(b: Bests, track: unknown, time: unknown, car: string,
   const old = b[track];
   if (old && old.time <= t) return null;
   return { bests: { ...b, [track]: { time: t, car: decodeCar(car) ? car : '', at } }, best: { track, time: t, prev: old?.time ?? null } };
+}
+
+// --- The all-time board ----------------------------------------------------------------------------------------
+
+/** One racer's line on a track's all-time board: their best there. */
+export interface BoardRow {
+  name: string;
+  time: number;
+  car: string;
+  at: number;
+}
+
+export const BOARD = {
+  /** Racers kept per track. */
+  size: 50,
+} as const;
+
+/** A board as stored: bad rows dropped, one row per racer (their quickest), quickest first, at most BOARD.size. */
+export function cleanBoard(track: TrackId, x: unknown): BoardRow[] {
+  if (!Array.isArray(x)) return [];
+  const best = new Map<string, BoardRow>();
+  for (const r of x) {
+    if (!r || typeof r !== 'object') continue;
+    const row = r as Partial<BoardRow>;
+    const time = cleanTime(track, row.time);
+    if (time === null || typeof row.name !== 'string' || !row.name || row.name.length > 32) continue;
+    const key = row.name.toLowerCase();
+    const old = best.get(key);
+    if (old && old.time <= time) continue;
+    best.set(key, { name: row.name, time, car: typeof row.car === 'string' && decodeCar(row.car) ? row.car : '', at: Number.isFinite(row.at) ? Number(row.at) : 0 });
+  }
+  return sortBoard([...best.values()]);
+}
+
+/** Quickest first; a tie goes to whoever set it first. Cut to BOARD.size. */
+const sortBoard = (rows: BoardRow[]) => rows.sort((a, b) => a.time - b.time || a.at - b.at).slice(0, BOARD.size);
+
+/**
+ * Puts a racer's new best on a board, replacing their old line. `rank` is where it landed (1: the track record; null:
+ * not quick enough for the board); `beat` is the record it took when it's the new one.
+ */
+export function placeOnBoard(board: BoardRow[], row: BoardRow): { board: BoardRow[]; rank: number | null; beat: { name: string; time: number } | null } {
+  const key = row.name.toLowerCase();
+  const old = board.find((r) => r.name.toLowerCase() === key);
+  if (old && old.time <= row.time) {
+    const rank = board.indexOf(old) + 1;
+    return { board, rank, beat: null };
+  }
+  const top = board[0] ?? null;
+  const next = sortBoard([...board.filter((r) => r !== old), row]);
+  const i = next.indexOf(row);
+  const rank = i < 0 ? null : i + 1;
+  return { board: next, rank, beat: rank === 1 && top ? { name: top.name, time: top.time } : null };
 }
 
 /** What a friend sees of your TŌGE garage: cars, driver, record and best times (not your money). */

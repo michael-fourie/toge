@@ -1,4 +1,4 @@
-// TŌGE's home: the garage. Seven tabs (DESIGN.md §6): Race; Garage (My cars, Dealer); Performance (Upgrades,
+// TŌGE's home: the garage. Seven tabs (DESIGN.md §6): Race (Race, Leaderboard: leaderboardui.ts); Garage (My cars, Dealer); Performance (Upgrades,
 // Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts); Driver (your character: riderui.ts); Settings (graphics:
 // settingsui.ts); Friends (friendsui.ts: add friends, their garages and best times). LB / RB walk every page in that order. The showroom fills
 // the window behind the glass rail, with your car framed in the free space and its card bottom right.
@@ -13,8 +13,9 @@ import { cardData, openPlayerCard } from './playercard.ts';
 import { PHYSICS } from '../shared/protocol.ts';
 import { settingsTab } from './settingsui.ts';
 import { friendCar, friendsApi, friendsTab } from './friendsui.ts';
+import { type Leaders, boardApi, leaderboardTab } from './leaderboardui.ts';
 import type { FriendList } from '../../shared/friends.ts';
-import type { TogeProfile } from '../shared/records.ts';
+import type { BoardRow, TogeProfile } from '../shared/records.ts';
 import { type Graphics, graphics, setGraphics } from '../../client/graphics.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
@@ -29,10 +30,10 @@ import { TRACK_IDS, trackKind, trackMap, trackStyle, trackTile } from './trackar
 import './race.css';
 import './hub.css';
 
-type Page = 'race' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'friends' | 'settings';
+type Page = 'race' | 'leaderboard' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'friends' | 'settings';
 type TabId = 'race' | 'garage' | 'perf' | 'style' | 'driver' | 'friends' | 'settings';
 const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
-  { id: 'race', label: 'Race', pages: [['race', 'Race']] },
+  { id: 'race', label: 'Race', pages: [['race', 'Race'], ['leaderboard', 'Leaderboard']] },
   { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['dealer', 'Dealer']] },
   { id: 'perf', label: 'Performance', pages: [['upgrades', 'Upgrades'], ['tuning', 'Tuning']] },
   { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['cases', 'Cases']] },
@@ -104,6 +105,11 @@ export const driveHub: Render = (root, ctx, screen) => {
   let friendCarI = 0;
   const friendsView = () => ({ user: account.user, list: friendList, open: friendOpen, openCar: friendCarI, bests: garage.bests, status });
   const visiting = () => (page === 'friends' ? friendOpen : null);
+  /** Leaderboard: the track whose board is open, every track's record, and the boards loaded so far. */
+  let lbTrack: TrackId = track;
+  let leaders: Leaders | null = null;
+  const boards = new Map<TrackId, BoardRow[]>();
+  let lbFailed = false;
 
   root.innerHTML = `
     <main class="tg" aria-label="TŌGE garage">
@@ -419,11 +425,24 @@ export const driveHub: Render = (root, ctx, screen) => {
   const casesPage = () => casesTab(garage.g, status);
   const driverPage = () => driverTab(viewedRider(), status);
   const settingsPage = () => settingsTab(graphics(), status);
+  const leaderboardPage = () => {
+    if (account.user && !friendList) void loadFriends();
+    return leaderboardTab({
+      track: lbTrack,
+      leaders,
+      rows: boards.get(lbTrack) ?? null,
+      user: account.user,
+      friends: new Set(friendList?.friends.map((n) => n.toLowerCase())),
+      mine: garage.bests[lbTrack],
+      failed: lbFailed,
+      status,
+    });
+  };
   const friendsPage = () => {
     if (account.user && !friendList) void loadFriends();
     return friendsTab(friendsView(), classBadge);
   };
-  const BODIES: Record<Page, () => string> = { race: racePage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, friends: friendsPage, settings: settingsPage };
+  const BODIES: Record<Page, () => string> = { race: racePage, leaderboard: leaderboardPage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, friends: friendsPage, settings: settingsPage };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -438,6 +457,15 @@ export const driveHub: Render = (root, ctx, screen) => {
     const again = focusKey && panel.querySelector<HTMLElement>(focusKey);
     if (again) again.focus({ preventScroll: true });
     if (page === 'race') void refreshLobbies();
+  };
+
+  /** Fetches every track's record and `t`'s board (fresh each time the page opens or the track changes). */
+  const loadBoard = async (t: TrackId) => {
+    const [l, rows] = await Promise.all([boardApi.leaders(), boardApi.board(t)]);
+    lbFailed = !l || !rows;
+    if (l) leaders = l;
+    if (rows) boards.set(t, rows);
+    if (page === 'leaderboard') draw();
   };
 
   const setStatus = (text: string) => {
@@ -455,6 +483,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     lastPage[tabOf(p).id] = p;
     status = '';
     history.replaceState({ ...(history.state ?? {}), dtab: p }, '');
+    if (p === 'leaderboard') void loadBoard(lbTrack);
     const panel = $(root, '[data-panel]');
     draw(false);
     panel.scrollTop = 0;
@@ -488,6 +517,18 @@ export const driveHub: Render = (root, ctx, screen) => {
       }),
     );
     panel.querySelector('[data-solo]')?.addEventListener('click', () => ctx.drive({ track, rivals, physics }));
+    panel.querySelectorAll<HTMLElement>('[data-lb-track]').forEach((b) =>
+      b.addEventListener('click', () => {
+        lbTrack = b.dataset.lbTrack as TrackId;
+        draw();
+        void loadBoard(lbTrack);
+      }),
+    );
+    panel.querySelector<HTMLElement>('[data-lb-race]')?.addEventListener('click', (e) => {
+      track = (e.currentTarget as HTMLElement).dataset.lbRace as TrackId;
+      write(TRACK_KEY, track);
+      switchPage('race');
+    });
     panel.querySelector('[data-host]')?.addEventListener('click', () => connect(null));
     const code = panel.querySelector<HTMLInputElement>('[data-code]');
     code?.addEventListener('input', () => (code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '')));
@@ -644,7 +685,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     friendsLoading = false;
     friendList = list ?? { friends: [], mutual: [], fans: [] };
     if (!list) status = 'Could not load your friends.';
-    if (page === 'friends') draw();
+    if (page === 'friends' || page === 'leaderboard') draw();
   };
   const friendAct = async (a: 'add' | 'remove', name: string) => {
     if (busy) return;
@@ -869,10 +910,11 @@ export const driveHub: Render = (root, ctx, screen) => {
   const offAccount = account.onChange(() => {
     friendList = null;
     friendOpen = null;
-    if (page === 'friends') draw();
+    if (page === 'friends' || page === 'leaderboard') draw();
     else drawTop();
   });
   void garage.refresh();
+  if (page === 'leaderboard') void loadBoard(lbTrack);
   draw(false);
   frameCar();
   root.querySelector<HTMLElement>('[data-panel] [data-autofocus]')?.focus({ preventScroll: true });

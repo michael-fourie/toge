@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { RECORDS, cleanBests, minTime, profileOf, recordTime } from '../../src/toge/shared/records.ts';
+import { BOARD, RECORDS, cleanBests, cleanBoard, minTime, placeOnBoard, profileOf, recordTime } from '../../src/toge/shared/records.ts';
 import { RecordStore } from '../../src/toge/server/recordStore.ts';
 import { TRACK_LENGTH_KM, applyAction, newGarage } from '../../src/toge/shared/garage.ts';
 import { decodeCar, encodeCar } from '../../src/toge/shared/cars.ts';
@@ -59,12 +59,12 @@ test('stored bests are cleaned: bad tracks, times and cars drop out', () => {
 test('RecordStore keeps one set of bests per account, case-insensitively', async () => {
   const { store, data } = kv();
   const r = new RecordStore(store, () => 42);
-  assert.deepEqual(await r.record('Mike', 'koripass', 210, CAR), { track: 'koripass', time: 210, prev: null });
+  assert.deepEqual(await r.record('Mike', 'koripass', 210, CAR), { track: 'koripass', time: 210, prev: null, rank: 1, beat: null });
   assert.equal(await r.record('mike', 'koripass', 215, CAR), null);
-  assert.deepEqual(await r.record('MIKE', 'koripass', 205, CAR), { track: 'koripass', time: 205, prev: 210 });
+  assert.deepEqual(await r.record('MIKE', 'koripass', 205, CAR), { track: 'koripass', time: 205, prev: 210, rank: 1, beat: { name: 'Mike', time: 210 } });
   assert.equal(await r.record('mike', 'koripass', 5, CAR), null, 'impossible');
   assert.deepEqual(await r.get('Mike'), { koripass: { time: 205, car: CAR, at: 42 } });
-  assert.deepEqual([...data.keys()], ['b:mike']);
+  assert.deepEqual([...data.keys()].sort(), ['b:mike', 'lb:koripass']);
   assert.deepEqual(await r.get('nobody'), {});
 });
 
@@ -115,6 +115,67 @@ test('the room relays `records` to everyone', () => {
   const sent: string[] = [];
   const race = new Race('BEST', () => {}, () => {}, () => {}, () => 0, false);
   race.add({ id: 1, ws: { readyState: 1, send: (d: string) => sent.push(d) }, name: 'a', car: CAR, rider: '', user: true });
-  race.announce({ t: 'records', rows: [{ id: 1, time: 200, prev: null }] });
-  assert.deepEqual(JSON.parse(sent.at(-1)!), { t: 'records', rows: [{ id: 1, time: 200, prev: null }] });
+  const row = { id: 1, time: 200, prev: null, rank: 1, beat: { name: 'b', time: 201 } };
+  race.announce({ t: 'records', rows: [row] });
+  assert.deepEqual(JSON.parse(sent.at(-1)!), { t: 'records', rows: [row] });
+});
+
+const row = (name: string, time: number, at = 0) => ({ name, time, car: CAR, at });
+
+test('a board keeps one row per racer, quickest first, and says where a new best landed', () => {
+  let b = placeOnBoard([], row('Ann', 200, 1));
+  assert.deepEqual([b.rank, b.beat], [1, null], 'first time on the board: the record, nothing beaten');
+  b = placeOnBoard(b.board, row('Bob', 210, 2));
+  assert.deepEqual([b.rank, b.beat], [2, null]);
+  b = placeOnBoard(b.board, row('bob', 195, 3));
+  assert.deepEqual([b.rank, b.beat], [1, { name: 'Ann', time: 200 }], 'Bob takes the record');
+  assert.deepEqual(b.board.map((r) => [r.name, r.time]), [['bob', 195], ['Ann', 200]], 'his old row is replaced, not added');
+  b = placeOnBoard(b.board, row('Cy', 200, 4));
+  assert.equal(b.rank, 3, 'a tie goes to whoever set it first');
+  b = placeOnBoard(b.board, row('ANN', 190, 5));
+  assert.deepEqual([b.rank, b.beat], [1, { name: 'bob', time: 195 }]);
+  b = placeOnBoard(b.board, row('ann', 189, 6));
+  assert.deepEqual(b.beat, { name: 'ANN', time: 190 }, 'beating your own record is still a new record');
+  // A slower time than the racer's row changes nothing.
+  const same = placeOnBoard(b.board, row('Cy', 260, 7));
+  assert.equal(same.board, b.board);
+  assert.equal(same.rank, 3);
+});
+
+test('a full board drops its slowest; a finish too slow for it gets no rank', () => {
+  let board = Array.from({ length: BOARD.size }, (_, i) => row(`r${i}`, 200 + i));
+  const slow = placeOnBoard(board, row('late', 900));
+  assert.equal(slow.rank, null);
+  assert.equal(slow.board.length, BOARD.size);
+  board = placeOnBoard(board, row('quick', 150)).board;
+  assert.equal(board.length, BOARD.size);
+  assert.equal(board[0].name, 'quick');
+  assert.ok(!board.some((r) => r.name === `r${BOARD.size - 1}`));
+});
+
+test('stored boards are cleaned: bad rows, duplicates and impossible times drop out', () => {
+  const b = cleanBoard('koripass', [row('Ann', 210), row('ann', 200), row('Bob', 5), { name: 7, time: 220 }, row('', 230), 'x', row('Cy', 205)]);
+  assert.deepEqual(b.map((r) => [r.name, r.time]), [['ann', 200], ['Cy', 205]]);
+  assert.deepEqual(cleanBoard('koripass', { not: 'a list' }), []);
+});
+
+test("RecordStore keeps each track's board beside the bests, and can rebuild them from bests", async () => {
+  const { store } = kv();
+  const r = new RecordStore(store, () => 9);
+  await r.record('Ann', 'koripass', 200, CAR);
+  assert.equal((await r.record('Bob', 'koripass', 190, CAR))?.rank, 1);
+  assert.equal((await r.record('Cy', 'koripass', 195, CAR))?.rank, 2);
+  assert.equal((await r.record('Cy', 'saltwind', 150, CAR))?.rank, 1);
+  assert.deepEqual((await r.board('koripass')).map((x) => x.name), ['Bob', 'Cy', 'Ann']);
+  assert.deepEqual(Object.fromEntries(Object.entries(await r.leaders()).map(([t, x]) => [t, x!.name])), { koripass: 'Bob', saltwind: 'Cy' });
+  assert.deepEqual(await r.board('nowhere'), []);
+
+  const fresh = new RecordStore(kv().store);
+  await fresh.rebuild([
+    { name: 'Ann', bests: { koripass: { time: 200, car: CAR, at: 1 } } },
+    { name: 'Bob', bests: { koripass: { time: 190, car: CAR, at: 2 }, monza: { time: 300, car: CAR, at: 2 } } },
+  ]);
+  assert.deepEqual((await fresh.board('koripass')).map((x) => x.name), ['Bob', 'Ann']);
+  assert.equal((await fresh.board('monza'))[0]?.time, 300);
+  assert.equal((await fresh.record('Ann', 'koripass', 195, CAR))?.rank, 1 + 1, 'quicker than her old time, still behind Bob');
 });

@@ -8,6 +8,15 @@
 
 import { TRACK_DEFS, type TrackId } from './track.ts';
 
+/** One signed-in racer's new best in `records` (NewBest in records.ts, keyed by racer id). */
+export interface RecordRow {
+  id: number;
+  time: number;
+  prev: number | null;
+  rank: number | null;
+  beat: { name: string; time: number } | null;
+}
+
 export type RacePhase = 'lobby' | 'loading' | 'countdown' | 'racing' | 'results';
 
 /**
@@ -137,8 +146,11 @@ export type RaceServerMsg =
   | { t: 'snap'; cars: NetCar[] }
   | { t: 'finished'; id: number; time: number }
   | { t: 'results'; track: TrackId; mode: RaceMode; rows: ResultRow[] }
-  /** Shortly after `results`: the signed-in racers whose finish was a new best on this track (`prev`: the old one). */
-  | { t: 'records'; rows: { id: number; time: number; prev: number | null }[] }
+  /**
+   * Shortly after `results`: the signed-in racers whose finish was a new best on this track (`prev`: the old one),
+   * with their place on the track's all-time board (`rank` 1: a new track record, beating `beat`).
+   */
+  | { t: 'records'; rows: RecordRow[] }
   | { t: 'pong'; n: number }
   /** Someone used an item that reaches other racers: an oil slick dropped at `p`, or a shockwave. */
   | { t: 'item'; by: number; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number }

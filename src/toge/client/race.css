@@ -706,6 +706,59 @@
     animation: none;
   }
 }
+.rh-results .rh-tr {
+  background: linear-gradient(100deg, #ff3b30, #ff7a2b);
+  color: #fff;
+}
+.rh-results .rh-rank {
+  margin-right: 10px;
+  padding: 1px 6px;
+  border: 1px solid rgba(56, 201, 255, 0.5);
+  border-radius: 3px;
+  color: #38c9ff;
+  font: 700 12px 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
+}
+/* A new all-time track record, over the results table. */
+.rh-record {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  border-left: 4px solid #ff3b30;
+  border-radius: 6px;
+  background: linear-gradient(100deg, rgba(255, 59, 48, 0.22), rgba(255, 122, 43, 0.06) 70%);
+  animation: rh-pb-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.rh-record-tag {
+  padding: 3px 9px;
+  background: linear-gradient(100deg, #ff3b30, #ff7a2b);
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  color: #fff;
+  font: italic 800 13px 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.rh-record b {
+  font: italic 800 24px/1 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
+}
+.rh-record b.tm {
+  font-variant-numeric: tabular-nums;
+}
+.rh-record small {
+  flex-basis: 100%;
+  color: #c8d2e2;
+  font-size: 13px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rh-record {
+    animation: none;
+  }
+}
 .rh-results .gap,
 .rh-results .best {
   font-variant-numeric: tabular-nums;

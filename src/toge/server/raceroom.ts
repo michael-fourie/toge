@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { CAR_CODE_MAX } from '../shared/cars.ts';
-import { RACE, type RaceClientMsg } from '../shared/protocol.ts';
+import { RACE, type RaceClientMsg, type RecordRow } from '../shared/protocol.ts';
 import { Limiter } from '../../server/limiter.ts';
 import { Race, type RaceClient, sendTo } from './race.ts';
 import type { Env } from '../../server/worker.ts';
@@ -75,20 +75,26 @@ export class RaceRoom extends DurableObject<Env> {
       (rows, users, track) => {
         // One prize per account per race, its best finish (rows are in finishing order): a second tab can't double it.
         const paid = new Set<string>();
-        const times: Promise<{ id: number; time: number; prev: number | null } | null>[] = [];
+        // Best times are kept one after another, quickest first, so a record two racers both beat goes to the quicker.
+        const timed: (() => Promise<RecordRow | null>)[] = [];
         for (const row of rows) {
           if (!users.has(row.id) || paid.has(row.name.toLowerCase())) continue;
           paid.add(row.name.toLowerCase());
           this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && rows.length > 1));
           // The room timed this finish itself, so it can count as a best time.
-          if (row.time !== null) times.push(accounts.raceTime(row.name, track, row.time, row.car).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev } : null)));
+          const time = row.time;
+          if (time !== null) timed.push(() => accounts.raceTime(row.name, track, time, row.car).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev, rank: b.rank ?? null, beat: b.beat ?? null } : null)));
         }
-        if (times.length) {
+        if (timed.length) {
           this.ctx.waitUntil(
-            Promise.all(times).then((all) => {
-              const news = all.filter((x) => x !== null);
+            (async () => {
+              const news: RecordRow[] = [];
+              for (const keep of timed) {
+                const r = await keep();
+                if (r) news.push(r);
+              }
               if (news.length) this.race?.announce({ t: 'records', rows: news });
-            }),
+            })(),
           );
         }
       },

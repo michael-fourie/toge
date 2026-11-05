@@ -1,7 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
 import { type ActionResult, type Garage, type GarageAction, current } from '../toge/shared/garage.ts';
 import { encodeCar } from '../toge/shared/cars.ts';
-import { type Bests, type NewBest, type TogeProfile, profileOf } from '../toge/shared/records.ts';
+import { type Bests, type BoardRow, type NewBest, type TogeProfile, cleanBests, profileOf } from '../toge/shared/records.ts';
+import type { TrackId } from '../toge/shared/track.ts';
 import type { FriendAction, FriendList, FriendResult } from '../shared/friends.ts';
 import type { Inv } from '../gambol/shared/inventory.ts';
 import type { StashAction, StashResult } from '../gambol/shared/stash.ts';
@@ -63,6 +64,7 @@ export class Accounts extends DurableObject {
     const before = action && typeof action === 'object' && action.a === 'solo' ? await this.garages.get(user) : null;
     const result = await this.garages.act(user, action);
     if (before && action.a === 'solo' && Number(action.place) >= 1) {
+      await this.boardsBuilt();
       return { ...result, best: await this.records.record(user, action.track, action.time, encodeCar(current(before))) };
     }
     return result;
@@ -78,6 +80,27 @@ export class Accounts extends DurableObject {
     const user = await this.ctx.storage.get<{ name: string }>(`u:${name.toLowerCase()}`);
     if (!user || (name.toLowerCase() !== me.toLowerCase() && !(await this.friendStore.has(me, name)))) return null;
     return profileOf(user.name, await this.garages.get(user.name), await this.records.get(user.name));
+  }
+
+  /**
+   * TŌGE's all-time boards, open to anyone: one track's board (one row per account, their best there), or with no
+   * track every track's record.
+   */
+  async leaderboard(track: string | null): Promise<{ rows: BoardRow[] } | { leaders: Partial<Record<TrackId, BoardRow>> }> {
+    await this.boardsBuilt();
+    return track === null ? { leaders: await this.records.leaders() } : { rows: await this.records.board(track) };
+  }
+
+  /** Best times set before there were boards: put them on once (`lb:built` marks it done). */
+  private async boardsBuilt(): Promise<void> {
+    if (await this.ctx.storage.get('lb:built')) return;
+    const racers: { name: string; bests: Bests }[] = [];
+    for (const [key, bests] of await this.ctx.storage.list({ prefix: 'b:' })) {
+      const user = await this.ctx.storage.get<{ name: string }>(`u:${key.slice(2)}`);
+      if (user) racers.push({ name: user.name, bests: cleanBests(bests) });
+    }
+    await this.records.rebuild(racers);
+    await this.ctx.storage.put('lb:built', 1);
   }
 
   async friends(token: string | undefined): Promise<FriendList | null> {
@@ -129,6 +152,7 @@ export class Accounts extends DurableObject {
   /** A race room keeps a signed-in racer's finish as a best time if it is one; the new best, or null. */
   async raceTime(name: string, track: string, time: number, car: string): Promise<NewBest | null> {
     if (!(await this.ctx.storage.get(`u:${name.toLowerCase()}`))) return null;
+    await this.boardsBuilt();
     return this.records.record(name, track, time, car);
   }
 

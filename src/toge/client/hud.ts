@@ -471,13 +471,14 @@ export class RaceHud {
           <td class="pl">${l.place ? ordinal(l.place) : 'DNF'}</td>
           <td><i class="swatch" style="background:${color}"></i>${esc(l.name)}</td>
           <td class="car">${car ? esc(CARS[car.model].name) : ''}</td>
-          <td class="tm">${l.newBest ? `<b class="rh-pb" title="${l.newBest.prev === null ? 'First finish here' : `Old best ${fmtTime(l.newBest.prev)}`}">New best${l.newBest.prev === null ? '' : ` −${(l.newBest.prev - l.newBest.time).toFixed(3)}`}</b>` : ''}${l.time !== null ? fmtTime(l.time) : '—'}</td>
+          <td class="tm">${bestTag(l.newBest)}${l.time !== null ? fmtTime(l.time) : '—'}</td>
           ${trial ? `<td class="gap">${l.time !== null && win !== null && l.place > 1 ? '+' + (l.time - win).toFixed(3) : ''}</td><td class="best">${l.best ? `<small>best lap</small> ${fmtTime(l.best)}` : ''}</td>` : ''}
           ${drifts ? `<td class="dr">${l.drift ? `${pts(l.drift)} <small>drift</small>` : ''}</td>` : ''}
           <td class="pz">+${money(l.prize)}</td></tr>`;
       })
       .join('');
-    return `<div data-results><h2>${esc(title)}</h2><table class="rh-results"><tbody>${rows}</tbody></table></div>`;
+    const rec = lines.find((l) => l.newBest?.rank === 1);
+    return `<div data-results><h2>${esc(title)}</h2>${rec ? recordBanner(rec.name, rec.newBest!) : ''}<table class="rh-results"><tbody>${rows}</tbody></table></div>`;
   }
 
   dispose() {
@@ -486,6 +487,21 @@ export class RaceHud {
     clearTimeout(this.helpTimer);
     this.root.remove();
   }
+}
+
+/** The tag before a finish time that was a new best: "Track record" when it tops the all-time board, else "New best". */
+function bestTag(b: NewBest | null | undefined): string {
+  if (!b) return '';
+  if (b.rank === 1) return `<b class="rh-pb rh-tr" title="${b.beat ? `Old record ${fmtTime(b.beat.time)} by ${esc(b.beat.name)}` : 'First time on the board'}">Track record</b>`;
+  const gain = b.prev === null ? '' : ` −${(b.prev - b.time).toFixed(3)}`;
+  const rank = b.rank ? ` <span class="rh-rank" title="All-time board">#${b.rank}</span>` : '';
+  return `<b class="rh-pb" title="${b.prev === null ? 'First finish here' : `Old best ${fmtTime(b.prev)}`}">New best${gain}</b>${rank}`;
+}
+
+/** Over the results when someone took the track's all-time record. */
+function recordBanner(name: string, b: NewBest): string {
+  const beat = b.beat ? (b.beat.name.toLowerCase() === name.toLowerCase() ? `their own ${fmtTime(b.beat.time)}` : `${esc(b.beat.name)}'s ${fmtTime(b.beat.time)}`) : '';
+  return `<div class="rh-record" role="status"><span class="rh-record-tag">Track record</span><b>${esc(name)}</b><b class="tm">${fmtTime(b.time)}</b>${beat ? `<small>−${(b.beat!.time - b.time).toFixed(3)} s on ${beat}</small>` : '<small>The first time on the board</small>'}</div>`;
 }
 
 export const paintCss = (code: string) => {
