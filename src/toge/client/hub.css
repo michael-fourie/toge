@@ -62,6 +62,11 @@
     opacity: 0;
   }
 }
+/* A TŌGE screen fades in over the page: make that page TŌGE's ink, not the site's light sky, or every screen change
+   (garage, lobby, back from a race) starts with a white flash. */
+body:has(.tg) {
+  background: var(--tg-ink-0, #05070b);
+}
 .tg *,
 .tg *::before,
 .tg *::after {
@@ -2020,6 +2025,9 @@ html:not(.pad) .tg-bumper {
   display: grid;
   justify-items: center;
   margin: 0 -2px;
+}
+/* Only racers who just joined slide in (the lobby redraws on every update). */
+.tg-crew-m.new {
   animation: tg-crew-in 0.24s var(--tg-ease) both;
 }
 .tg-crew-m img {
@@ -2064,7 +2072,7 @@ html:not(.pad) .tg-bumper {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tg-crew-m {
+  .tg-crew-m.new {
     animation: none;
   }
 }
