@@ -1,33 +1,34 @@
-import { MOVE } from '../shared/constants.ts';
-import './loot.css';
-import { Game } from './game.ts';
-import { help } from './menu/help.ts';
-import { host } from './menu/host.ts';
-import { join } from './menu/join.ts';
-import { lobby } from './menu/lobby.ts';
+import { MOVE } from '../gambol/shared/constants.ts';
+import '../gambol/client/loot.css';
+import { Game } from '../gambol/client/game.ts';
+import { help } from '../gambol/client/menu/help.ts';
+import { host } from '../gambol/client/menu/host.ts';
+import { join } from '../gambol/client/menu/join.ts';
+import { lobby } from '../gambol/client/menu/lobby.ts';
 import { type Ctx, type DriveOpts, type Joined, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
 import { games } from './menu/games.ts';
 import { play as playGame } from './menu/play.ts';
-import { driveHub } from './race/hub.ts';
-import { driveLobby } from './race/lobby.ts';
-import { RaceGame } from './race/racegame.ts';
-import { garage } from './race/garageStore.ts';
-import { current } from '../shared/race/garage.ts';
+import { driveHub } from '../toge/client/hub.ts';
+import { driveLobby } from '../toge/client/lobby.ts';
+import { RaceGame } from '../toge/client/racegame.ts';
+import { showTogeLoading } from '../toge/client/loading.ts';
+import { garage } from '../toge/client/garageStore.ts';
+import { current } from '../toge/shared/garage.ts';
 import { setMenuNav, startMenuNav } from './pad.ts';
 import { accountScreen } from './menu/account.ts';
-import { inventory } from './menu/inventory.ts';
-import { settings } from './menu/settings.ts';
-import { casino } from './menu/casino.ts';
-import { practice } from './menu/practice.ts';
-import type { BotLevel } from '../shared/bot.ts';
-import { title } from './menu/title.ts';
+import { inventory } from '../gambol/client/menu/inventory.ts';
+import { settings } from '../gambol/client/menu/settings.ts';
+import { casino } from '../gambol/client/menu/casino.ts';
+import { practice } from '../gambol/client/menu/practice.ts';
+import type { BotLevel } from '../gambol/shared/bot.ts';
+import { title } from '../gambol/client/menu/title.ts';
 import { startSkirmish } from './menu/skirmish.ts';
 import { account } from './account.ts';
-import { stash } from './inventoryStore.ts';
+import { stash } from '../gambol/client/inventoryStore.ts';
 import { FIELD_BACKDROP, SKY_BACKDROP, playerName } from './menu/ui.ts';
-import { Net } from './net.ts';
-import { loadSettings } from './settings.ts';
-import { sfx } from './sfx.ts';
+import { Net } from '../gambol/client/net.ts';
+import { loadSettings } from '../gambol/client/settings.ts';
+import { sfx } from '../gambol/client/sfx.ts';
 import { setupTouchPage } from './touch.ts';
 
 const app = document.getElementById('app')!;
@@ -142,7 +143,12 @@ async function drive(opts: DriveOpts) {
   leaveScreen?.();
   leaveScreen = null;
   router.mark({ name: 'game' });
-  const hide = showLoading();
+  const hide = showTogeLoading({
+    track: opts.track,
+    rivals: opts.rivals,
+    physics: opts.online ? opts.online.physics : opts.physics,
+    online: opts.online && { mode: opts.online.mode, racers: opts.online.racers.length },
+  });
   await nextPaint();
   app.innerHTML = '';
   game = new RaceGame({
@@ -150,7 +156,9 @@ async function drive(opts: DriveOpts) {
     track: opts.track,
     name: playerName(),
     car: current(garage.g),
+    rider: garage.g.rider,
     rivals: opts.rivals,
+    physics: opts.physics,
     online: opts.online,
     onExit: (to, notice) => {
       game = null;

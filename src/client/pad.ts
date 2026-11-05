@@ -111,11 +111,21 @@ export function setMenuNav(on: boolean) {
   navOn = on;
 }
 
+const onScreen = (r: DOMRect) => !(r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth);
+
 function visible(el: HTMLElement): boolean {
   if (el.closest('[data-nav-skip], [inert]')) return false;
   const r = el.getBoundingClientRect();
-  if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
-  return getComputedStyle(el).visibility !== 'hidden';
+  if (r.width < 2 || r.height < 2 || getComputedStyle(el).visibility === 'hidden') return false;
+  if (onScreen(r)) return true;
+  // Scrolled out of sight inside a panel that's on screen (a long garage list): still reachable, and `move`
+  // scrolls it into view. Without this nothing past the fold could ever get focus, so the panel never scrolled.
+  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    const s = getComputedStyle(p);
+    const scrolls = /auto|scroll/.test(s.overflowY + ' ' + s.overflowX) && (p.scrollHeight > p.clientHeight || p.scrollWidth > p.clientWidth);
+    if (scrolls) return onScreen(p.getBoundingClientRect());
+  }
+  return false;
 }
 
 /** Controls in the innermost open scope (a modal marks itself `data-nav-scope`), else the whole page. */
@@ -129,6 +139,8 @@ function move(dir: Dir) {
   const els = candidates();
   if (!els.length) return;
   const cur = document.activeElement as HTMLElement | null;
+  // Focus can start out of sight (a screen's autofocus below the fold): bring it into view with the first press.
+  if (cur && els.includes(cur)) cur.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   if (!cur || cur === document.body || !els.includes(cur)) {
     (els.find((e) => e.hasAttribute('data-autofocus')) ?? els[0]).focus();
     return;

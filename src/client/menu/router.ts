@@ -1,12 +1,13 @@
 // A tiny history-backed screen router: every screen change is a history entry, so the
 // browser's Back button, the on-screen ← Back and Esc all behave the same.
 
-import type { GameMode, ServerMsg } from '../../shared/protocol.ts';
-import type { Net } from '../net.ts';
-import type { BotLevel } from '../../shared/bot.ts';
-import type { CarRule, RaceMode, Racer } from '../../shared/race/protocol.ts';
-import type { TrackId } from '../../shared/race/track.ts';
-import type { RaceNet } from '../race/racenet.ts';
+import type { GameMode, ServerMsg } from '../../gambol/shared/protocol.ts';
+import type { Net } from '../../gambol/client/net.ts';
+import type { BotLevel } from '../../gambol/shared/bot.ts';
+import type { CarRule, RaceMode, Racer } from '../../toge/shared/protocol.ts';
+import type { TrackId } from '../../toge/shared/track.ts';
+import type { GhostRun } from '../../toge/shared/ghost.ts';
+import type { RaceNet } from '../../toge/client/racenet.ts';
 
 /** `games` is the landing page (the game chooser); `title` is Gambol's home, `drive` TOGE's garage. */
 export type ScreenName = 'games' | 'title' | 'host' | 'join' | 'lobby' | 'help' | 'settings' | 'account' | 'casino' | 'inventory' | 'practice' | 'drive' | 'drivelobby' | 'play' | 'game';
@@ -44,7 +45,9 @@ export interface Ctx {
 export interface DriveOpts {
   track: TrackId;
   rivals?: number;
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; countdownMs: number; racers: Racer[]; rule: CarRule; cars: Record<number, string> };
+  /** Solo: Physics mode (crash damage). Online it comes with the race. */
+  physics?: boolean;
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null };
 }
 
 /** Renders into `root`; may return a cleanup that runs when the screen is left. */

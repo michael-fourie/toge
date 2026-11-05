@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   POWERS,
   hiddenNear,
+  lastRooms,
   plantedIn,
   powerOf,
   powerProblem,
@@ -11,6 +12,7 @@ import {
   routerLog,
   spend,
   teaFact,
+  wireTrips,
 } from '../src/games/royal-degeneracy/abilities.ts';
 import { CHAR_IDS, type CharId } from '../src/games/royal-degeneracy/cast.ts';
 import { inspect, plant, post, unlock, unlockTime, valueOf, VALUES } from '../src/games/royal-degeneracy/clues.ts';
@@ -176,4 +178,43 @@ test('royal cast: the new messages are shape-checked', () => {
   assert.equal((readMsg({ t: 'p', x: 1, y: 0, z: 1, yaw: 0, pitch: 0, f: 0, e: 99 }) as { e: number }).e, 0, 'a bad emote is dropped');
   assert.equal(readMsg({ t: 'pw', text: 'x', pos: [[1, 2]], ids: [], until: 0 }), null);
   assert.equal(readMsg({ t: 'npcs', p: [[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4]] }), null);
+});
+
+test('royal cast: Gare’s Trip Wire texts him about footsteps walking into the wired room, not his own', () => {
+  const n = night(['gare', 'wags', 'will', 'dev']);
+  const gare = byChar(n, 'gare');
+  assert.equal(powerOf('gare', 'P1'), 'tripwire');
+  assert.equal(POWERS.tripwire.uses, 2);
+  const at = (id: number, x: number, z: number) => [id, { x, y: 0, z }] as const;
+  // Everyone starts in the living room; Gare wires the kitchen.
+  recordRooms(n, new Map(n.players.map((p) => at(p.id, 6, 10.5))));
+  n.powers.wire = { room: 'kitchen', by: gare.id, until: n.roam + 60 };
+  const wags = byChar(n, 'wags');
+  const will = byChar(n, 'will');
+  let before = lastRooms(n);
+  run(n, 2);
+  recordRooms(n, new Map([at(gare.id, 4, 2), at(wags.id, 4, 2), at(will.id, 6, 10.5)]));
+  assert.deepEqual(wireTrips(n, before), ['Sensor tripped in the kitchen: big footsteps.']);
+  // Standing about in there doesn't trip it again.
+  before = lastRooms(n);
+  run(n, 2);
+  recordRooms(n, new Map([at(wags.id, 4, 2.5)]));
+  assert.deepEqual(wireTrips(n, before), []);
+  // Once it's run out, nobody trips it.
+  n.powers.wire.until = n.roam - 1;
+  before = lastRooms(n);
+  run(n, 2);
+  recordRooms(n, new Map([at(will.id, 4, 2)]));
+  assert.deepEqual(wireTrips(n, before), []);
+});
+
+test('royal cast: Gare’s card is his own (trade notes), guests never get trade notes, and the teep rides the shove', () => {
+  assert.equal(valueOf({ char: 'gare', name: 'Gare' }, 'notes'), 'trade');
+  assert.ok(VALUES.notes.includes('trade'));
+  for (const name of ['A', 'B', 'Cee', 'Dee', 'Eli', 'Fox', 'Gus', 'Hal', 'Ivy', 'Jo'])
+    assert.notEqual(valueOf({ char: 'guest', name }, 'notes'), 'trade', name);
+  assert.deepEqual(readMsg({ t: 'shoved', id: 2, x: 1, z: 0, k: 2 }), { t: 'shoved', id: 2, x: 1, z: 0, k: 2 });
+  assert.deepEqual(readMsg({ t: 'shoved', id: 2, x: 1, z: 0 }), { t: 'shoved', id: 2, x: 1, z: 0 });
+  assert.equal(readMsg({ t: 'shoved', id: 2, x: 1, z: 0, k: 9 }), null);
+  assert.deepEqual(readMsg({ t: 'fx', k: 'burp', x: 1, y: 0, z: 2 }), { t: 'fx', k: 'burp', x: 1, y: 0, z: 2 });
 });

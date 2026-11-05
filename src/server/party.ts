@@ -1,5 +1,5 @@
 import { PARTY, type PartyClientMsg, type PartyMember, type PartyServerMsg } from '../shared/party.ts';
-import type { Socket } from './lobby.ts';
+import type { Socket } from './rooms.ts';
 
 const OPEN = 1;
 

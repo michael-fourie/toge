@@ -6,8 +6,8 @@ player sees is decided or checked by the server; anything the server can't check
 ## Coins, items, XP and the Casino
 
 - **Signed in:** the stash (coins, owned items, what's equipped, XP) lives in the `Accounts` Durable Object
-  (`server/stashStore.ts`, keys `i:<user>` and `t:<user>` for the Casino tables). The browser only asks: `/api/stash`
-  GET reads it, POST runs one `StashAction` through `shared/stash.ts` with the server's dice and clock.
+  (`gambol/server/stashStore.ts`, keys `i:<user>` and `t:<user>` for the Casino tables). The browser only asks: `/api/stash`
+  GET reads it, POST runs one `StashAction` through `gambol/shared/stash.ts` with the server's dice and clock.
   - Cases are rolled on the server. Plinko is rolled on the server. Blackjack's shoe and hand are kept on the server
     and the dealer's hole card isn't sent until the hand is over. Crash's snap point is kept on the server; the client
     learns it only once the kite has snapped (`peek`), and a cash-out pays at most what the kite had reached by the
@@ -57,6 +57,21 @@ player sees is decided or checked by the server; anything the server can't check
   hit checks.
 - **TŌGE solo races** are paid from what the client reports (at most once per `SOLO_GAP_MS`); online finish times are
   checked against the server's clock within a window.
+- **TŌGE drift and item bonuses** (`src/toge/shared/drift.ts`) are scored on the client, since driving is. The server
+  bounds them: online, a racer's drift total is capped at `DRIFT_MAX_RATE` × seconds since GO (only while racing,
+  never after finishing), and item uses are counted by the room itself (attack items as it relays them, turbos and
+  shields from rate-limited `used` messages, none in a time trial). Either way drifting pays at most `DRIFT.payPerKm`
+  per km of race and items at most `ITEM_PAY_CAP`, both well under a win; solo pays its usual share and is still
+  limited to one payout per `SOLO_GAP_MS`. A cheat client can max both caps, not exceed them.
+- **TŌGE best times** (`src/toge/shared/records.ts`, kept per account as `b:<user>`) never pay anything. Online
+  finishes are the room's own (timed within the window above, at least `MIN_RACE_SECONDS`). Solo times come from
+  the client with the `solo` action, so they're only bounded: nothing quicker than the track's length at
+  `RECORDS.maxAvgSpeed` (90 m/s average) or slower than an hour. A cheat client can post a fake solo best inside that
+  bound; friends would see it.
+- **Friends** (`/api/friends`, `src/server/friendStore.ts`) are one way, like following: anyone signed in can add any
+  username (20 adds or removes per account at once, then one per 3 s), which also tells them the name exists (as
+  sign-up already does). Adding someone lets you open their TŌGE profile (`/api/garage?u=`): cars with their looks
+  and cosmetics, driver, races, wins and best times, never money. Names reach the page only through `esc()`.
 - **Plug-in games** (`PartyRoom`) relay players' messages unopened: each game must validate what it receives and
   render names with `textContent`.
 - **No full Content-Security-Policy** yet (only `frame-ancestors`): a `script-src` policy needs a pass over inline

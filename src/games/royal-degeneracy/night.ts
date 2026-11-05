@@ -3,7 +3,7 @@
 // case-closed card. The referee (host) decides everything that matters; this only asks and shows.
 
 import * as THREE from 'three';
-import { rayBox, raySphere, rayWorld } from '../../shared/collision.ts';
+import { rayBox, raySphere, rayWorld } from '../../gambol/shared/collision.ts';
 import type { Vec3 } from '../../shared/math.ts';
 import { lerp } from '../../shared/math.ts';
 import type { GameApi } from '../types.ts';
@@ -39,6 +39,8 @@ const DOOR_CAM_Z = 20.3;
 const INTERP_MS = 100;
 const STEP_EVERY = 0.75;
 const SHOVE_RANGE = 1.5;
+/** How close you have to be for Gare's burp to get a line on screen (everyone further off just hears it). */
+const BURP_HEARD = 10;
 /** How long a hand takes to reach out to something and come back. */
 const REACH_TIME = 0.45;
 const TORCH_POWER = 26;
@@ -440,7 +442,7 @@ export class NightSession {
         return;
       case 'shoved':
         if (m.id === this.o.me) {
-          shove(this.walker, { x: m.x, z: m.z });
+          shove(this.walker, { x: m.x, z: m.z }, m.k);
           this.shake = 0.25;
           if (this.chore) this.endChore();
         }
@@ -515,6 +517,7 @@ export class NightSession {
         else this.audio.play(sound, at, this.muffle(at));
         if (m.k === 'bonk' && Math.hypot(at.x - this.walker.pos.x, at.z - this.walker.pos.z) < 5) this.shake = 0.35;
         if (m.k === 'rattle' && !this.ghost) this.hud.toast('…something fell over somewhere.', 1800);
+        if (m.k === 'burp' && Math.hypot(at.x - this.walker.pos.x, at.y - this.walker.pos.y, at.z - this.walker.pos.z) < BURP_HEARD) this.hud.toast('*BUUUUURP*. Someone nearby has had a few.', 2500);
         return;
       }
     }

@@ -25,6 +25,10 @@
     "src/client",
     "src/games",
     "src/shared",
+    "src/gambol/client",
+    "src/gambol/shared",
+    "src/toge/client",
+    "src/toge/shared",
     "tests",
     "vite.config.ts"
   ]

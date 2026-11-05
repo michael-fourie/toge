@@ -138,7 +138,7 @@ Everyone also has a **signature belonging** (Xang's labelled rock sample, Will's
 person's alone, rare as a real clue, and the Degenerates' favourite thing to plant.
 
 Tests check that every trait card is unique, so a full set of real clues always singles out the culprit, and that
-no two categories split the cast the same way, which would make one of them pointless. All ten main characters'
+no two categories split the cast the same way, which would make one of them pointless. All eleven main characters'
 cards pass both today.
 
 ### Crimes leave clues
@@ -435,7 +435,7 @@ src/games/royal-degeneracy/
   rules.ts       pure: roles, phases, the clock, cooldowns, votes, wins (the referee's logic)
   clues.ts       pure: trait clues, picking them per crime, plants, who matches what
   abilities.ts   pure: each ability's rule (range, uses, what it reveals)
-  move.ts        pure: the first-person walker (walk, crouch, jump, stairs) on src/shared/collision.ts
+  move.ts        pure: the first-person walker (walk, crouch, jump, stairs) on src/gambol/shared/collision.ts
   net.ts         message types and shape checks; the host referee and the client side
   input.ts       pointer lock, mouse, keys, pad; the pause menu's Esc handling
   world.ts       three.js: builds the house per room, lights, the Ring cam screen, the bathroom mirror
@@ -457,10 +457,10 @@ arches), doors with ids and an open/shut state, stairs as ramps, furniture with 
 hide, bell, fuse box, router, stopcock, Ring cam, sneak in/out, spawns). Real houses are almost all right angles, so
 walls and furniture are axis-aligned boxes.
 
-That matches what Gambol's `src/shared/collision.ts` already does: move-and-slide against boxes, walkable ramps
+That matches what Gambol's `src/gambol/shared/collision.ts` already does: move-and-slide against boxes, walkable ramps
 (the stairs), snapping to the ground, and ray casts (what's under your crosshair, what blocks a sound). `move.ts`
 imports it as-is and adds a plain walker: no bhop, no air control. Shut doors are boxes that come and go, like the
-Foundry's doors. Nothing in `src/shared` gets edited; if Gambol ever changes that file, our house test fails and
+Foundry's doors. Nothing in `src/gambol/shared` gets edited; if Gambol ever changes that file, our house test fails and
 says so.
 
 Tests: every room reaches every other on foot, every spot is reachable and inside its room, no furniture blocks a
