@@ -5,7 +5,8 @@ import { Limiter } from '../../server/limiter.ts';
 import { Race, type RaceClient, sendTo } from './race.ts';
 import type { Env } from '../../server/worker.ts';
 
-const MAX_MESSAGE_BYTES = 2048;
+/** Room for the host's `cpus` message (up to seven CPU racers' poses at once). */
+const MAX_MESSAGE_BYTES = 4096;
 /** Messages a client may send per second (with a burst of twice that); a car sends 20 poses a second. Poses are relayed at once, so a flood would be everyone's problem. */
 const MAX_MESSAGES_PER_SECOND = 60;
 
@@ -67,7 +68,7 @@ export class RaceRoom extends DurableObject<Env> {
     const accounts = this.env.ACCOUNTS.getByName('all');
     this.race ??= new Race(
       code,
-      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, physics: r.physics, phase: r.phase, players: r.members.size, max: RACE.maxPlayers })),
+      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, physics: r.physics, phase: r.phase, players: r.humans, max: RACE.maxPlayers })),
       (r) => {
         this.race = null;
         this.ctx.waitUntil(dir.remove(r.code));
@@ -75,12 +76,14 @@ export class RaceRoom extends DurableObject<Env> {
       (rows, users, track) => {
         // One prize per account per race, its best finish (rows are in finishing order): a second tab can't double it.
         const paid = new Set<string>();
+        // A win counts against other people, not just CPU racers.
+        const people = rows.filter((r) => !r.cpu).length;
         // Best times are kept one after another, quickest first, so a record two racers both beat goes to the quicker.
         const timed: (() => Promise<RecordRow | null>)[] = [];
         for (const row of rows) {
           if (!users.has(row.id) || paid.has(row.name.toLowerCase())) continue;
           paid.add(row.name.toLowerCase());
-          this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && rows.length > 1));
+          this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && people > 1));
           // The room timed this finish itself, so it can count as a best time.
           const time = row.time;
           if (time !== null) timed.push(() => accounts.raceTime(row.name, track, time, row.car).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev, rank: b.rank ?? null, beat: b.beat ?? null } : null)));

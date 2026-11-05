@@ -106,6 +106,7 @@ a component or a page.
   to yours with the gap. Guests see a sign-in prompt and their own times.
 - **Solo**: 0/3/5/7 AI rivals (hub.ts, saved as `atrous.rivals`) picked near your PI with your upgrades; you start mid-pack.
 - **Online**: Directory instance `"race"`, sockets `/ws?game=race`, up to `RACE.maxPlayers` (8).
+- **CPU racers online** (`CPU` in protocol.ts): the host adds them in the lobby's first open slot (`cpu` add/remove, lobby only). The room keeps them as members with negative ids and a dead socket, ready from the start; the host's racegame.ts drives them as `rivals` (`netId`, the solo AI; the room picks `rivalCar` / `rivalRider` against the host's), sends their poses in one `cpus` message (relayed as one `snap`), their items with `cpu`, and `cpufinish` / `cpuwreck` on its own `clock`. Everyone else sees them as remotes. They give up a seat to a person who joins a full lobby, leave with a host who quits mid-race, are DNF if the people are all home first, and are never paid: people get max(the prize among the people alone, the solo-share prize for the whole field). A win only counts against another person.
 
 ## Files
 

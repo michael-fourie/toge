@@ -2124,3 +2124,41 @@ html:not(.pad) .tg-bumper {
     transition: none;
   }
 }
+
+/* Lobby: CPU racers (the host adds them in the first open slot and can take them off again) */
+.tg-tag.cpu {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--tg-dim);
+}
+.tg-racers li.open .tg-addcpu {
+  margin-left: auto;
+  min-height: 32px;
+  color: var(--tg-cyan) !important;
+  border-color: rgba(56, 201, 255, 0.4);
+}
+.tg-racers li.open:has(.tg-addcpu) {
+  grid-template-columns: 30px 1fr auto;
+}
+.tg-racers .tg-kick {
+  display: grid;
+  place-items: center;
+  margin-left: auto;
+  flex: none;
+  width: 28px !important;
+  min-width: 0 !important;
+  height: 28px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--tg-line-2) !important;
+  background: none !important;
+  box-shadow: none !important;
+  color: var(--tg-dim) !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+}
+.tg-racers .tg-kick:hover,
+.tg-racers .tg-kick:focus-visible {
+  color: var(--tg-bad) !important;
+  border-color: rgba(255, 107, 107, 0.5) !important;
+}

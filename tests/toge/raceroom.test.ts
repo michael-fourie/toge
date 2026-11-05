@@ -379,3 +379,126 @@ test('a racer who leaves while loading is not waited for; an empty field goes ba
   r2.race.remove(x);
   assert.equal(r2.race.phase, 'lobby');
 });
+
+test('CPU racers: only the host adds and removes them, in the lobby; they start ready and fill the grid', () => {
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  r.race.handle(b, { t: 'cpu', op: 'add' });
+  assert.equal(r.race.members.size, 2, 'a guest cannot add one');
+  r.race.handle(a, { t: 'cpu', op: 'add' });
+  r.race.handle(a, { t: 'cpu', op: 'add' });
+  const room1 = r.last(2, 'room');
+  assert.ok(room1 && room1.t === 'room');
+  const cpus = room1.racers.filter((x) => x.cpu);
+  assert.equal(cpus.length, 2);
+  assert.ok(cpus.every((x) => x.id < 0 && !x.user && decodeCar(x.car)), 'negative ids, never signed in, a real car');
+  assert.notEqual(cpus[0].name, cpus[1].name);
+  assert.equal(r.race.humans, 2);
+  r.race.handle(b, { t: 'cpu', op: 'remove', id: cpus[0].id });
+  assert.equal(r.race.members.size, 4, 'a guest cannot remove one');
+  r.race.handle(a, { t: 'cpu', op: 'remove', id: 2 });
+  assert.equal(r.race.members.size, 4, 'the host cannot kick a person this way');
+  r.race.handle(a, { t: 'cpu', op: 'remove', id: cpus[0].id });
+  assert.equal(r.race.members.size, 3);
+  // Never more than the grid holds.
+  for (let i = 0; i < 10; i++) r.race.handle(a, { t: 'cpu', op: 'add' });
+  assert.equal(r.race.members.size, RACE.maxPlayers);
+  // A person joining a grid full of CPUs takes a CPU's seat.
+  assert.ok(!r.race.full);
+  r.join(3);
+  assert.equal(r.race.members.size, RACE.maxPlayers);
+  assert.equal(r.race.humans, 3);
+  // CPUs are on the grid and ready from the start: the countdown waits only for the people.
+  r.race.handle(a, { t: 'start' });
+  const ld = r.last(1, 'load');
+  assert.ok(ld && ld.t === 'load' && Object.keys(ld.grid).length === RACE.maxPlayers);
+  r.race.handle(a, { t: 'ready' });
+  r.race.handle(b, { t: 'ready' });
+  assert.equal(r.race.phase, 'loading');
+  r.race.handle(r.race.members.get(3)!.client, { t: 'ready' });
+  assert.equal(r.race.phase, 'countdown');
+  r.race.handle(a, { t: 'cpu', op: 'add' });
+  assert.equal(r.race.members.size, RACE.maxPlayers, 'not mid-race');
+});
+
+test('CPU racers: the host drives them; poses, items and finishes are relayed and ranked, never paid', () => {
+  const r = room();
+  const a = r.join(1, true);
+  const b = r.join(2, true);
+  r.race.handle(a, { t: 'cpu', op: 'add' });
+  const bot = [...r.race.members.values()].find((m) => m.cpu)!.client.id;
+  r.start(a, b);
+  r.advance(RACE.countdownMs + 100);
+  assert.equal(r.race.phase, 'racing');
+  // One message carries the CPUs' poses; the others hear it as a snap, the host doesn't hear it back.
+  const { t: _t, ...p } = pose(50);
+  r.race.handle(a, { t: 'cpus', cars: [{ id: bot, ...p }] });
+  const snap = r.last(2, 'snap');
+  assert.ok(snap && snap.t === 'snap' && snap.cars[0].id === bot && snap.cars[0].s === 50);
+  assert.ok(!r.inbox.get(1)!.some((m) => m.t === 'snap'));
+  // Only the host speaks for them, and only for CPUs.
+  r.race.handle(b, { t: 'cpus', cars: [{ id: bot, ...pose(70) }] });
+  r.race.handle(a, { t: 'cpus', cars: [{ id: 2, ...pose(70) }] });
+  assert.ok(!r.inbox.get(2)!.some((m) => m.t === 'snap' && m.cars.some((c) => c.s === 70)));
+  assert.ok(!r.inbox.get(1)!.some((m) => m.t === 'snap' && m.cars.some((c) => c.s === 70)));
+  r.race.handle(a, { t: 'item', kind: 'shock', cpu: bot });
+  assert.deepEqual(r.last(2, 'item'), { t: 'item', by: bot, kind: 'shock' });
+  r.race.handle(b, { t: 'item', kind: 'oil', p: [0, 0, 0], cpu: bot });
+  assert.equal(r.inbox.get(1)!.filter((m) => m.t === 'item').length, 0, "a guest can't use a CPU's items");
+  r.advance(60_000);
+  // The CPU wins, the people follow.
+  r.race.handle(b, { t: 'cpufinish', id: bot, time: 60 });
+  assert.equal(r.race.members.get(bot)!.time, null, "a guest can't finish a CPU");
+  r.race.handle(a, { t: 'cpufinish', id: bot, time: 60 });
+  r.race.handle(a, { t: 'finish', time: 61 });
+  r.race.handle(b, { t: 'finish', time: 62 });
+  const res = r.last(1, 'results');
+  assert.ok(res && res.t === 'results');
+  assert.deepEqual(res.rows.map((x) => [x.id, x.place, !!x.cpu]), [[bot, 1, true], [1, 2, false], [2, 3, false]]);
+  const cpuRow = res.rows[0];
+  assert.equal(cpuRow.prize, 0);
+  // Never less than the two people would have earned racing alone together.
+  assert.ok(res.rows[1].prize >= payout(1, 2, 'koripass', false));
+  assert.ok(res.rows[2].prize >= payout(2, 2, 'koripass', false));
+  assert.ok(!r.paid[0].users.has(bot));
+});
+
+test('CPU racers: the race ends when the people are home, and they leave with a host who quits mid-race', () => {
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  r.race.handle(a, { t: 'cpu', op: 'add' });
+  r.race.handle(a, { t: 'cpu', op: 'add' });
+  r.start(a, b);
+  r.advance(RACE.countdownMs + 100);
+  r.advance(60_000);
+  r.race.handle(a, { t: 'finish', time: 61 });
+  r.race.handle(b, { t: 'finish', time: 62 });
+  const res = r.last(1, 'results');
+  assert.ok(res && res.t === 'results' && res.rows.filter((x) => x.cpu).every((x) => x.place === 0), 'CPUs still out are a DNF');
+  // Next race: the host leaves mid-race, and their CPUs go with them.
+  r.advance(RACE.resultsSeconds * 1000 + 100);
+  assert.equal(r.race.phase, 'lobby');
+  r.start(a, b);
+  r.advance(RACE.countdownMs + 100);
+  r.race.remove(a);
+  assert.equal(r.race.hostId, 2);
+  assert.equal(r.race.members.size, 1);
+  const rm = r.last(2, 'room');
+  assert.ok(rm && rm.t === 'room' && !rm.racers.some((x) => x.cpu));
+  // In the lobby they stay with the new host; when the last person goes, the room closes.
+  r.advance(60_000);
+  r.race.handle(r.race.members.get(2)!.client, { t: 'finish', time: 63 });
+  r.advance(RACE.resultsSeconds * 1000 + 100);
+  assert.equal(r.race.phase, 'lobby');
+  const c = r.join(3);
+  r.race.handle(c, { t: 'cpu', op: 'add' });
+  assert.equal(r.race.members.size, 2, 'only the host');
+  r.race.remove(r.race.members.get(2)!.client);
+  assert.equal(r.race.hostId, 3);
+  r.race.handle(c, { t: 'cpu', op: 'add' });
+  assert.equal(r.race.members.size, 2);
+  r.race.remove(c);
+  assert.ok(r.isEmpty());
+});
