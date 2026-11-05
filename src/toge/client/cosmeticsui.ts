@@ -27,7 +27,8 @@ function swatch(it: CosItem): { bg: string; glyph?: string; glow?: string } {
       return { bg: `linear-gradient(135deg, ${hex(base)} 0 45%, ${hex(accent)} 45% 70%, ${hex(accent2)} 70%)`, glow: it.fx.glow ? hex(accent) : undefined };
     }
     case 'decal': {
-      const glyph = { wakaba: '🔰', momiji: '🍂', sakura: '🌸', bolt: '⚡', stars: '★', rising: '☀', shark: '🦈', kitsune: '🦊' }[it.fx.kind as string] ?? (it.fx.text ?? '').slice(0, 4);
+      // The whole word (the card's CSS wraps and shrinks long ones): cutting at four letters read "DRIF" for Drift King.
+      const glyph = { wakaba: '🔰', momiji: '🍂', sakura: '🌸', bolt: '⚡', stars: '★', rising: '☀', shark: '🦈', kitsune: '🦊' }[it.fx.kind as string] ?? (it.fx.text ?? '');
       return { bg: hex(it.fx.ink2), glyph, glow: it.fx.glow ? hex(it.fx.ink) : undefined };
     }
     case 'window':
@@ -77,7 +78,9 @@ export function art(it: CosItem): string {
   const s = swatch(it);
   const ink = it.slot === 'plate' || it.slot === 'decal' ? hex(it.fx.ink) : it.slot === 'frame' ? '#1b1d22' : '#fff';
   const frame = it.slot === 'frame' ? `--fc:${hex(it.fx.color)};` : '';
-  return `<i class="cz-art ${it.slot}" style="${frame}background:${s.bg};${s.glow ? `--glow:${s.glow};` : ''}color:${ink}">${s.glyph ? `<b>${esc(s.glyph)}</b>` : ''}</i>`;
+  // Long words (sponsor names, banners) get a smaller, wrapping label so they fit inside the round swatch.
+  const long = s.glyph && it.slot === 'decal' && [...s.glyph].length > 4 ? ' long' : '';
+  return `<i class="cz-art ${it.slot}" style="${frame}background:${s.bg};${s.glow ? `--glow:${s.glow};` : ''}color:${ink}">${s.glyph ? `<b class="${long.trim()}">${esc(s.glyph)}</b>` : ''}</i>`;
 }
 
 /** A card in the rarity's colour. */
