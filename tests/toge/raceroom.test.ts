@@ -502,3 +502,23 @@ test('CPU racers: the race ends when the people are home, and they leave with a 
   r.race.remove(c);
   assert.ok(r.isEmpty());
 });
+test('the lobby garage: everyone sees who is editing their car, and their edits; a start clears it', () => {
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  r.race.handle(b, { t: 'pit', on: true });
+  let rm = r.last(1, 'room');
+  assert.ok(rm && rm.t === 'room' && rm.racers.find((x) => x.id === 2)?.pit === true && !rm.racers.find((x) => x.id === 1)?.pit);
+  r.race.handle(b, { t: 'car', car: 'kitsune.3.1.0.0.0.0.1.00000000' });
+  rm = r.last(1, 'room');
+  assert.ok(rm && rm.t === 'room' && rm.racers.find((x) => x.id === 2)?.car === 'kitsune.3.1.0.0.0.0.1.00000000');
+  // A bad flag changes nothing.
+  r.race.handle(b, { t: 'pit', on: 'yes' as unknown as boolean });
+  assert.equal(r.race.room().racers.find((x) => x.id === 2)?.pit, true);
+  r.start(a, b);
+  rm = r.last(1, 'room');
+  assert.ok(rm && rm.t === 'room' && rm.racers.every((x) => !x.pit));
+  // Racing: the flag waits for the lobby.
+  r.race.handle(b, { t: 'pit', on: true });
+  assert.ok(!r.race.room().racers.find((x) => x.id === 2)?.pit);
+});

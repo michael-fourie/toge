@@ -51,6 +51,8 @@ interface Member {
   uses: Partial<Record<Item, number>>;
   /** This race's run, from the poses they send (ghost.ts): kept as the record ghost if it sets the record. */
   rec: GhostRecorder;
+  /** In the lobby's garage, editing their car (shown to the others; cleared when a race starts). */
+  pit: boolean;
 }
 
 export const sendTo = (c: RaceClient, msg: RaceServerMsg) => {
@@ -144,7 +146,7 @@ export class Race {
     // A driver of its own (one the host isn't using), like a solo race's rivals.
     const rider = encodeRider(rivalRider(decodeRider(host.rider) ?? defaultRider(), i));
     const client: RaceClient = { id, ws: NO_SOCKET, name: CPU.names[i], car, rider, user: false };
-    this.members.set(id, { client, cpu: true, state: null, racing: false, ready: false, time: null, best: null, raceCar: car, drift: 0, uses: {}, rec: new GhostRecorder() });
+    this.members.set(id, { client, cpu: true, state: null, racing: false, ready: false, time: null, best: null, raceCar: car, drift: 0, uses: {}, rec: new GhostRecorder(), pit: false });
   }
 
   /** Too many on the grid (someone joined, or it's time to start): the newest CPU racers make room. */
@@ -161,7 +163,7 @@ export class Race {
   add(c: RaceClient) {
     if (!decodeCar(c.car)) c.car = 'pebble.0.1.0.0.0.0.1.00000000';
     c.rider = cleanRiderCode(c.rider);
-    this.members.set(c.id, { client: c, cpu: false, state: null, racing: false, ready: false, time: null, best: null, raceCar: c.car, drift: 0, uses: {}, rec: new GhostRecorder() });
+    this.members.set(c.id, { client: c, cpu: false, state: null, racing: false, ready: false, time: null, best: null, raceCar: c.car, drift: 0, uses: {}, rec: new GhostRecorder(), pit: false });
     if (!this.hostId) this.hostId = c.id;
     // A full grid with CPU racers on it: one gives up its seat (in a race, they make room at the next start).
     if (this.phase === 'lobby' || this.phase === 'results') this.trimCpus();
@@ -303,6 +305,12 @@ export class Race {
           this.broadcastRoom();
         }
         break;
+      case 'pit':
+        if ((this.phase === 'lobby' || this.phase === 'results' || !m.racing) && typeof msg.on === 'boolean' && msg.on !== m.pit) {
+          m.pit = msg.on;
+          this.broadcastRoom();
+        }
+        break;
       case 'state': {
         if (!m.racing || m.time !== null || (this.phase !== 'racing' && this.phase !== 'countdown' && this.phase !== 'loading')) return;
         const st = this.pose(m, { ...msg, id: c.id });
@@ -411,6 +419,7 @@ export class Race {
       m.drift = 0;
       m.uses = {};
       m.rec = new GhostRecorder();
+      m.pit = false;
       grid[m.client.id] = slot++;
     }
     // Settle every racer's car for this race here, once, so a spec car's draw is the same for everyone.
@@ -509,8 +518,9 @@ export class Race {
     }
   }
 
-  private room(): RaceServerMsg {
-    const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user, ...(m.cpu ? { cpu: true } : {}) }));
+  /** The roster as everyone sees it. */
+  room(): Extract<RaceServerMsg, { t: 'room' }> {
+    const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user, ...(m.cpu ? { cpu: true } : {}), ...(m.pit ? { pit: true } : {}) }));
     const record = this.ghostOf === this.track && this.ghostRun ? { name: this.ghostRun.name, time: this.ghostRun.time } : null;
     return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers };
   }

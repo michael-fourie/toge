@@ -86,6 +86,8 @@ export interface Racer {
   user: boolean;
   /** A CPU racer the host added: the host's client drives it (see CPU below). */
   cpu?: boolean;
+  /** In the lobby's garage, editing their car (sent only while true). */
+  pit?: boolean;
 }
 
 /** A car's pose as relayed between clients. */
@@ -188,6 +190,8 @@ export type RaceClientMsg =
   | { t: 'car'; car: string }
   /** Your driver changed (lobby only, like `car`). */
   | { t: 'rider'; rider: string }
+  /** You opened (or closed) the garage in the lobby, so the others see you're editing your car. Lobby only. */
+  | { t: 'pit'; on: boolean }
   | ({ t: 'state' } & Omit<NetCar, 'id'>)
   | { t: 'finish'; time: number; best?: number }
   /** Your drift total so far (sent as each combo banks, and just before `finish`). The server caps it by the clock. */

@@ -210,7 +210,7 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   a single offscreen 3D shot of your car and driver, is both what you see and the PNG you download or share), settingsui.ts
   (the Settings page: graphics), friendsui.ts (the Friends page: list, add, a friend's
   profile and best times), leaderboardui.ts (Race → Leaderboard: a track's all-time board and every track's record), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
-  styled by hub.css), lobby.ts (`drivelobby`), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
+  styled by hub.css), lobby.ts (`drivelobby`; its Your car card switches cars, and Edit car mounts the garage over the lobby with `pitGarage(root, ctx, { close })`: hub.ts with a `Pit`, only the car and driver tabs, a lobby strip in the top bar; the room shows `Racer.pit` as a Garage tag, and the lobby re-sends your car and driver whenever the room's copy is stale), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
   garageStore.ts, racenet.ts, race.css, propview.ts (props, oil slicks, shield bubble), trafficview.ts (instanced city traffic).
