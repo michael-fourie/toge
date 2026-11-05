@@ -31,6 +31,7 @@ export function trackKind(id: TrackId): string {
   if (d.traffic) return 'City · live traffic';
   if (d.laps) return `Circuit · ${d.laps} laps`;
   if (d.climb) return `Hill climb · ${trackClimb(id)} m up`;
+  if (d.clean) return 'Mountain pass · time trial';
   return 'Mountain pass';
 }
 

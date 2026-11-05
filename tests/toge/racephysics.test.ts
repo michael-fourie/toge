@@ -747,3 +747,13 @@ test('gearbox: crash damage costs engine power, not pedal, so a damaged car shif
   // Half the pedal also lugs in tall gears and gets engine braking for the lifted half; half the power doesn't.
   assert.ok(damaged > halfPedal, `damaged ${damaged.toFixed(1)} vs half pedal ${halfPedal.toFixed(1)}`);
 });
+
+test('clean passes (time trial roads): no item boxes, obstacles or ramps, and an easy grade', () => {
+  const clean = TRACKS.filter((id) => TRACK_DEFS[id].clean);
+  assert.ok(clean.includes('nagare'));
+  for (const id of clean) {
+    const t = getTrack(id);
+    assert.equal(t.props.length + t.ramps.length, 0, `${id}: props on a clean road`);
+    for (let i = 0; i + 5 < t.n; i++) assert.ok(Math.abs(t.y[i + 5] - t.y[i]) / (5 * SAMPLE) < 0.07, `${id}: grade at s=${i * SAMPLE}`);
+  }
+});

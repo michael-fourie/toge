@@ -13,7 +13,7 @@ import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -85,6 +85,11 @@ export interface TrackDef {
    * rocks lie on the road's edges instead (props.ts), and the forest crowds right up to the barrier.
    */
   climb?: boolean;
+  /**
+   * Clean road for time trials: no item boxes, obstacles or ramps (like a circuit), so a run is only you, the
+   * line and the clock.
+   */
+  clean?: boolean;
   /**
    * A figure 8 (circuits only): the lap crosses itself once, and the first pass through the crossing goes over
    * the second on a bridge this many metres up (the leg underneath dips OVERPASS.dip into a cutting). The ground
@@ -339,6 +344,37 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       { kind: 'bridge', from: 14, to: 15, size: 45 },
       { kind: 'crest', at: 23, size: 2, len: 46 },
       { kind: 'cut', s0: 2578, s1: 3198 },
+    ],
+  },
+  // Built for grinding time trials: a gentle, wide-open pass with few corners, each with a line worth finding.
+  nagare: {
+    id: 'nagare',
+    name: 'Nagare Pass',
+    tag: 'Time trial · 8 corners · gentle descent · clean road',
+    blurb: 'A gentle run off the high pasture with nothing on the road but you and the line: a flat-out sweeper, an esse you can straighten, a double-apex left, a corner that tightens, one hairpin and a long sweeper to the line.',
+    theme: 'alpine',
+    seed: 311,
+    width: 13,
+    relief: 200,
+    clean: true,
+    points: [
+      [0, 300.0, 0], [0.0, 298.4, -80.0], [0.0, 296.8, -160.0], [0.0, 295.2, -240.0], [0.0, 294.0, -300.0],
+      [1.2, 293.6, -322.0], [4.4, 293.1, -343.7], [9.7, 292.7, -365.0], [17.1, 292.2, -385.8], [26.4, 291.5, -405.7],
+      [37.5, 290.5, -424.7], [50.4, 289.4, -442.5], [65.0, 288.4, -458.9], [81.1, 287.3, -473.9], [142.4, 283.5, -525.3],
+      [203.7, 279.6, -576.8], [220.5, 278.6, -590.9], [235.8, 277.5, -606.7], [247.9, 276.4, -625.0], [256.4, 275.4, -645.3],
+      [261.0, 274.3, -666.8], [266.6, 273.3, -688.0], [276.1, 272.2, -707.8], [289.1, 271.2, -725.5], [302.1, 270.3, -738.0],
+      [363.3, 267.4, -789.4], [424.6, 265.8, -840.8], [485.9, 264.2, -892.3], [501.2, 263.8, -905.1], [515.9, 263.3, -921.5],
+      [525.7, 262.9, -941.0], [530.2, 262.4, -962.5], [529.0, 262.0, -984.4], [522.2, 261.6, -1005.3], [503.6, 260.7, -1045.1],
+      [491.4, 260.2, -1063.4], [474.7, 259.5, -1077.6], [454.7, 258.3, -1086.6], [433.0, 257.1, -1089.7], [411.3, 255.9, -1086.8],
+      [334.0, 251.7, -1066.1], [256.7, 247.4, -1045.4], [179.4, 243.1, -1024.7], [121.5, 239.9, -1009.1], [99.9, 238.8, -1005.0],
+      [77.9, 237.6, -1003.7], [56.0, 236.4, -1005.3], [34.5, 235.6, -1009.8], [13.9, 234.9, -1017.4], [-3.7, 234.2, -1030.5],
+      [-16.2, 233.5, -1048.5], [-22.3, 232.8, -1069.5], [-33.5, 230.3, -1148.7], [-44.6, 227.8, -1227.9], [-53.0, 226.0, -1287.4],
+      [-56.8, 225.3, -1309.0], [-62.2, 224.6, -1330.3], [-69.0, 223.9, -1351.3], [-77.2, 223.2, -1371.7], [-86.8, 222.6, -1391.4],
+      [-97.8, 221.8, -1410.5], [-140.2, 217.8, -1478.4], [-182.6, 213.8, -1546.2], [-220.7, 210.2, -1607.3], [-236.1, 209.1, -1622.8],
+      [-256.4, 208.0, -1631.0], [-278.2, 206.9, -1630.5], [-298.1, 205.8, -1621.5], [-309.4, 205.0, -1610.3], [-358.7, 201.4, -1547.2],
+      [-407.9, 198.8, -1484.2], [-432.6, 197.6, -1452.7], [-446.9, 196.9, -1436.0], [-462.6, 196.2, -1420.6], [-479.6, 195.5, -1406.6],
+      [-497.7, 194.8, -1394.1], [-516.7, 194.1, -1383.2], [-536.7, 193.4, -1373.9], [-557.4, 192.7, -1366.4], [-578.6, 192.0, -1360.6],
+      [-656.8, 189.8, -1344.0], [-735.1, 189.0, -1327.4], [-813.3, 188.2, -1310.7]
     ],
   },
   // Circuits after famous Grand Prix tracks, scaled to fit: closed loops raced for laps.
@@ -862,7 +898,7 @@ export function buildTrack(def: TrackDef): Track {
     cross,
   };
   for (const f of def.features ?? []) if (f.kind === 'cut') t.cuts.push(makeCut(t, f.s0, f.s1));
-  if (lap) return t; // circuits are clean racing: no item boxes, obstacles or ramps
+  if (lap || def.clean) return t; // circuits and clean passes: no item boxes, obstacles or ramps
   const placed = placeProps(t);
   t.props = placed.props;
   t.ramps = placed.ramps;
