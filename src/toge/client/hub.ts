@@ -7,7 +7,7 @@ import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MA
 import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, payout, tunerCost } from '../shared/garage.ts';
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById } from '../shared/cosmetics.ts';
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
-import { type Rider, type RiderKey, RIDER_KEYS, decodeRider, defaultRider, encodeRider, randomRider } from '../shared/rider.ts';
+import { type Rider, RIDERS, decodeRider, defaultRider, encodeRider, isRider } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
 import { cardData, openPlayerCard } from './playercard.ts';
 import { PHYSICS } from '../shared/protocol.ts';
@@ -92,7 +92,7 @@ export const driveHub: Render = (root, ctx, screen) => {
   /** Locker: the slot being browsed, and a not-yet-owned item being tried on in the showroom. */
   let lockerSlot: CosSlot = 'paint';
   let trying: string | null = null;
-  /** Driver edits not saved yet (they save a moment after the last change, like paint). */
+  /** A driver pick not saved yet (it saves a moment after the last change, like paint). */
   let riderDraft: Rider | null = null;
   let riderTimer = 0;
   let saveTimer = 0;
@@ -222,8 +222,8 @@ export const driveHub: Render = (root, ctx, screen) => {
     showroom.showRider(viewedRider());
     showroom.focus(page === 'driver' ? 'rider' : 'car');
     if (page === 'driver') {
-      $(root, '[data-card]').innerHTML = driverCard(viewedRider(), account.user ?? playerName());
-      $(root, '[data-stage-name]').innerHTML = `<small>Driver</small>${esc(account.user ?? playerName())}`;
+      $(root, '[data-card]').innerHTML = driverCard(viewedRider());
+      $(root, '[data-stage-name]').innerHTML = `<small>Driver</small>${esc(RIDERS[viewedRider()].name)}`;
     }
     const key = JSON.stringify([c.model, c.look, c.cos, c.plate]);
     if (key !== shown) {
@@ -583,7 +583,7 @@ export const driveHub: Render = (root, ctx, screen) => {
         draw();
       }),
     );
-    // Your driver: every pick shows at once and saves a moment later.
+    // Your driver: a pick shows at once and saves a moment later.
     const setRider = (r: Rider) => {
       riderDraft = r;
       clearTimeout(riderTimer);
@@ -592,12 +592,10 @@ export const driveHub: Render = (root, ctx, screen) => {
     };
     panel.querySelectorAll<HTMLElement>('[data-rider]').forEach((b) =>
       b.addEventListener('click', () => {
-        const k = b.dataset.rider as RiderKey;
-        if (RIDER_KEYS.includes(k)) setRider({ ...viewedRider(), [k]: Number(b.dataset.v) });
+        const r = b.dataset.rider;
+        if (isRider(r)) setRider(r);
       }),
     );
-    panel.querySelector('[data-rider-random]')?.addEventListener('click', () => setRider(randomRider()));
-    panel.querySelector('[data-rider-reset]')?.addEventListener('click', () => setRider(defaultRider()));
     // Cosmetics: cases and the locker.
     if (page === 'cases') wireCases(panel, garage.g);
     panel.querySelectorAll<HTMLElement>('[data-case-open]').forEach((b) => b.addEventListener('click', () => void openCase(b.dataset.caseOpen as CaseId)));
@@ -941,11 +939,11 @@ function focusId(el: Element | null): string | null {
   const look = el.getAttribute('data-look');
   if (look) return `[data-look="${look}"][data-v="${el.getAttribute('data-v')}"]`;
   const rider = el.getAttribute('data-rider');
-  if (rider) return `[data-rider="${rider}"][data-v="${el.getAttribute('data-v')}"]`;
+  if (rider) return `[data-rider="${rider}"]`;
   for (const attr of ['data-track', 'data-rivals', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }
-  for (const attr of ['data-solo', 'data-host', 'data-join', 'data-code', 'data-rider-random', 'data-rider-reset', 'data-friend-name']) if (el.hasAttribute(attr)) return `[${attr}]`;
+  for (const attr of ['data-solo', 'data-host', 'data-join', 'data-code', 'data-friend-name']) if (el.hasAttribute(attr)) return `[${attr}]`;
   return null;
 }
