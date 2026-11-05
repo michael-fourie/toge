@@ -1,5 +1,5 @@
 // SNAP!: a reaction party game. Quickdraw, a blind stopwatch, ink-not-word, duck counting, odd one out, quick maths,
-// which way, pour and Simon, for up to 12
+// which way, pour, Simon, mash, most dots, biggest, which is…? and sweet spot, for up to 12
 // friends online (or solo against your bests). Rules in rules.ts, screens in game.ts.
 
 import type { GameChannel } from '../types.ts';
@@ -10,7 +10,7 @@ const channel: GameChannel = {
   title: 'SNAP!',
   tagline: 'Fastest finger wins',
   about:
-    'A quick-reaction party game. Each round is a surprise: press on SNAP! (not on SNACK!), stop a hidden clock on the second, pick the ink not the word, count the ducks before they vanish, spot the odd one out, do quick maths, press the way the arrow points (or the opposite), stop a pour on the line, or repeat a Simon sequence. Points for the quickest; reactions are timed on your own screen, so lag never decides a round.',
+    'A quick-reaction party game. Each round is a surprise: press on SNAP! (not on SNACK!), stop a hidden clock on the second, pick the ink not the word, count the ducks before they vanish, spot the odd one out, do quick maths, press the way the arrow points (or the opposite), stop a pour on the line, repeat a Simon sequence, mash a button, spot the colour with the most dots, pick the biggest number, pick the word that fits, or stop a marker in the sweet spot. Points for the quickest; reactions are timed on your own screen, so lag never decides a round.',
   facts: ['1–12 players online', 'Solo practice', 'Controller', 'Touch'],
   order: 30,
 
