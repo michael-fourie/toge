@@ -68,9 +68,10 @@ a component or a page.
   stripes and decals work), frame, fork, swingarm and wheels, and leans the model into turns by the cornering
   force `pose(..., lat)` gets from racegame.ts. `root.userData.lean` is the leaning frame (the cockpit camera rides in
   it, so the horizon tilts) and `root.userData.rider` is hidden from the rider's eye. Skid marks run down the middle.
-  The rider is your driver (driver.ts, the `ride` clip, hips on the saddle): your own, each online rival's from
-  `Racer.rider`, `rivalRider` per AI. `buildCar(owned, rider)` passes it on; the showroom passes `null` (empty saddle,
-  your driver stands beside it). The rig's meshes are every clone's, so the bike never merges or disposes them.
+  The rider is a driver from `ridermodel.ts` (`buildRider(r, { ride: true })`, the `RIDE` pose): your own driver,
+  each online rival's from `Racer.rider`, a seeded `randomRider` per AI. `buildCar(owned, rider)` passes it on; the
+  showroom passes `null` (empty saddle, your driver stands beside it). Rider meshes are shared page-wide, so the bike
+  never merges or disposes them.
 - **Free looks** (`Look` in cars.ts, the Style → Paint page): paint (18), finish, rims (6 designs, 7 colours), spoiler,
   stripes, underglow, then the body options (cars only; the garage hides them for bikes): window `tint`, `roof` and `hood` (body colour / black / carbon), `trim`
   (window seals and door handles), `mirrors` and front `lip`. Every list is append-only (codes store indexes). A car
@@ -79,13 +80,12 @@ a component or a page.
 - **Cosmetics** (cosmetics.ts): 160 items in 11 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
   underglow, plates, plate frames/covers, exhaust tips), 5 rarities, won from 5 cases (Street, Night Run, Livery,
   Chrome, Legend) bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
-- **Drivers** (rider.ts): four realistic characters, steampunk crossed with cyberpunk (Marlowe, Kirika, Okonkwo,
-  Inès), GLBs built in Blender by `tools/drivers` (docs/DRIVERS.md). Free, saved in the garage (`rider`, the `rider`
-  action; a rider's code is its id). Your driver sits in your car (seen through the tinted glass, hands on their own
-  wheel, turning it with the steering), rides your bike, stands by your car in the showroom (the Driver tab walks the
-  camera in), and the lobby shows every racer's driver in the Crew row. AI rivals get the other three. Drivers are
-  ~30k triangles: the race only draws those within `DRIVER_RANGE`. After changing one, rebuild it and keep
-  `tests/toge/drivers.test.ts` green.
+- **Drivers** (rider.ts): your character, Tokyo street-drift style. 23 fields (build, height, skin, face, 12 hair styles,
+  8 tops from tees to souvenir jackets and long coats with a kanji back print, bottoms, shoes, headwear, eyewear, masks,
+  neck pieces, gloves, 5 poses), all free, saved in the garage (`rider`, the `rider` action). Your driver stands by your car
+  in the showroom (the Driver tab walks the camera in), and the lobby shows every racer's driver in the Crew row.
+  Michael wants this stylised, primitive-built look: the Blender "realistic drivers" (2026-11-02) were reverted on
+  2026-11-05 at his request, so don't swap the figures for imported models without asking him.
 - **Best times** (records.ts): every racer's quickest finish per track (`Bests`), whatever the mode or car. Accounts'
   live on the server (`b:<user>`, toge/server/recordStore.ts): online finishes go in from the room's results
   (`Accounts.raceTime`, then the room sends `records` so every client marks the new bests), solo ones ride on the `solo`
@@ -165,9 +165,9 @@ src/toge/shared/
   records.ts   best times: Bests per track, recordTime (keeps a time only if it beats the old one and is plausible: cleanTime,
                minTime), cleanBests, the all-time boards (BoardRow, BOARD, cleanBoard, placeOnBoard), and
                TogeProfile / profileOf (what a friend sees of your garage).
-  rider.ts     your driver: RIDER_IDS / RIDERS (names, bios, glow colours), encode/decode/cleanRider, rivalRider. Racers
-               carry the id as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the
-               default, and old saves of the customisable drivers get it too).
+  rider.ts     your driver: RIDER_FIELDS (APPEND ONLY, like the cosmetics catalogue: a code is one base-36 digit per field,
+               after `r1.`; shorter old codes fill the new fields with 0), encode/decode/cleanRider, randomRider. Racers carry
+               the code as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the default).
   cardstats.ts the player card's numbers: Highs (best drift race, top speed; toge/client/highs.ts keeps them in this
                browser as `atrous.highs`, racegame.ts `finish()` writes them, solo and online), noteHighs, bestBuild,
                winRate, cardBests (the newest few of your best times from records.ts).
@@ -193,9 +193,8 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   under a clear cover; tail lamps are a dark red lens (`MAT.redLens`) with lit elements (`tailLamp`). Lamp glow is
   global: `setLampLevel` (carparts.ts) scales every registered lamp material (`lamp()`; cosmetic lamp tints too). The
   race sets `LAMP_NIGHT` on night and city tracks and `LAMP_DAY` otherwise, so headlamps don't blaze white by day. showroom.ts (the turntable; `place()` frames the car beside the rail; `showRider()` stands your driver by the
-  driver's door, `focus('rider')` turns them to the camera), driver.ts (the drivers' GLBs from public/models/drivers:
-  loaded once, cloned per car as a skinned rig that sits (the `drive` clip scrubbed by steering, with its own seat and
-  wheel; carmodel.ts puts its eyes at the cockpit camera's), rides (bikes) or stands (`idle`)), riderportrait.ts (one
+  driver's door, `focus('rider')` turns them to the camera), ridermodel.ts (the driver figure: ~70 primitives with cached
+  geometry and materials, posed, a breathing idle; tune in `/dev/riders.html`, `window.lab`), riderportrait.ts (one
   offscreen renderer draws each driver to a cached PNG for the lobby; released when the lobby closes), riderui.ts (the
   Driver page), playercard.ts (the player card: your name top right opens it; one 1080×1350 canvas, drawn in 2D around
   a single offscreen 3D shot of your car and driver, is both what you see and the PNG you download or share), settingsui.ts
@@ -271,12 +270,13 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   Physics switch (`physics` on the room, `PHYSICS` in protocol.ts) is separate and works with every mode.
 - **Economy** (garage.ts): every garage change is an `applyAction` (server for accounts, client for guests). Prize =
   `payout()`; solo pays less and at most once per `SOLO_GAP_MS`.
-- **A driver:** a spec in `tools/drivers/cast.py`, an entry in `RIDER_IDS` / `RIDERS` (append), build it with
-  `blender -b --python tools/drivers/build.py -- <id>` (docs/DRIVERS.md has the setup), and run the tests.
+- **A driver option:** append to its field's `options` (and `colors`) in rider.ts, or append a new field to `RIDER_FIELDS`
+  (it decodes as 0 from old codes, so make 0 the plain choice); draw it in ridermodel.ts and check it in `/dev/riders.html`
+  (`lab.vary('hair')`, `lab.random(8)`). Keep every field under 36 options.
 - **A cosmetic:** append it to its slot's list in `CATALOG` (cosmetics.ts) with a rarity and its cases; a new pattern or
   decal kind also needs a painter in toge/client/cosmeticsview.ts. A new slot: append to `COS_SLOTS`, add its `Fx`
   type, apply it in carmodel.ts. Keep every case holding an item of each rarity it weights (the test checks).
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider`, `damage`, `records` in `tests/toge/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

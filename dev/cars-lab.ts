@@ -7,7 +7,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { CAR_IDS, type CarId, type Look, carSpec, newOwnedCar } from '../src/toge/shared/cars.ts';
 import { type CarModel, buildCar } from '../src/toge/client/carmodel.ts';
 import { buildCockpit } from '../src/toge/client/cockpit.ts';
-import { type Rider, RIDER_IDS, defaultRider } from '../src/toge/shared/rider.ts';
+import { type Rider, defaultRider, randomRider } from '../src/toge/shared/rider.ts';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -116,7 +116,7 @@ requestAnimationFrame(frame);
   },
   /** Who rides the bikes: a random driver (or the default with no argument). */
   rider(random = false) {
-    rider = random ? RIDER_IDS[Math.floor(Math.random() * RIDER_IDS.length)] : defaultRider();
+    rider = random ? randomRider() : defaultRider();
     show();
   },
   spin(on: boolean) {

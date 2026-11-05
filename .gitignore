@@ -4,4 +4,3 @@ dist/
 .DS_Store
 .wrangler/
 .dev.vars
-__pycache__/

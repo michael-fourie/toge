@@ -9,14 +9,14 @@ import { CARS, CLASS_COLORS, PAINTS, type OwnedCar, carSpec, peakPower, rating, 
 import type { Garage } from '../shared/garage.ts';
 import { current } from '../shared/garage.ts';
 import { COS_ITEMS } from '../shared/cosmetics.ts';
+import type { Rider } from '../shared/rider.ts';
 import { bestBuild, cardBests, winRate } from '../shared/cardstats.ts';
 import type { Bests } from '../shared/records.ts';
 import type { TrackId } from '../shared/track.ts';
 import { TRACK_DEFS } from '../shared/track.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { buildCar } from './carmodel.ts';
-import type { Rider } from '../shared/rider.ts';
-import { type DriverRig, loadDriver } from './driver.ts';
+import { buildRider } from './ridermodel.ts';
 import { garageEnvironment } from './showroom.ts';
 import { fmtTime, money } from './hud.ts';
 import { loadHighs } from './highs.ts';
@@ -85,7 +85,7 @@ export function cardData(g: Garage, bests: Bests, name: string, guest: boolean, 
 // --- the 3D shot ---------------------------------------------------------------------------------
 
 /** Your car three-quarters from the front with your driver leaning by the door, on a transparent background. */
-function renderShot(car: OwnedCar, rider: DriverRig | null, w: number, h: number): HTMLCanvasElement | null {
+function renderShot(car: OwnedCar, rider: Rider, w: number, h: number): HTMLCanvasElement | null {
   let renderer: THREE.WebGLRenderer | null = null;
   const dispose: { dispose(): void }[] = [];
   try {
@@ -114,16 +114,12 @@ function renderShot(car: OwnedCar, rider: DriverRig | null, w: number, h: number
     scene.add(model.root);
     dispose.push(model);
     const b = CARS[car.model];
-    if (rider) {
-      rider.stand();
-      rider.root.position.set(b.width / 2 + 0.7, 0, 0.35);
-      rider.root.rotation.y = Math.PI * 0.62 - Math.PI; // the rig faces -Z
-      rider.root.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) o.castShadow = true;
-      });
-      scene.add(rider.root);
-      dispose.push(rider);
-    }
+    const man = buildRider(rider);
+    man.root.position.set(b.width / 2 + 0.7, 0, 0.35);
+    man.root.rotation.y = Math.PI * 0.62;
+    man.update(0.6);
+    scene.add(man.root);
+    dispose.push(man);
 
     // A floor that only takes shadows, so the car sits on the card's own glow.
     const floorGeo = new THREE.PlaneGeometry(30, 30).rotateX(-Math.PI / 2);
@@ -580,9 +576,7 @@ export async function drawPlayerCard(canvas: HTMLCanvasElement, d: CardData) {
   const ctx = canvas.getContext('2d')!;
   const paint = hex(PAINTS[d.car.look.paint] ?? PAINTS[0]);
   // Supersampled: the shot is drawn at 1.5× and scaled down for smooth edges.
-  // The driver's model loads first (a card without them still draws if it can't).
-  const rig = await loadDriver(d.rider).catch(() => null);
-  const img = renderShot(d.car, rig, Math.round(SHOT.w * 1.5), Math.round(SHOT.h * 1.5));
+  const img = renderShot(d.car, d.rider, Math.round(SHOT.w * 1.5), Math.round(SHOT.h * 1.5));
   ctx.save();
   cardShape(ctx, CARD.w, CARD.h, 28, 56);
   ctx.clip();

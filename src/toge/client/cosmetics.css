@@ -86,7 +86,10 @@
   position: relative;
   display: grid;
   justify-items: center;
-  gap: 3px;
+  align-content: start;
+  height: 100%;
+  box-sizing: border-box;
+  gap: 4px;
   padding: 8px 6px 10px;
   border-radius: var(--tg-radius);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), color-mix(in srgb, var(--r) 14%, transparent));
@@ -96,6 +99,7 @@
 .cz-card > b {
   font-size: 13px;
   line-height: 1.15;
+  margin-top: 2px;
 }
 .cz-card > small {
   font-size: 10px;
@@ -110,8 +114,8 @@
 .cz-art {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 0 16px var(--glow, transparent);
@@ -170,7 +174,8 @@
 .cz-slots .tg-pill small {
   opacity: 0.7;
 }
-.cz-slots .tg-pill.on {
+.cz-slots .tg-pill.on,
+.cz-slots .tg-pill.on:hover {
   background: var(--tg-cyan);
   border-color: var(--tg-cyan);
   color: #04121b;
@@ -186,10 +191,27 @@
   box-shadow: 0 0 6px var(--r);
 }
 .cz-pick {
+  /* A grid cell the card fills, so every card in a row is the same height and lines up at the top. */
+  display: grid;
   padding: 0;
   border: 2px solid transparent;
   border-radius: 8px;
+}
+/* The site's base button paints cream on hover (styles.css); a card keeps its own look and lifts instead. */
+.cz-pick,
+.cz-pick:hover {
   background: none;
+  box-shadow: none;
+}
+.cz-pick .cz-card {
+  transition: transform 0.12s, filter 0.12s;
+}
+.cz-pick:hover .cz-card {
+  transform: translateY(-2px);
+  filter: brightness(1.15);
+}
+.cz-pick.locked:hover .cz-card {
+  filter: saturate(0.6) brightness(0.95);
 }
 .cz-pick[aria-pressed='true'] {
   border-color: var(--tg-cyan);
@@ -234,6 +256,22 @@
   gap: 6px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), color-mix(in srgb, var(--r) 22%, transparent));
   border-bottom: 4px solid var(--r);
+}
+.cz-tile {
+  transition: opacity 0.4s, transform 0.4s, box-shadow 0.4s;
+}
+/* Once it stops: the tile you won steps forward, the rest fall back. */
+.cz-reel-card.revealed .cz-tile {
+  opacity: 0.3;
+}
+.cz-reel-card.revealed .cz-tile.won {
+  opacity: 1;
+  transform: scale(1.06);
+  box-shadow: 0 0 26px color-mix(in srgb, var(--r) 70%, transparent), inset 0 0 0 2px var(--r);
+}
+.cz-reel-card.revealed .tg-reel-mark {
+  opacity: 0;
+  transition: opacity 0.3s;
 }
 .cz-tile small {
   padding: 0 6px;

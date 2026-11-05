@@ -7,7 +7,6 @@ import * as THREE from 'three';
 import { CARS, type CarSpec, GLOWS, type OwnedCar, carSpec, isBike } from '../shared/cars.ts';
 import { buildBike } from './bikemodel.ts';
 import { type Rider, defaultRider } from '../shared/rider.ts';
-import { type DriverRig, arrive } from './driver.ts';
 import { DESIGNS, type Design, type Kit, makeKitHelpers } from './carkits.ts';
 import { type Section, centreTop, curve, loft, smooth, surface, zAt } from './carloft.ts';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -126,19 +125,11 @@ function panelZones(d: Design, cabin: Section, body: Section, tF: number, R: num
   };
 }
 
-/** Where the driver goes: the cockpit camera's eye point, the inside of the roof above it, and the driver's own
- * seat and wheel (hidden once a driver sits down: they bring their own, sized to their reach). */
-interface Cockpit {
-  eye: THREE.Vector3;
-  roofIn: number;
-  side: THREE.Group;
-}
-
 /**
  * Dash, seats and steering wheel, laid out like the cockpit camera's (right-hand drive): only what shows
  * through the glass, so it's a handful of boxes.
  */
-function cabinParts(g: THREE.Group, d: Design, body: Section, cabin: Section, W: number, H: number): Cockpit {
+function cabinParts(g: THREE.Group, d: Design, body: Section, cabin: Section, W: number, H: number) {
   const roof = curve(d.roof.map(([t, v]) => [t, v * H]));
   const L = body.length;
   const z = (t: number) => zAt(body, t);
@@ -154,13 +145,11 @@ function cabinParts(g: THREE.Group, d: Design, body: Section, cabin: Section, W:
   const ey = roof(Math.min(d.roofR, tAt(ez))) - 0.25;
   let lid = 0;
   for (let t = t0; t <= tAt(ez) + 0.04; t += 0.01) lid = Math.max(lid, centreTop(body, t));
-  const side = new THREE.Group();
-  g.add(side);
-  const put = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, zz: number, rx = 0, ry = 0, rz = 0, to: THREE.Group = g) => {
+  const put = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, zz: number, rx = 0, ry = 0, rz = 0) => {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, zz);
     m.rotation.set(rx, ry, rz);
-    to.add(m);
+    g.add(m);
     return m;
   };
   // Dash: a slab under the windscreen with a soft top, and a binnacle hood in front of the driver.
@@ -171,17 +160,17 @@ function cabinParts(g: THREE.Group, d: Design, body: Section, cabin: Section, W:
   // Steering wheel on its column, face tipped toward the driver.
   const wz = zBase + dashDepth + 0.04;
   const wy = dashTop - 0.03;
-  put(new THREE.TorusGeometry(0.17, 0.018, 8, 28), MAT.bolster, ex, wy, wz, -0.42, 0, 0, side);
-  put(new THREE.CylinderGeometry(0.05, 0.05, 0.05, 14), MAT.trim, ex, wy, wz + 0.01, Math.PI / 2 - 0.42, 0, 0, side);
-  for (const a of [0, 2.1, -2.1]) put(rbox(0.03, 0.15, 0.015, 0.006), MAT.trim, ex + Math.sin(a) * 0.08, wy - Math.cos(a) * 0.08 * Math.cos(0.42), wz + Math.cos(a) * 0.08 * Math.sin(0.42), -0.42, 0, -a, side);
+  const wheel = put(new THREE.TorusGeometry(0.17, 0.018, 8, 28), MAT.bolster, ex, wy, wz, -0.42);
+  void wheel;
+  put(new THREE.CylinderGeometry(0.05, 0.05, 0.05, 14), MAT.trim, ex, wy, wz + 0.01, Math.PI / 2 - 0.42);
+  for (const a of [0, 2.1, -2.1]) put(rbox(0.03, 0.15, 0.015, 0.006), MAT.trim, ex + Math.sin(a) * 0.08, wy - Math.cos(a) * 0.08 * Math.cos(0.42), wz + Math.cos(a) * 0.08 * Math.sin(0.42), -0.42, 0, -a);
   // Two bucket seats: cushion, a raked back with bolsters, and a head rest at eye height.
   const sz = ez + 0.2;
   for (const x of [ex, -ex]) {
-    const to = x === ex ? side : g;
     const back = new THREE.Group();
     back.position.set(x, ey - 0.62, sz);
     back.rotation.x = 0.22;
-    to.add(back);
+    g.add(back);
     const add = (geo: THREE.BufferGeometry, mat: THREE.Material, px: number, py: number, pz: number) => {
       const m = new THREE.Mesh(geo, mat);
       m.position.set(px, py, pz);
@@ -190,7 +179,7 @@ function cabinParts(g: THREE.Group, d: Design, body: Section, cabin: Section, W:
     add(rbox(0.34, 0.56, 0.1, 0.04), MAT.seat, 0, 0.28, 0);
     for (const s of [-1, 1]) add(rbox(0.07, 0.5, 0.15, 0.03), MAT.bolster, s * 0.2, 0.26, -0.02);
     add(rbox(0.26, 0.17, 0.1, 0.05), MAT.bolster, 0, 0.66, 0.01);
-    put(rbox(0.46, 0.12, 0.48, 0.04), MAT.seat, x, ey - 0.66, sz - 0.24, 0, 0, 0, to);
+    put(rbox(0.46, 0.12, 0.48, 0.04), MAT.seat, x, ey - 0.66, sz - 0.24);
   }
   // A rear shelf (or rear seat backs in the hatches) so the back of the cabin isn't an empty hole.
   const tr = Math.min(d.cPillar, d.roof[d.roof.length - 1][0] - 0.02);
@@ -202,7 +191,6 @@ function cabinParts(g: THREE.Group, d: Design, body: Section, cabin: Section, W:
     for (const x of [-ex, ex]) put(rbox(0.24, 0.14, 0.09, 0.045), MAT.bolster, x, lid + 0.38, bz + 0.05, 0.2);
   } else if (endZ > sz + 0.2) put(rbox(halfBase * 1.8, 0.3, 0.12, 0.04), MAT.seat, 0, lid + 0.12, endZ - 0.1, 0.25);
   void cabin;
-  return { eye: new THREE.Vector3(ex, ey, ez), roofIn: roof(Math.min(d.roofR, tAt(ez))) - 0.04, side };
 }
 
 /**
@@ -335,11 +323,8 @@ export interface CarModel {
    * cornering force (m/s², + to the left): bikes lean with it, cars ignore it.
    */
   pose(wheels: { y: number; angle: number }[], steer: number, braking: boolean, lat?: number): void;
-  /** Who's in it, once their model has loaded (null: nobody yet, or an empty showroom car). */
-  readonly driver: DriverRig | null;
   dispose(): void;
 }
-
 
 /** `rider`: who sits on a bike (null: nobody; the showroom stands them beside it). Cars keep their drivers inside. */
 export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()): CarModel {
@@ -419,7 +404,7 @@ export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()):
   body.add(inside);
   const [liner] = loft(cabin, 44, 1, (t, zone, v) => (glazed(t, zone, v) ? -1 : 0));
   inside.add(new THREE.Mesh(liner, MAT.liner));
-  const cockpit = cabinParts(inside, d, lower, cabin, W, H);
+  cabinParts(inside, d, lower, cabin, W, H);
 
   const kit: Kit = {
     b,
@@ -461,8 +446,7 @@ export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()):
   body.add(blob);
 
   mergeByMaterial(body, new Set([inside]));
-  mergeByMaterial(inside, new Set([cockpit.side]));
-  mergeByMaterial(cockpit.side);
+  mergeByMaterial(inside);
   blob.castShadow = false;
 
   const rims = equipped(owned.cos, 'rims');
@@ -490,22 +474,9 @@ export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()):
     }
   });
 
-  // The driver gets in once their model has loaded: eyes where the cockpit camera's are, never through the roof.
-  const seat = arrive(root, rider, (rig) => {
-    rig.sit();
-    const at = cockpit.eye.clone().sub(rig.fit.eye);
-    at.y = Math.min(at.y, cockpit.roofIn - rig.fit.headTop);
-    rig.root.position.copy(at);
-    cockpit.side.visible = false;
-    inside.add(rig.root);
-  });
-
   return {
     root,
     body,
-    get driver() {
-      return seat.rig;
-    },
     pose(ws, steer, braking) {
       wheels.forEach((w, i) => {
         const front = i < 2;
@@ -514,12 +485,8 @@ export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()):
         w.spin.rotation.x = -ws[i].angle * (w.outward < 0 ? -1 : 1);
       });
       tail.emissiveIntensity = braking ? TAIL_BRAKE : TAIL_IDLE;
-      // The wheel turns further than the road wheels (a steering ratio), so small corrections still read.
-      const x = steer / sp.steer;
-      seat.rig?.steer(Math.sign(x) * Math.abs(x) ** 0.6);
     },
     dispose() {
-      seat.leave();
       root.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
@@ -648,7 +615,6 @@ function common(k: Kit, d: Design, owned: OwnedCar, own: { dispose(): void }[]) 
  * are changed in place, so the brake lights still work.
  */
 export function ghostly(model: CarModel, opacity = 0.35) {
-  model.root.userData.ghost = opacity;
   const clones = new Map<THREE.Material, THREE.Material>();
   const faded = new Set<THREE.Material>();
   const fade = (m: THREE.Material) => {

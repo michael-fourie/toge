@@ -577,9 +577,13 @@ function finishMaterial(finish: Finish, base: number, look: Look): THREE.MeshPhy
     m.clearcoat = 0.35;
     m.clearcoatRoughness = 0.3;
   } else if (finish === 'chrome') {
-    m.metalness = 1;
-    m.roughness = 0.04;
-    m.envMapIntensity = 2.2;
+    // A touch of colour under a mirror coat: pure metal at 0.04 roughness only showed the room, and in the dark
+    // garage bay that made every chrome job (gold, rose, cobalt…) read as a black car.
+    m.metalness = 0.88;
+    m.roughness = 0.12;
+    m.clearcoat = 1;
+    m.clearcoatRoughness = 0.03;
+    m.envMapIntensity = 2.4;
   } else if (finish === 'candy') {
     // Deep tinted coat over bright flake.
     m.metalness = 0.6;

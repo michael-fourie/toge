@@ -128,7 +128,7 @@ Seven top tabs; a tab with more than one page shows sub-tabs at the top of the r
 | **Garage** | My cars · Dealer | Your cars (drive, sell) and driver stats; buying new cars. |
 | **Performance** | Upgrades · Tuning | Upgrade crates per part; the tuning sliders. |
 | **Style** | Paint · Locker · Cases | Free paint/wheels/body/glass and trim (cars only for the body and glass options); cosmetics you own (equip, try on, plates); buying cases. |
-| **Driver** | (one page) | Your driver (riderui.ts): four cards (`.tg-driver`, each in the driver's glow colour `--c`), free to switch. The showroom walks in to the driver and the card gives their nickname and story. |
+| **Driver** | (one page) | Your character (riderui.ts): body, face, hair, top, bottoms, gear, pose, all free; Randomise. The showroom walks in to the driver and the card describes them. |
 | **Friends** | (one page) | Add a friend by username, your friends (Mutual tag when they added you back), "Added you" with Add back, your best time per track. Opening a friend (friendsui.ts) shows their record, their garage (View puts a car on the turntable, their driver beside it, the card ribbon says whose garage it is) and their best times beside yours with the gap (green you're quicker, red slower). Signed in only; guests get a sign-in card and their own times. Michael asked for it (2026-11-03). |
 | **Settings** | (one page) | Device settings (settingsui.ts), saved in this browser: Graphics High / Low as two option cards (`.tg-gfx`). Michael asked for it as its own tab (2026-11-02). |
 
