@@ -114,14 +114,13 @@ def srgb(hexc):
     return np.array([int(hexc[i:i + 2], 16) / 255 for i in (0, 2, 4)], np.float32)
 
 
-def recolor(a, rules):
-    """Repaints the pixels each rule picks (first rule wins). Returns (colour, emission or None)."""
+def zone_masks(a, rules):
+    """Soft masks of the pixels each rule picks (first rule wins), and each zone's mean luminance (the
+    shade reference). The wardrobe bakes these for the client's recolour shader; recolor() uses them."""
     rgb = a[..., :3]
     h, s, v = hsv(rgb)
     lum = rgb @ np.array([0.299, 0.587, 0.114], np.float32)
     alpha = a[..., 3]
-    out = rgb.copy()
-    emit = None
     claimed = np.zeros(lum.shape, np.float32)
     H, W = lum.shape
     vv, uu = np.mgrid[0:H, 0:W]
@@ -137,6 +136,7 @@ def recolor(a, rules):
             m *= np.clip((hi - x) / feather + 0.5, 0, 1)
         return m
 
+    masks, refs = [], []
     for rule in rules:
         m = np.ones(lum.shape, np.float32) * (alpha > 0.02)
         if 'hue' in rule:
@@ -152,9 +152,20 @@ def recolor(a, rules):
             m *= ((uu >= u0) & (uu <= u1) & (vv >= v0) & (vv <= v1)).astype(np.float32)
         m *= 1 - claimed
         claimed += m
+        masks.append(m)
+        refs.append(float((lum * m).sum() / m.sum()) if m.sum() >= 1 else 0.5)
+    return masks, refs, lum
+
+
+def recolor(a, rules):
+    """Repaints the pixels each rule picks (first rule wins). Returns (colour, emission or None)."""
+    masks, refs, lum = zone_masks(a, rules)
+    alpha = a[..., 3]
+    out = a[..., :3].copy()
+    emit = None
+    for rule, m, ref in zip(rules, masks, refs):
         if m.sum() < 1:
             continue
-        ref = float((lum * m).sum() / m.sum())
         shade = np.clip(lum / max(ref, 0.02), 0.25, 1.9) ** rule.get('contrast', 1.0)
         col = srgb(rule['color'])[None, None, :] * shade[..., None]
         out = out * (1 - m[..., None]) + np.clip(col, 0, 1) * m[..., None]
@@ -418,4 +429,5 @@ def main():
         build(did, cast.CAST[did], preview)
 
 
-main()
+if __name__ == '__main__':
+    main()

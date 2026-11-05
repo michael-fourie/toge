@@ -9,6 +9,7 @@ import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, co
 import { clampDrift, driftPay, itemPay } from './drift.ts';
 import type { Item } from './powerups.ts';
 import type { NewBest } from './records.ts';
+import { decodeLook } from './look.ts';
 import { type Rider, cleanRider, defaultRider } from './rider.ts';
 import type { TrackId } from './track.ts';
 import { TRACK_DEFS } from './track.ts';
@@ -29,9 +30,12 @@ export interface Garage {
   cos: string[];
   /** Your driver (rider.ts): stands by your car at home and with your crew in a lobby. Free to change. */
   rider: Rider;
+  /** Your own driver as last made in the creator (a look code; '' before you've made one), kept while you drive a
+   * legend. */
+  look: string;
 }
 
-export const newGarage = (): Garage => ({ money: START_MONEY, cars: [newOwnedCar('pebble', 0)], sel: 0, races: 0, wins: 0, lastReward: 0, cos: [], rider: defaultRider() });
+export const newGarage = (): Garage => ({ money: START_MONEY, cars: [newOwnedCar('pebble', 0)], sel: 0, races: 0, wins: 0, lastReward: 0, cos: [], rider: defaultRider(), look: '' });
 
 /** Anything (stored JSON, a request body) to a valid garage. */
 export function cleanGarage(x: unknown): Garage {
@@ -47,6 +51,7 @@ export function cleanGarage(x: unknown): Garage {
   g.lastReward = whole(o.lastReward);
   g.cos = Array.isArray(o.cos) ? [...new Set(o.cos.filter((id) => cosById(id)))].slice(0, COS_ITEMS.length) as string[] : [];
   g.rider = cleanRider(o.rider);
+  g.look = typeof o.look === 'string' && decodeLook(o.look) ? o.look : '';
   // A car can only wear what the garage owns.
   const owned = new Set(g.cos);
   for (const c of g.cars) for (const s of COS_SLOTS) if (c.cos[s] && !owned.has(c.cos[s]!)) delete c.cos[s];
@@ -193,7 +198,8 @@ export type GarageAction =
   | { a: 'case'; id: CaseId }
   | { a: 'equip'; i: number; slot: CosSlot; id: string | null }
   | { a: 'plate'; i: number; text: string }
-  | { a: 'rider'; rider: Rider };
+  /** Who drives; `look` also saves your own driver (kept when you switch to a legend). */
+  | { a: 'rider'; rider: Rider; look?: string };
 
 /** `best`: a solo finish that set a new best time (filled in by the garage's keeper, not applyAction). */
 export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number; bonus?: { drift: number; items: number }; best?: NewBest | null } | { ok: false; error: string; best?: NewBest | null };
@@ -275,8 +281,10 @@ export function applyAction(g: Garage, act: GarageAction, rnd: () => number, now
       next.cars[act.i].plate = cleanPlate(act.text);
       return { ok: true, g: next };
     }
-    case 'rider':
-      return { ok: true, g: { ...g, rider: cleanRider(act.rider) } };
+    case 'rider': {
+      if (act.look !== undefined && !decodeLook(act.look)) return { ok: false, error: 'That look can’t be worn.' };
+      return { ok: true, g: { ...g, rider: cleanRider(act.rider), look: act.look ?? g.look } };
+    }
   }
   return { ok: false, error: 'Bad request.' };
 }

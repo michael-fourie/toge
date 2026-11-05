@@ -73,6 +73,17 @@ What each file does:
 
 Adding a driver: a spec in `cast.py`, an entry in `RIDER_IDS` / `RIDERS` (append), build it, run the tests.
 
+## Custom drivers
+
+Players can also build their own on the Driver page: `tools/drivers/wardrobe.py` builds six body bases and
+swappable parts with the same human, materials and kit code, and the client assembles them per look. See
+`docs/DRIVER_CREATOR.md` (plan and progress).
+
+```bash
+blender -b --python tools/drivers/wardrobe.py              # all six bases, ~3.5 min each
+blender -b --python tools/drivers/wardrobe.py -- --zones    # only colour zones
+```
+
 ## Licences
 
 The MakeHuman base mesh, its targets and the system assets are CC0, and so are characters made from them.
