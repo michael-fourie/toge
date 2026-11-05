@@ -12,6 +12,9 @@ import './cosmetics.css';
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 const rarityCss = (it: CosItem) => hex(RARITY[it.rarity].color);
 
+/** A decal's word on its swatch: whole if it's short, else its first word (glyphPx shrinks it to fit). */
+const shortText = (t: string) => (t.length <= 10 ? t : t.split(' ')[0].slice(0, 8));
+
 /** A CSS picture of an item for cards and reel tiles: a background and an optional glyph. */
 function swatch(it: CosItem): { bg: string; glyph?: string; glow?: string } {
   switch (it.slot) {
@@ -26,7 +29,7 @@ function swatch(it: CosItem): { bg: string; glyph?: string; glow?: string } {
       return { bg: `linear-gradient(135deg, ${hex(base)} 0 45%, ${hex(accent)} 45% 70%, ${hex(accent2)} 70%)`, glow: it.fx.glow ? hex(accent) : undefined };
     }
     case 'decal': {
-      const glyph = { wakaba: '🔰', momiji: '🍂', sakura: '🌸', bolt: '⚡', stars: '★', rising: '☀', shark: '🦈', kitsune: '🦊' }[it.fx.kind as string] ?? (it.fx.text ?? '').slice(0, 4);
+      const glyph = { wakaba: '🔰', momiji: '🍂', sakura: '🌸', bolt: '⚡', stars: '★', rising: '☀', shark: '🦈', kitsune: '🦊' }[it.fx.kind as string] ?? shortText(it.fx.text ?? '');
       return { bg: hex(it.fx.ink2), glyph, glow: it.fx.glow ? hex(it.fx.ink) : undefined };
     }
     case 'window':
@@ -50,16 +53,23 @@ function swatch(it: CosItem): { bg: string; glyph?: string; glow?: string } {
   }
 }
 
+/** Text on a swatch shrinks to fit its ~50 px (long decal words were cut to "DRIF"). */
+const glyphPx = (g: string) => Math.max(8, Math.min(16, Math.floor(92 / g.length)));
+
 function art(it: CosItem): string {
   const s = swatch(it);
   const ink = it.slot === 'plate' || it.slot === 'decal' ? hex(it.fx.ink) : it.slot === 'frame' ? '#1b1d22' : '#fff';
   const frame = it.slot === 'frame' ? `--fc:${hex(it.fx.color)};` : '';
-  return `<i class="cz-art ${it.slot}" style="${frame}background:${s.bg};${s.glow ? `--glow:${s.glow};` : ''}color:${ink}">${s.glyph ? `<b>${esc(s.glyph)}</b>` : ''}</i>`;
+  return `<i class="cz-art ${it.slot}" style="${frame}background:${s.bg};${s.glow ? `--glow:${s.glow};` : ''}color:${ink}">${s.glyph ? `<b style="font-size:${glyphPx(s.glyph)}px">${esc(s.glyph)}</b>` : ''}</i>`;
 }
 
-/** A card in the rarity's colour. */
-export function itemCard(it: CosItem, extra = ''): string {
-  return `<span class="cz-card ${it.rarity}" style="--r:${rarityCss(it)}">${art(it)}<b>${esc(it.name)}</b><small>${esc(SLOT_INFO[it.slot].name)} · ${RARITY[it.rarity].name}</small>${extra}</span>`;
+/**
+ * A card in the rarity's colour. `label` picks the caption: where a list already says the slot (the Locker's slot
+ * tabs) or the rarity (a case's tiers), it says only the other one, so it fits on one line.
+ */
+export function itemCard(it: CosItem, extra = '', label: 'both' | 'slot' | 'rarity' = 'both'): string {
+  const caption = label === 'slot' ? SLOT_INFO[it.slot].name : label === 'rarity' ? RARITY[it.rarity].name : `${SLOT_INFO[it.slot].name} · ${RARITY[it.rarity].name}`;
+  return `<span class="cz-card ${it.rarity}" style="--r:${rarityCss(it)}">${art(it)}<b>${esc(it.name)}</b><small>${esc(caption)}</small>${extra}</span>`;
 }
 
 const pct = (p: number) => (p * 100).toFixed(p < 0.01 ? 2 : 1) + '%';
@@ -80,7 +90,7 @@ function contents(box: CosCase, owned: Set<string>): string {
     .map((r) => {
       const tier = items.filter((i) => i.rarity === r);
       return `<h4 style="--r:${hex(RARITY[r].color)}">${RARITY[r].name} <small>${pct(o[r]!)} · ${pct(o[r]! / tier.length)} each</small></h4>
-        <div class="cz-grid">${tier.map((i) => itemCard(i, owned.has(i.id) ? '<em class="cz-owned">✓</em>' : '')).join('')}</div>`;
+        <div class="cz-grid">${tier.map((i) => itemCard(i, owned.has(i.id) ? '<em class="cz-owned">✓</em>' : '', 'slot')).join('')}</div>`;
     })
     .join('');
 }
@@ -158,7 +168,7 @@ export function lockerTab(g: Garage, car: OwnedCar, carName: string, slot: CosSl
         .map((it) => {
           const mine = owned.has(it.id);
           const state = it.id === on ? '<em class="cz-on">Equipped</em>' : mine ? '' : '<em class="cz-lock">🔒</em>';
-          return `<button class="cz-pick${mine ? '' : ' locked'}" data-cos="${it.id}" aria-pressed="${it.id === on || it.id === trying}" title="${mine ? 'Equip' : 'Try on'}">${itemCard(it, state)}</button>`;
+          return `<button class="cz-pick${mine ? '' : ' locked'}" data-cos="${it.id}" aria-pressed="${it.id === on || it.id === trying}" title="${mine ? 'Equip' : 'Try on'}">${itemCard(it, state, 'rarity')}</button>`;
         })
         .join('')}
     </div>
@@ -182,7 +192,7 @@ export function showCaseReel(modal: HTMLElement, box: CosCase, drop: CaseDrop, c
   const tiles = Array.from({ length: REEL_LEN }, (_, i) => (i === WIN ? won : rollCosCase(box.id, Math.random)));
   modal.innerHTML = `<div class="tg-reel-card cz-reel-card" data-nav-scope style="--c:${hex(box.color)}">
       <h2>Opening ${esc(box.name)}…</h2>
-      <div class="tg-reel cz-reel"><div class="tg-reel-strip">${tiles.map((t) => `<div class="cz-tile" style="--r:${rarityCss(t)}">${art(t)}<small>${esc(t.name)}</small></div>`).join('')}</div><i class="tg-reel-mark"></i></div>
+      <div class="tg-reel cz-reel"><div class="tg-reel-strip">${tiles.map((t, i) => `<div class="cz-tile${i === WIN ? ' won' : ''}" style="--r:${rarityCss(t)}">${art(t)}<small>${esc(t.name)}</small></div>`).join('')}</div><i class="tg-reel-mark"></i></div>
       <div class="cz-result" aria-live="polite"></div>
       <div class="cz-actions" hidden>
         <button class="tg-go small" data-cz="equip">Equip it</button>

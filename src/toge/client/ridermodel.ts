@@ -180,7 +180,8 @@ export function buildRider(r: Rider, opts: { ride?: boolean } = {}): RiderModel 
     const shoeStyle = r.shoes;
     const low = shoeStyle === 3;
     add(foot, CAPSULE(low ? 0.045 : 0.055, 0.17), shoe, [0, -0.03, 0.06], [1.05, low ? 0.85 : 1, 1], [Math.PI / 2, 0, 0]);
-    add(foot, BOX(), shoeStyle === 2 ? dark : sole, [0, -0.072, 0.06], [0.1, low ? 0.015 : 0.028, 0.27]);
+    // A rounded sole that hugs the shoe (a flat box stuck out past the toe and heel like a plank).
+    add(foot, CAPSULE(0.05, 0.17), shoeStyle === 2 ? dark : sole, [0, -0.062, 0.06], [1.12, low ? 0.22 : 0.34, 1.04], [Math.PI / 2, 0, 0]);
     if (shoeStyle === 1) add(foot, CYL(0.062, 0.066, 0.12), shoe, [0, 0.04, 0]);
     if (shoeStyle === 2) add(foot, CYL(0.07, 0.072, 0.2), shoe, [0, 0.07, -0.005]);
     if (shoeStyle === 0 || shoeStyle === 1) add(foot, BOX(), sole, [s * 0.052, -0.02, 0.06], [0.006, 0.02, 0.12]); // a side swoosh-free stripe
@@ -202,7 +203,7 @@ export function buildRider(r: Rider, opts: { ride?: boolean } = {}): RiderModel 
   if (jacket) {
     // Hem band, zip or snaps, collar.
     const hemC = r.top === 2 || r.top === 4 ? acc : top;
-    add(torso, CYL(0.18 * b * puff, 0.178 * b * puff, 0.05), hemC, [0, 0.0, 0], [1, 1, (0.125 * puff * Math.sqrt(b)) / (0.18 * b * puff)]);
+    add(torso, CYL(0.183 * b * puff, 0.188 * b * puff, 0.05), hemC, [0, 0.0, 0], [1, 1, (0.128 * puff * Math.sqrt(b)) / (0.183 * b * puff)]);
     add(torso, BOX(), r.top === 6 ? top : acc, [0, 0.27, chestZ * 0.97], [0.012, 0.42, 0.01]);
     if (r.top === 6) for (let i = 0; i < 4; i++) add(torso, LOWSPHERE(), acc, [0, 0.12 + i * 0.1, chestZ * 0.99], 0.009);
   }
@@ -231,7 +232,9 @@ export function buildRider(r: Rider, opts: { ride?: boolean } = {}): RiderModel 
   if (r.emblem) {
     const em = emblemMat(r.emblem, riderColor(r, 'emblemColor'), accC === riderColor(r, 'emblemColor') ? 0xe8e6e0 : accC);
     const plane = geo('plane', () => new THREE.PlaneGeometry(1, 1));
-    add(torso, plane, em, [0, 0.32, -chestZ * 0.97 - 0.004], [0.27 * b, 0.27 * b, 1], [0, Math.PI, 0]).castShadow = false;
+    // Printed on a patch of the chest's own curve (a flat card stuck out past the sides of the back).
+    const back = geo('emblemBack', () => new THREE.SphereGeometry(1, 16, 12, Math.PI * 1.5 - 0.85, 1.7, Math.PI / 2 - 0.62, 1.3));
+    add(torso, back, em, [0, 0.34, 0], [0.185 * b * puff * 1.03, 0.2 * 1.04, chestZ * 1.04]).castShadow = false;
     if (jacket) add(torso, plane, em, [-0.085 * b, 0.4, chestZ * 0.93], [0.07, 0.07, 1], [-0.25, -0.35, 0]).castShadow = false;
   }
 
@@ -328,21 +331,26 @@ export function buildRider(r: Rider, opts: { ride?: boolean } = {}): RiderModel 
       hairCap(1.05, true);
       for (const s of [1, -1]) {
         add(head, LOWSPHERE(), acc, [s * 0.1, 0.04, -0.04], 0.017);
-        add(head, CONE(), hair, [s * 0.13, -0.08, -0.05], [0.04, 0.24, 0.035], [0, 0, Math.PI - s * 0.18]);
+        add(head, SPHERE(), hair, [s * 0.14, -0.02, -0.05], [0.04, 0.055, 0.04], [0, 0, s * 0.3]);
+        add(head, CONE(), hair, [s * 0.155, -0.15, -0.055], [0.045, 0.2, 0.042], [0, 0, Math.PI - s * 0.12]);
       }
       if (!covered) add(head, SPHERE(), hair, [0, 0.07, 0.085], [0.092, 0.035, 0.04], [0.35, 0, 0]);
       break;
     case 8: // mohawk
       add(head, capTop, mat(mix(H, skinC, 0.55), 0.9), [0, 0, 0], [HX * 1.005, HY * 1.005, HZ * 1.005]);
       if (!covered)
-        for (let i = 0; i < 6; i++) {
-          const a = -0.9 + i * 0.36;
-          add(head, CONE(), hair, [0, Math.cos(a) * HY * 0.95, Math.sin(a) * HZ * 0.95], [0.022, 0.13, 0.05], [a, 0, 0]);
+        for (let i = 0; i < 8; i++) {
+          const a = -1.25 + i * 0.32;
+          const tall = 0.15 - Math.abs(a + 0.1) * 0.035;
+          add(head, CONE(), hair, [0, Math.cos(a) * HY * 0.93, Math.sin(a) * HZ * 0.93], [0.03, tall, 0.06], [a, 0, 0]);
         }
       break;
     case 9: // slicked back
       hairCap(1.035);
-      if (!covered) add(head, SPHERE(), hair, [0, 0.05, -0.04], [0.1, 0.085, 0.11]);
+      if (!covered) {
+        add(head, SPHERE(), hair, [0, 0.05, -0.04], [0.1, 0.085, 0.11]);
+        add(head, SPHERE(), hair, [0, 0.088, 0.03], [0.1, 0.05, 0.1], [-0.25, 0, 0]); // the swept-back front
+      }
       add(head, SPHERE(), hair, [0, -0.02, -0.095], [0.07, 0.05, 0.04]);
       break;
     case 10: // top knot
@@ -391,9 +399,14 @@ export function buildRider(r: Rider, opts: { ride?: boolean } = {}): RiderModel 
   const lens = mat(0x0a0b10, 0.08, 0.6, {}, 'lens');
   const ew_ = r.eyewear;
   if (ew_ === 1) {
-    for (const s of [1, -1]) add(head, BOX(), lens, [s * 0.038, 0.008, HZ * 0.97], [0.042, 0.026, 0.008], [0, s * 0.12, 0]);
-    add(head, BOX(), lens, [0, 0.016, HZ * 1.0], [0.03, 0.006, 0.006]);
-    for (const s of [1, -1]) add(head, BOX(), lens, [s * HX * 0.95, 0.015, 0.03], [0.006, 0.006, 0.12]);
+    // Rounded lenses in a thin frame (they were two black bricks).
+    const frame = mat(0x1a1a1e, 0.35, 0.4, {}, 'frame');
+    for (const s of [1, -1]) {
+      add(head, LOWSPHERE(), lens, [s * 0.039, 0.006, HZ * 0.96], [0.025, 0.017, 0.008], [0, s * 0.18, 0]);
+      add(head, BOX(), frame, [s * 0.039, 0.022, HZ * 0.97], [0.05, 0.005, 0.006], [0, s * 0.18, 0]);
+      add(head, BOX(), frame, [s * HX * 0.97, 0.018, 0.035], [0.004, 0.005, 0.115]);
+    }
+    add(head, BOX(), frame, [0, 0.016, HZ * 1.0], [0.022, 0.004, 0.004]);
   }
   if (ew_ === 2) {
     const visor = mat(0x6a54ff, 0.1, 1, { emissive: 0x220a40 }, 'visor');
@@ -456,11 +469,11 @@ export function buildRider(r: Rider, opts: { ride?: boolean } = {}): RiderModel 
   switch (r.pose) {
     case 0: // arms crossed
       for (const [a, s] of [[L, 1], [R, -1]] as const) {
-        set(a.shoulder, -0.3, 0, s * 0.14);
-        set(a.elbow, -1.62, -s * 1.15, 0);
+        // One forearm over the other, each hand tucked against the opposite arm.
+        set(a.shoulder, s === 1 ? -0.5 : -0.2, 0, s * 0.18);
+        set(a.elbow, -1.55, -s * 1.5, 0);
         a.hand.visible = s === 1;
       }
-      L.shoulder.rotation.x -= 0.1;
       headYaw = 0.15;
       break;
     case 1: // hands in pockets
@@ -534,7 +547,7 @@ export function buildRider(r: Rider, opts: { ride?: boolean } = {}): RiderModel 
       if (opts.ride) return;
       const tt = t + seed;
       const breath = Math.sin(tt * 1.6);
-      chest.scale.y = 0.27 * (1 + breath * 0.012);
+      chest.scale.y = 0.2 * (1 + breath * 0.012); // the chest's built height (it was 0.27: every idle frame stretched the chest into an egg)
       torso.rotation.x = breath * 0.008;
       torso.position.y = breath * 0.002;
       hips.rotation.z = 0.025 + Math.sin(tt * 0.35) * 0.012;

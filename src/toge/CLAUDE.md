@@ -84,6 +84,8 @@ a component or a page.
   8 tops from tees to souvenir jackets and long coats with a kanji back print, bottoms, shoes, headwear, eyewear, masks,
   neck pieces, gloves, 5 poses), all free, saved in the garage (`rider`, the `rider` action). Your driver stands by your car
   in the showroom (the Driver tab walks the camera in), and the lobby shows every racer's driver in the Crew row.
+  Michael wants this stylised, primitive-built look: the Blender "realistic drivers" (2026-11-02) were reverted on
+  2026-11-05 at his request, so don't swap the figures for imported models without asking him.
 - **Best times** (records.ts): every racer's quickest finish per track (`Bests`), whatever the mode or car. Accounts'
   live on the server (`b:<user>`, toge/server/recordStore.ts): online finishes go in from the room's results
   (`Accounts.raceTime`, then the room sends `records` so every client marks the new bests), solo ones ride on the `solo`
