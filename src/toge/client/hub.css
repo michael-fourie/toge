@@ -1492,6 +1492,13 @@ html:not(.pad) .tg-bumper {
 .tg-mode:disabled[aria-pressed='true'] {
   opacity: 1;
 }
+.tg-ghost-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.tg-ghost-note b {
+  color: var(--tg-text);
+}
 .tg-lobby .tg-tracks {
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
 }

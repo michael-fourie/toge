@@ -4,12 +4,13 @@
 
 import { CARS, CLASS_COLORS, PAINTS, carSpec, decodeCar, encodeCar, rating } from '../shared/cars.ts';
 import { current } from '../shared/garage.ts';
-import { CAR_RULES, PHYSICS, RACE, RACE_MODES, cleanMode, modeTracks, type CarRule, type RaceMode, type RaceServerMsg } from '../shared/protocol.ts';
+import { CAR_RULES, PHYSICS, RACE, RECORD_GHOST, RACE_MODES, cleanMode, modeTracks, type CarRule, type RaceMode, type RaceServerMsg } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { $, copy, esc, playerName } from '../../client/menu/ui.ts';
 import { garage } from './garageStore.ts';
 import { raceNet } from './racenet.ts';
+import { fmtTime } from './hud.ts';
 import { ICON, LOGO } from './brand.ts';
 import { trackClimb, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
@@ -49,7 +50,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     }
     const isHost = room.hostId === raceNet.id;
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
-    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : null;
+    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : null;
     const max = RACE.maxPlayers;
     const canPick = isHost && room.phase === 'lobby';
     const racers =
@@ -96,6 +97,11 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const physics = (['off', 'on'] as const)
       .map((k) => `<button class="tg-mode" data-physics="${k}" aria-pressed="${(k === 'on') === room.physics}" ${canPick ? '' : 'disabled'}><b>${esc(PHYSICS[k].name)}</b><small>${esc(PHYSICS[k].blurb)}</small></button>`)
       .join('');
+    // The record ghost: the track record's run rides along (the host's pick); say whose it'd be.
+    const ghost = (['off', 'on'] as const)
+      .map((k) => `<button class="tg-mode" data-ghost="${k}" aria-pressed="${(k === 'on') === !!room.ghost}" ${canPick ? '' : 'disabled'}><b>${esc(RECORD_GHOST[k].name)}</b><small>${esc(RECORD_GHOST[k].blurb)}</small></button>`)
+      .join('');
+    const ghostNote = !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
     const state =
       room.phase === 'lobby'
         ? isHost
@@ -108,7 +114,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
-          <div class="tg-lobby-title">${RACE_MODES[room.mode].name} lobby${room.physics ? ' · Physics' : ''}</div>
+          <div class="tg-lobby-title">${RACE_MODES[room.mode].name} lobby${room.physics ? ' · Physics' : ''}${room.ghost ? ' · Record ghost' : ''}</div>
           <div class="tg-roomcode"><small>Race<br />code</small><b class="tg-bigcode">${esc(room.code)}</b></div>
         </header>
         <section class="tg-lobby-body">
@@ -128,6 +134,9 @@ export const driveLobby: Render = (root, ctx, screen) => {
             ${rules}
             <h2 class="tg-h">${esc(PHYSICS.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${physics}</div>
+            <h2 class="tg-h">${esc(RECORD_GHOST.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
+            <div class="tg-modes">${ghost}</div>
+            ${ghostNote}
             <h2 class="tg-h">Track ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-tracks">${tracks}</div>
           </div>
@@ -148,6 +157,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     root.querySelectorAll<HTMLElement>('[data-mode]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'mode', mode: b.dataset.mode as RaceMode })));
     root.querySelectorAll<HTMLElement>('[data-rule]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cars', cars: b.dataset.rule as CarRule })));
     root.querySelectorAll<HTMLElement>('[data-physics]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'physics', on: b.dataset.physics === 'on' })));
+    root.querySelectorAll<HTMLElement>('[data-ghost]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'ghost', on: b.dataset.ghost === 'on' })));
     root.querySelector('[data-start]')?.addEventListener('click', () => raceNet.send({ t: 'start' }));
     root.querySelector('[data-addcpu]')?.addEventListener('click', () => raceNet.send({ t: 'cpu', op: 'add' }));
     root.querySelectorAll<HTMLElement>('[data-kick]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cpu', op: 'remove', id: Number(b.dataset.kick) })));
@@ -161,7 +171,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     else if (m.t === 'load') {
       starting = true;
       const room = raceNet.room!;
-      ctx.drive({ track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, racers: room.racers, rule: m.rule, cars: m.cars, physics: m.physics } });
+      ctx.drive({ track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, racers: room.racers, rule: m.rule, cars: m.cars, physics: m.physics, ghost: m.ghost } });
     } else if (m.t === 'error') {
       starting = true; // the socket is gone anyway
       ctx.replace({ name: 'drive', notice: m.message });

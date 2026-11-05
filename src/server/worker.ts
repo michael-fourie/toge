@@ -89,7 +89,8 @@ async function garageApi(req: Request, url: URL, accounts: DurableObjectStub<Acc
     const own = await accounts.garage(token);
     return Response.json({ garage: own?.garage ?? null, bests: own?.bests ?? null });
   }
-  const action = await jsonBody<GarageAction>(req, url, 2048);
+  // A solo finish carries its run for the record ghost (ghost.ts: at most ~110 KB of small ints).
+  const action = await jsonBody<GarageAction>(req, url, 160 * 1024);
   if (!action) return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
   return Response.json(await accounts.garageAct(token, action));
 }

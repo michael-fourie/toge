@@ -158,7 +158,7 @@ All in hub.css (cosmetics-specific ones, `.cz-*`, in cosmetics.css).
 | Status line | `.tg-status` | `role="status"`, gold; one per page, at the bottom of the rail. |
 | Track tile | `.tg-track` | Theme sky + painted backdrop + track map; selected = cyan frame. |
 | Modal | `.tg-modal` + `[data-nav-scope]` | Reels and confirmations. Esc / B closes when it's safe. |
-| Mode card | `.tg-modes` > `.tg-mode` | The lobby's big choices: mode (Race, Time trial, Hill climb) and the car rule. Name + one-line blurb; selected = cyan frame. The track grid under it shows only the tracks the mode runs (a Hill climb: its mountain). |
+| Mode card | `.tg-modes` > `.tg-mode` | The lobby's big choices: mode (Race, Time trial, Hill climb), the car rule, Physics and Record ghost (with a `.tg-ghost-note` under it naming whose run it is, or that the track has none yet). Name + one-line blurb; selected = cyan frame. The track grid under it shows only the tracks the mode runs (a Hill climb: its mountain). |
 | Crew | `.tg-crew` > `.tg-crew-m` | The lobby's row of drivers (portraits from riderportrait.ts) on a lit floor, name and car under each; yours is gold. |
 | Option card | `.tg-gfx` > `.tg-gfx-opt` | A big either/or with a list of what each choice means (Settings → Graphics). Picked = cyan frame + `aria-pressed`. |
 | Friend row | `.tg-friends` > `.tg-friend` | Initial in a ring (`.tg-friend-av`), name in the italic display face, a tag, pill actions. Remove takes two presses, like selling. |

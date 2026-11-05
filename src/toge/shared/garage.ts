@@ -3,6 +3,7 @@
 // runs it for signed-in players (their garage lives in the Accounts Durable Object), the client runs the
 // same code against localStorage for guests.
 
+import type { GhostTape } from './ghost.ts';
 import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part, type Tune, cleanCar, cleanLook, cleanTune, decodeCar, encodeCar, isCarId, newOwnedCar } from './cars.ts';
 import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, rollCosCase } from './cosmetics.ts';
 import { clampDrift, driftPay, itemPay } from './drift.ts';
@@ -185,9 +186,10 @@ export type GarageAction =
   | { a: 'sell'; i: number }
   /**
    * `drift`: drift points banked; `uses`: items used, per kind (both client-reported, clamped). `time`: your finish
-   * (s), for best times (records.ts; not part of applyAction, which only pays).
+   * (s), for best times (records.ts; not part of applyAction, which only pays). `ghost`: the run (ghost.ts), kept as
+   * the track's record ghost if the time is the new record.
    */
-  | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number; uses?: Partial<Record<Item, number>>; time?: number }
+  | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number; uses?: Partial<Record<Item, number>>; time?: number; ghost?: GhostTape }
   | { a: 'case'; id: CaseId }
   | { a: 'equip'; i: number; slot: CosSlot; id: string | null }
   | { a: 'plate'; i: number; text: string }

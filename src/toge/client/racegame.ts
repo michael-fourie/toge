@@ -14,7 +14,7 @@ import { SOLO_SHARE } from '../shared/garage.ts';
 import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
-import { type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, pointAt } from '../shared/track.ts';
+import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc, pointAt } from '../shared/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
 import { PropView, shieldBubble } from './propview.ts';
 import { type Obstacle, type Traffic, collideTraffic, getTraffic, trafficBetween } from '../shared/traffic.ts';
@@ -24,7 +24,9 @@ import { esc } from '../../client/menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
 import { type CarModel, INTERIOR, buildCar, ghostly } from './carmodel.ts';
 import { LAMP_DAY, LAMP_NIGHT, setLampLevel } from './carparts.ts';
-import { type Rider, decodeRider, defaultRider, rivalRider } from '../shared/rider.ts';
+import { type Rider, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
+import { GhostRecorder, type GhostRun } from '../shared/ghost.ts';
+import { GhostCar } from './ghostcar.ts';
 import { type Cockpit, buildCockpit } from './cockpit.ts';
 import { Head, ROUGH } from './headcam.ts';
 import { Effects } from './effects.ts';
@@ -49,7 +51,7 @@ export interface RaceSetup {
    * from their garage car). The car
    * waits on the line until every racer has loaded and the server sends the countdown.
    */
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean };
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null };
   /** Solo: how many AI rivals. */
   rivals?: number;
   /** Solo: Physics mode (crash damage, damage.ts). Online it comes with the race (`online.physics`). */
@@ -206,6 +208,13 @@ export class RaceGame {
   private me: Racing;
   private rivals: Racing[] = [];
   private remotes = new Map<number, Remote>();
+  /** Online, with the host's Record ghost on: the track record's run riding along, and its clock (s since GO). */
+  private recordGhost: GhostCar | null = null;
+  private ghostT = 0;
+  /** Where the record ghost is on the road (a circuit's samples run on lap after lap, so this counts laps too). */
+  private ghostLoc = newLoc();
+  /** Solo: your run, sent with the finish so a new track record keeps its ghost (the room records online runs). */
+  private tape = new GhostRecorder();
   private assists = loadAssists();
   private cam: Cam = (localStorage.getItem(CAM_KEY) as Cam) || 'chase';
   /** Chase camera: the (smoothed) direction it trails along, and its smoothed height above the car. */
@@ -349,6 +358,7 @@ export class RaceGame {
         this.rivals.push(bot);
         k++;
       }
+      if (online.ghost) this.recordGhost = new GhostCar(online.ghost, this.view.scene);
       this.countdown = RACE.countdownMs / 1000;
       this.held = true;
       this.offNet = online.net.on((m) => this.onNet(m));
@@ -955,6 +965,8 @@ export class RaceGame {
     }
     // Clock and finishing
     if (live && me.finished === null) this.time += TICK_DT;
+    if (this.phase !== 'countdown') this.ghostT += TICK_DT;
+    if (live && me.finished === null && !this.setup.online) this.tape.add(this.time, me.car.p, me.car.q);
     if (live && me.finished === null && me.car.s >= t.finishS) this.finish();
     if (live && me.finished === null && t.lap && lapOf(t, me.car.s) > this.lap) {
       this.lap = lapOf(t, me.car.s);
@@ -1085,12 +1097,14 @@ export class RaceGame {
     setTimeout(() => this.hud.countdown(null), 900);
     if (this.climb) this.hud.banner('Hill climb', this.carNote ? `${this.carNote} · first to the summit` : 'Watch for rockfall · first to the summit', 2600);
     else if (this.trial) this.hud.banner('Time trial', this.carNote ? `${this.carNote} · ghosts: drive straight through` : 'Ghost cars: drive straight through them', 2600);
+    else if (this.recordGhost) this.hud.banner('Record ghost', `${this.recordGhost.run.name} · ${fmtTime(this.recordGhost.run.time)}`, 2600);
     for (const r of [this.me, ...this.rivals]) r.car.gear = 1;
   }
 
   private finish() {
     const me = this.me;
     me.finished = this.time;
+    this.tape.add(this.time, me.car.p, me.car.q);
     if (this.track.lap) this.bestLap = Math.min(this.bestLap, this.time - this.lapStart);
     this.phase = 'finished';
     const ahead = [...this.rivals.filter((r) => r.finished !== null), ...[...this.remotes.values()].filter((r) => r.finished !== null)].length;
@@ -1133,7 +1147,7 @@ export class RaceGame {
     const behind = field.filter((r) => r.finished === null).sort((a, b) => b.car.s - a.car.s);
     const myPlace = done.indexOf(this.me) + 1;
     const drift = this.driftMeter.total;
-    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift, uses: this.uses, time: this.me.finished ?? undefined });
+    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift, uses: this.uses, time: this.me.finished ?? undefined, ghost: this.me.finished !== null ? { car: this.me.code, rider: encodeRider(this.setup.rider), d: this.tape.d } : undefined });
     this.myPrize = res.ok ? (res.paid ?? 0) : 0;
     const bonus = res.ok ? res.bonus : undefined;
     const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined, newBest: r === this.me ? res.best : undefined }));
@@ -1328,6 +1342,12 @@ export class RaceGame {
     if (this.watching === null) this.windFx(me.car, me.model.root);
     for (const r of this.remotes.values()) {
       this.poseRemote(r, now, dt);
+    }
+    const rg = this.recordGhost;
+    if (rg) {
+      rg.update(this.ghostT - (1 - alpha) * TICK_DT, dt);
+      if (!this.ghostLoc.s) this.ghostLoc.i = Math.round(this.track.startS / SAMPLE);
+      rg.s = locate(this.track, rg.position.x, rg.position.z, this.ghostLoc.i, this.ghostLoc).s;
     }
     this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT);
     const view = this.camTarget();
@@ -1590,6 +1610,8 @@ export class RaceGame {
     const dots: Dot[] = [{ s: c.s, me: true, color: me.color, x: c.p.x, z: c.p.z }];
     for (const r of this.rivals) dots.push({ s: r.car.s, me: false, color: r.color, x: r.car.p.x, z: r.car.p.z });
     for (const r of this.remotes.values()) dots.push({ s: r.s, me: false, color: r.color, x: r.model.root.position.x, z: r.model.root.position.z });
+    const rg = this.recordGhost;
+    if (rg) dots.push({ s: rg.s, me: false, color: rg.color, x: rg.position.x, z: rg.position.z });
     // Everyone in race order (finishers by time, then by distance down the road): your place, the board, the tags.
     type Who = { name: string; color: string; me: boolean; tag: Tag['id']; root: THREE.Object3D; height: number };
     const order = standings<Who>([
@@ -1598,7 +1620,9 @@ export class RaceGame {
       ...[...this.remotes.values()].map((r) => ({ who: { name: r.name, color: r.color, me: false, tag: r.id, root: r.model.root, height: CARS[r.spec.id].height - r.spec.cg }, finished: r.finished, progress: r.s })),
     ]);
     const followed = this.watching !== null && this.remotes.get(this.watching)?.last ? this.watching : 'me';
-    this.hud.tags(order.filter((e) => e.who.tag !== followed).map((e) => ({ id: e.who.tag, name: e.who.name, color: e.who.color, place: order.indexOf(e) + 1, at: this.tagAt(e.who.tag, e.who.root, e.who.height) })));
+    const tags: Tag[] = order.filter((e) => e.who.tag !== followed).map((e) => ({ id: e.who.tag, name: e.who.name, color: e.who.color, place: order.indexOf(e) + 1, at: this.tagAt(e.who.tag, e.who.root, e.who.height) }));
+    if (rg) tags.push({ id: 'record', name: `${rg.run.name} · ${fmtTime(rg.run.time)}`, color: rg.color, place: 'TR', at: this.tagAt('record', rg.model.root, rg.height) });
+    this.hud.tags(tags);
     this.hud.update({
       speed: speedOf(c),
       rpm: c.rpm,
@@ -1687,6 +1711,7 @@ export class RaceGame {
     this.hud.dispose();
     for (const r of [this.me, ...this.rivals]) r.model.dispose();
     for (const r of this.remotes.values()) r.model.dispose();
+    this.recordGhost?.dispose();
     for (const c of this.cockpits.values()) c.dispose();
     this.fx.dispose();
     this.blasts?.dispose();

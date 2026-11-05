@@ -4,6 +4,7 @@ import { payout, raceBonus } from '../shared/garage.ts';
 import type { Item } from '../shared/powerups.ts';
 import { cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
 import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, type CarRule, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
+import { GhostRecorder, type GhostRun, type GhostTape } from '../shared/ghost.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { guarded, type Socket } from '../../server/rooms.ts';
 
@@ -48,6 +49,8 @@ interface Member {
   drift: number;
   /** Items used this race, per kind (attack items as relayed, self items from `used`), for the bonus. */
   uses: Partial<Record<Item, number>>;
+  /** This race's run, from the poses they send (ghost.ts): kept as the record ghost if it sets the record. */
+  rec: GhostRecorder;
 }
 
 export const sendTo = (c: RaceClient, msg: RaceServerMsg) => {
@@ -73,6 +76,13 @@ export class Race {
   cars: CarRule = 'own';
   /** Physics mode: crash damage (damage.ts, run by each client for its own car). */
   physics = false;
+  /** The track record's ghost races too (the host's toggle). */
+  ghost = false;
+  /** The record ghost for `ghostOf` (null: that track has none), fetched when the host wants it. */
+  private ghostRun: GhostRun | null = null;
+  private ghostOf: TrackId | null = null;
+  /** Where record ghosts come from (the Accounts DO; tests pass their own). */
+  ghostSource: ((track: TrackId) => Promise<GhostRun | null>) | null = null;
   phase: RacePhase = 'lobby';
   private phaseEnds = 0;
   private goAt = 0;
@@ -92,8 +102,8 @@ export class Race {
     readonly code: string,
     private onChange: (r: Race) => void,
     private onEmpty: (r: Race) => void,
-    /** Results are in: pay the signed-in racers. */
-    private onResults: (rows: ResultRow[], users: Set<number>, track: TrackId) => void,
+    /** Results are in: pay the signed-in racers. `tapes`: each finisher's run, for the record ghost. */
+    private onResults: (rows: ResultRow[], users: Set<number>, track: TrackId, tapes: Map<number, GhostTape>) => void,
     private now: () => number = Date.now,
     tick = true,
     /** The dice for the spec car (tests pass their own). */
@@ -134,7 +144,7 @@ export class Race {
     // A driver of its own (one the host isn't using), like a solo race's rivals.
     const rider = encodeRider(rivalRider(decodeRider(host.rider) ?? defaultRider(), i));
     const client: RaceClient = { id, ws: NO_SOCKET, name: CPU.names[i], car, rider, user: false };
-    this.members.set(id, { client, cpu: true, state: null, racing: false, ready: false, time: null, best: null, raceCar: car, drift: 0, uses: {} });
+    this.members.set(id, { client, cpu: true, state: null, racing: false, ready: false, time: null, best: null, raceCar: car, drift: 0, uses: {}, rec: new GhostRecorder() });
   }
 
   /** Too many on the grid (someone joined, or it's time to start): the newest CPU racers make room. */
@@ -151,7 +161,7 @@ export class Race {
   add(c: RaceClient) {
     if (!decodeCar(c.car)) c.car = 'pebble.0.1.0.0.0.0.1.00000000';
     c.rider = cleanRiderCode(c.rider);
-    this.members.set(c.id, { client: c, cpu: false, state: null, racing: false, ready: false, time: null, best: null, raceCar: c.car, drift: 0, uses: {} });
+    this.members.set(c.id, { client: c, cpu: false, state: null, racing: false, ready: false, time: null, best: null, raceCar: c.car, drift: 0, uses: {}, rec: new GhostRecorder() });
     if (!this.hostId) this.hostId = c.id;
     // A full grid with CPU racers on it: one gives up its seat (in a race, they make room at the next start).
     if (this.phase === 'lobby' || this.phase === 'results') this.trimCpus();
@@ -228,6 +238,7 @@ export class Race {
           this.track = msg.track;
           this.broadcastRoom();
           this.onChange(this);
+          this.fetchGhost();
         }
         break;
       case 'mode':
@@ -238,6 +249,7 @@ export class Race {
           if (msg.mode !== 'race' || !!TRACK_DEFS[this.track].climb) this.track = MODE_TRACK[msg.mode];
           this.broadcastRoom();
           this.onChange(this);
+          this.fetchGhost();
         }
         break;
       case 'cars':
@@ -251,6 +263,13 @@ export class Race {
           this.physics = msg.on;
           this.broadcastRoom();
           this.onChange(this);
+        }
+        break;
+      case 'ghost':
+        if (c.id === this.hostId && this.phase === 'lobby' && typeof msg.on === 'boolean' && msg.on !== this.ghost) {
+          this.ghost = msg.on;
+          this.broadcastRoom();
+          this.fetchGhost();
         }
         break;
       case 'wreck':
@@ -325,6 +344,7 @@ export class Race {
     if (!okVec(msg.p, 3, 1e5) || !okVec(msg.q, 4, 2) || !okVec(msg.v, 3, 200) || !finite(msg.w, 50) || !finite(msg.s, 1e5) || !finite(msg.st, 2) || !finite(msg.ws, 1e3) || !finite(msg.rpm, 2e4) || !finite(msg.f, 1023)) return null;
     m.state = { id: m.client.id, p: msg.p, q: msg.q, v: msg.v, w: msg.w, s: msg.s, st: msg.st, ws: msg.ws, rpm: msg.rpm, f: msg.f | 0 };
     if (this.physics && finite(msg.dm, 0xffff)) m.state.dm = msg.dm! & 0xffff;
+    if (this.phase === 'racing') m.rec.add((this.now() - this.goAt) / 1000, msg.p, msg.q);
     return m.state;
   }
 
@@ -390,13 +410,15 @@ export class Race {
       m.state = null;
       m.drift = 0;
       m.uses = {};
+      m.rec = new GhostRecorder();
       grid[m.client.id] = slot++;
     }
     // Settle every racer's car for this race here, once, so a spec car's draw is the same for everyone.
     const rule: CarRule = cleanMode(this.mode) ? this.cars : 'own';
     const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })), this.rand());
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
-    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics });
+    const ghost = this.ghost && this.ghostOf === this.track ? this.ghostRun : null;
+    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics, ghost });
     this.broadcastRoom();
     this.onChange(this);
   }
@@ -454,7 +476,8 @@ export class Race {
     this.phaseEnds = now + RACE.resultsSeconds * 1000;
     for (const m of field) m.racing = false;
     this.broadcast({ t: 'results', track: this.track, mode: this.mode, rows });
-    this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track);
+    const tapes = new Map<number, GhostTape>(done.map((m) => [m.client.id, { car: m.raceCar, rider: m.client.rider, d: m.rec.d }]));
+    this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track, tapes);
     this.onChange(this);
   }
 
@@ -481,12 +504,30 @@ export class Race {
       this.phase = 'lobby';
       this.broadcastRoom();
       this.onChange(this);
+      // The race may have set a new record: race that one next.
+      this.fetchGhost();
     }
   }
 
   private room(): RaceServerMsg {
     const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user, ...(m.cpu ? { cpu: true } : {}) }));
-    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, phase: this.phase, racers };
+    const record = this.ghostOf === this.track && this.ghostRun ? { name: this.ghostRun.name, time: this.ghostRun.time } : null;
+    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers };
+  }
+
+  /** The host wants the record ghost: fetch the current track's (the lobby shows whose it is, or that there's none). */
+  private fetchGhost() {
+    if (!this.ghost || !this.ghostSource) return;
+    const track = this.track;
+    this.ghostSource(track).then(
+      (run) => {
+        if (this.track !== track) return;
+        this.ghostRun = run;
+        this.ghostOf = track;
+        this.broadcastRoom();
+      },
+      () => {},
+    );
   }
 
   /** Tells the room something the platform worked out after the fact (new best times). */

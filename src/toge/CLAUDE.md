@@ -100,6 +100,13 @@ a component or a page.
   results show a red "Track record" banner + tag (`.rh-record`, `.rh-tr`) and a `#4` all-time tag (`.rh-rank`).
   Read with `GET /api/leaderboard` (every track's record) or `?t=<track>` (its board); the page is Race → Leaderboard
   (leaderboardui.ts).
+- **Record ghost** (ghost.ts, client/ghostcar.ts): each track record keeps its run (`gh:<track>`, only while it's the
+  record; a record set without a usable run clears it). A run is the car's pose every `GHOST.every` s from GO (compact
+  ints, `cleanTape` checks it). Online runs are recorded by the room from the `state` poses (race.ts `Member.rec`,
+  handed to `onResults` as `tapes`); solo runs ride on the `solo` action as `ghost` (client-reported, like solo
+  times). The lobby host's Record ghost toggle (`{t:'ghost'}`, `RECORD_GHOST`) has the room fetch the track's ghost
+  (`Accounts.recordGhost`); the room message says whose it is (`record`) and `load` carries it. In the race it's a
+  see-through car with a "TR" name tag and a map dot, never a racer (no place, contact or prize).
 - **Friends** (the Friends tab, friendsui.ts): add accounts by username (site-wide lists, `src/shared/friends.ts`,
   `/api/friends`), see who added you, open a friend's garage (`/api/garage?u=`, a `TogeProfile`: cars, driver, races,
   wins, best times, no money). Their car goes on the turntable with their driver beside it, and their best times sit next
@@ -163,6 +170,7 @@ src/toge/shared/
                gets boxes only. A `climb` track gets rockfall instead (`placeRockfall`): boulders and rocks, each its own
                radius, bitten into the road's edges, always leaving `ROCKFALL_GAP` of clear tarmac; solid, and the AI
                steers round them by their radius. toge/client/propview.ts draws props, oil slicks, the shield bubble.
+  ghost.ts     record ghosts: GhostRecorder, the tape encoding, cleanTape / cleanRun, unpack + poseAt (playback).
   records.ts   best times: Bests per track, recordTime (keeps a time only if it beats the old one and is plausible: cleanTime,
                minTime), cleanBests, the all-time boards (BoardRow, BOARD, cleanBoard, placeOnBoard), and
                TogeProfile / profileOf (what a friend sees of your garage).
