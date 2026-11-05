@@ -166,12 +166,13 @@ All in hub.css (cosmetics-specific ones, `.cz-*`, in cosmetics.css).
 | New best | `.rh-pb` (race.css) | Gold tag before a finish time on the results: "New best −0.532". |
 | Player card | `.tg-pcard` (modal) | Your name top right opens it (on a phone, the icon). A trading card drawn on one canvas (playercard.ts) in these tokens: hanko + wordmark, your car and driver under neon, name, the car's class badge, three big numbers (wins, win rate, races), six small ones and personal bests, the kerb and "Own the pass." at the foot. Tilts toward the pointer with a sheen. Download PNG is the red action; Share (where the browser shares files), Account / Sign in, Close. |
 | Face | `.tg-face` | A racer's head cropped from their portrait, ringed in their car's paint. Grid rows. |
+| Loading screen | `.tg-loader` (loading.css) | Shown while a race builds (loading.ts, called from `drive()` in src/client/main.ts; Gambol keeps its own). Full bleed: the track theme's sky and painted backdrop rolling slowly forward under an ink shade, logo top left, the run ("Solo · 5 rivals", "Online race · 4 racers · Physics") as a glass chip top right, then the track's kind and length, its name huge, its tag and the kerb; the track map draws itself on the right in the theme accent. At the foot a cyan Tip, an indeterminate cyan sweep and "Own the pass.". Stays up at least 1.1 s, fades in 0.6 s. Tips live in loadingcopy.ts: one line, house voice, true to the game. |
 
 ## 8. Motion
 
 - Fast and directional: 160-240 ms, `cubic-bezier(.2,.8,.2,1)`. Page content slides in 12 px from the left as it
   appears; the hero fades up.
-- Reels and reveals are the only long animations (4-5 s), and they're skippable by Esc / B when finished.
+- Reels and reveals are the only long animations (4-5 s) besides the loading screen's slow backdrop roll, and they're skippable by Esc / B when finished.
 - Respect `prefers-reduced-motion`: no slides, reels jump straight to the result (cosmeticsui.ts already does).
 
 ## 9. Controllers, keyboard and accessibility

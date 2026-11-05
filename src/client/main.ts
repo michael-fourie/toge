@@ -11,6 +11,7 @@ import { play as playGame } from './menu/play.ts';
 import { driveHub } from '../toge/client/hub.ts';
 import { driveLobby } from '../toge/client/lobby.ts';
 import { RaceGame } from '../toge/client/racegame.ts';
+import { showTogeLoading } from '../toge/client/loading.ts';
 import { garage } from '../toge/client/garageStore.ts';
 import { current } from '../toge/shared/garage.ts';
 import { setMenuNav, startMenuNav } from './pad.ts';
@@ -142,7 +143,12 @@ async function drive(opts: DriveOpts) {
   leaveScreen?.();
   leaveScreen = null;
   router.mark({ name: 'game' });
-  const hide = showLoading();
+  const hide = showTogeLoading({
+    track: opts.track,
+    rivals: opts.rivals,
+    physics: opts.online ? opts.online.physics : opts.physics,
+    online: opts.online && { mode: opts.online.mode, racers: opts.online.racers.length },
+  });
   await nextPaint();
   app.innerHTML = '';
   game = new RaceGame({
