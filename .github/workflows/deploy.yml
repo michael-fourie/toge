@@ -1,0 +1,82 @@
+# Ships master to production at night, when nobody is playing.
+#
+# Why: Cloudflare restarts every Durable Object on each deploy, and that drops every open game (shooter matches,
+# races, plug-in rooms) at once. When every merge to master deployed, a busy day of merges meant a "random crash"
+# every few minutes. Now Cloudflare's production branch is `production` (Workers Builds > Branch control), and this
+# workflow moves `production` up to master:
+#   - every hour from 09:00 to 14:00 UTC (1-6 am Pacific), only if nobody is in a game right now;
+#   - or whenever someone runs it by hand (Actions > Deploy to production > Run workflow), with "even if people are
+#     playing" ticked to skip the check.
+# Setup and the manual route: docs/DEPLOYMENT.md, "When deploys happen".
+name: Deploy to production
+
+on:
+  schedule:
+    - cron: '0 9-14 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Deploy even if people are playing'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    env:
+      SITE: ${{ vars.SITE_URL || 'https://gambol.lol' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Anything new on master?
+        id: diff
+        run: |
+          if git rev-parse -q --verify origin/production >/dev/null && [ "$(git rev-parse origin/production)" = "$(git rev-parse HEAD)" ]; then
+            echo "production is already at master ($(git rev-parse --short HEAD))"
+            echo "ship=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "ship=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Is anyone playing?
+        id: live
+        if: steps.diff.outputs.ship == 'yes'
+        run: |
+          # Every open room lists its player count: the shooter's lobbies, races, and each plug-in game's rooms.
+          urls="$SITE/api/lobbies $SITE/api/races"
+          for d in src/games/*/; do
+            id=$(basename "$d")
+            case "$id" in _*) continue ;; esac
+            [ -f "$d/channel.ts" ] && urls="$urls $SITE/api/parties?game=$id"
+          done
+          total=0
+          for u in $urls; do
+            n=$(curl -fsS --max-time 20 "$u" | jq '[.[].players // 0] | add // 0') || { echo "could not read $u"; n=-1; }
+            if [ "$n" -lt 0 ]; then total=-1; break; fi
+            echo "$u: $n"
+            total=$((total + n))
+          done
+          echo "players=$total" >> "$GITHUB_OUTPUT"
+
+      - name: Move production to master
+        if: steps.diff.outputs.ship == 'yes'
+        env:
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force }}
+          PLAYERS: ${{ steps.live.outputs.players }}
+        run: |
+          if [ "$FORCE" != "true" ] && [ "$PLAYERS" != "0" ]; then
+            echo "Not deploying: players online = $PLAYERS (-1 means the site couldn't be checked). The next hourly run tries again."
+            exit 0
+          fi
+          git push --force origin HEAD:refs/heads/production
+          echo "production -> $(git rev-parse --short HEAD); Cloudflare builds and deploys it now."

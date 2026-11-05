@@ -1,10 +1,10 @@
 import { DurableObject } from 'cloudflare:workers';
-import { NET } from '../shared/constants.ts';
-import type { BattleMap, GameMode, LobbyInfo } from '../shared/protocol.ts';
-import type { RaceLobbyInfo } from '../shared/race/protocol.ts';
+import { NET } from '../gambol/shared/constants.ts';
+import type { BattleMap, GameMode, LobbyInfo } from '../gambol/shared/protocol.ts';
+import type { RaceLobbyInfo } from '../toge/shared/protocol.ts';
 import type { PartyInfo } from '../shared/party.ts';
 import { Limiter } from './limiter.ts';
-import { HEARTBEAT_SECONDS } from './lobby.ts';
+import { HEARTBEAT_SECONDS } from './rooms.ts';
 
 /** Entries older than this are dead lobbies (or reservations nobody connected to). */
 const EXPIRE_MS = HEARTBEAT_SECONDS * 3 * 1000;

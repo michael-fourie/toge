@@ -1,15 +1,20 @@
 # tests: node:test via tsx
 
 `npm test` runs `tsx --test` over an **explicit list** in package.json's `test` script (development is on Windows,
-where npm scripts don't expand globs). A new `tests/<name>.test.ts` does nothing until you add it to that list by name.
+where npm scripts don't expand globs). A new test file does nothing until you add it to that list by name.
+
+Layout: `tests/gambol/` for Gambol, `tests/toge/` for TŌGE, and `tests/` itself for the site and plug-ins (accounts,
+security, pad, party, snap, royal-degeneracy-*, and `boundaries`, which fails if Gambol and TŌGE import each other or
+`src/shared` imports a game).
 `tests/lobby.smoke.ts` is not in the list: `npm run smoke` runs it against a live server (`BASE=https://…`).
 
 Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs). On master both are green
-(461 tests as of 2026-11-02).
+(523 tests as of 2026-11-03).
 
 ## Patterns
 
-- Test pure functions from `src/shared` directly (movement, maps, rules, economy). That's why game rules live there.
+- Test pure functions from each game's `shared/` folder directly (movement, maps, rules, economy). That's why game
+  rules live there.
 - Server logic is tested without Cloudflare: build `Lobby`, `Race` or `Party` with fake sockets
   (`{ readyState: 1, send }`) and an injected clock; see "Testing server code" in `src/server/CLAUDE.md`.
 - Randomness: pass a seeded `rand` to the shared functions that take one (`rollCase`, `planZone`, `thinkBot`, …).
@@ -18,7 +23,7 @@ Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs
 
 ## What guards what
 
-| File | Guards |
+| File (in `tests/gambol/`, `tests/toge/` or `tests/`) | Guards |
 |---|---|
 | movement, slide, grapple | the player sim; the "Momentum" and "Air jumps" blocks must stay green |
 | map, rustworks, summit, dunevillage, crown, wildmere | spawns, pad landings, scripted traversal of every route |
@@ -26,6 +31,8 @@ Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs
 | survival, survivalplus, survivalfun, contraptions | Survival rules, perks, boss, revive, power, scythe, contraptions |
 | koth, teams, royale, bot, spawn, weapons, grenade | match modes, bots, guns |
 | accounts, security, loot, casino, levels, skin | accounts, server-side economy, input validation, stash rules |
-| racephysics, garage, raceroom, standings, raceinput, pad, headcam, cosmetics | TŌGE: every car down every track with the AI, economy, cosmetics and cases, race server, cockpit camera head |
+| racephysics, garage, raceroom, standings, raceinput, pad, headcam, cosmetics, records | TŌGE: every car down every track with the AI, economy, cosmetics and cases, race server, cockpit camera head, best times and friend profiles |
+| friends | friend lists (one-way adds, "added you", caps, bad names) |
 | party, snap, royal-degeneracy-* | plug-in game rooms and the plug-in games |
+| boundaries | the folder split: Gambol and TŌGE never import each other; `src/shared` imports no game |
 | achievements, killcam, speedfx, postgame, input, loadout | client-side pure logic (feats, replay timing, HUD maths, key handling, ammo) |

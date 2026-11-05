@@ -8,8 +8,8 @@
 // them (a short wall between): a flight climbs left to a half landing and doubles back, climbing right into the top hall. Doors are 1 m (a touch wider than
 // the real 0.85 m: Gambol's collider is 0.8 m wide with no step-up, and a real doorway would snag it).
 
-import type { Box } from '../../shared/collision.ts';
-import { PLAYER } from '../../shared/constants.ts';
+import type { Box } from '../../gambol/shared/collision.ts';
+import { PLAYER } from '../../gambol/shared/constants.ts';
 import type { Vec3 } from '../../shared/math.ts';
 
 export const WIDTH = 8.4;
@@ -704,6 +704,8 @@ export function wakeSpot(roomId: string, i: number): Vec3 {
     mikol: [[5.6, 15.5], [6.4, 17], [4.9, 17.4], [5.6, 18.6]],
     will: [[1.6, 15.4], [2.3, 15], [1.4, 16.6], [2.2, 17.6]],
     selby: [[2.2, 3.4], [1.5, 1], [2.4, 5.6], [1.4, 3.4]],
+    // Gare, just off the bus for homecoming: beside the front door, clear of its swing and the recycling.
+    porch: [[0.8, 21], [2.9, 21], [0.8, 21.6], [3, 21.5]],
   };
   const list = lists[roomId];
   if (list) {

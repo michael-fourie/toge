@@ -1,7 +1,7 @@
-// The characters as data (from CAST.md): the eight housemates, the two regulars and the guest. Name tags only; the
+// The characters as data (from CAST.md): the eight housemates, the two regulars, Gare (visiting) and the guest. Name tags only; the
 // shipped game never carries anything CAST.md keeps back. Pure: no three.js, no DOM.
 
-export const CHAR_IDS = ['dev', 'mikol', 'jung', 'xang', 'selby', 'wags', 'will', 'jj', 'nash', 'shota', 'guest'] as const;
+export const CHAR_IDS = ['dev', 'mikol', 'jung', 'xang', 'selby', 'wags', 'will', 'jj', 'nash', 'shota', 'gare', 'guest'] as const;
 export type CharId = (typeof CHAR_IDS)[number];
 
 type HairStyle = 'buzz' | 'short' | 'swept' | 'medium' | 'shaggy' | 'long' | 'verylong';
@@ -25,7 +25,7 @@ export interface Look {
 
 /** The facts clues are made of (DESIGN.md "Trait cards"). */
 export interface Traits {
-  notes: 'engineering' | 'computing' | 'teaching' | 'commerce' | 'science';
+  notes: 'engineering' | 'computing' | 'teaching' | 'commerce' | 'science' | 'trade';
   smoke: 'weed' | 'cigarettes' | 'none';
   temper: 'short fuse' | 'calm';
   room: 'spotless' | 'tidy' | 'messy' | 'chaos' | 'the couch';
@@ -246,6 +246,25 @@ export const CAST: Record<CharId, Character> = {
     traits: { notes: 'science', smoke: 'weed', temper: 'calm', room: 'messy', drinking: 'light', footprint: 'big', hairColour: 'black', hairLength: 'long' },
     belonging: 'a miniature bong',
     look: { skin: SKIN.warm, hair: '#0f0d0b', style: 'verylong', shirt: '#b8452f', trim: '#2b2b2b', pants: '#30323a', shoes: '#22252b', build: 1.15 },
+  },
+  gare: {
+    id: 'gare',
+    tag: 'Gare',
+    height: 180,
+    blurb: 'Shota’s friend from back home, in town for homecoming. An electrician who fought Muay Thai in Thailand.',
+    studies: 'Electrician (here to party)',
+    ability: { name: 'Trip Wire', text: 'Wires a motion sensor into a room’s lights for 60 s: anyone walking in, and he gets a text about their footsteps.' },
+    quirk: { name: 'Teep', text: 'Muay Thai: his shoves send people twice as far, and nobody can shove him.' },
+    catchphrase: '*BUUURP*',
+    lines: {
+      meeting: ['I’m just here for homecoming, boys.', 'I rewired your kitchen and this is the thanks I get?', 'Say that again. *cracks knuckles*'],
+      body: 'Oh. Oh no. Who turned the lights off on this guy?',
+      evicted: 'Fine. I’ll go party somewhere that appreciates me. *BURP*',
+    },
+    wake: 'porch',
+    traits: { notes: 'trade', smoke: 'none', temper: 'short fuse', room: 'messy', drinking: 'heavy', footprint: 'medium', hairColour: 'brown', hairLength: 'short' },
+    belonging: 'a roll of electrical tape',
+    look: { skin: SKIN.fair, hair: '#5a3a22', style: 'short', shirt: '#d9822b', trim: '#2b2b2b', pants: '#3c4a5e', shoes: '#2a2724', build: 1.08 },
   },
   guest: {
     id: 'guest',

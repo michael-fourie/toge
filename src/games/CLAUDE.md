@@ -22,7 +22,8 @@ The human guide (same rules, more explanation) is `docs/ADDING_A_GAME.md`.
 ## Rules (keep them; your game ships on a site your friends share)
 
 - **Stay in your folder.** Don't edit other games, `registry.ts`, `types.ts`, `party.ts` or anything under
-  `src/client`, `src/server` or `src/shared` unless the person you're working for asks for that specifically.
+  `src/client`, `src/server`, `src/shared`, `src/gambol` or `src/toge` unless the person you're working for asks for
+  that specifically.
   If the GameApi is missing something you need, say so rather than reaching around it.
 - **No new npm dependencies.** `three` (3D, WebGL: `new THREE.WebGLRenderer`, never WebGPU) is available.
   Otherwise plain TypeScript, DOM, 2D canvas, WebAudio.

@@ -1,8 +1,8 @@
-// The first-person walker on Gambol's collision (src/shared/collision.ts, imported as-is): walk, crouch, jump,
+// The first-person walker on Gambol's collision (src/gambol/shared/collision.ts, imported as-is): walk, crouch, jump,
 // stairs (walkable ramps), snapping down steps; no bhop, no air control. Ghosts fly through everything. Also the
 // gentle nudge apart when players overlap, and the shove's stagger. Pure: no three.js, no DOM.
 
-import { moveAndCollide, newContacts, snapToGround, type Box } from '../../shared/collision.ts';
+import { moveAndCollide, newContacts, snapToGround, type Box } from '../../gambol/shared/collision.ts';
 import { yawForward, yawRight, type Vec3 } from '../../shared/math.ts';
 
 export const WALK = {
@@ -153,10 +153,10 @@ export function nudgeApart(w: Walker, others: readonly Vec3[], dt: number, boxes
   w.pos.y = Math.max(w.pos.y, y);
 }
 
-/** Starts a shove's stagger away from `from` (horizontal). */
-export function shove(w: Walker, dir: { x: number; z: number }) {
+/** Starts a shove's stagger away from `from` (horizontal). `k` stretches it: Gare's teep (k = 2) goes twice as far. */
+export function shove(w: Walker, dir: { x: number; z: number }, k = 1) {
   const l = Math.hypot(dir.x, dir.z) || 1;
   w.push.x = (dir.x / l) * WALK.shoveSpeed;
   w.push.z = (dir.z / l) * WALK.shoveSpeed;
-  w.pushLeft = WALK.shoveTime;
+  w.pushLeft = WALK.shoveTime * k;
 }

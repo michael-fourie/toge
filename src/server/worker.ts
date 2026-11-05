@@ -1,18 +1,20 @@
 import type { Accounts } from './accounts.ts';
 import type { Directory } from './directory.ts';
-import type { RaceRoom } from './raceroom.ts';
+import type { RaceRoom } from '../toge/server/raceroom.ts';
 import type { PartyRoom } from './partyroom.ts';
 import { isGameId } from '../shared/party.ts';
-import type { LobbyRoom } from './room.ts';
-import type { GarageAction } from '../shared/race/garage.ts';
-import { CAR_CODE_MAX } from '../shared/race/cars.ts';
-import type { StashAction } from '../shared/stash.ts';
+import type { LobbyRoom } from '../gambol/server/room.ts';
+import type { GarageAction } from '../toge/shared/garage.ts';
+import { CAR_CODE_MAX } from '../toge/shared/cars.ts';
+import { RIDER_CODE_MAX } from '../toge/shared/rider.ts';
+import type { StashAction } from '../gambol/shared/stash.ts';
+import type { FriendAction } from '../shared/friends.ts';
 
 export { Accounts } from './accounts.ts';
 export { Directory } from './directory.ts';
-export { RaceRoom } from './raceroom.ts';
+export { RaceRoom } from '../toge/server/raceroom.ts';
 export { PartyRoom } from './partyroom.ts';
-export { LobbyRoom } from './room.ts';
+export { LobbyRoom } from '../gambol/server/room.ts';
 
 export interface Env {
   LOBBY: DurableObjectNamespace<LobbyRoom>;
@@ -75,13 +77,31 @@ async function accountApi(req: Request, url: URL, accounts: DurableObjectStub<Ac
   return Response.json({ ok: true, user: result.name }, { headers: { 'Set-Cookie': sessionCookie(result.token, url) } });
 }
 
-/** The driving game's garage: GET reads it, POST applies one action (crate, buy, paint...). Signed-in only. */
+/**
+ * The driving game's garage: GET reads yours and your best times (`?u=<name>`: a friend's profile instead), POST applies
+ * one action (crate, buy, paint...). Signed-in only.
+ */
 async function garageApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
   const token = readCookie(req);
-  if (req.method === 'GET') return Response.json({ garage: await accounts.garage(token) });
-  const action = await jsonBody<GarageAction>(req, url, 2048);
+  if (req.method === 'GET') {
+    const u = url.searchParams.get('u');
+    if (u !== null) return Response.json({ profile: await accounts.profile(token, u.slice(0, 16)) });
+    const own = await accounts.garage(token);
+    return Response.json({ garage: own?.garage ?? null, bests: own?.bests ?? null });
+  }
+  // A solo finish carries its run for the record ghost (ghost.ts: at most ~110 KB of small ints).
+  const action = await jsonBody<GarageAction>(req, url, 160 * 1024);
   if (!action) return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
   return Response.json(await accounts.garageAct(token, action));
+}
+
+/** Friends (site-wide): GET lists yours and who added you, POST `{a: 'add' | 'remove', name}`. Signed-in only. */
+async function friendsApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
+  const token = readCookie(req);
+  if (req.method === 'GET') return Response.json({ friends: await accounts.friends(token) });
+  const action = await jsonBody<FriendAction>(req, url, 256);
+  if (!action || typeof action !== 'object') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
+  return Response.json(await accounts.friendAct(token, action));
 }
 
 /**
@@ -118,7 +138,8 @@ async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, ur
   let car = (url.searchParams.get('car') ?? '').slice(0, CAR_CODE_MAX);
   if (user) car = await env.ACCOUNTS.getByName('all').raceCar(name, car);
   const target = new URL(req.url);
-  target.search = new URLSearchParams({ code, name, user: user ? '1' : '', car }).toString();
+  const rider = (url.searchParams.get('rider') ?? '').slice(0, RIDER_CODE_MAX);
+  target.search = new URLSearchParams({ code, name, user: user ? '1' : '', car, rider }).toString();
   return room.fetch(new Request(target, req));
 }
 
@@ -181,6 +202,8 @@ export default {
     if (url.pathname === '/api/lobbies') return Response.json(await dir.list());
     if (url.pathname === '/api/races') return Response.json(await env.DIRECTORY.getByName('race').listRaces());
     if (url.pathname === '/api/garage') return garageApi(req, url, env.ACCOUNTS.getByName('all'));
+    if (url.pathname === '/api/friends') return friendsApi(req, url, env.ACCOUNTS.getByName('all'));
+    if (url.pathname === '/api/leaderboard') return Response.json(await env.ACCOUNTS.getByName('all').leaderboard(url.searchParams.get('t')?.slice(0, 32) ?? null));
     if (url.pathname === '/api/stash') return stashApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/parties') {
       const game = url.searchParams.get('game');

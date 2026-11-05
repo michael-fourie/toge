@@ -4,10 +4,10 @@
 
 import { CAST, tagFor } from './cast.ts';
 import { caseById } from './cases.ts';
-import { BONGUS_RANGE, LOOKOUT_RANGE, NPC_SIGHT, POWERS, hiddenNear, plantedIn, powerOf, powerProblem, proof, recordRooms, routerLog, spend, teaFact } from './abilities.ts';
+import { BONGUS_RANGE, LOOKOUT_RANGE, NPC_SIGHT, POWERS, hiddenNear, lastRooms, plantedIn, powerOf, powerProblem, proof, recordRooms, routerLog, spend, teaFact, wireTrips } from './abilities.ts';
 import { CATS, ITEM, hint, inspect, label, nextRand, plant, post, search, traceable, unlock, valueOf, wipe } from './clues.ts';
 import { WALK, newWalker, stepWalker, type Walker } from './move.ts';
-import { rayWorld } from '../../shared/collision.ts';
+import { rayWorld } from '../../gambol/shared/collision.ts';
 import { BINBAG_DROP, DOORS, DUO_PAIRS, FLOOR_Y, REACH, ROOMS, SOLIDS, SPOTS, doorBox, floorOf, roomAt, type Door } from './house.ts';
 import { SABOTAGES, fixSabotage, lockedDoors, startSabotage, wifiDown } from './sabotage.ts';
 import type { Msg } from './net.ts';
@@ -40,6 +40,10 @@ import { PF } from './net.ts';
 import type { Vec3 } from '../../shared/math.ts';
 
 const SHOVE = { range: 1.5, slack: 0.8, cooldown: 3 };
+/** Gare's teep goes this much further than a shove. */
+const TEEP = 2;
+/** Gare burps every so often (roam s): the first one, then a gap of `gap` plus up to `spread`. */
+const BURP = { first: 25, gap: 30, spread: 35 };
 /** The host re-sends the public view this often anyway, so everyone's clocks stay in step. */
 const RESYNC = 2;
 
@@ -78,6 +82,8 @@ export class Referee {
   private sinceNpcs = 0;
   /** The raccoon: when it next gets in (roam), and its visit while it's inside. */
   private coonAt = 100;
+  /** When Gare next burps (roam). */
+  private burpAt = BURP.first;
   /** Friends helping someone up: per crashed player, who's helping, for how long, when we last heard. */
   private aids = new Map<number, { by: number; t: number; last: number }>();
   private coon: { c: Coon; until: number; rattle: number; took: boolean } | null = null;
@@ -151,7 +157,9 @@ export class Referee {
     if (this.sinceRooms > 1) {
       this.sinceRooms = 0;
       const live = new Map([...this.poses].filter(([id]) => { const p = playerOf(this.night, id); return !!p && living(p); }));
+      const before = lastRooms(this.night);
       recordRooms(this.night, live);
+      this.tickWire(before);
     }
     this.tickDuo();
     this.tickNpcs(dt);
@@ -166,6 +174,24 @@ export class Referee {
         this.broadcast(false);
       } else n.shirt.at = Infinity;
     }
+    // Gare's had a few: every so often, a burp everyone near him hears.
+    if (n.roam >= this.burpAt) {
+      this.burpAt = n.roam + BURP.gap + nextRand(n) * BURP.spread;
+      const gare = n.players.find((p) => p.char === 'gare' && living(p));
+      const pose = gare && this.poses.get(gare.id);
+      if (pose) this.out({ t: 'fx', k: 'burp', x: pose.x, y: pose.y, z: pose.z });
+    }
+  }
+
+  /** Trip Wire: a text (and a 3 s arrow) to Gare for everyone who walked into the wired room. */
+  private tickWire(before: ReadonlyMap<number, string | undefined>) {
+    const w = this.night.powers.wire;
+    const gare = w && playerOf(this.night, w.by);
+    if (!w || !gare || !living(gare)) return;
+    const room = ROOMS.find((r) => r.id === w.room)!;
+    const x = (room.min.x + room.max.x) / 2;
+    const z = (room.min.z + room.max.z) / 2;
+    for (const text of wireTrips(this.night, before)) this.out({ t: 'buzz', x, y: FLOOR_Y[room.floor], z, text }, w.by);
   }
 
   private pw(to: number, text: string, extra: { pos?: [number, number, number][]; ids?: number[]; until?: number } = {}) {
@@ -279,11 +305,19 @@ export class Referee {
         if (opened) this.out({ t: 'doors', open: [...this.open] });
         for (const [id, p] of this.poses) {
           const t = playerOf(n, id);
-          if (id === from || !t || !living(t) || dist(pose, p) > 2.2) continue;
+          if (id === from || !t || !living(t) || t.char === 'gare' || dist(pose, p) > 2.2) continue;
           const l = Math.hypot(p.x - pose.x, p.z - pose.z) || 1;
           this.out({ t: 'shoved', id, x: Math.round(((p.x - pose.x) / l) * 100) / 100, z: Math.round(((p.z - pose.z) / l) * 100) / 100 });
           this.out({ t: 'fx', k: 'oof', x: p.x, y: p.y, z: p.z });
         }
+        break;
+      }
+      case 'tripwire': {
+        const room = roomAt({ ...pose, y: pose.y + 0.1 });
+        if (!room) return;
+        spend(n, from);
+        n.powers.wire = { room: room.id, by: from, until };
+        this.pw(from, `Sensor wired into the lights in ${room.name}. For 60 s you’ll know when someone walks in.`);
         break;
       }
       case 'swab': {
@@ -464,10 +498,11 @@ export class Referee {
         if (this.clock - (this.shovedAt.get(from) ?? -99) < SHOVE.cooldown) return;
         if (dist(pose, them) > SHOVE.range + SHOVE.slack) return;
         this.shovedAt.set(from, this.clock);
+        if (t.char === 'gare') return this.pw(from, 'Gare doesn’t budge. He fought Muay Thai in Thailand.');
         const dx = them.x - pose.x;
         const dz = them.z - pose.z;
         const l = Math.hypot(dx, dz) || 1;
-        this.out({ t: 'shoved', id: m.to, x: Math.round((dx / l) * 100) / 100, z: Math.round((dz / l) * 100) / 100 });
+        this.out({ t: 'shoved', id: m.to, x: Math.round((dx / l) * 100) / 100, z: Math.round((dz / l) * 100) / 100, ...(me.char === 'gare' && { k: TEEP }) });
         this.out({ t: 'fx', k: 'oof', x: them.x, y: them.y, z: them.z });
         return;
       }
