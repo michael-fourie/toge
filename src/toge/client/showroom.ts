@@ -5,10 +5,10 @@
 
 import * as THREE from 'three';
 import { CARS, type OwnedCar, carSpec } from '../shared/cars.ts';
-import type { Rider } from '../shared/rider.ts';
+import { type Rider, encodeRider } from '../shared/rider.ts';
 import { padAxis } from '../../client/pad.ts';
 import { type CarModel, buildCar } from './carmodel.ts';
-import { type DriverRig, loadDriver } from './driver.ts';
+import { type RiderModel, buildRider } from './ridermodel.ts';
 import { Post } from './post.ts';
 import { frameGate, lowGraphics, LOW_PIXEL_RATIO } from '../../client/graphics.ts';
 import { stone } from './tracktextures.ts';
@@ -74,8 +74,8 @@ export class Showroom {
   private fx = 0.5;
   private fy = 0.5;
   private zoom = 1;
-  private rider: DriverRig | null = null;
-  private riderId: Rider | null = null;
+  private rider: RiderModel | null = null;
+  private riderCode = '';
   /** Where the driver stands on the turntable (x follows the car's width). */
   private riderAt = new THREE.Vector3(1.5, 0, -0.25);
   /** 0 = the car view, 1 = close on the driver; eases toward `focusOn`. */
@@ -184,22 +184,15 @@ export class Showroom {
     this.rider?.root.position.copy(this.riderAt);
   }
 
-  /** Puts your driver beside the car (loaded when the pick changes; the last one stays until the new one arrives). */
+  /** Puts your driver beside the car (rebuilt only when the look changes). */
   showRider(r: Rider) {
-    if (r === this.riderId) return;
-    this.riderId = r;
-    loadDriver(r, { shadows: !this.low }).then(
-      (rig) => {
-        if (this.riderId !== r || !this.canvas.isConnected) return rig.dispose();
-        this.rider?.dispose();
-        this.rider = rig;
-        rig.stand();
-        rig.root.position.copy(this.riderAt);
-        this.turntable.add(rig.root);
-        this.aim();
-      },
-      (e) => console.warn(`Driver ${r} did not load`, e),
-    );
+    const code = encodeRider(r);
+    if (code === this.riderCode) return;
+    this.riderCode = code;
+    this.rider?.dispose();
+    this.rider = buildRider(r);
+    this.rider.root.position.copy(this.riderAt);
+    this.turntable.add(this.rider.root);
   }
 
   /** Frame the car, or walk the camera in to the driver (the Driver page). */
@@ -263,7 +256,7 @@ export class Showroom {
     const f = this.focusK * this.focusK * (3 - 2 * this.focusK);
     // The close-up: where the driver ends up once the platform has turned (the camera's bearing, π/4).
     const r = Math.hypot(this.riderAt.x, this.riderAt.z);
-    const h = this.rider?.fit.height ?? 1.75;
+    const h = this.rider?.height ?? 1.75;
     const tx = r * Math.SQRT1_2;
     const near = d * 0.56;
     this.look.set(tx * f, 0.5 + (h * 0.5 - 0.5) * f, tx * f);
@@ -295,9 +288,8 @@ export class Showroom {
     this.focusK += ((onRider ? 1 : 0) - this.focusK) * Math.min(1, dt * 3.5);
     if (Math.abs(this.focusK - k0) > 1e-5) this.aim();
     if (this.rider) {
-      // The rig faces -Z (like the cars): half a turn more puts it facing out from the door.
-      this.rider.root.rotation.y = -Math.PI / 2 + 0.35 + this.riderYaw;
-      this.rider.update(dt);
+      this.rider.root.rotation.y = Math.PI / 2 + 0.35 + this.riderYaw;
+      this.rider.update(now / 1000);
     }
     this.post.render(now / 1000);
   };

@@ -14,8 +14,8 @@ import { equipped } from '../shared/cosmetics.ts';
 import type { Rider } from '../shared/rider.ts';
 import { curve } from './carloft.ts';
 import type { CarModel } from './carmodel.ts';
-import { MAT, glowMaterial, isShared, mergeByMaterial, paintMaterial, plateMaterial, rbox, stripeTexture, wheel } from './carparts.ts';
-import { arrive } from './driver.ts';
+import { MAT, glowMaterial, isShared, mergeByMaterial, paintMaterial, plateMaterial, rbox, share, stripeTexture, wheel } from './carparts.ts';
+import { buildRider } from './ridermodel.ts';
 import { caliperMaterial, cosPaint, cosPlateMaterial, exhaustMaterials, frameMaterial, coverMaterial, headMaterials, rimMaterial, windowMaterial } from './cosmeticsview.ts';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -314,13 +314,22 @@ export function buildBike(owned: OwnedCar, rider: Rider | null): CarModel {
   steerG.add(front.holder);
 
   // --- Rider ----------------------------------------------------------------------------------
-  // The racer's own driver (driver.ts) in the riding pose, hips on the saddle, hands on the bars; null leaves the
-  // saddle empty (the showroom stands your driver beside the bike instead). They sit in their own group, so the
-  // rider's-eye camera can hide them (racegame.ts reads root.userData.rider), and arrive once their model has
-  // loaded. Their meshes are every clone's: never merged, never disposed here.
-  const saddle = new THREE.Group();
-  saddle.position.set(0, 0.95, zF + 1.14); // the hip point, a hand above the saddle top
-  body.add(saddle);
+  // The racer's own driver (ridermodel.ts) in its riding pose, hips on the saddle, facing the bars; null leaves the
+  // saddle empty (the showroom stands your driver beside the bike instead). Its own group, so the rider's-eye camera
+  // can hide it (racegame.ts reads root.userData.rider). Its meshes and materials are the driver cache's, shared
+  // with every other driver on the page: never merged, never disposed here, and marked shared so a time-trial ghost
+  // fades copies of them, not the originals.
+  const figure = rider ? buildRider(rider, { ride: true }) : null;
+  const seat = v3(0, 0.9, zF + 1.14);
+  if (figure) {
+    figure.root.rotation.y = Math.PI;
+    figure.root.position.set(seat.x, seat.y - figure.hipY, seat.z);
+    figure.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && !Array.isArray(m.material)) share(m.material);
+    });
+    body.add(figure.root);
+  }
 
   // Cosmetic tints (screen, headlamps, calipers) and merging, like the cars.
   const swap = new Map<THREE.Material, THREE.Material>();
@@ -338,17 +347,13 @@ export function buildBike(owned: OwnedCar, rider: Rider | null): CarModel {
     const m = o as THREE.Mesh;
     if (m.isMesh && !Array.isArray(m.material)) m.material = swap.get(m.material) ?? m.material;
   });
-  mergeByMaterial(body, new Set([steerG, arm, rear.holder, saddle]));
+  mergeByMaterial(body, new Set([steerG, arm, rear.holder, ...(figure ? [figure.root] : [])]));
   mergeByMaterial(steerG, new Set([front.holder]));
   root.traverse((o) => {
     if ((o as THREE.Mesh).isMesh && o !== blob && !(o as THREE.Mesh).userData.glow) o.castShadow = true;
   });
-  root.userData.rider = saddle;
+  root.userData.rider = figure?.root;
   root.userData.lean = frame;
-  const seat = arrive(root, rider, (rig) => {
-    rig.ride();
-    saddle.add(rig.root);
-  });
 
   let shown = 0;
   const q = new THREE.Quaternion();
@@ -356,9 +361,6 @@ export function buildBike(owned: OwnedCar, rider: Rider | null): CarModel {
     root,
     // A bike leans, so its parts aren't in plain CG space: crash damage doesn't dent it (it still smokes and blows up).
     body: new THREE.Group(),
-    get driver() {
-      return seat.rig;
-    },
     pose(ws, steer, braking, lat = 0) {
       // Suspension: the wheels' centres (CG space) move the fork along its axis and swing the arm.
       const yF = (ws[0].y + ws[1].y) / 2 + sp.cg - R;
@@ -376,7 +378,7 @@ export function buildBike(owned: OwnedCar, rider: Rider | null): CarModel {
       tail.emissiveIntensity = braking ? 20 : 3;
     },
     dispose() {
-      seat.leave(); // the driver's geometry is every clone's: take it off before freeing the bike's own
+      figure?.dispose(); // the driver's geometry is the page-wide cache: take it off before freeing the bike's own
       root.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
