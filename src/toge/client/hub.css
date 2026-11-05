@@ -1288,6 +1288,52 @@ html:not(.pad) .tg-bumper {
   box-shadow: 0 0 0 3px var(--tg-cyan);
 }
 
+/* The driver creator (creator.ts): rows of pills and swatches under the driver cards. A dot shows a pill's colour
+   (skin tone, iris, metal); the last swatch of a row is a free colour picker: a ring round the current colour with
+   the native input on top. */
+.tg-creator .tg-label {
+  margin-top: 6px;
+}
+.tg-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--sw);
+}
+.tg-pill .tg-dot:only-child {
+  margin-right: 0;
+}
+.tg-sw-pick {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: conic-gradient(#f44, #fd4, #4f6, #4df, #46f, #f4f, #f44);
+}
+.tg-sw-pick::after {
+  content: '';
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--sw);
+}
+.tg-sw-pick input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.tg-sw-pick:focus-within {
+  box-shadow: 0 0 0 3px var(--tg-cyan);
+}
+
 /* Generic row (lobby, cosmetics) */
 .tg-row {
   display: flex;

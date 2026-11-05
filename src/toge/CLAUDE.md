@@ -86,6 +86,13 @@ a component or a page.
   camera in), and the lobby shows every racer's driver in the Crew row. AI rivals get the other three. Drivers are
   ~30k triangles: the race only draws those within `DRIVER_RANGE`. After changing one, rebuild it and keep
   `tests/toge/drivers.test.ts` green.
+- **Your own driver** (look.ts, docs/DRIVER_CREATOR.md): the Driver page's fifth card opens the creator (creator.ts):
+  six bodies, skin, eyes, brows, hair, 12 outfits with colour zones, shoes, up to five kit pieces (mech arms, gloves),
+  metal, leather, glow, wheel. A look is an `L2.` code and is itself a `Rider`, so it travels everywhere a legend's id
+  does; the garage also keeps it as `look` while you drive a legend. wardrobe.ts assembles it from
+  public/models/drivers/wardrobe (built by `tools/drivers/wardrobe.py`, Draco .gltf with shared textures; the decoder is
+  in public/draco/). `/dev/drivers.html` (`window.lab`) shows legends and looks side by side. Keep
+  `tests/toge/look.test.ts` green after a wardrobe rebuild.
 - **Best times** (records.ts): every racer's quickest finish per track (`Bests`), whatever the mode or car. Accounts'
   live on the server (`b:<user>`, toge/server/recordStore.ts): online finishes go in from the room's results
   (`Accounts.raceTime`, then the room sends `records` so every client marks the new bests), solo ones ride on the `solo`
@@ -166,9 +173,11 @@ src/toge/shared/
   records.ts   best times: Bests per track, recordTime (keeps a time only if it beats the old one and is plausible: cleanTime,
                minTime), cleanBests, the all-time boards (BoardRow, BOARD, cleanBoard, placeOnBoard), and
                TogeProfile / profileOf (what a friend sees of your garage).
-  rider.ts     your driver: RIDER_IDS / RIDERS (names, bios, glow colours), encode/decode/cleanRider, rivalRider. Racers
-               carry the id as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the
+  rider.ts     your driver: RIDER_IDS / RIDERS (names, bios, glow colours), a legend or a look code (`Rider`), riderInfo,
+               encode/decode/cleanRider, rivalRider. Racers carry the code as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the
                default, and old saves of the customisable drivers get it too).
+  look.ts      your own driver: the wardrobe catalogue, `Look`, encodeLook/decodeLook (`L2.` codes), withBase/withOutfit/
+               withKit, randomLook. Mirrors the wardrobe manifest (tests/toge/look.test.ts).
   cardstats.ts the player card's numbers: Highs (best drift race, top speed; toge/client/highs.ts keeps them in this
                browser as `atrous.highs`, racegame.ts `finish()` writes them, solo and online), noteHighs, bestBuild,
                winRate, cardBests (the newest few of your best times from records.ts).

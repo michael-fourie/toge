@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { RIDER_CODE_MAX, RIDER_IDS, RIDERS, cleanRider, cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } from '../../src/toge/shared/rider.ts';
+import { RIDER_CODE_MAX, RIDER_IDS, RIDERS, cleanRider, cleanRiderCode, decodeRider, defaultRider, encodeRider, riderInfo, rivalRider } from '../../src/toge/shared/rider.ts';
+import { decodeLook, encodeLook, randomLook } from '../../src/toge/shared/look.ts';
 import { applyAction, cleanGarage, newGarage } from '../../src/toge/shared/garage.ts';
 import { Race, type RaceClient } from '../../src/toge/server/race.ts';
 import type { RaceServerMsg } from '../../src/toge/shared/protocol.ts';
@@ -67,4 +68,35 @@ test('the race room shows everyone their crew and relays changes in the lobby', 
   const before = inbox.get(1)!.length;
   race.handle(b, { t: 'rider', rider: 'kirika' });
   assert.equal(inbox.get(1)!.length, before, 'no broadcast when nothing changed');
+});
+
+test('your own driver: a look code is a rider, travels intact, and the garage keeps it', () => {
+  const code = encodeLook(randomLook(() => 0.42));
+  assert.ok(code.length <= RIDER_CODE_MAX);
+  assert.equal(decodeRider(code), code);
+  assert.equal(cleanRiderCode(code), code);
+  assert.equal(cleanRiderCode(code.slice(0, -1) + 'z'), defaultRider(), 'a broken look becomes the default');
+  assert.equal(riderInfo(code).color, decodeLook(code)!.glow);
+  assert.equal(new Set([0, 1, 2, 3].map((i) => rivalRider(code, i))).size, 4, 'every legend races you');
+  const worn = applyAction(newGarage(), { a: 'rider', rider: code, look: code }, Math.random, 0);
+  assert.ok(worn.ok);
+  const back = applyAction(worn.g, { a: 'rider', rider: 'ines' }, Math.random, 0);
+  assert.ok(back.ok && back.g.rider === 'ines' && back.g.look === code, 'a legend keeps your look for later');
+  assert.equal(cleanGarage(JSON.parse(JSON.stringify(back.g))).look, code, 'survives a save');
+  assert.equal(applyAction(back.g, { a: 'rider', rider: 'ines', look: 'L2.forged' }, Math.random, 0).ok, false);
+  assert.equal(cleanGarage({ look: 'L2.forged' }).look, '');
+});
+
+test('the race room relays a custom driver like a legend', () => {
+  const inbox = new Map<number, RaceServerMsg[]>();
+  const race = new Race('ABCD', () => {}, () => {}, () => {}, () => 0, false);
+  const code = encodeLook(randomLook(() => 0.7));
+  inbox.set(1, []);
+  const a: RaceClient = { id: 1, ws: { readyState: 1, send: (d: string) => inbox.get(1)!.push(JSON.parse(d)) }, name: 'p1', car: 'shiro.0.1.0.0.0.0.1.00000000', rider: code, user: false };
+  race.add(a);
+  const room = () => inbox.get(1)!.filter((m) => m.t === 'room').at(-1) as Extract<RaceServerMsg, { t: 'room' }>;
+  assert.equal(room().racers[0].rider, code);
+  const next = encodeLook(randomLook(() => 0.2));
+  race.handle(a, { t: 'rider', rider: next });
+  assert.equal(room().racers[0].rider, next);
 });

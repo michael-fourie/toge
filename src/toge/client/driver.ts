@@ -9,7 +9,9 @@
 import * as THREE from 'three';
 import { type GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import type { Rider } from '../shared/rider.ts';
+import { decodeLook } from '../shared/look.ts';
+import { isLegend, type Legend, type Rider } from '../shared/rider.ts';
+import { assemble } from './wardrobe.ts';
 
 /** Measured once per driver. Seated: the eyes and the top of the head (hair and gear) from the hip point, +z behind
  * it. Standing: the height. */
@@ -21,14 +23,14 @@ interface Fit {
 
 type Clip = 'drive' | 'ride' | 'idle';
 
-const files = new Map<Rider, Promise<{ gltf: GLTF; fit: Fit }>>();
+const files = new Map<Legend, Promise<{ gltf: GLTF; fit: Fit }>>();
 
 /** Parts that only exist in the car. */
 const CAR_ONLY = /^(seat|wheel)_/;
 /** Parts nobody sees once seated (the feet are under the dash). */
 const LEGS_ONLY = /^shoes/;
 
-function load(id: Rider) {
+function load(id: Legend) {
   let p = files.get(id);
   if (!p) {
     p = new GLTFLoader().loadAsync(`/models/drivers/${id}.glb`).then((gltf) => {
@@ -45,7 +47,7 @@ function load(id: Rider) {
           }
         }
       });
-      return { gltf, fit: measure(gltf) };
+      return { gltf, fit: measure(gltf.scene, gltf.animations) };
     });
     p.catch(() => files.delete(id));
     files.set(id, p);
@@ -53,8 +55,8 @@ function load(id: Rider) {
   return p;
 }
 
-function clip(gltf: GLTF, name: Clip): THREE.AnimationClip {
-  const c = THREE.AnimationClip.findByName(gltf.animations, name);
+function clip(animations: THREE.AnimationClip[], name: Clip): THREE.AnimationClip {
+  const c = THREE.AnimationClip.findByName(animations, name);
   if (!c) throw new Error(`driver model has no '${name}' clip`);
   return c;
 }
@@ -74,11 +76,11 @@ function posedBox(scene: THREE.Object3D, only?: RegExp): THREE.Box3 {
 }
 
 /** Poses a throwaway clone at the centre of the drive clip, then standing, and reads where things end up. */
-function measure(gltf: GLTF): Fit {
-  const scene = cloneSkinned(gltf.scene);
+function measure(model: THREE.Object3D, animations: THREE.AnimationClip[]): Fit {
+  const scene = cloneSkinned(model);
   scene.rotation.y = Math.PI; // as the rigs turn it
   const mixer = new THREE.AnimationMixer(scene);
-  const drive = mixer.clipAction(clip(gltf, 'drive'));
+  const drive = mixer.clipAction(clip(animations, 'drive'));
   drive.play();
   drive.paused = true;
   drive.time = drive.getClip().duration / 2;
@@ -86,7 +88,7 @@ function measure(gltf: GLTF): Fit {
   const headTop = posedBox(scene).max.y;
   const eye = posedBox(scene, /^low-poly/).getCenter(new THREE.Vector3());
   drive.stop();
-  mixer.clipAction(clip(gltf, 'idle')).play();
+  mixer.clipAction(clip(animations, 'idle')).play();
   mixer.update(0);
   return { eye, headTop, height: posedBox(scene).max.y };
 }
@@ -101,8 +103,8 @@ export class DriverRig {
   private shown = 0;
   private mode: Clip = 'idle';
 
-  constructor(gltf: GLTF, fit: Fit, opts: { shadows?: boolean } = {}) {
-    const scene = cloneSkinned(gltf.scene);
+  /** `scene` becomes the rig's own; `owned`: materials made for this rig alone (a custom driver's), freed with it. */
+  constructor(scene: THREE.Object3D, animations: THREE.AnimationClip[], fit: Fit, opts: { shadows?: boolean } = {}, private owned: THREE.Material[] = []) {
     scene.rotation.y = Math.PI; // the file faces +Z; cars face -Z
     this.root.add(scene);
     this.root.name = 'rider';
@@ -118,7 +120,7 @@ export class DriverRig {
       if (LEGS_ONLY.test(m.name)) this.legs.push(m);
     });
     this.mixer = new THREE.AnimationMixer(scene);
-    this.actions = { drive: this.mixer.clipAction(clip(gltf, 'drive')), ride: this.mixer.clipAction(clip(gltf, 'ride')), idle: this.mixer.clipAction(clip(gltf, 'idle')) };
+    this.actions = { drive: this.mixer.clipAction(clip(animations, 'drive')), ride: this.mixer.clipAction(clip(animations, 'ride')), idle: this.mixer.clipAction(clip(animations, 'idle')) };
   }
 
   private use(mode: Clip, carParts: boolean, legs: boolean) {
@@ -168,13 +170,23 @@ export class DriverRig {
   dispose() {
     this.mixer.stopAllAction();
     this.root.removeFromParent();
+    for (const m of this.owned) m.dispose();
   }
 }
 
-/** A driver of your own. Geometry, materials and textures are shared between clones: never dispose them. */
+/**
+ * A driver of your own: a legend's GLB, or your own assembled from the wardrobe (wardrobe.ts). Geometry and textures
+ * are shared between rigs: never dispose them (a custom rig frees only its own materials, in `dispose()`).
+ */
 export async function loadDriver(id: Rider, opts?: { shadows?: boolean }): Promise<DriverRig> {
-  const { gltf, fit } = await load(id);
-  return new DriverRig(gltf, fit, opts);
+  if (isLegend(id)) {
+    const { gltf, fit } = await load(id);
+    return new DriverRig(cloneSkinned(gltf.scene), gltf.animations, fit, opts);
+  }
+  const look = decodeLook(id);
+  if (!look) throw new Error(`not a driver: ${id}`);
+  const a = await assemble(look);
+  return new DriverRig(a.scene, a.animations, measure(a.scene, a.animations), opts, a.owned);
 }
 
 /**
@@ -199,13 +211,17 @@ export function arrive(root: THREE.Object3D, rider: Rider | null, seat: (rig: Dr
         if (ghost !== undefined)
           rig.root.traverse((o) => {
             const m = o as THREE.Mesh;
-            if (!m.isMesh || Array.isArray(m.material)) return;
-            const c = m.material.clone();
-            c.transparent = true;
-            c.opacity *= ghost;
-            c.depthWrite = false;
-            st.faded.push(c);
-            m.material = c;
+            if (!m.isMesh) return;
+            // A custom driver's body has a material per group (skin, painted arm, gloves).
+            const fade = (src: THREE.Material) => {
+              const c = src.clone();
+              c.transparent = true;
+              c.opacity *= ghost;
+              c.depthWrite = false;
+              st.faded.push(c);
+              return c;
+            };
+            m.material = Array.isArray(m.material) ? m.material.map(fade) : fade(m.material);
           });
       },
       (e) => console.warn(`Driver ${rider} did not load`, e),

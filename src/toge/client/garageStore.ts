@@ -68,9 +68,12 @@ export const garage = {
       try {
         const r = (await (await fetch('/api/garage')).json()) as { garage: Garage | null; bests?: unknown };
         if (r.garage) {
+          const local = loadLocal();
           onServer = true;
           bests = cleanBests(r.bests);
           set(cleanGarage(r.garage));
+          // A guest who made their own driver and then signs in keeps it, unless the account already has one.
+          if (!g.look && local.look) void garage.act({ a: 'rider', rider: local.rider, look: local.look });
           return;
         }
       } catch {

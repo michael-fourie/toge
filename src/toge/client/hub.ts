@@ -7,7 +7,7 @@ import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MA
 import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, payout, tunerCost } from '../shared/garage.ts';
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById } from '../shared/cosmetics.ts';
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
-import { type Rider, RIDERS, decodeRider, defaultRider, encodeRider, isRider } from '../shared/rider.ts';
+import { type Rider, decodeRider, defaultRider, encodeRider, isRider, riderInfo } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
 import { cardData, openPlayerCard } from './playercard.ts';
 import { PHYSICS } from '../shared/protocol.ts';
@@ -21,6 +21,8 @@ import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { $, esc, playerName } from '../../client/menu/ui.ts';
+import { DEFAULT_LOOK, decodeLook, encodeLook, type Look as DriverLook } from '../shared/look.ts';
+import { lookAfter } from './creator.ts';
 import { garage } from './garageStore.ts';
 import { money } from './hud.ts';
 import { raceNet } from './racenet.ts';
@@ -95,6 +97,10 @@ export const driveHub: Render = (root, ctx, screen) => {
   /** A driver pick not saved yet (it saves a moment after the last change, like paint). */
   let riderDraft: Rider | null = null;
   let riderTimer = 0;
+  /** Your own driver while it's being made (saved with the rider, a moment after the last change). */
+  let lookDraft: DriverLook | null = null;
+  let lookShow = 0;
+  const ownLook = (): DriverLook => lookDraft ?? decodeLook(garage.g.look) ?? DEFAULT_LOOK;
   let saveTimer = 0;
   let listTimer = 0;
   let busy = false;
@@ -223,7 +229,7 @@ export const driveHub: Render = (root, ctx, screen) => {
     showroom.focus(page === 'driver' ? 'rider' : 'car');
     if (page === 'driver') {
       $(root, '[data-card]').innerHTML = driverCard(viewedRider());
-      $(root, '[data-stage-name]').innerHTML = `<small>Driver</small>${esc(RIDERS[viewedRider()].name)}`;
+      $(root, '[data-stage-name]').innerHTML = `<small>Driver</small>${esc(riderInfo(viewedRider()).name)}`;
     }
     const key = JSON.stringify([c.model, c.look, c.cos, c.plate]);
     if (key !== shown) {
@@ -423,7 +429,7 @@ export const driveHub: Render = (root, ctx, screen) => {
 
   const lockerPage = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
   const casesPage = () => casesTab(garage.g, status);
-  const driverPage = () => driverTab(viewedRider(), status);
+  const driverPage = () => driverTab(viewedRider(), ownLook(), status);
   const settingsPage = () => settingsTab(graphics(), status);
   const leaderboardPage = () => {
     if (account.user && !friendList) void loadFriends();
@@ -592,10 +598,36 @@ export const driveHub: Render = (root, ctx, screen) => {
     };
     panel.querySelectorAll<HTMLElement>('[data-rider]').forEach((b) =>
       b.addEventListener('click', () => {
-        const r = b.dataset.rider;
+        const r = b.dataset.rider === 'own' ? encodeLook(ownLook()) : b.dataset.rider;
         if (isRider(r)) setRider(r);
       }),
     );
+    // The creator: buttons redraw the page; a colour picker shows on the platform while it's dragged (no redraw, so
+    // it stays open) and redraws when closed.
+    const wear = (l: DriverLook, redraw: boolean) => {
+      lookDraft = l;
+      if (redraw) return setRider(encodeLook(l));
+      riderDraft = encodeLook(l);
+      clearTimeout(riderTimer);
+      riderTimer = window.setTimeout(flushRider, 700);
+      clearTimeout(lookShow);
+      lookShow = window.setTimeout(() => showroom.showRider(viewedRider()), 150);
+    };
+    panel.querySelectorAll<HTMLElement>('button[data-dl], [data-dl-random]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const l = lookAfter(ownLook(), b);
+        if (l) wear(l, true);
+      }),
+    );
+    panel.querySelectorAll<HTMLInputElement>('input[data-dl]').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const l = lookAfter(ownLook(), inp);
+        if (!l) return;
+        inp.parentElement!.style.setProperty('--sw', inp.value);
+        wear(l, false);
+      });
+      inp.addEventListener('change', () => draw());
+    });
     // Cosmetics: cases and the locker.
     if (page === 'cases') wireCases(panel, garage.g);
     panel.querySelectorAll<HTMLElement>('[data-case-open]').forEach((b) => b.addEventListener('click', () => void openCase(b.dataset.caseOpen as CaseId)));
@@ -722,8 +754,10 @@ export const driveHub: Render = (root, ctx, screen) => {
     clearTimeout(riderTimer);
     if (!riderDraft) return;
     const r = riderDraft;
-    void garage.act({ a: 'rider', rider: r }).then(() => {
+    const l = lookDraft;
+    void garage.act({ a: 'rider', rider: r, ...(l ? { look: encodeLook(l) } : {}) }).then(() => {
       if (riderDraft === r) riderDraft = null;
+      if (lookDraft === l) lookDraft = null;
     });
   };
   const flushDraft = () => {
@@ -940,6 +974,9 @@ function focusId(el: Element | null): string | null {
   if (look) return `[data-look="${look}"][data-v="${el.getAttribute('data-v')}"]`;
   const rider = el.getAttribute('data-rider');
   if (rider) return `[data-rider="${rider}"]`;
+  const dl = el.getAttribute('data-dl');
+  if (dl) return el.hasAttribute('data-pick') ? `input[data-dl="${dl}"]` : `button[data-dl="${dl}"][data-v="${el.getAttribute('data-v')}"]`;
+  if (el.hasAttribute('data-dl-random')) return '[data-dl-random]';
   for (const attr of ['data-track', 'data-rivals', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
