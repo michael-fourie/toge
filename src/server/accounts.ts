@@ -1,6 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { ActionResult, Garage, GarageAction } from '../toge/shared/garage.ts';
-import { modeTracks } from '../toge/shared/protocol.ts';
 import { type Bests, type BoardRow, type NewBest, type TogeProfile, cleanBests, profileOf } from '../toge/shared/records.ts';
 import type { TrackId } from '../toge/shared/track.ts';
 import type { GhostRun, GhostTape } from '../toge/shared/ghost.ts';
@@ -13,6 +12,9 @@ import { GarageStore } from '../toge/server/garageStore.ts';
 import { type ClearReport, RecordStore } from '../toge/server/recordStore.ts';
 import { Limiter } from './limiter.ts';
 import { StashStore } from '../gambol/server/stashStore.ts';
+
+/** The tracks `clearRaceRecords` wipes: Kōri Pass, Saltwind Cliffs and Red Mesa Rally. */
+const CLEAR_TRACKS: TrackId[] = ['koripass', 'saltwind', 'redmesa'];
 
 /**
  * One global Durable Object holds every account and session (fine for a group of friends). Password hashing
@@ -165,14 +167,14 @@ export class Accounts extends DurableObject {
 
   /**
    * Michael's one-off cleanup (`POST /api/admin/clear-race-records`): wipes every best time, board row and record ghost
-   * on the tracks a race can run (all but the hill climbs), since those may have been set with items before only time
-   * trials counted. Nothing records which mode a time came from, so they can't be told apart. `apply` false: only
-   * reports what would go.
+   * on `CLEAR_TRACKS`, where times set with items before only time trials counted are unbeatable (Michael picked the
+   * three, 2026-11-06; every other track keeps its times). Nothing records which mode a time came from, so they can't be
+   * told apart. `apply` false: only reports what would go.
    */
   async clearRaceRecords(apply: boolean): Promise<ClearReport> {
     await this.boardsBuilt();
     const users = [...(await this.ctx.storage.list({ prefix: 'b:' })).keys()].map((k) => k.slice(2));
-    return this.records.clear(modeTracks('race'), users, apply);
+    return this.records.clear(CLEAR_TRACKS, users, apply);
   }
 
   /** A race room keeps a signed-in racer's finish as a best time if it is one; the new best, or null. */

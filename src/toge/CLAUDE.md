@@ -115,7 +115,7 @@ a component or a page.
   items make their times unbeatable in a trial (Michael, 2026-11-06). Accounts' live on the server (`b:<user>`,
   toge/server/recordStore.ts): finishes go in from the room's results (`Accounts.raceTime`, only when `onResults`'
   `mode` is a record mode; then the room sends `records` so every client marks the new bests). Solo runs keep no
-  time. Bests set before this rule were wiped with `POST /api/admin/clear-race-records` (Accounts.clearRaceRecords,
+  time. Bests set before this rule on Kōri Pass, Saltwind and Red Mesa are wiped with `POST /api/admin/clear-race-records` (Accounts.clearRaceRecords,
   `RecordStore.clear`; docs/DEPLOYMENT.md). Guests keep theirs in localStorage
   (`garage.noteTime`, `atrous.bests`). The results screen tags a new best (`ResultLine.newBest`, gold "New best −0.532").
   Solo times are client-reported, so `cleanTime` refuses anything quicker than the track at `RECORDS.maxAvgSpeed`.

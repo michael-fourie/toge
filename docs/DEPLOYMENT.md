@@ -96,7 +96,7 @@ Send them the temporary password; they sign in and change it under Account -> Ch
 
 ### Clearing TŌGE best times set in races
 
-Since 2026-11-06 only time trials and hill climbs keep best times. Times from before that don't say which mode they came from, so the same key can wipe every best time, all-time board and record ghost on every track a race can run (hill-climb tracks are kept: they only ever ran item-free). Preview first, then apply:
+Since 2026-11-06 only time trials and hill climbs keep best times. Times from before that don't say which mode they came from, so the same key can wipe every best time, all-time board and record ghost on Kōri Pass, Saltwind Cliffs and Red Mesa Rally (`CLEAR_TRACKS` in src/server/accounts.ts, Michael's pick); every other track keeps its times. Preview first, then apply:
 
 ```bash
 curl -X POST https://gambol.lol/api/admin/clear-race-records -H "Authorization: Bearer <ADMIN_KEY>"
