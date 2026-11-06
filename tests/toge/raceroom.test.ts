@@ -521,3 +521,29 @@ test('the lobby garage: everyone sees who is editing their car, and their edits;
   r.race.handle(b, { t: 'pit', on: true });
   assert.ok(!r.race.room().racers.find((x) => x.id === 2)?.pit);
 });
+
+test('race again: the host can start the next race straight from the results; nobody else can', () => {
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  r.start(a, b);
+  r.advance(RACE.countdownMs + 100);
+  r.advance(60_000);
+  r.race.handle(a, { t: 'finish', time: 60.2 });
+  r.race.handle(b, { t: 'finish', time: 60.4 });
+  assert.equal(r.race.phase, 'results');
+  const loads = () => r.inbox.get(2)!.filter((m) => m.t === 'load').length;
+  const before = loads();
+  r.race.handle(b, { t: 'start' });
+  assert.equal(r.race.phase, 'results', 'only the host restarts');
+  r.race.handle(a, { t: 'start' });
+  assert.equal(r.race.phase, 'loading');
+  assert.equal(loads(), before + 1, 'everyone is sent off to load the next race');
+  const load = r.last(2, 'load');
+  assert.ok(load && load.t === 'load' && load.track === 'koripass' && Object.keys(load.grid).length === 2, 'same track, same field');
+  // It's a fresh race: nobody carries their finish over.
+  r.race.handle(a, { t: 'ready' });
+  r.race.handle(b, { t: 'ready' });
+  r.advance(RACE.countdownMs + 100);
+  assert.equal(r.race.phase, 'racing');
+});

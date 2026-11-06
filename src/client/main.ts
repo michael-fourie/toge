@@ -138,11 +138,12 @@ async function play(joined?: Joined, bots?: BotLevel) {
   hide();
 }
 
-/** Starts a TOGE race with the car you have selected. */
-async function drive(opts: DriveOpts) {
+/** Starts a TOGE race with the car you have selected. `again`: straight on from the last race (it already has the
+ * history entry Back leaves the race by). */
+async function drive(opts: DriveOpts, again = false) {
   leaveScreen?.();
   leaveScreen = null;
-  router.mark({ name: 'game' });
+  if (!again) router.mark({ name: 'game' });
   const hide = showTogeLoading({
     track: opts.track,
     rivals: opts.rivals,
@@ -163,6 +164,11 @@ async function drive(opts: DriveOpts) {
     onExit: (to, notice) => {
       game = null;
       router.replace(to === 'lobby' ? { name: 'drivelobby' } : { name: 'drive', notice });
+    },
+    // The host raced again from the results: on to the next race.
+    onNext: (next) => {
+      game = null;
+      void drive(next, true);
     },
   });
   await nextPaint();
