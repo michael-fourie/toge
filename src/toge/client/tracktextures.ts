@@ -140,10 +140,11 @@ const LITTER: Record<Theme, { colors: string[]; n: number; sand?: string }> = {
 /**
  * The road ribbon, across: verge | shoulder (with a concrete gutter at its outer edge) | asphalt with
  * edge lines and the centre line | mirrored. Down the road it covers `ROAD_TILE` metres and repeats.
- * Japanese passes get a solid yellow centre line (no overtaking), the rest a dashed white one.
+ * Japanese passes get a solid yellow centre line (no overtaking), the rest a dashed white one; a circuit (`circuit`)
+ * has only its edge lines, like a race track.
  */
 export const ROAD_TILE = 24;
-export function asphalt(theme: Theme, seed: number, aniso: number): Surface {
+export function asphalt(theme: Theme, seed: number, aniso: number, circuit = false): Surface {
   const W = 1024;
   const H = 2048;
   const L = layers(W, H);
@@ -273,12 +274,14 @@ export function asphalt(theme: Theme, seed: number, aniso: number): Surface {
   line(R0 + 10, 0, lw, H, '#e8e6dc');
   line(R1 - 10 - lw, 0, lw, H, '#e8e6dc');
   const yellow = theme !== 'coast' && theme !== 'desert';
-  if (yellow) line(W / 2 - lw / 2, 0, lw, H, '#e8a321');
+  if (circuit) {
+    // No centre line or lanes on a race track.
+  } else if (yellow) line(W / 2 - lw / 2, 0, lw, H, '#e8a321');
   else for (let y = 0; y < H; y += pxPerM * 8) line(W / 2 - lw / 2, y, lw, pxPerM * 3, '#e8e6dc');
   // City streets have four lanes: dashed white lines between each pair.
-  if (theme === 'city') for (const lx of [R0 + (R1 - R0) / 4, R0 + ((R1 - R0) * 3) / 4]) for (let y = 0; y < H; y += pxPerM * 12) line(lx - lw / 2, y, lw, pxPerM * 5, '#e8e6dc');
+  if (theme === 'city' && !circuit) for (const lx of [R0 + (R1 - R0) / 4, R0 + ((R1 - R0) * 3) / 4]) for (let y = 0; y < H; y += pxPerM * 12) line(lx - lw / 2, y, lw, pxPerM * 5, '#e8e6dc');
   // Worn paint: chips of asphalt showing through every line.
-  for (const lx of [R0 + 10, R1 - 10 - lw, W / 2 - lw / 2])
+  for (const lx of circuit ? [R0 + 10, R1 - 10 - lw] : [R0 + 10, R1 - 10 - lw, W / 2 - lw / 2])
     for (let i = 0; i < 260; i++) {
       const x = lx + rnd() * lw;
       const y = rnd() * H;

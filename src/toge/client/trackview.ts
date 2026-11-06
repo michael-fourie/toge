@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import { CUT_HALF, type Crossing, SAMPLE, SHOULDER, type Theme, type Track, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
+import { CUT_HALF, type Crossing, SAMPLE, SHOULDER, type Theme, type Track, type TrackId, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
 import type { Grade } from './post.ts';
 import { decor, type Site } from './scenery.ts';
 import { BUSH_COLOURS, WIND, bushGeometry, speciesFor, sway } from './trees.ts';
@@ -68,6 +68,19 @@ const LOOKS: Record<Theme, Look> = {
   spring: { skyGain: 0.5, clouds: [0.35, 0.35], backdrop: 'spring', sun: [28, 160], turbidity: 3, rayleigh: 1.8, fog: 0xdcdfec, fogDensity: 0.00034, exposure: 0.44, grass: [0.22, 0.38, 0.12], grassDry: [0.38, 0.44, 0.2], rock: [0.5, 0.48, 0.46], verge: [0.32, 0.4, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.1, whiteRail: true, grade: grade({ saturation: 0.98, shadows: [0.93, 0.95, 1.08], highlights: [1.05, 1.0, 0.97] }) },
 };
 
+/**
+ * A track's own look, over its theme's. Keep fog as the theme's, since the painted backdrop's haze is the theme's
+ * fog colour.
+ */
+const TRACK_LOOKS: Partial<Record<TrackId, Partial<Look>>> = {
+  // Minato Street is floodlit: a brighter, whiter fill than Neon Bay's streets.
+  minato: { light: 0xe4ebff, lightPower: 0.85, hemi: 0.6, exposure: 1.0 },
+  // Kazeoka Dunes: sand-coloured dune grass and a thin scatter of pines.
+  kazeoka: { grass: [0.7, 0.6, 0.32], grassDry: [0.9, 0.76, 0.5], verge: [0.66, 0.58, 0.36], forest: -0.32 },
+  // Akane Sands races in the late sun: low in the west, its light gone gold.
+  akane: { sun: [11, 250], turbidity: 12, rayleigh: 1.3, light: 0xffb26a, lightPower: 2.3, hemi: 0.5, skyGain: 0.6, clouds: [0.3, 0.35], exposure: 0.5, grade: grade({ contrast: 1.16, saturation: 1.05, shadows: [0.86, 0.92, 1.12], highlights: [1.14, 0.99, 0.84] }) },
+};
+
 export interface TrackView {
   scene: THREE.Scene;
   sun: THREE.DirectionalLight;
@@ -88,7 +101,7 @@ const HORIZON_FADE = [3200, 5200];
 
 export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low = false): TrackView {
   const t = lapView(road); // a circuit is drawn once round
-  const look = LOOKS[t.def.theme];
+  const look: Look = { ...LOOKS[t.def.theme], ...TRACK_LOOKS[t.def.id] };
   const scene = new THREE.Scene();
   const disposables: { dispose(): void }[] = [];
   const keep = <T extends { dispose(): void }>(x: T) => (disposables.push(x), x);
@@ -294,7 +307,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
 
   // --- Road ribbon (chunks of ~200 m)
   // At night the road is damp: the same textures, glossier, so the lamps and headlights streak on it.
-  const roadTex = asphalt(t.def.theme, t.def.seed, aniso);
+  const roadTex = asphalt(t.def.theme, t.def.seed, aniso, !!t.lap);
   for (const tex of Object.values(roadTex)) keep(tex);
   const roadMat = keep(new THREE.MeshStandardMaterial({ ...roadTex, normalScale: new THREE.Vector2(0.9, 0.9), roughness: look.moon ? 0.62 : 1, metalness: 0, envMapIntensity: look.moon ? 2.5 : 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   const gravelTex = gravel(t.def.theme, t.def.seed, aniso);
@@ -345,6 +358,9 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     m.receiveShadow = true;
     scene.add(m);
   }
+
+  // --- Kerbs on a circuit's bends
+  if (t.lap) kerbs(scene, t, keep);
 
   // --- Runoff: dirt laid over the verge before the barrier, widening and narrowing with it.
   const dirtMat = keep(new THREE.MeshStandardMaterial({ ...gravelTex, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
@@ -536,7 +552,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   // --- Forests and rocks, villages, and the houses, poles, shrines, signs and landmarks outside the barriers
   const forestAt = (x: number, z: number) => fbm(x / 140, z / 140, t.def.seed + 11, 3) + (look.forest ?? (t.def.theme === 'alpine' ? 0.15 : -0.05)) + (t.def.climb ? 0.2 : 0);
   const props = decor(scene, t, keep, { night: !!look.moon, low, forestAt, area: inner });
-  if (t.def.theme === 'city') city(scene, t, rng, inner, keep);
+  if (t.def.theme === 'city') city(scene, t, rng, inner, keep, props.sites);
   else {
     scatter(scene, t, look, rng, inner, keep, low, forestAt, props.sites);
     village(scene, t, rng, keep, !!look.moon);
@@ -791,7 +807,7 @@ function scatter(
 }
 
 /** Downtown: a tower on every block (tallest near the start), lit offices, neon signs over the street, street lamps, red beacons on top. */
-function city(scene: THREE.Scene, t: Track, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T) {
+function city(scene: THREE.Scene, t: Track, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T, sites: Site[] = []) {
   const fac = towerFacade(t.def.seed);
   keep(fac.map);
   keep(fac.glow);
@@ -832,9 +848,12 @@ function city(scene: THREE.Scene, t: Track, rng: () => number, area: { x0: numbe
           const pts: [number, number][] = [];
           for (const fx of [-0.5, 0, 0.5]) for (const fz of [-0.5, 0, 0.5]) pts.push([cx + fx * w, cz + fz * d]);
           if (!pts.every(([px, pz]) => clear(px, pz, 4))) continue;
+          // Keep off what scenery.ts put there (a circuit's pits, its big wheel).
+          if (sites.some((o) => Math.hypot(o.x - cx, o.z - cz) < o.r + Math.max(w, d) / 2)) continue;
           let floor = Infinity;
           for (const [px, pz] of pts) floor = Math.min(floor, heightAt(t, px, pz));
-          if (t.def.water !== undefined && floor < t.def.water + 1) continue;
+          // (A street circuit keeps its waterfront open: no towers on the low ground by the sea.)
+          if (t.def.water !== undefined && floor < t.def.water + (t.lap ? 6 : 1)) continue;
           const y0 = floor - 3;
           const downtown = 1 - THREE.MathUtils.smoothstep(Math.hypot(cx - sx, cz - sz), 300, 1500);
           const h = 12 + rng() ** 2 * (40 + 130 * downtown) + (roadDistance(t, cx, cz) < t.edgeMax + 40 ? 10 : 0);
@@ -1297,6 +1316,66 @@ function noiseNormal(size: number) {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   return tex;
+}
+
+/**
+ * Red-and-white kerbs over the shoulder on a circuit's bends, both sides, a little proud of the road (drawn only:
+ * the physics' road is the plane under them). One mesh for the lap.
+ */
+function kerbs(scene: THREE.Scene, t: Track, keep: <T extends { dispose(): void }>(x: T) => T) {
+  const on = new Uint8Array(t.n);
+  for (let i = 0; i < t.n; i++) if (Math.abs(t.curv[i]) > 1 / 230) for (let j = Math.max(0, i - 7); j <= Math.min(t.n - 1, i + 7); j++) on[j] = 1;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  // Across: from just inside the white line out over the shoulder; the middle stands proud.
+  const across = [[t.half - 0.15, 0.02, 0], [t.half + 0.5, 0.075, 0.5], [t.half + 1.15, 0.04, 1]];
+  for (const side of [-1, 1])
+    for (let i = 0; i < t.n; i++) {
+      if (!on[i] || (i > 0 && on[i - 1])) continue;
+      let i1 = i;
+      while (i1 + 1 < t.n && on[i1 + 1]) i1++;
+      if (i1 - i < 3) continue;
+      const base = pos.length / 3;
+      for (let k = i; k <= i1; k++) {
+        // Ends taper into the road over a few metres.
+        const fade = Math.min(1, (k - i) / 3, (i1 - k) / 3);
+        for (const [d0, lift] of across) {
+          const d = side * d0;
+          pos.push(t.x[k] - t.tz[k] * d, t.y[k] - t.bank[k] * d + 0.03 + lift * fade, t.z[k] + t.tx[k] * d);
+        }
+        for (const [, , u] of across) uv.push(u, (k * SAMPLE) / 2);
+        if (k < i1) {
+          const a = base + (k - i) * 3;
+          for (let c = 0; c < 2; c++) {
+            if (side > 0) idx.push(a + c, a + c + 1, a + c + 3, a + c + 1, a + c + 4, a + c + 3);
+            else idx.push(a + c, a + c + 3, a + c + 1, a + c + 1, a + c + 3, a + c + 4);
+          }
+        }
+      }
+    }
+  if (!idx.length) return;
+  const geo = keep(new THREE.BufferGeometry());
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const c = document.createElement('canvas');
+  c.width = 8;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#c8231c';
+  g.fillRect(0, 0, 8, 32);
+  g.fillStyle = '#ece9e2';
+  g.fillRect(0, 32, 8, 32);
+  const tex = keep(new THREE.CanvasTexture(c));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.NearestFilter;
+  tex.anisotropy = 4;
+  const m = new THREE.Mesh(geo, keep(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })));
+  m.receiveShadow = true;
+  scene.add(m);
 }
 
 function chevronTexture() {
