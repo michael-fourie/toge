@@ -101,7 +101,10 @@ class Canvas:
             pal = np.array(cols)[pick]
             m = (smooth(0.4, 1.4, n) * amount)[..., None]
             col = col * (1 - m) + pal * m
-        h_amt = np.clip(haze_amt + mist * depth, 0, 1)[..., None]
+        # Every ridge's foot melts into the haze toward the horizon row, so where the strip meets the real terrain
+        # (faded into the same fog colour, trackview.ts HORIZON_FADE) there's no hard straight line.
+        foot = smooth(0.03, -0.012, Y)[:, None] ** 1.5
+        h_amt = np.clip(np.maximum(haze_amt + mist * depth, foot), 0, 1)[..., None]
         col = col * (1 - h_amt) + haze * h_amt
         self.over(col, inside)
 
@@ -115,7 +118,7 @@ class Canvas:
     def fill_below(self, color):
         """Below the horizon the strip is solid haze: past the real terrain's far edge the ground just fades
         into fog, rather than showing the bright sky under the horizon as a white sliver."""
-        a = smooth(0.002, -0.004, Y)[:, None] * np.ones((1, W))
+        a = smooth(0.0, -0.016, Y)[:, None] * np.ones((1, W))
         self.over(np.broadcast_to(color, (H, W, 3)), a)
 
     def save(self, name):

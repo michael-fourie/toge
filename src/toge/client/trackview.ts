@@ -7,6 +7,8 @@ import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { CUT_HALF, type Crossing, SAMPLE, SHOULDER, type Theme, type Track, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
 import type { Grade } from './post.ts';
+import { decor, type Site } from './scenery.ts';
+import { BUSH_COLOURS, WIND, bushGeometry, speciesFor, sway } from './trees.ts';
 import { FACADE_H, FACADE_W, NEON_SIGNS, ROAD_TILE, TOWER_H, TOWER_W, asphalt, banner, facade, gravel, ground, mulberry, neonSigns, roofTiles, stone, towerFacade, vendingFront } from './tracktextures.ts';
 
 /** The barrier's distance from the centreline at sample i on one side (-1 left, +1 right), runoff included. */
@@ -81,6 +83,8 @@ export interface TrackView {
 /** `low`: Low graphics (src/client/graphics.ts): no shadow casting, no clouds, half the forest, brighter fill light. */
 /** How much brighter the fill light is on Low, standing in for the environment light Lambert doesn't get. */
 const LOW_FILL = 2.4;
+/** The terrain fades fully into the fog between these view depths (m), well before the far ring's edge (4.2 km past the track). */
+const HORIZON_FADE = [3200, 5200];
 
 export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low = false): TrackView {
   const t = lapView(road); // a circuit is drawn once round
@@ -179,6 +183,15 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
       sampledDiffuseColor.rgb *= mix( vec3( 1.0 ), macro * 1.25, 0.65 );
       diffuseColor *= sampledDiffuseColor;`,
     );
+    // The far ring ends in a square edge ~4 km out: fade it fully into the fog before then, so the land melts into the
+    // painted backdrop's haze (whose foot is the fog colour) instead of stopping on a hard straight line.
+    sh.fragmentShader = sh.fragmentShader.replace(
+      '#include <fog_fragment>',
+      `#include <fog_fragment>
+      #ifdef USE_FOG
+        gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, smoothstep( ${(HORIZON_FADE[0]).toFixed(1)}, ${(HORIZON_FADE[1]).toFixed(1)}, vFogDepth ) );
+      #endif`,
+    );
   };
   const { x0, x1, z0, z1 } = t.bounds;
   const pad = 420;
@@ -267,7 +280,17 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     for (let cz = inner.z0; cz < inner.z1; cz += CH) terrainChunk(cx, cz, Math.min(inner.x1, cx + CH), Math.min(inner.z1, cz + CH), 6, underRoad, false);
   const FAR = 4200;
   const insideInner = (x: number, z: number) => (x > inner.x0 + 1 && x < inner.x1 - 1 && z > inner.z0 + 1 && z < inner.z1 - 1 ? 40 : 0);
-  terrainChunk(inner.x0 - FAR, inner.z0 - FAR, inner.x1 + FAR, inner.z1 + FAR, 70, insideInner, true);
+  // Over its last ~2 km the far ring sinks to well below the lowest point of the road, so its square edge always lies
+  // under the horizon, where the backdrop's foot is solid fog: a ridge left standing at the edge cut the painted
+  // mountains off on a hard straight line.
+  let lowest = Infinity;
+  for (let i = 0; i < t.n; i++) lowest = Math.min(lowest, t.y[i]);
+  const edgeDrop = (x: number, z: number) => {
+    const d = Math.min(x - (inner.x0 - FAR), inner.x1 + FAR - x, z - (inner.z0 - FAR), inner.z1 + FAR - z);
+    const k = 1 - THREE.MathUtils.smoothstep(d, 0, 2000);
+    return k ? k * Math.max(0, terrainAt(t, x, z) - (lowest - 300)) : 0;
+  };
+  terrainChunk(inner.x0 - FAR, inner.z0 - FAR, inner.x1 + FAR, inner.z1 + FAR, 70, (x, z) => insideInner(x, z) + edgeDrop(x, z), true);
 
   // --- Road ribbon (chunks of ~200 m)
   // At night the road is damp: the same textures, glossier, so the lamps and headlights streak on it.
@@ -510,12 +533,15 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   if (!t.lap) gantry(scene, t, t.startS, 'START', false, keep);
   gantry(scene, t, t.finishS, 'FINISH', true, keep);
 
-  // --- Forests and rocks
+  // --- Forests and rocks, villages, and the houses, poles, shrines, signs and landmarks outside the barriers
+  const forestAt = (x: number, z: number) => fbm(x / 140, z / 140, t.def.seed + 11, 3) + (look.forest ?? (t.def.theme === 'alpine' ? 0.15 : -0.05)) + (t.def.climb ? 0.2 : 0);
+  const props = decor(scene, t, keep, { night: !!look.moon, low, forestAt, area: inner });
   if (t.def.theme === 'city') city(scene, t, rng, inner, keep);
   else {
-    scatter(scene, t, look, rng, inner, keep, low);
+    scatter(scene, t, look, rng, inner, keep, low, forestAt, props.sites);
     village(scene, t, rng, keep, !!look.moon);
   }
+  props.build();
 
   // --- The sea (or a lake)
   let sea: THREE.Mesh | null = null;
@@ -537,6 +563,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     grade: look.grade,
     sunDir: look.moon ? null : sunDir,
     follow(x, y, z, time) {
+      WIND.value = time / 1000;
       // Move the shadow box with the camera, in whole texels so the edges don't crawl.
       const texel = 90 / 2048;
       const sx = Math.round(x / texel) * texel;
@@ -603,15 +630,28 @@ function gantry(scene: THREE.Scene, t: Track, s: number, text: string, chequer: 
   scene.add(g);
 }
 
-/** Trees (pines up the mountain, cypress and round pines by the sea) and boulders, instanced per 400 m tile. A hill
- * climb's forest is thicker and closer. */
-function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T, low: boolean) {
+/**
+ * Trees (two species per theme, trees.ts), undergrowth and boulders, instanced per 400 m tile. A hill climb's forest is
+ * thicker and closer. Nothing grows on the props' footprints (`sites`, scenery.ts).
+ */
+function scatter(
+  scene: THREE.Scene, t: Track, look: Look, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T, low: boolean,
+  forestAt: (x: number, z: number) => number, sites: Site[],
+) {
   const theme = t.def.theme;
-  const tree = keep(theme === 'alpine' || theme === 'night' ? pineGeometry() : theme === 'coast' ? coastTreeGeometry() : theme === 'desert' ? cactusGeometry() : mapleGeometry());
-  // Maples each get their own autumn colour; in spring the same trees are cherries in blossom, with a few in fresh leaf.
-  const palette = theme === 'autumn' ? [0xd8431f, 0xe8742a, 0xf2b233, 0xb8261e, 0xc9a23a, 0x6f8a32] : theme === 'spring' ? [0xf6b8cc, 0xf9cfdc, 0xee9fb8, 0xfde6ee, 0xf3a9c2, 0x86b04a] : null;
-  const leaves = palette ? palette.map((c) => new THREE.Color(c)) : null;
-  const treeMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
+  const species = speciesFor(theme);
+  keep(species.a.geo);
+  keep(species.b.geo);
+  const paletteA = species.a.palette?.map((c) => new THREE.Color(c)) ?? null;
+  const paletteB = species.b.palette?.map((c) => new THREE.Color(c)) ?? null;
+  const rolls = paletteA || paletteB ? 3 : 2;
+  const treeMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88 }));
+  sway(treeMat, theme === 'desert' ? 0.0012 : 0.0026, 1.5);
+  const bush = keep(bushGeometry());
+  const bushMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
+  sway(bushMat, 0.03, 0.2);
+  const bushCols = BUSH_COLOURS[theme].map((c) => new THREE.Color(c));
+  const brng = mulberry(t.def.seed * 131 + 3);
   const rock = keep(rockGeometry());
   const rockTex = stone(t.def.seed);
   for (const tex of Object.values(rockTex)) keep(tex);
@@ -628,12 +668,37 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
   const v = new THREE.Vector3();
   const s = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
+  const onSite = (x: number, z: number) => sites.some((p) => Math.abs(p.x - x) < p.r && Math.abs(p.z - z) < p.r && Math.hypot(p.x - x, p.z - z) < p.r);
+  /** Which species stands at (x, z): a hash of the spot, so it costs no random rolls. */
+  const isB = (x: number, z: number) => {
+    const h = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+    // Species grow in groves, not salt-and-pepper.
+    return h - Math.floor(h) < species.share * (1 + fbm(x / 60, z / 60, t.def.seed + 29, 2) * 1.6);
+  };
+  const instanced = (geo: THREE.BufferGeometry, mat: THREE.Material, n: number, shadow: boolean) => {
+    const im = new THREE.InstancedMesh(geo, mat, n);
+    im.castShadow = shadow;
+    im.receiveShadow = true;
+    return im;
+  };
+  type Bin = Map<string, { m: THREE.Matrix4; c: THREE.Color }[]>;
+  const seconds: Bin = new Map();
+  const bushBins: Bin = new Map();
+  // Per tile, so the frustum culls them like the rest (bigger bins saved a few draw calls but drew far more triangles).
+  let tileKey = '';
+  const binOf = (bins: Bin, _m: THREE.Matrix4) => {
+    const key = tileKey;
+    let l = bins.get(key);
+    if (!l) bins.set(key, (l = []));
+    return l;
+  };
   // Low: trees out to 400 m instead of 700, and every other one past the first 60 (the same rolls either way,
-  // so the trees that stay are where they'd be on High).
+  // so the trees that stay are where they'd be on High); no undergrowth.
   let nth = 0;
   for (let tx = area.x0; tx < area.x1; tx += TILE)
     for (let tz = area.z0; tz < area.z1; tz += TILE) {
-      const trees: THREE.Matrix4[] = [];
+      tileKey = `${tx}:${tz}`;
+      const trees: { m: THREE.Matrix4; b: boolean }[] = [];
       const rocks: THREE.Matrix4[] = [];
       /** Low: the trees left out (still rolled and coloured, so everything after is placed as on High). */
       const cut = new Set<number>();
@@ -644,7 +709,8 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
           const rd = roadDistance(t, px, pz);
           if (rd < t.edge + near) continue;
           if (rd < t.edgeMax + near && Math.abs(locate(t, px, pz, -1, here).d) < railOf(t, here.i, here.d) + near) continue; // not in the runoff
-          const forest = fbm(px / 140, pz / 140, t.def.seed + 11, 3) + (look.forest ?? (theme === 'alpine' ? 0.15 : -0.05)) + (climb ? 0.2 : 0);
+          if (onSite(px, pz)) continue;
+          const forest = forestAt(px, pz);
           const h = heightAt(t, px, pz);
           if (t.def.water !== undefined && h < t.def.water + 2.5) continue;
           const slope = Math.abs(heightAt(t, px + 2, pz) - h) + Math.abs(heightAt(t, px, pz + 2) - h);
@@ -652,7 +718,7 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
           if (forest > 0.08 && rng() < 0.7 - Math.min(0.45, rd / 1400) && slope < 3.2 && h < look.treeline + rng() * 30 && rd < 700) {
             const sc = 0.75 + rng() * 0.7;
             q.setFromAxisAngle(up, rng() * Math.PI * 2);
-            trees.push(new THREE.Matrix4().compose(v.set(px, h - 0.2, pz), q, s.set(sc, sc * (0.85 + rng() * 0.4), sc)));
+            trees.push({ m: new THREE.Matrix4().compose(v.set(px, h - 0.2, pz), q, s.set(sc, sc * (0.85 + rng() * 0.4), sc)), b: isB(px, pz) });
             if (low && !(rd < 400 && (rd < 60 || ++nth % 2 === 0))) cut.add(trees.length - 1);
           } else if (rng() < 0.02 + (slope > 2.5 ? 0.06 : 0) + (climb && rd < 60 ? 0.12 : 0)) {
             const sc = 0.5 + rng() * 2.2;
@@ -660,31 +726,67 @@ function scatter(scene: THREE.Scene, t: Track, look: Look, rng: () => number, ar
             rocks.push(new THREE.Matrix4().compose(v.set(px, h - sc * 0.3, pz), q, s.set(sc, sc * 0.7, sc)));
           }
         }
-      for (const [list, geo, mat] of [
-        [trees, tree, treeMat],
-        [rocks, rock, rockMat],
-      ] as const) {
-        const n = list === trees ? list.length - cut.size : list.length;
-        if (!n) {
-          // Keep the rolls in step: each tree's colour takes two (three with a palette).
-          if (list === trees) for (let i = 0; i < list.length * (leaves ? 3 : 2); i++) rng();
-          continue;
-        }
-        const im = new THREE.InstancedMesh(geo, mat, n);
-        let k = 0;
-        list.forEach((mm, i) => {
-          if (list !== trees) return im.setMatrixAt(i, mm);
-          const base = leaves ? leaves[Math.floor(rng() * leaves.length)] : jitter.setRGB(1, 1, 1);
-          jitter.copy(base).offsetHSL((rng() - 0.5) * 0.04, 0, 0).multiplyScalar(0.8 + rng() * 0.35);
-          if (cut.has(i)) return;
-          im.setMatrixAt(k, mm);
-          im.setColorAt(k++, jitter);
-        });
-        im.castShadow = true;
-        im.receiveShadow = true;
+      // Trees: one instanced mesh per species and tile (the second species and the bushes are built after the loop).
+      const mains: { m: THREE.Matrix4; c: THREE.Color }[] = [];
+      trees.forEach((tr, i) => {
+        // Keep the rolls in step: each tree's colour takes two (three where a species has a palette).
+        const pal = tr.b ? paletteB : paletteA;
+        const pick = rolls === 3 ? rng() : 0;
+        const base = pal ? pal[Math.floor(pick * pal.length)] : jitter.setRGB(1, 1, 1);
+        jitter.copy(base).offsetHSL((rng() - 0.5) * 0.04, 0, 0).multiplyScalar(0.8 + rng() * 0.35);
+        if (cut.has(i)) return;
+        (tr.b ? binOf(seconds, tr.m) : mains).push({ m: tr.m, c: jitter.clone() });
+      });
+      if (mains.length) {
+        const im = instanced(species.a.geo, treeMat, mains.length, true);
+        mains.forEach((e, i) => (im.setMatrixAt(i, e.m), im.setColorAt(i, e.c)));
         im.computeBoundingSphere();
         scene.add(im);
       }
+      if (rocks.length) {
+        const im = instanced(rock, rockMat, rocks.length, true);
+        rocks.forEach((m, i) => im.setMatrixAt(i, m));
+        im.computeBoundingSphere();
+        scene.add(im);
+      }
+      // Undergrowth along the road: bushes thick by the barrier and at the forest's edge, thinning away from it.
+      // Low: no undergrowth (a draw call per tile it can do without).
+      if (low) continue;
+      const reach = 110;
+      const cx = tx + TILE / 2;
+      const cz = tz + TILE / 2;
+      if (roadDistance(t, cx, cz) > TILE * 0.72 + reach) continue;
+      for (let x = tx; x < tx + TILE; x += 7)
+        for (let z = tz; z < tz + TILE; z += 7) {
+          const px = x + brng() * 7;
+          const pz = z + brng() * 7;
+          const roll = brng();
+          const rd = roadDistance(t, px, pz);
+          if (rd > reach || rd < t.edge + 2) continue;
+          const dens = (0.3 * (1 - rd / reach) ** 1.5 + (forestAt(px, pz) > 0.02 ? 0.08 : 0.02)) * (theme === 'desert' ? 0.6 : 1);
+          if (roll > dens) continue;
+          if (rd < t.edgeMax + 3 && Math.abs(locate(t, px, pz, -1, here).d) < railOf(t, here.i, here.d) + 1.8) continue;
+          if (onSite(px, pz)) continue;
+          const h = heightAt(t, px, pz);
+          if (t.def.water !== undefined && h < t.def.water + 1.5) continue;
+          if (h > look.treeline + 40) continue;
+          const sc = 0.55 + brng() * 0.9;
+          q.setFromAxisAngle(up, brng() * Math.PI * 2);
+          const m = new THREE.Matrix4().compose(v.set(px, h - 0.15, pz), q, s.set(sc * (0.9 + brng() * 0.5), sc * (0.7 + brng() * 0.5), sc));
+          const accent = brng() < 0.15;
+          const base = bushCols[accent ? Math.floor(brng() * bushCols.length) : Math.floor(brng() * Math.min(3, bushCols.length))];
+          binOf(bushBins, m).push({ m, c: base.clone().multiplyScalar(0.85 + brng() * 0.3) });
+        }
+    }
+  for (const [bins, geo, mat, shadow] of [
+    [seconds, species.b.geo, treeMat, true],
+    [bushBins, bush, bushMat, false],
+  ] as const)
+    for (const list of bins.values()) {
+      const im = instanced(geo, mat, list.length, shadow);
+      list.forEach((e, i) => (im.setMatrixAt(i, e.m), im.setColorAt(i, e.c)));
+      im.computeBoundingSphere();
+      scene.add(im);
     }
 }
 
@@ -1122,6 +1224,11 @@ function backdrop(image: string, keep: <T extends { dispose(): void }>(x: T) => 
   blank.colorSpace = THREE.SRGBColorSpace;
   blank.needsUpdate = true;
   const mat = keep(new THREE.MeshBasicMaterial({ map: blank, transparent: true, depthWrite: false, fog: false, side: THREE.BackSide }));
+  // Drawn at the far plane: the cylinder is 6 km out, but the far terrain reaches further than that in places, and a
+  // ridge behind the cylinder was painted over by the strip's haze band, leaving a hard straight line across it.
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <fog_vertex>', '#include <fog_vertex>\n  gl_Position.z = gl_Position.w;');
+  };
   const geo = keep(new THREE.CylinderGeometry(r, r, r * (top - bottom), 128, 1, true));
   geo.translate(0, (r * (top + bottom)) / 2, 0);
   const mesh = new THREE.Mesh(geo, mat);
@@ -1162,142 +1269,6 @@ function stars(moonDir: THREE.Vector3, keep: <T extends { dispose(): void }>(x: 
 }
 
 // --- Procedural geometry and textures --------------------------------------------------------
-
-function tint(geo: THREE.BufferGeometry, color: number) {
-  const c = new THREE.Color(color);
-  const n = geo.getAttribute('position').count;
-  const col = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  return geo;
-}
-
-/** Merges tinted parts into one geometry, keeping each part's own (smooth) normals. */
-function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const ni = parts.map((p) => {
-    if (!p.getAttribute('normal')) p.computeVertexNormals();
-    return p.index ? p.toNonIndexed() : p;
-  });
-  const total = ni.reduce((a, p) => a + p.getAttribute('position').count, 0);
-  const pos = new Float32Array(total * 3);
-  const nor = new Float32Array(total * 3);
-  const col = new Float32Array(total * 3);
-  let o = 0;
-  for (const p of ni) {
-    pos.set(p.getAttribute('position').array as Float32Array, o * 3);
-    nor.set(p.getAttribute('normal').array as Float32Array, o * 3);
-    col.set(p.getAttribute('color').array as Float32Array, o * 3);
-    o += p.getAttribute('position').count;
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  g.computeBoundingSphere();
-  return g;
-}
-
-/**
- * Shades a tinted part from dark at its bottom to light at its top (y0..y1), the cheap stand-in for the
- * self-shadowing inside a crown.
- */
-function shade(geo: THREE.BufferGeometry, y0: number, y1: number, dark: number, light: number) {
-  const p = geo.getAttribute('position');
-  const c = geo.getAttribute('color');
-  for (let i = 0; i < p.count; i++) {
-    const k = dark + (light - dark) * THREE.MathUtils.clamp((p.getY(i) - y0) / (y1 - y0), 0, 1);
-    c.setXYZ(i, c.getX(i) * k, c.getY(i) * k, c.getZ(i) * k);
-  }
-  return geo;
-}
-
-function pineGeometry() {
-  const parts = [tint(new THREE.CylinderGeometry(0.16, 0.28, 3, 5, 1, true).translate(0, 1.5, 0), 0x3a2a1e)];
-  const tiers = [
-    [3.3, 3.6, 2.6],
-    [2.6, 3.4, 4.4],
-    [1.9, 3.0, 6.2],
-    [1.1, 2.6, 8.0],
-  ];
-  for (const [r, h, y] of tiers) {
-    // A ragged hem: every other rim vertex pulled in and drooped, so the silhouette reads as boughs.
-    const cone = new THREE.ConeGeometry(r, h, 10, 1, true);
-    const p = cone.getAttribute('position');
-    for (let i = 0; i < p.count; i++)
-      if (p.getY(i) < 0 && i % 2) p.setXYZ(i, p.getX(i) * 0.72, p.getY(i) + 0.35, p.getZ(i) * 0.72);
-    cone.translate(0, y, 0);
-    parts.push(shade(tint(cone, 0x24452c), y - h / 2, y + h / 2, 0.45, 1.25));
-  }
-  return merge(parts);
-}
-
-function coastTreeGeometry() {
-  // A stone pine: tall bare trunk, flat umbrella crown.
-  const parts = [tint(new THREE.CylinderGeometry(0.2, 0.32, 7, 6).translate(0, 3.5, 0), 0x5b4433)];
-  const centre = new THREE.Vector3(0, 7.8, 0);
-  const crown = foliage(3.6, 0, 7.6, 0, 0x3e5a2c, 4, centre);
-  crown.scale(1, 0.5, 1).translate(0, 3.8, 0);
-  parts.push(crown);
-  const c2 = foliage(2.4, 1.4, 8.4, 0.6, 0x4a6834, 5, centre);
-  c2.scale(1, 0.5, 1).translate(0, 4.2, 0);
-  parts.push(c2);
-  return merge(parts);
-}
-
-/**
- * A lump of foliage: a sphere pushed in and out by noise, with normals pointing out from the crown's
- * centre (so the light falls across it softly, like a mass of leaves, not facets), and each vertex a
- * shade lighter or darker for leaf clusters. Darker underneath.
- */
-function foliage(r: number, cx: number, cy: number, cz: number, color: number, seed: number, crown = new THREE.Vector3(cx, cy, cz)) {
-  const g = new THREE.SphereGeometry(r, 8, 6);
-  const p = g.getAttribute('position');
-  const rnd = mulberry(seed);
-  const bumps = [0, 1, 2, 3].map(() => new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize());
-  const v = new THREE.Vector3();
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i);
-    const d = v.clone().normalize();
-    let k = 1;
-    for (const b of bumps) k += Math.max(0, d.dot(b)) ** 3 * 0.22;
-    // Seams of the sphere share positions: the noise must depend on position only.
-    k += Math.sin(d.x * 7.1 + d.y * 3.3) * Math.cos(d.z * 6.7 - d.y * 2.1) * 0.08;
-    v.multiplyScalar(k);
-    p.setXYZ(i, v.x, v.y, v.z);
-  }
-  g.scale(1, 0.85, 1).translate(cx, cy, cz);
-  tint(g, color);
-  const n = g.getAttribute('normal');
-  const c = g.getAttribute('color');
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i).sub(crown).normalize();
-    n.setXYZ(i, v.x, v.y, v.z);
-    const leaf = 0.85 + 0.3 * Math.abs(Math.sin(p.getX(i) * 3.1 + p.getZ(i) * 2.3) * Math.cos(p.getY(i) * 2.7));
-    const under = 0.55 + 0.45 * THREE.MathUtils.smoothstep(v.y, -0.8, 0.6);
-    c.setXYZ(i, c.getX(i) * leaf * under, c.getY(i) * leaf * under, c.getZ(i) * leaf * under);
-  }
-  return g;
-}
-
-function mapleGeometry() {
-  // White canopy and dark trunk: each tree's instance colour tints it red, orange or gold.
-  const parts = [tint(new THREE.CylinderGeometry(0.16, 0.3, 4.4, 6).translate(0, 2.2, 0), 0x3a2a20)];
-  const centre = new THREE.Vector3(0, 6, 0);
-  parts.push(foliage(3, 0, 5.8, 0, 0xffffff, 1, centre));
-  parts.push(foliage(2, 1.3, 7, 0.5, 0xf2f2f2, 2, centre));
-  return merge(parts);
-}
-
-function cactusGeometry() {
-  // A saguaro: a column with two arms.
-  const green = 0x4f6b3a;
-  const parts = [tint(new THREE.CylinderGeometry(0.35, 0.42, 6, 8).translate(0, 3, 0), green)];
-  parts.push(tint(new THREE.CylinderGeometry(0.25, 0.25, 1.4, 6).rotateZ(Math.PI / 2).translate(0.7, 2.6, 0), green));
-  parts.push(tint(new THREE.CylinderGeometry(0.25, 0.25, 2, 6).translate(1.4, 3.4, 0), green));
-  parts.push(tint(new THREE.CylinderGeometry(0.22, 0.22, 1.2, 6).rotateZ(Math.PI / 2).translate(-0.6, 3.6, 0), green));
-  parts.push(tint(new THREE.CylinderGeometry(0.22, 0.22, 1.6, 6).translate(-1.2, 4.2, 0), green));
-  return merge(parts);
-}
 
 function rockGeometry() {
   const g = new THREE.IcosahedronGeometry(1, 0);
