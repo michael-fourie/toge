@@ -26,6 +26,12 @@ and power through a bend. Traction control brakes a driven wheel that spins on i
 corner and cars lost speed on full throttle out of a bend. `ARCADE.trailBrake` adds yaw on the brakes while turning in.
 Simulation handling (`arcade` off) keeps the tyres' own numbers.
 
+Wall riding (2026-11-06, Michael: "wall riding is faster than slowing down for corners"): grinding a barrier
+drags the car by `SCRAPE + SCRAPE_V` × speed (9 + 0.6·v m/s², vehicle.ts `barrier()`), so a brush at hairpin speed
+costs about 2 g and pinned at 150 km/h about 70 km/h a second. It applies to every car, CPU included; clean CPU lines
+barely touch the rails, so their times didn't move. Full throttle never braking still beats the CPUs on many tracks,
+but that time comes from the CPU slowing a lot for jumps and bends (`targetSpeed`), not from the walls.
+
 Arcade refinements (2026-11-04, Devlin: "the drift hops", "turning radius and medium speeds", "losing traction at
 speed should be possible"; then "the drift turns me 90° at once"), grip left as it was: the drift button is an
 E-brake (`ARCADE.kick`, 0.1 s; longer spins rear-drive cars), not a hop; a drift eases into its rotation over

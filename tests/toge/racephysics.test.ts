@@ -174,9 +174,10 @@ test('runoff: dirt before the barrier on the outside of fast bends and after eve
   }
 });
 
-test('the barrier: grinding along it costs real speed, and steering away gets you off it', () => {
-  // Pressed into the left rail at 150 km/h on full throttle: it should bleed speed hard, not carry it.
-  const along = (input: DriveInput, seconds: number) => {
+test('the barrier: grinding along it costs real speed, more the faster you go, and steering away gets you off it', () => {
+  // Pressed into the left rail on full throttle: it should bleed speed hard, not carry it, so braking for a bend
+  // beats riding the wall round it.
+  const along = (input: DriveInput, seconds: number, kmh = 150) => {
     const car = carOn();
     const s = flat.startS + 150;
     const p = pointAt(flat, s, -(flat.rail - 1.2));
@@ -184,7 +185,7 @@ test('the barrier: grinding along it costs real speed, and steering away gets yo
     car.hint = Math.floor(s / SAMPLE);
     const yaw = Math.atan2(-p.tx, -p.tz) + 0.06; // nosing a little into the rail
     car.q = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-    const v = 150 / 3.6;
+    const v = kmh / 3.6;
     car.v.x = -Math.sin(yaw) * v;
     car.v.z = -Math.cos(yaw) * v;
     run(car, { ...gas, steer: -0.15 }, 0.6); // leaning on it
@@ -193,7 +194,10 @@ test('the barrier: grinding along it costs real speed, and steering away gets yo
     return { car, lost: (v0 - speedOf(car)) * 3.6 };
   };
   const ride = along({ ...gas, steer: -0.15 }, 1);
-  assert.ok(ride.lost > 15, `riding the rail only cost ${ride.lost.toFixed(1)} km/h a second`);
+  assert.ok(ride.lost > 45, `riding the rail only cost ${ride.lost.toFixed(1)} km/h a second`);
+  const slow = along({ ...gas, steer: -0.15 }, 1, 100);
+  const fast = along({ ...gas, steer: -0.15 }, 1, 200);
+  assert.ok(slow.lost > 35 && fast.lost > slow.lost + 20, `rail cost ${slow.lost.toFixed(1)} km/h a second at 100, ${fast.lost.toFixed(1)} at 200`);
   const off = along({ ...gas, steer: 0.5 }, 1.2);
   assert.ok(off.car.d > -(flat.rail - 3), `still on the rail at d=${off.car.d.toFixed(2)}`);
 });

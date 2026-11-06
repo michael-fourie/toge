@@ -992,11 +992,14 @@ function invMassAt(car: Car, rx: number, ry: number, rz: number, nx: number, ny:
 const RESTITUTION = 0.22;
 const WALL_FRICTION = 0.35;
 /**
- * Grinding along a barrier slows the car this much (m/s²) on top of the friction. Without it a car pinned on
- * the outside rail kept nearly all its speed (the arcade layer swings the velocity round to the nose), so
- * riding the rail through a bend was quicker than driving it, and too fast to ever steer off it.
+ * Grinding along a barrier slows the car by SCRAPE + SCRAPE_V × speed (m/s²) on top of the friction. Without it
+ * a car pinned on the outside rail kept nearly all its speed (the arcade layer swings the velocity round to the
+ * nose), so riding the rail through a bend was quicker than driving it, and too fast to ever steer off it. The
+ * flat 9 alone still left wall riding quicker than braking for the bend on most tracks (a brush only lasts a few
+ * ticks), so the drag grows with speed: about 2 g brushing a hairpin rail at 80 km/h, 3.5 g at 150 km/h.
  */
 const SCRAPE = 9;
+const SCRAPE_V = 0.6;
 
 /** Rails either side of the road, and the walls across both ends: the corner that went through is pushed back. */
 function barrier(car: Car, t: Track) {
@@ -1044,7 +1047,7 @@ function barrier(car: Car, t: Track) {
   car.p.z += nz * worst;
   const v = Math.hypot(car.v.x, car.v.z);
   if (v > 1) {
-    const k = Math.max(0, 1 - (SCRAPE * H) / v);
+    const k = Math.max(0, 1 - ((SCRAPE + SCRAPE_V * v) * H) / v);
     car.v.x *= k;
     car.v.z *= k;
   }
