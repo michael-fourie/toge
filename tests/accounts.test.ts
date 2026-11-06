@@ -98,3 +98,45 @@ test('identify: signed in you play as your username; a guest cannot pass as an a
   assert.ok(spoof.name.length <= 16);
   assert.equal((await store.identify(undefined, '   ')).name, 'guest');
 });
+
+test('change password: needs the session and the current password, signs out every other session', async () => {
+  const { store, advance } = make();
+  const a = await store.register('Kenta', 'oldpass1');
+  advance(1000);
+  const b = await store.login('kenta', 'oldpass1');
+  assert.ok(a.ok && b.ok);
+  if (!a.ok || !b.ok) return;
+  assert.deepEqual(await store.changePassword(undefined, 'oldpass1', 'newpass1'), { ok: false, error: 'Sign in first.' });
+  assert.deepEqual(await store.changePassword(a.token, 'nope', 'newpass1'), { ok: false, error: 'Your current password is wrong.' });
+  assert.ok(!(await store.changePassword(a.token, 'oldpass1', '123')).ok, 'new password follows the rules');
+  advance(1000);
+  const c = await store.changePassword(a.token, 'oldpass1', 'newpass1');
+  assert.ok(c.ok);
+  if (!c.ok) return;
+  assert.equal(c.name, 'Kenta');
+  assert.equal(await store.me(c.token), 'Kenta', 'this browser gets a fresh session');
+  assert.equal(await store.me(a.token), null);
+  assert.equal(await store.me(b.token), null, 'other devices are signed out');
+  assert.ok(!(await store.login('kenta', 'oldpass1')).ok);
+  assert.ok((await store.login('kenta', 'newpass1')).ok);
+});
+
+test('admin reset: a readable temporary password that works, old sessions and the lockout cleared, unknown names refused', async () => {
+  const { store, data, advance } = make();
+  const a = await store.register('Daichi', 'forgotten');
+  assert.ok(a.ok);
+  if (!a.ok) return;
+  for (let i = 0; i < 5; i++) await store.login('daichi', 'guess' + i);
+  advance(1000);
+  const r = await store.resetPassword('DAICHI');
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.name, 'Daichi');
+  assert.match(r.password, /^[a-hjkmnp-z2-9]{12}$/);
+  assert.ok(!JSON.stringify([...data.entries()]).includes(r.password), 'only its hash is stored');
+  assert.equal(await store.me(a.token), null, 'signed out everywhere');
+  assert.ok((await store.login('daichi', r.password)).ok, 'works straight away, even after the lockout');
+  assert.ok(!(await store.login('daichi', 'forgotten')).ok);
+  assert.deepEqual(await store.resetPassword('nobody'), { ok: false, error: 'No account with that username.' });
+  assert.deepEqual(await store.resetPassword(42), { ok: false, error: 'No account with that username.' });
+});

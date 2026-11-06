@@ -7,7 +7,7 @@ import type { GhostRun, GhostTape } from '../toge/shared/ghost.ts';
 import type { FriendAction, FriendList, FriendResult } from '../shared/friends.ts';
 import type { Inv } from '../gambol/shared/inventory.ts';
 import type { StashAction, StashResult } from '../gambol/shared/stash.ts';
-import { AccountStore, type Result } from './accountStore.ts';
+import { AccountStore, type ResetResult, type Result } from './accountStore.ts';
 import { FriendStore } from './friendStore.ts';
 import { GarageStore } from '../toge/server/garageStore.ts';
 import { RecordStore } from '../toge/server/recordStore.ts';
@@ -38,6 +38,16 @@ export class Accounts extends DurableObject {
   login(username: string, password: string, ip = ''): Promise<Result> {
     if (!this.logins.take(ip)) return Promise.resolve({ ok: false, error: 'Too many tries. Wait a minute and try again.' });
     return this.store.login(username, password);
+  }
+
+  changePassword(token: string | undefined, current: unknown, next: unknown, ip = ''): Promise<Result> {
+    if (!this.logins.take(ip)) return Promise.resolve({ ok: false, error: 'Too many tries. Wait a minute and try again.' });
+    return this.store.changePassword(token, current, next);
+  }
+
+  /** Admin only: the Worker checks the admin key before calling this. */
+  resetPassword(username: unknown): Promise<ResetResult> {
+    return this.store.resetPassword(username);
   }
 
   me(token: string | undefined): Promise<string | null> {

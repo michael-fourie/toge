@@ -68,7 +68,7 @@ Press **2** for the knife (**3** in Survival, where 2 is your second gun; LMB st
 
 ## Accounts
 
-Optional and simple, for friends: pick **Sign in** on the home screen to create an account with a username and password (usernames are 3-16 letters, numbers, `_` or `-`). Signed in, you always play under your username and nobody else can use it; guests can still play, but a guest who types a taken name shows up as "name (guest)". See `docs/DEPLOYMENT.md` for how it works.
+Optional and simple, for friends: pick **Sign in** on the home screen to create an account with a username and password (usernames are 3-16 letters, numbers, `_` or `-`). Signed in, you always play under your username and nobody else can use it; guests can still play, but a guest who types a taken name shows up as "name (guest)". Change your password on the Account screen; if you forget it, ask Michael for a reset. See `docs/DEPLOYMENT.md` for how it works.
 
 ## Game types
 

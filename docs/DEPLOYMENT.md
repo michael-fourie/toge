@@ -72,4 +72,24 @@ Accounts are deliberately simple, for a group of friends. One global `Accounts` 
 - In a lobby the Worker looks the cookie up: signed in means you play as your username whatever the client sends; a guest who types a registered name becomes "name (guest)".
 - Usernames are 3-16 letters, numbers, `_` or `-`, unique ignoring case. Passwords are 6-72 characters.
 - Adding the `Accounts` class is migration `v2` in `wrangler.jsonc`; the next deploy applies it. Nothing is lost on later deploys.
-- Not built: password reset (an admin would delete the user key), email, stats per account. A leaderboard or saved skin would hang off the same Durable Object.
+- `POST /api/password` (signed in, `{current, password}`): changes your password from the Account screen. Every other session is signed out; this browser gets a fresh one.
+- Not built: email, stats per account.
+
+### Resetting a friend's forgotten password
+
+There's no email, so a reset goes through Michael. Once, set a long random admin key as a Worker secret (the route doesn't exist until you do, or if the key is under 32 characters):
+
+```bash
+openssl rand -hex 32               # copy the output
+npx wrangler secret put ADMIN_KEY  # paste it (or Cloudflare dashboard -> the Worker -> Settings -> Variables and Secrets, type Secret)
+```
+
+Then, for a friend who forgot theirs:
+
+```bash
+curl -X POST https://gambol.lol/api/admin/reset-password \
+  -H "Authorization: Bearer <ADMIN_KEY>" -d '{"username":"their-name"}'
+# {"ok":true,"name":"TheirName","password":"xjptxvq9c2bg"}
+```
+
+Send them the temporary password; they sign in and change it under Account -> Change password. The reset signs the account out everywhere and keeps everything else (coins, garage, friends, best times). Locally, put `ADMIN_KEY=...` in `.dev.vars` (gitignored) and use `http://localhost:5173`.

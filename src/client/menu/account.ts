@@ -17,12 +17,40 @@ function signedIn(root: HTMLElement, user: string) {
     'Account',
     `
     <p class="lead">Signed in as <b>${esc(user)}</b>. Your name, coins and XP are kept on this account.</p>
-    <div class="cta"><button class="primary big" data-signout>Sign out</button></div>`,
+    <div class="cta"><button class="primary big" data-signout>Sign out</button></div>
+    <details class="account-change">
+      <summary>Change password</summary>
+      <form class="account-form" novalidate>
+        <input type="text" autocomplete="username" value="${esc(user)}" hidden />
+        <label>Current password<input id="acc-cur" type="password" autocomplete="current-password" /></label>
+        <label>New password<input id="acc-new" type="password" autocomplete="new-password" /></label>
+        <p class="hint">At least ${PASSWORD_MIN} characters. You stay signed in here and get signed out everywhere else.</p>
+        <p class="notice" role="alert"></p>
+        <div class="cta"><button class="primary" type="submit">Change password</button></div>
+      </form>
+    </details>`,
   );
   const out = $<HTMLButtonElement>(root, '[data-signout]');
   out.addEventListener('click', () => {
     out.disabled = true;
     void account.signOut();
+  });
+  const form = $<HTMLFormElement>(root, '.account-change form');
+  const cur = $<HTMLInputElement>(root, '#acc-cur');
+  const next = $<HTMLInputElement>(root, '#acc-new');
+  const notice = $(root, '.account-change .notice');
+  const submit = $<HTMLButtonElement>(form, 'button[type=submit]');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    submit.disabled = true;
+    notice.textContent = '';
+    notice.classList.remove('ok');
+    const err = await account.changePassword(cur.value, next.value);
+    submit.disabled = false;
+    if (err) return void (notice.textContent = err);
+    cur.value = next.value = '';
+    notice.classList.add('ok');
+    notice.textContent = 'Password changed.';
   });
   out.focus();
 }

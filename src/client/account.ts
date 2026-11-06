@@ -1,4 +1,4 @@
-import { checkCredentials } from '../shared/account.ts';
+import { PASSWORD_MIN, checkCredentials } from '../shared/account.ts';
 
 /** Who's signed in on this browser (the session cookie is HttpOnly, so we ask the server). */
 let user: string | null = null;
@@ -50,6 +50,14 @@ export const account = {
       return null;
     }
     return r.error ?? 'Something went wrong.';
+  },
+
+  /** Changes the signed-in account's password. Resolves an error message to show, or null on success. */
+  async changePassword(current: string, next: string): Promise<string | null> {
+    if (!current) return 'Enter your current password.';
+    if (next.length < PASSWORD_MIN) return `Passwords need at least ${PASSWORD_MIN} characters.`;
+    const r = await post('/api/password', { current, password: next });
+    return r.ok ? null : (r.error ?? 'Something went wrong.');
   },
 
   async signOut() {
