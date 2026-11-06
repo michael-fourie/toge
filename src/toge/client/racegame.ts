@@ -1214,7 +1214,7 @@ export class RaceGame {
     const note = (res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}${xpNote(res.xp ?? 0, xpBefore)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`) + bestNote(res.best, this.track.def.name);
     const p = this.hud.panel(`${this.hud.resultsHtml(this.track.def.name, lines)}
       <p class="rh-note">${esc(note)}</p>
-      <div class="rh-buttons"><button data-act="again" data-autofocus>Race again</button><button data-act="garage">Garage</button></div>`);
+      <div class="rh-buttons"><button data-act="again" data-autofocus>Rerace</button><button data-act="garage">Garage</button></div>`);
     setMenuNav(true);
     p.querySelector('[data-act="again"]')!.addEventListener('click', () => this.restart());
     p.querySelector('[data-act="garage"]')!.addEventListener('click', () => this.exit('garage'));
@@ -1250,7 +1250,7 @@ export class RaceGame {
     if (box.dataset.host === String(host)) return;
     box.dataset.host = String(host);
     box.innerHTML = host
-      ? `<button data-act="again" data-autofocus>Race again</button><button data-act="lobby">Back to lobby</button><button data-act="leave">Leave race</button>`
+      ? `<button data-act="again" data-autofocus>Rerace</button><button data-act="lobby">Back to lobby</button><button data-act="leave">Leave race</button>`
       : `<button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button><p class="rh-note">If the host races again, you go straight to the start.</p>`;
     const again = box.querySelector<HTMLButtonElement>('[data-act="again"]');
     again?.addEventListener('click', () => {
