@@ -108,8 +108,6 @@ export class Race {
     private onResults: (rows: ResultRow[], users: Set<number>, track: TrackId, tapes: Map<number, GhostTape>) => void,
     private now: () => number = Date.now,
     tick = true,
-    /** The dice for the spec car (tests pass their own). */
-    private rand: () => number = Math.random,
   ) {
     if (tick) this.timer = setInterval(() => guarded(() => this.tick(), `race ${code}`), 1000 / RACE.snapshotHz);
   }
@@ -422,9 +420,9 @@ export class Race {
       m.pit = false;
       grid[m.client.id] = slot++;
     }
-    // Settle every racer's car for this race here, once, so a spec car's draw is the same for everyone.
+    // Settle every racer's car for this race here, once, so every client draws the same cars.
     const rule: CarRule = cleanMode(this.mode) ? this.cars : 'own';
-    const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })), this.rand());
+    const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })));
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
     const ghost = this.ghost && this.ghostOf === this.track ? this.ghostRun : null;
     this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics, ghost });

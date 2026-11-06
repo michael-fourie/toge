@@ -47,13 +47,13 @@ export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 
 
 /**
  * What the racers drive in a time trial (the host picks; a race always uses everyone's own car):
- * `own` their own car, `spec` one racer's car drawn at random for everyone (same model, upgrades and default
- * tuning, so identical stats; each keeps their own paint), `maxed` their own car with every part at the top level.
+ * `own` their own car, `vanta` everyone in a Vanta V10 with every part at the top level (default tuning, so
+ * identical stats; each keeps their own paint), `maxed` their own car with every part at the top level.
  */
-export type CarRule = 'own' | 'spec' | 'maxed';
+export type CarRule = 'own' | 'vanta' | 'maxed';
 export const CAR_RULES: Record<CarRule, { name: string; blurb: string }> = {
   own: { name: 'Own cars', blurb: 'Everyone drives their own car as it is.' },
-  spec: { name: 'Spec car', blurb: "One racer's car, drawn at random, for everyone. Same stats, your paint." },
+  vanta: { name: 'Maxed Vanta', blurb: 'Everyone drives a Vanta V10 with every part at level 5. Same stats, your paint.' },
   maxed: { name: 'Maxed out', blurb: 'Your own car with every part at level 5.' },
 };
 

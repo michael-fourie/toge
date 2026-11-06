@@ -343,13 +343,13 @@ export class RaceGame {
     const rivals = online ? 0 : Math.max(0, Math.min(7, setup.rivals ?? 5));
     // Solo, you start mid-pack.
     const mySlot = online ? (online.grid[online.net.id] ?? 0) : Math.floor(rivals / 2);
-    // Online, the server says what you drive (a spec car, or your car maxed out, in a time trial).
+    // Online, the server says what you drive (a maxed Vanta, or your car maxed out, in a time trial).
     const myCar = online ? myRaceCar(online.rule, online.cars[online.net.id], setup.car) : setup.car;
     this.me = this.spawn(myCar, mySlot, setup.name, true, setup.rider);
     if (online) {
       // Say what everyone's driving now, and again with the time trial's banner at GO.
-      this.carNote = online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}, the same for everyone` : online.rule === 'maxed' ? `${CAR_RULES.maxed.name}: every part at level 5` : '';
-      if (this.carNote) this.hud.banner(online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}` : CAR_RULES.maxed.name, online.rule === 'spec' ? 'Everyone drives the same car' : 'Every part at level 5', 3500);
+      this.carNote = online.rule === 'vanta' ? `${CAR_RULES.vanta.name}: the same ${CARS.vanta.name} for everyone` : online.rule === 'maxed' ? `${CAR_RULES.maxed.name}: every part at level 5` : '';
+      if (this.carNote) this.hud.banner(CAR_RULES[online.rule].name, online.rule === 'vanta' ? `Everyone drives a maxed ${CARS.vanta.name}` : 'Every part at level 5', 3500);
       else this.hud.banner('Waiting for racers', 'Loading the track…', 0);
       // The host drives the lobby's CPU racers here, with the solo race's AI; everyone else sees them as racers.
       const host = online.net.room?.hostId === online.net.id;

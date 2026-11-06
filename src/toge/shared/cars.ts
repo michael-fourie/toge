@@ -311,24 +311,20 @@ export const maxedUpgrades = (): Upgrades => {
 
 /**
  * The car code each racer drives under a time trial's car rule (CarRule in protocol.ts). `racers` are the lobby
- * codes in grid order; `pick` (0..1, the server's dice) chooses whose car is the spec car. A code that won't decode
- * falls back to the starter car. Pure, so the server decides it once and every client draws the same cars.
+ * codes in grid order. A code that won't decode falls back to the starter car. Pure, so the server decides it
+ * once and every client draws the same cars.
  */
-export function raceCars(rule: CarRule, racers: { id: number; car: string }[], pick: number): Record<number, string> {
+export function raceCars(rule: CarRule, racers: { id: number; car: string }[]): Record<number, string> {
   const cars = racers.map((r) => ({ id: r.id, car: decodeCar(r.car) ?? newOwnedCar('pebble') }));
   const out: Record<number, string> = {};
-  if (!cars.length) return out;
-  const spec = cars[Math.min(cars.length - 1, Math.max(0, Math.floor(pick * cars.length)))].car;
   for (const [i, { id, car }] of cars.entries()) {
     // Own cars go through as sent (a valid code stays byte-for-byte what the lobby showed).
     if (rule === 'own' && decodeCar(racers[i].car)) {
       out[id] = racers[i].car;
       continue;
     }
-    if (rule === 'spec') {
-      car.model = spec.model;
-      car.up = { ...spec.up };
-    } else if (rule === 'maxed') car.up = maxedUpgrades();
+    if (rule === 'vanta') car.model = 'vanta';
+    if (rule !== 'own') car.up = maxedUpgrades();
     out[id] = encodeCar(car);
   }
   return out;
@@ -336,12 +332,12 @@ export function raceCars(rule: CarRule, racers: { id: number; car: string }[], p
 
 /**
  * The car you drive in an online race: the server's code for you, with your own tuning only when it's still your
- * own model and the rule allows it (a spec car runs its model's default tuning, so every racer's stats match).
+ * own model and the rule allows it (the maxed Vanta runs default tuning, so every racer's stats match).
  */
 export function myRaceCar(rule: CarRule, code: string | undefined, mine: OwnedCar): OwnedCar {
   const car = decodeCar(code);
   if (!car) return mine;
-  car.tune = rule !== 'spec' && car.model === mine.model ? { ...mine.tune } : defaultTune(car.model);
+  car.tune = rule !== 'vanta' && car.model === mine.model ? { ...mine.tune } : defaultTune(car.model);
   return car;
 }
 
