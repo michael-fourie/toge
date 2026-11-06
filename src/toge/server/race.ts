@@ -105,8 +105,8 @@ export class Race {
     readonly code: string,
     private onChange: (r: Race) => void,
     private onEmpty: (r: Race) => void,
-    /** Results are in: pay the signed-in racers. `tapes`: each finisher's run, for the record ghost. */
-    private onResults: (rows: ResultRow[], users: Set<number>, track: TrackId, tapes: Map<number, GhostTape>) => void,
+    /** Results are in: pay the signed-in racers. `tapes`: each finisher's run, for the record ghost. `mode`: which kind of race it was (only `recordMode` ones keep best times). */
+    private onResults: (rows: ResultRow[], users: Set<number>, track: TrackId, tapes: Map<number, GhostTape>, mode: RaceMode) => void,
     private now: () => number = Date.now,
     tick = true,
   ) {
@@ -486,7 +486,7 @@ export class Race {
     for (const m of field) m.racing = false;
     this.broadcast({ t: 'results', track: this.track, mode: this.mode, rows });
     const tapes = new Map<number, GhostTape>(done.map((m) => [m.client.id, { car: m.raceCar, rider: m.client.rider, d: m.rec.d }]));
-    this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track, tapes);
+    this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track, tapes, this.mode);
     this.onChange(this);
   }
 

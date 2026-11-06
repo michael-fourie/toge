@@ -93,3 +93,15 @@ curl -X POST https://gambol.lol/api/admin/reset-password \
 ```
 
 Send them the temporary password; they sign in and change it under Account -> Change password. The reset signs the account out everywhere and keeps everything else (coins, garage, friends, best times). Locally, put `ADMIN_KEY=...` in `.dev.vars` (gitignored) and use `http://localhost:5173`.
+
+### Clearing TŌGE best times set in races
+
+Since 2026-11-06 only time trials and hill climbs keep best times. Times from before that don't say which mode they came from, so the same key can wipe every best time, all-time board and record ghost on every track a race can run (hill-climb tracks are kept: they only ever ran item-free). Preview first, then apply:
+
+```bash
+curl -X POST https://gambol.lol/api/admin/clear-race-records -H "Authorization: Bearer <ADMIN_KEY>"
+# {"ok":true,"applied":false,"tracks":[...],"bests":[{"user":"mike","tracks":["koripass"]}],"boards":{...},"ghosts":[...]}
+curl -X POST https://gambol.lol/api/admin/clear-race-records -H "Authorization: Bearer <ADMIN_KEY>" -d '{"apply":true}'
+```
+
+Guests' own bests live in their browsers and aren't touched (they never reach the boards).

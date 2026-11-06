@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { CAR_CODE_MAX } from '../shared/cars.ts';
-import { RACE, type RaceClientMsg, type RecordRow } from '../shared/protocol.ts';
+import { RACE, type RaceClientMsg, type RecordRow, recordMode } from '../shared/protocol.ts';
 import { Limiter } from '../../server/limiter.ts';
 import { Race, type RaceClient, sendTo } from './race.ts';
 import type { Env } from '../../server/worker.ts';
@@ -82,7 +82,7 @@ export class RaceRoom extends DurableObject<Env> {
         this.race = null;
         this.ctx.waitUntil(dir.remove(r.code));
       },
-      (rows, users, track, tapes) => {
+      (rows, users, track, tapes, mode) => {
         // One prize per account per race, its best finish (rows are in finishing order): a second tab can't double it.
         const paid = new Set<string>();
         // A win counts against other people, not just CPU racers.
@@ -93,9 +93,10 @@ export class RaceRoom extends DurableObject<Env> {
           if (!users.has(row.id) || paid.has(row.name.toLowerCase())) continue;
           paid.add(row.name.toLowerCase());
           this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && people > 1, row.xp));
-          // The room timed this finish itself, so it can count as a best time.
+          // The room timed this finish itself, so it can count as a best time, but only in an item-free mode (a race's
+          // items make its times unbeatable in a time trial).
           const time = row.time;
-          if (time !== null) timed.push(() => accounts.raceTime(row.name, track, time, row.car, tapes.get(row.id)).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev, rank: b.rank ?? null, beat: b.beat ?? null } : null)));
+          if (time !== null && recordMode(mode)) timed.push(() => accounts.raceTime(row.name, track, time, row.car, tapes.get(row.id)).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev, rank: b.rank ?? null, beat: b.beat ?? null } : null)));
         }
         if (timed.length) {
           this.ctx.waitUntil(

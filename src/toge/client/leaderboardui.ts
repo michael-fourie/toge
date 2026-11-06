@@ -1,6 +1,7 @@
 // The Leaderboard page (Race tab; hub.ts hosts it): every track's all-time board, one time per racer (their best
-// there), from `/api/leaderboard`. Only accounts are on it: the server times online races and keeps solo finishes
-// (records.ts, toge/server/recordStore.ts); guests' times stay in their browser. See src/toge/DESIGN.md.
+// there), from `/api/leaderboard`. Only accounts are on it, and only times the server timed in an item-free mode (a time
+// trial, or a hill climb on its roads: recordMode; never a race or a solo run). records.ts, toge/server/recordStore.ts;
+// guests' times stay in their browser. See src/toge/DESIGN.md.
 
 import { CARS, decodeCar } from '../shared/cars.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
@@ -79,7 +80,7 @@ export function leaderboardTab(v: BoardView): string {
       <p class="tg-muted">${mineLine(v, myRow, top)}</p>
       ${d.climb ? '' : `<button class="tg-go small" data-lb-race="${v.track}">Race it</button>`}
     </div>
-    <h2 class="tg-h">All-time board <small>One time per racer · top ${BOARD.size}</small></h2>
+    <h2 class="tg-h">All-time board <small>${d.climb ? 'Hill climbs' : 'Time trials'} only · one time per racer · top ${BOARD.size}</small></h2>
     ${boardTable(v, myRow)}
     <h2 class="tg-h">Tracks <small>Record on each</small></h2>
     <div class="tg-lb-tracks">

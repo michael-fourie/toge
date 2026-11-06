@@ -1,8 +1,7 @@
 // Your garage on this side. Signed in: the server's copy (every action is a POST the server re-runs with
 // the shared rules and its own dice). Guest: the same rules run here against localStorage.
 
-import { type ActionResult, type Garage, type GarageAction, applyAction, award, cleanGarage, current, newGarage } from '../shared/garage.ts';
-import { encodeCar } from '../shared/cars.ts';
+import { type ActionResult, type Garage, type GarageAction, applyAction, award, cleanGarage, newGarage } from '../shared/garage.ts';
 import { type Bests, type NewBest, cleanBests, recordTime } from '../shared/records.ts';
 import { account } from '../../client/account.ts';
 
@@ -85,31 +84,28 @@ export const garage = {
     set(loadLocal());
   },
 
-  /** One garage action. A solo finish (`time` on a `solo` action) also comes back with `best` if it set one. */
+  /** One garage action. (A solo finish never sets a best time: only time trials and hill climbs do.) */
   async act(action: GarageAction): Promise<ActionResult> {
-    const car = encodeCar(current(g));
     if (onServer) {
       try {
         const res = await fetch('/api/garage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action) });
         const r = (await res.json()) as ActionResult;
-        if (r.best) noteBest(r.best, car);
         if (r.ok) set(cleanGarage(r.g));
         return r;
       } catch {
         return { ok: false, error: 'Could not reach the game server.' };
       }
     }
-    const best = action.a === 'solo' && action.place >= 1 ? garage.noteTime(action.track, action.time, car) : undefined;
     const r = applyAction(g, action, Math.random, Date.now());
     if (r.ok) {
       saveLocal(r.g);
       set(r.g);
     }
-    return best === undefined ? r : { ...r, best };
+    return r;
   },
 
   /**
-   * A guest's finish (solo or online): kept in this browser if it's a best. The server keeps accounts' own and tells
+   * A guest's time trial or hill climb finish: kept in this browser if it's a best. The server keeps accounts' own and tells
    * the race (`records`), which comes back here through `noteBest`.
    */
   noteTime(track: unknown, time: unknown, car: string): NewBest | null {

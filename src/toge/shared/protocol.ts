@@ -39,6 +39,13 @@ export const ghostMode = (m: RaceMode) => m === 'trial';
 /** Modes with no items (boxes, throws or item money), where the host picks a car rule: everything but a race. */
 export const cleanMode = (m: RaceMode) => m !== 'race';
 
+/**
+ * Modes whose finishes count as best times, on the all-time boards and for the record ghost: the item-free ones (a
+ * time trial, and a hill climb on its own roads). A race's items make its times unbeatable in a trial, and a solo
+ * run is always a race, so neither counts.
+ */
+export const recordMode = (m: RaceMode) => cleanMode(m);
+
 /** The tracks a mode can run: a hill climb only on hill-climb roads, everything else only off them. */
 export const modeTracks = (m: RaceMode): TrackId[] => (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => !!TRACK_DEFS[id].climb === (m === 'climb'));
 

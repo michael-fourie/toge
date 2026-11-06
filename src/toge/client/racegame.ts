@@ -12,7 +12,7 @@ import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
 import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { SOLO_SHARE } from '../shared/garage.ts';
 import { tierOf } from '../shared/pass.ts';
-import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
+import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, recordMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
 import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc, pointAt } from '../shared/track.ts';
@@ -25,8 +25,8 @@ import { esc } from '../../client/menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
 import { type CarModel, INTERIOR, buildCar, ghostly } from './carmodel.ts';
 import { LAMP_DAY, LAMP_NIGHT, setLampLevel } from './carparts.ts';
-import { type Rider, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
-import { GhostRecorder, type GhostRun } from '../shared/ghost.ts';
+import { type Rider, decodeRider, defaultRider, rivalRider } from '../shared/rider.ts';
+import type { GhostRun } from '../shared/ghost.ts';
 import { GhostCar } from './ghostcar.ts';
 import { type Cockpit, buildCockpit } from './cockpit.ts';
 import { Head, ROUGH } from './headcam.ts';
@@ -231,8 +231,6 @@ export class RaceGame {
   private ghostT = 0;
   /** Where the record ghost is on the road (a circuit's samples run on lap after lap, so this counts laps too). */
   private ghostLoc = newLoc();
-  /** Solo: your run, sent with the finish so a new track record keeps its ghost (the room records online runs). */
-  private tape = new GhostRecorder();
   private assists = loadAssists();
   private cam: Cam = (localStorage.getItem(CAM_KEY) as Cam) || 'chase';
   /** Chase camera: the (smoothed) direction it trails along, and its smoothed height above the car. */
@@ -1034,7 +1032,6 @@ export class RaceGame {
     // Clock and finishing
     if (live && me.finished === null) this.time += TICK_DT;
     if (this.phase !== 'countdown') this.ghostT += TICK_DT;
-    if (live && me.finished === null && !this.setup.online) this.tape.add(this.time, me.car.p, me.car.q);
     if (live && me.finished === null && me.car.s >= t.finishS) this.finish();
     if (live && me.finished === null && t.lap && lapOf(t, me.car.s) > this.lap) {
       this.lap = lapOf(t, me.car.s);
@@ -1172,7 +1169,6 @@ export class RaceGame {
   private finish() {
     const me = this.me;
     me.finished = this.time;
-    this.tape.add(this.time, me.car.p, me.car.q);
     if (this.track.lap) this.bestLap = Math.min(this.bestLap, this.time - this.lapStart);
     this.phase = 'finished';
     const ahead = [...this.rivals.filter((r) => r.finished !== null), ...[...this.remotes.values()].filter((r) => r.finished !== null)].length;
@@ -1216,11 +1212,11 @@ export class RaceGame {
     const myPlace = done.indexOf(this.me) + 1;
     const drift = this.driftMeter.total;
     const xpBefore = garage.g.xp;
-    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift, uses: this.uses, time: this.me.finished ?? undefined, ghost: this.me.finished !== null ? { car: this.me.code, rider: encodeRider(this.setup.rider), d: this.tape.d } : undefined });
+    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift, uses: this.uses });
     this.myPrize = res.ok ? (res.paid ?? 0) : 0;
     const bonus = res.ok ? res.bonus : undefined;
-    const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined, newBest: r === this.me ? res.best : undefined }));
-    const note = (res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}${xpNote(res.xp ?? 0, xpBefore)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`) + bestNote(res.best, this.track.def.name);
+    const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined }));
+    const note = (res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}${xpNote(res.xp ?? 0, xpBefore)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`);
     const p = this.hud.panel(`${this.hud.resultsHtml(this.track.def.name, lines)}
       <p class="rh-note">${esc(note)}</p>
       <div class="rh-buttons"><button data-act="again" data-autofocus>Rerace</button><button data-act="garage">Garage</button></div>`);
@@ -1236,8 +1232,9 @@ export class RaceGame {
     const mine = lines.find((l) => l.me);
     const xpBefore = garage.g.xp;
     if (mine) garage.credit(mine.prize, mine.place === 1 && lines.filter((l) => !l.cpu).length > 1, mine.xp ?? 0);
-    // A guest's best is kept here; an account's comes from the server a moment later (`records`).
-    if (mine && mine.time !== null && !garage.onServer) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
+    // A guest's best is kept here; an account's comes from the server a moment later (`records`). Only item-free modes
+    // keep best times (recordMode): a race's items would make them unbeatable in a time trial.
+    if (mine && mine.time !== null && !garage.onServer && recordMode(this.setup.online!.mode)) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
     const title = this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
     this.shownResults = { lines, title };
     this.hud.panel(`${this.hud.resultsHtml(title, lines, this.clean)}

@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
-import { type ActionResult, type Garage, type GarageAction, current } from '../toge/shared/garage.ts';
-import { encodeCar } from '../toge/shared/cars.ts';
+import type { ActionResult, Garage, GarageAction } from '../toge/shared/garage.ts';
+import { modeTracks } from '../toge/shared/protocol.ts';
 import { type Bests, type BoardRow, type NewBest, type TogeProfile, cleanBests, profileOf } from '../toge/shared/records.ts';
 import type { TrackId } from '../toge/shared/track.ts';
 import type { GhostRun, GhostTape } from '../toge/shared/ghost.ts';
@@ -10,7 +10,7 @@ import type { StashAction, StashResult } from '../gambol/shared/stash.ts';
 import { AccountStore, type ResetResult, type Result } from './accountStore.ts';
 import { FriendStore } from './friendStore.ts';
 import { GarageStore } from '../toge/server/garageStore.ts';
-import { RecordStore } from '../toge/server/recordStore.ts';
+import { type ClearReport, RecordStore } from '../toge/server/recordStore.ts';
 import { Limiter } from './limiter.ts';
 import { StashStore } from '../gambol/server/stashStore.ts';
 
@@ -68,17 +68,14 @@ export class Accounts extends DurableObject {
     return user ? { garage: await this.garages.get(user), bests: await this.records.get(user) } : null;
   }
 
-  /** One garage action. A solo finish's time is also kept as a best time, paid or not (solo prizes have a cooldown). */
+  /**
+   * One garage action. A solo finish never counts as a best time: a solo run is a race, with item boxes, and best
+   * times only come from time trials (and hill climbs) a race room timed itself (`raceTime`).
+   */
   async garageAct(token: string | undefined, action: GarageAction): Promise<ActionResult> {
     const user = await this.store.me(token);
     if (!user) return { ok: false, error: 'Sign in to save your garage.' };
-    const before = action && typeof action === 'object' && action.a === 'solo' ? await this.garages.get(user) : null;
-    const result = await this.garages.act(user, action);
-    if (before && action.a === 'solo' && Number(action.place) >= 1) {
-      await this.boardsBuilt();
-      return { ...result, best: await this.records.record(user, action.track, action.time, encodeCar(current(before)), action.ghost) };
-    }
-    return result;
+    return this.garages.act(user, action);
   }
 
   /**
@@ -164,6 +161,18 @@ export class Accounts extends DurableObject {
   async raceCar(name: string, code: string): Promise<string> {
     if (!(await this.ctx.storage.get(`u:${name.toLowerCase()}`))) return code;
     return this.garages.raceCar(name, code);
+  }
+
+  /**
+   * Michael's one-off cleanup (`POST /api/admin/clear-race-records`): wipes every best time, board row and record ghost
+   * on the tracks a race can run (all but the hill climbs), since those may have been set with items before only time
+   * trials counted. Nothing records which mode a time came from, so they can't be told apart. `apply` false: only
+   * reports what would go.
+   */
+  async clearRaceRecords(apply: boolean): Promise<ClearReport> {
+    await this.boardsBuilt();
+    const users = [...(await this.ctx.storage.list({ prefix: 'b:' })).keys()].map((k) => k.slice(2));
+    return this.records.clear(modeTracks('race'), users, apply);
   }
 
   /** A race room keeps a signed-in racer's finish as a best time if it is one; the new best, or null. */

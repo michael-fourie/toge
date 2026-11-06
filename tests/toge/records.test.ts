@@ -6,6 +6,7 @@ import { TRACK_LENGTH_KM, applyAction, newGarage } from '../../src/toge/shared/g
 import { decodeCar, encodeCar } from '../../src/toge/shared/cars.ts';
 import { decodeRider } from '../../src/toge/shared/rider.ts';
 import { Race, type RaceClient } from '../../src/toge/server/race.ts';
+import { type RaceMode, recordMode } from '../../src/toge/shared/protocol.ts';
 import type { TrackId } from '../../src/toge/shared/track.ts';
 import type { KV } from '../../src/server/accountStore.ts';
 
@@ -68,11 +69,43 @@ test('RecordStore keeps one set of bests per account, case-insensitively', async
   assert.deepEqual(await r.get('nobody'), {});
 });
 
-test('a solo action carries its time but applyAction ignores it (the best is kept beside the garage)', () => {
-  const g = newGarage();
-  const r = applyAction(g, { a: 'solo', track: 'koripass', place: 1, field: 4, time: 200 }, Math.random, 1e9);
+test('only item-free modes keep best times: a time trial and a hill climb, never a race (solo runs are races)', () => {
+  assert.equal(recordMode('trial'), true);
+  assert.equal(recordMode('climb'), true);
+  assert.equal(recordMode('race'), false);
+});
+
+test('a solo finish pays but carries no time, so it never sets a best', () => {
+  const r = applyAction(newGarage(), { a: 'solo', track: 'koripass', place: 1, field: 4 }, Math.random, 1e9);
   assert.ok(r.ok);
-  assert.equal(r.best, undefined);
+  assert.ok(!('best' in r));
+});
+
+test('clearing tracks previews first, then wipes bests, board rows and ghosts on those tracks only', async () => {
+  const { store, data } = kv();
+  const r = new RecordStore(store, () => 42);
+  await r.record('Ann', 'koripass', 200, CAR, { car: CAR, rider: '', d: [] });
+  await r.record('Ann', 'karasu', 300, CAR);
+  await r.record('Bob', 'koripass', 210, CAR);
+  await r.record('Bob', 'monza', 400, CAR);
+  data.set('gh:koripass', { name: 'Ann', time: 200, car: CAR, rider: '', d: [] });
+  const before = structuredClone([...data.entries()]);
+  const preview = await r.clear(['koripass', 'monza'], ['ann', 'bob', 'cy'], false);
+  assert.equal(preview.applied, false);
+  assert.deepEqual(preview.bests, [{ user: 'ann', tracks: ['koripass'] }, { user: 'bob', tracks: ['koripass', 'monza'] }]);
+  assert.deepEqual(preview.boards.koripass, { rows: 2, record: { name: 'Ann', time: 200 } });
+  assert.deepEqual(preview.ghosts, ['koripass']);
+  assert.deepEqual([...data.entries()], before, 'a preview changes nothing');
+  const done = await r.clear(['koripass', 'monza'], ['ann', 'bob'], true);
+  assert.equal(done.applied, true);
+  assert.deepEqual(await r.get('Ann'), { karasu: { time: 300, car: CAR, at: 42 } }, 'other tracks are kept');
+  assert.equal(data.has('b:bob'), false, 'a racer with nothing left has no entry');
+  assert.deepEqual(await r.board('koripass'), []);
+  assert.deepEqual(await r.board('monza'), []);
+  assert.equal((await r.board('karasu')).length, 1);
+  assert.equal(data.has('gh:koripass'), false);
+  // A fresh time trial best goes straight back on.
+  assert.equal((await r.record('Bob', 'koripass', 230, CAR))?.rank, 1);
 });
 
 test("a friend's profile shows cars, driver, record and bests, but not money", () => {
@@ -90,8 +123,8 @@ test("a friend's profile shows cars, driver, record and bests, but not money", (
 
 test('the race room tells the platform which track its results are for', () => {
   let now = 1_000_000;
-  const got: { track: TrackId; times: (number | null)[] }[] = [];
-  const race = new Race('BEST', () => {}, () => {}, (rows, _users, track) => got.push({ track, times: rows.map((r) => r.time) }), () => now, false);
+  const got: { track: TrackId; mode: RaceMode; times: (number | null)[] }[] = [];
+  const race = new Race('BEST', () => {}, () => {}, (rows, _users, track, _tapes, mode) => got.push({ track, mode, times: rows.map((r) => r.time) }), () => now, false);
   const join = (id: number): RaceClient => {
     const c: RaceClient = { id, ws: { readyState: 1, send: () => {} }, name: `p${id}`, car: CAR, rider: '', user: true };
     race.add(c);
@@ -108,6 +141,7 @@ test('the race room tells the platform which track its results are for', () => {
   race.handle(a, { t: 'finish', time: 160 });
   assert.equal(got.length, 1);
   assert.equal(got[0].track, 'saltwind');
+  assert.equal(got[0].mode, 'race', 'a race: the platform keeps no best from it');
   assert.equal(got[0].times[0], 160);
 });
 

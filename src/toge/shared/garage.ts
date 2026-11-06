@@ -3,12 +3,10 @@
 // runs it for signed-in players (their garage lives in the Accounts Durable Object), the client runs the
 // same code against localStorage for guests.
 
-import type { GhostTape } from './ghost.ts';
 import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part, type Tune, cleanCar, cleanLook, cleanTune, decodeCar, encodeCar, isCarId, newOwnedCar } from './cars.ts';
 import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, passOnly, rollCosCase } from './cosmetics.ts';
 import { clampDrift, driftPay, itemPay } from './drift.ts';
 import type { Item } from './powerups.ts';
-import type { NewBest } from './records.ts';
 import { decodeLook, encodeLook } from './look.ts';
 import { type BgId, PASS, type PassState, STAGES, TIERS, TITLES, type TitleId, lockedLookParts, ownedLook, owns, raceXp, tierFor, tierOf, unlocked } from './pass.ts';
 import { type Rider, cleanRider, defaultRider } from './rider.ts';
@@ -234,7 +232,7 @@ export type GarageAction =
    * (s), for best times (records.ts; not part of applyAction, which only pays). `ghost`: the run (ghost.ts), kept as
    * the track's record ghost if the time is the new record.
    */
-  | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number; uses?: Partial<Record<Item, number>>; time?: number; ghost?: GhostTape }
+  | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number; uses?: Partial<Record<Item, number>> }
   | { a: 'case'; id: CaseId }
   | { a: 'equip'; i: number; slot: CosSlot; id: string | null }
   | { a: 'plate'; i: number; text: string }
@@ -248,7 +246,7 @@ export type GarageAction =
 
 /** `best`: a solo finish that set a new best time (filled in by the garage's keeper, not applyAction). */
 /** `xp`: season XP the action earned (a solo race). */
-export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number; bonus?: { drift: number; items: number }; xp?: number; best?: NewBest | null } | { ok: false; error: string; best?: NewBest | null };
+export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number; bonus?: { drift: number; items: number }; xp?: number } | { ok: false; error: string };
 
 /** Selling gives back this share of the car's price. */
 export const SELL_SHARE = 0.5;

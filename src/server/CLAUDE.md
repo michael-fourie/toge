@@ -26,6 +26,7 @@ imports the other game's (`tests/boundaries.test.ts`).
 | `/api/parties?game=<id>` | Directory `"party:<id>"` `.listParties()` (`isGameId` checked) |
 | `/api/me`, `POST /api/register`, `/api/login`, `/api/logout`, `/api/password` (change, signed in) | Accounts `"all"` (`accountApi`; cookie `gambol_session`) |
 | `POST /api/admin/reset-password` (`Authorization: Bearer <ADMIN_KEY>`, `{username}`) | Accounts `"all"` `.resetPassword` (`adminReset`; 404 unless the `ADMIN_KEY` secret is set; how-to in docs/DEPLOYMENT.md) |
+| `POST /api/admin/clear-race-records` (same key; `{"apply": true}` to wipe, otherwise a preview) | Accounts `"all"` `.clearRaceRecords` (`adminClearRecords`): wipes TŌGE bests, boards and ghosts on every non-climb track |
 | `/api/stash`, `/api/garage` (GET reads, POST applies one action) | Accounts `"all"`. `GET /api/garage` also returns your TŌGE best times; `?u=<name>` returns a friend's TŌGE profile instead (null unless you've added them) |
 | `/api/leaderboard` (GET, open to anyone) | Accounts `"all"`: TŌGE's all-time boards. No params: every track's record; `?t=<track>`: that track's board (one row per account) |
 | `/api/friends` (GET your list, POST `{a: 'add' \| 'remove', name}`) | Accounts `"all"` (`friendStore.ts`; rules in `src/shared/friends.ts`) |
@@ -107,7 +108,7 @@ shooter) and the server sanity-checks distance and fire rate.
   `applyAction` in `toge/shared/garage.ts`). Signed in, the server runs them with its own dice and clock.
 - Paying: shooter rooms call `Lobby.pay` → `Accounts.reward` (only for `client.user`; killing your own second tab pays
   nothing). Races call `Accounts.raceReward`, and `Accounts.raceTime` for each account's finish (a new best comes back
-  and the room tells everyone with `records`). A solo finish's `time` rides on the `solo` garage action. Amounts must match what the client floats up for guests.
+  and the room tells everyone with `records`), only for time trials and hill climbs (`recordMode`). Solo finishes keep no time. Amounts must match what the client floats up for guests.
 
 ## Rules for server changes
 

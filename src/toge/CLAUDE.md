@@ -107,10 +107,13 @@ a component or a page.
   field), player card titles (`g.title`) and money. Non-owners see every reward and preview it (the page tries cars'
   items on, puts the stage up, dresses your own driver); the creator shows pass pieces locked with their tier.
   New season: new items (append only, `PASS` in their cases list), new `TIERS`; keep `tests/toge/pass.test.ts` green.
-- **Best times** (records.ts): every racer's quickest finish per track (`Bests`), whatever the mode or car. Accounts'
-  live on the server (`b:<user>`, toge/server/recordStore.ts): online finishes go in from the room's results
-  (`Accounts.raceTime`, then the room sends `records` so every client marks the new bests), solo ones ride on the `solo`
-  garage action as `time` (kept even when the prize is on cooldown). Guests keep theirs in localStorage
+- **Best times** (records.ts): every racer's quickest finish per track (`Bests`), whatever the car, but only from
+  item-free modes: `recordMode()` in protocol.ts (time trial, hill climb). Races, online or solo, never count, since
+  items make their times unbeatable in a trial (Michael, 2026-11-06). Accounts' live on the server (`b:<user>`,
+  toge/server/recordStore.ts): finishes go in from the room's results (`Accounts.raceTime`, only when `onResults`'
+  `mode` is a record mode; then the room sends `records` so every client marks the new bests). Solo runs keep no
+  time. Bests set before this rule were wiped with `POST /api/admin/clear-race-records` (Accounts.clearRaceRecords,
+  `RecordStore.clear`; docs/DEPLOYMENT.md). Guests keep theirs in localStorage
   (`garage.noteTime`, `atrous.bests`). The results screen tags a new best (`ResultLine.newBest`, gold "New best −0.532").
   Solo times are client-reported, so `cleanTime` refuses anything quicker than the track at `RECORDS.maxAvgSpeed`.
 - **All-time boards** (records.ts `placeOnBoard`, recordStore.ts `lb:<track>`): every track keeps the top `BOARD.size`
@@ -124,8 +127,7 @@ a component or a page.
 - **Record ghost** (ghost.ts, client/ghostcar.ts): each track record keeps its run (`gh:<track>`, only while it's the
   record; a record set without a usable run clears it). A run is the car's pose every `GHOST.every` s from GO (compact
   ints, `cleanTape` checks it). Online runs are recorded by the room from the `state` poses (race.ts `Member.rec`,
-  handed to `onResults` as `tapes`); solo runs ride on the `solo` action as `ghost` (client-reported, like solo
-  times). The lobby host's Record ghost toggle (`{t:'ghost'}`, `RECORD_GHOST`) has the room fetch the track's ghost
+  handed to `onResults` as `tapes`); solo runs keep none. The lobby host's Record ghost toggle (`{t:'ghost'}`, `RECORD_GHOST`) has the room fetch the track's ghost
   (`Accounts.recordGhost`); the room message says whose it is (`record`) and `load` carries it. In the race it's a
   see-through car with a "TR" name tag and a map dot, never a racer (no place, contact or prize).
 - **Friends** (the Friends tab, friendsui.ts): add accounts by username (site-wide lists, `src/shared/friends.ts`,

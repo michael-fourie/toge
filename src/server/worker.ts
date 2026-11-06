@@ -22,7 +22,7 @@ export interface Env {
   PARTY: DurableObjectNamespace<PartyRoom>;
   DIRECTORY: DurableObjectNamespace<Directory>;
   ACCOUNTS: DurableObjectNamespace<Accounts>;
-  /** Secret (`wrangler secret put ADMIN_KEY`) for `/api/admin/reset-password`. Unset or short: that route doesn't exist. */
+  /** Secret (`wrangler secret put ADMIN_KEY`) for `/api/admin/reset-password` and `/api/admin/clear-race-records`. Unset or short: those routes don't exist. */
   ADMIN_KEY?: string;
 }
 
@@ -94,6 +94,27 @@ async function adminReset(req: Request, env: Env): Promise<Response> {
   return Response.json(result, { status: result.ok ? 200 : 404, headers: { 'Cache-Control': 'no-store' } });
 }
 
+/**
+ * Michael's one-off TŌGE cleanup: `POST /api/admin/clear-race-records` with `Authorization: Bearer <ADMIN_KEY>`.
+ * With no body (or `{"apply": false}`) it only reports which best times, board rows and record ghosts would go; with
+ * `{"apply": true}` it wipes them (Accounts.clearRaceRecords). Same lock as the password reset.
+ */
+async function adminClearRecords(req: Request, env: Env): Promise<Response> {
+  const key = env.ADMIN_KEY ?? '';
+  if (key.length < ADMIN_KEY_MIN) return new Response('Not found', { status: 404 });
+  const auth = req.headers.get('Authorization') ?? '';
+  if (req.method !== 'POST' || !auth.startsWith('Bearer ') || !(await sameSecret(auth.slice(7), key))) return Response.json({ ok: false, error: 'Not allowed.' }, { status: 403 });
+  let body: { apply?: unknown } | null = null;
+  try {
+    body = JSON.parse((await req.text()).slice(0, 256) || '{}');
+  } catch {
+    /* falls through */
+  }
+  if (!body || typeof body !== 'object') return Response.json({ ok: false, error: 'Send {"apply": true} to wipe, or nothing to preview.' }, { status: 400 });
+  const report = await env.ACCOUNTS.getByName('all').clearRaceRecords(body.apply === true);
+  return Response.json({ ok: true, ...report }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
 /** Sign-up / sign-in / sign-out / who-am-I / change password. POSTs are same-origin JSON only (cookie is SameSite=Lax as well). */
 async function accountApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
   const token = readCookie(req);
@@ -128,7 +149,6 @@ async function garageApi(req: Request, url: URL, accounts: DurableObjectStub<Acc
     const own = await accounts.garage(token);
     return Response.json({ garage: own?.garage ?? null, bests: own?.bests ?? null });
   }
-  // A solo finish carries its run for the record ghost (ghost.ts: at most ~110 KB of small ints).
   const action = await jsonBody<GarageAction>(req, url, 160 * 1024);
   if (!action) return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
   return Response.json(await accounts.garageAct(token, action));
@@ -249,6 +269,7 @@ export default {
       return isGameId(game) ? Response.json(await env.DIRECTORY.getByName(`party:${game}`).listParties()) : Response.json([]);
     }
     if (url.pathname === '/api/admin/reset-password') return adminReset(req, env);
+    if (url.pathname === '/api/admin/clear-race-records') return adminClearRecords(req, env);
     if (['/api/me', '/api/register', '/api/login', '/api/logout', '/api/password'].includes(url.pathname)) return accountApi(req, url, env.ACCOUNTS.getByName('all'));
 
     if (url.pathname === '/ws') {

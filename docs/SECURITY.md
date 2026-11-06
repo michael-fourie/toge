@@ -53,6 +53,7 @@ player sees is decided or checked by the server; anything the server can't check
 - Admin reset (`/api/admin/reset-password`): only exists when the `ADMIN_KEY` secret is set (32+ characters), compared
   in constant time. It's not same-origin only (it's for curl), so the key is the whole lock: keep it out of the repo
   and chats. It returns a random 12-character temporary password and signs the account out everywhere.
+  `/api/admin/clear-race-records` sits behind the same key (a preview unless the body is `{"apply": true}`).
 - Per address: 10 sign-in attempts a minute and 5 new accounts (then one per 10 minutes); 10 new lobbies a minute
   (then one per 6 s). In memory, per Durable Object (`server/limiter.ts`), so they reset if it's evicted.
 - Session cookie: random 256-bit token, HttpOnly, SameSite=Lax, Secure on https; only its hash is stored.
@@ -74,11 +75,10 @@ player sees is decided or checked by the server; anything the server can't check
   shields from rate-limited `used` messages, none in a time trial). Either way drifting pays at most `DRIFT.payPerKm`
   per km of race and items at most `ITEM_PAY_CAP`, both well under a win; solo pays its usual share and is still
   limited to one payout per `SOLO_GAP_MS`. A cheat client can max both caps, not exceed them.
-- **TŌGE best times** (`src/toge/shared/records.ts`, kept per account as `b:<user>`) never pay anything. Online
-  finishes are the room's own (timed within the window above, at least `MIN_RACE_SECONDS`). Solo times come from
-  the client with the `solo` action, so they're only bounded: nothing quicker than the track's length at
-  `RECORDS.maxAvgSpeed` (90 m/s average) or slower than an hour. A cheat client can post a fake solo best inside that
-  bound; friends would see it.
+- **TŌGE best times** (`src/toge/shared/records.ts`, kept per account as `b:<user>`) never pay anything. They only
+  come from online time trials and hill climbs (`recordMode`), timed by the room (within the window above, at least
+  `MIN_RACE_SECONDS`), and bounded: nothing quicker than the track's length at `RECORDS.maxAvgSpeed` (90 m/s
+  average) or slower than an hour. Solo runs carry no time, so a client can't post a best on its own.
 - **Friends** (`/api/friends`, `src/server/friendStore.ts`) are one way, like following: anyone signed in can add any
   username (20 adds or removes per account at once, then one per 3 s), which also tells them the name exists (as
   sign-up already does). Adding someone lets you open their TŌGE profile (`/api/garage?u=`): cars with their looks
