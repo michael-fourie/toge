@@ -7,7 +7,8 @@
 
 import * as THREE from 'three';
 import { CARS, type CarId, type CarSpec, isBike } from '../shared/cars.ts';
-import { DESIGNS } from './carkits.ts';
+import { DESIGNS, driverEye } from './carkits.ts';
+import { MAT } from './carparts.ts';
 import { curve } from './carloft.ts';
 
 export interface Cockpit {
@@ -27,7 +28,8 @@ const SWEEP = Math.PI * 1.5;
 const MAX_KMH = 320;
 const UP = new THREE.Vector3(0, 1, 0);
 
-function dialTexture(redline: number): THREE.CanvasTexture {
+/** The dials' faces; `accent` draws a sports cluster (a ring in that colour round the rev counter's red zone). */
+function dialTexture(redline: number, accent?: number): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = 512;
   c.height = 256;
@@ -42,6 +44,16 @@ function dialTexture(redline: number): THREE.CanvasTexture {
     g.beginPath();
     g.arc(0, 0, 118, 0, Math.PI * 2);
     g.stroke();
+    if (accent !== undefined) {
+      // A bright band round the red zone (or the whole sweep, faintly, on the speedo).
+      g.strokeStyle = `#${accent.toString(16).padStart(6, '0')}`;
+      g.lineWidth = 9;
+      g.globalAlpha = red < steps ? 1 : 0.35;
+      g.beginPath();
+      g.arc(0, 0, 109, Math.PI * 0.75 + (Math.min(red, steps) / steps) * SWEEP * (red < steps ? 1 : 0), Math.PI * 0.75 + SWEEP);
+      g.stroke();
+      g.globalAlpha = 1;
+    }
     for (let i = 0; i <= steps; i++) {
       const a = Math.PI * 0.75 + (i / steps) * SWEEP;
       g.strokeStyle = i >= red ? '#ff3b2f' : '#e8ecef';
@@ -106,6 +118,106 @@ function setNeedles(needles: THREE.Object3D[], spec: CarSpec, rpm: number, kmh: 
   const revFull = Math.ceil(spec.redline / 1000) + 1;
   needles[0].rotation.z = -(Math.PI * 0.25 + Math.min(1, rpm / 1000 / revFull) * SWEEP) + Math.PI;
   needles[1].rotation.z = -(Math.PI * 0.25 + Math.min(1, kmh / MAX_KMH) * SWEEP) + Math.PI;
+}
+
+/** Shift lights: green, then amber, then red as the revs climb past `SHIFT_FROM` of the redline. */
+const SHIFT_FROM = 0.72;
+const LED_COLOURS = [0x29ff6a, 0x29ff6a, 0xffc21a, 0xffc21a, 0xff2a1a, 0xff2a1a, 0xff2a1a];
+
+/**
+ * A sports wheel on `spin`: an Alcantara rim with a flat bottom, carbon spokes and hub, the accent at twelve
+ * o'clock, and a row of shift lights across the hub. Carbon paddles go on `fixed` (the column). Returns the
+ * lights' materials.
+ */
+function sportWheel(spin: THREE.Group, fixed: THREE.Group, r: number, rim: THREE.Material, carbon: THREE.Material, accent: THREE.Material, mat: <T extends THREE.Material>(m: T) => T): THREE.MeshBasicMaterial[] {
+  const gap = 0.62; // half the angle the flat bottom cuts off
+  spin.add(new THREE.Mesh(new THREE.TorusGeometry(r, 0.02, 10, 44, Math.PI * 2 - gap * 2).rotateZ(-Math.PI / 2 + gap), rim));
+  const lo = -Math.cos(gap) * r;
+  const bx = Math.sin(gap) * r;
+  spin.add(strut(new THREE.Vector3(-bx, lo, 0), new THREE.Vector3(bx, lo, 0), 0.04, 0.034, rim));
+  const o = new THREE.Vector3();
+  for (const s of [-1, 1]) spin.add(strut(o, new THREE.Vector3(s * r, -0.01, 0), 0.05, 0.014, carbon));
+  spin.add(strut(o, new THREE.Vector3(0, lo, 0), 0.04, 0.014, carbon));
+  const hub = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 0.035), carbon);
+  hub.position.set(0, 0.005, 0.004);
+  spin.add(hub);
+  const marker = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.03, 0.042), accent);
+  marker.position.y = r;
+  spin.add(marker);
+  const leds = LED_COLOURS.map((c) => mat(new THREE.MeshBasicMaterial({ color: c })));
+  leds.forEach((m, i) => {
+    const led = new THREE.Mesh(new THREE.BoxGeometry(0.011, 0.008, 0.004), m);
+    led.position.set((i - 3) * 0.017, 0.04, 0.023);
+    spin.add(led);
+  });
+  shiftLights(leds, 0);
+  for (const s of [-1, 1]) {
+    const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.008), carbon);
+    paddle.position.set(s * (r * 0.62), 0.02, -0.035);
+    paddle.rotation.z = s * -0.25;
+    fixed.add(paddle);
+  }
+  return leds;
+}
+
+/** Lights the shift lights for revs at `share` of the redline (all of them flash at the limiter). */
+function shiftLights(leds: THREE.MeshBasicMaterial[], share: number) {
+  const n = Math.round(((share - SHIFT_FROM) / (0.97 - SHIFT_FROM)) * leds.length);
+  const flash = share > 0.985 && Math.floor(performance.now() / 70) % 2 === 0;
+  leds.forEach((m, i) => {
+    m.color.setHex(LED_COLOURS[i]).multiplyScalar(flash ? 0.08 : i < n ? 1 : 0.08);
+  });
+}
+
+/** A rear-view mirror's glass: sky over a grey road, darkened toward the edges like a real one at a glance. */
+function mirrorTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 48;
+  const g = c.getContext('2d')!;
+  const sky = g.createLinearGradient(0, 0, 0, 48);
+  sky.addColorStop(0, '#7f97ab');
+  sky.addColorStop(0.5, '#b9c6cf');
+  sky.addColorStop(0.52, '#4d5258');
+  sky.addColorStop(1, '#2b2e33');
+  g.fillStyle = sky;
+  g.fillRect(0, 0, 128, 48);
+  const edge = g.createRadialGradient(64, 24, 10, 64, 24, 72);
+  edge.addColorStop(0, 'rgba(0,0,0,0)');
+  edge.addColorStop(1, 'rgba(0,0,0,0.55)');
+  g.fillStyle = edge;
+  g.fillRect(0, 0, 128, 48);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** The centre screen: a dark page with the drive mode and a little rev graph in the accent colour. */
+function screenTexture(accent: number): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#07080a';
+  g.fillRect(0, 0, 256, 128);
+  const hex = `#${accent.toString(16).padStart(6, '0')}`;
+  g.fillStyle = hex;
+  g.font = 'bold 30px sans-serif';
+  g.fillText('CORSA', 16, 44);
+  g.fillStyle = '#9aa3ad';
+  g.font = '16px sans-serif';
+  g.fillText('DRIVE MODE', 16, 70);
+  for (let i = 0; i < 12; i++) {
+    g.fillStyle = i > 8 ? hex : '#3d4450';
+    const h = 8 + i * 3.5;
+    g.fillRect(150 + i * 8, 112 - h, 5, h);
+  }
+  g.strokeStyle = '#2a2f37';
+  g.lineWidth = 2;
+  g.strokeRect(4, 4, 248, 120);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 /**
@@ -176,9 +288,7 @@ export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
   const halfTop = W * d.cabin * (1 - d.cabTumble) * 0.9 - 0.04;
   // Right-hand drive (touge country, and traffic keeps left). Eyes about 0.7 m behind the top of the
   // windscreen and a fist and a half under the headliner.
-  const ex = Math.min(0.4, halfTop * 0.5);
-  const ez = Math.min(zTop + 0.7, zRear + 0.2);
-  const ey = roof(Math.min(d.roofR, tAt(ez))) - 0.25;
+  const { x: ex, y: ey, z: ez } = driverEye(d, L, W, H);
   // The lower body's top runs on through the cabin at the beltline, facing up, so from in here it's a lid
   // over the footwells. The dash and sills sit just above it to cover it.
   const top = curve(d.top.map(([t, v]) => [t, v * H] as [number, number]));
@@ -191,17 +301,27 @@ export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
   root.add(inner);
   const own: { dispose(): void }[] = [];
   const mat = <T extends THREE.Material>(m: T) => (own.push(m), m);
-  const dash = mat(new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.9 }));
+  // A car with its own trim (DESIGNS interior) gets Alcantara, carbon and its accent colour, and a sports wheel.
+  const style = d.interior;
+  const dash = mat(new THREE.MeshStandardMaterial({ color: style ? 0x111114 : 0x15161a, roughness: 0.9 }));
   const visor = mat(new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.9, side: THREE.DoubleSide }));
-  const trim = mat(new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: 0.8 }));
-  const liner = mat(new THREE.MeshStandardMaterial({ color: 0x8a8781, roughness: 1 }));
-  const leather = mat(new THREE.MeshStandardMaterial({ color: 0x0e0e10, roughness: 0.55 }));
+  const trim = style ? dash : mat(new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: 0.8 }));
+  const liner = mat(new THREE.MeshStandardMaterial({ color: style?.liner ?? 0x8a8781, roughness: 1 }));
+  const leather = mat(new THREE.MeshStandardMaterial({ color: style ? 0x19191c : 0x0e0e10, roughness: style ? 0.9 : 0.55 }));
+  const accent = style ? mat(new THREE.MeshStandardMaterial({ color: style.accent, emissive: style.accent, emissiveIntensity: 0.12, roughness: 0.45 })) : null;
+  // The body's carbon with a satin finish: this close up, its clear coat mirrors the sky and glares white.
+  const carbon = mat(MAT.carbon.clone());
+  Object.assign(carbon, { clearcoat: 0.15, roughness: 0.55, envMapIntensity: 0.35 });
   const metal = mat(new THREE.MeshStandardMaterial({ color: 0x55585e, metalness: 0.6, roughness: 0.45 }));
-  const mirror = mat(new THREE.MeshStandardMaterial({ color: 0x3a4048, metalness: 1, roughness: 0.15 }));
+  // A sports cabin's mirror shows a hint of the view behind (a painted one: a second render would cost a frame).
+  const mirrorTex = style ? mirrorTexture() : null;
+  if (mirrorTex) own.push(mirrorTex);
+  const mirror = mat(mirrorTex ? new THREE.MeshBasicMaterial({ map: mirrorTex }) : new THREE.MeshStandardMaterial({ color: 0x3a4048, metalness: 1, roughness: 0.15 }));
   const glass = mat(new THREE.MeshBasicMaterial({ color: 0x9fb8c8, transparent: true, opacity: 0.05, depthWrite: false }));
-  const tex = dialTexture(spec.redline);
+  const tex = dialTexture(spec.redline, style?.accent);
   own.push(tex);
-  const face = mat(new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.8, roughness: 0.4 }));
+  // A sports cluster is a screen: lit, with no sheen on it.
+  const face = mat(style ? new THREE.MeshBasicMaterial({ map: tex }) : new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.8, roughness: 0.4 }));
   const needleMat = mat(new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xff5a1f, emissiveIntensity: 1.6 }));
   const add = (m: THREE.Mesh) => {
     m.castShadow = false;
@@ -237,16 +357,20 @@ export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
   const spin = new THREE.Group();
   wheel.add(spin);
   const rimR = 0.18;
-  spin.add(new THREE.Mesh(new THREE.TorusGeometry(rimR, 0.017, 10, 40), leather));
-  spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.04, 18).rotateX(Math.PI / 2), leather));
-  const o = new THREE.Vector3();
-  for (const a of [0, Math.PI * 0.62, -Math.PI * 0.62]) {
-    const end = new THREE.Vector3(Math.sin(a) * rimR, -Math.cos(a) * rimR, 0);
-    spin.add(strut(o, end, 0.03, 0.012, a === 0 ? leather : metal));
+  let leds: THREE.MeshBasicMaterial[] = [];
+  if (style && accent) leds = sportWheel(spin, wheel, rimR, leather, carbon, accent, mat);
+  else {
+    spin.add(new THREE.Mesh(new THREE.TorusGeometry(rimR, 0.017, 10, 40), leather));
+    spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.04, 18).rotateX(Math.PI / 2), leather));
+    const o = new THREE.Vector3();
+    for (const a of [0, Math.PI * 0.62, -Math.PI * 0.62]) {
+      const end = new THREE.Vector3(Math.sin(a) * rimR, -Math.cos(a) * rimR, 0);
+      spin.add(strut(o, end, 0.03, 0.012, a === 0 ? leather : metal));
+    }
+    const marker = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.026, 0.036), metal);
+    marker.position.y = rimR;
+    spin.add(marker);
   }
-  const marker = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.026, 0.036), metal);
-  marker.position.y = rimR;
-  spin.add(marker);
   const column = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.4, 12), dash);
   column.rotation.x = Math.PI / 2;
   column.position.z = -0.2;
@@ -261,7 +385,7 @@ export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
   for (const s of [-1, 1]) {
     const a = new THREE.Vector3(s * (halfBase - inset), yBase - 0.02, zBase + 0.04);
     const t = new THREE.Vector3(s * (halfTop - inset), yTop - 0.02, zTop + 0.05);
-    add(strut(a, t, 0.075, 0.05, trim));
+    add(strut(a, t, style ? 0.04 : 0.075, style ? 0.03 : 0.05, trim));
     if (d.bPillar) {
       const bz = zAt(d.bPillar);
       add(strut(new THREE.Vector3(s * (halfBase - inset), yBase - 0.05, bz), new THREE.Vector3(s * (halfTop - inset), roof(d.bPillar) - 0.02, bz), 0.04, 0.1, trim));
@@ -276,8 +400,16 @@ export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
   // Rear-view mirror hanging off the header, angled at the driver.
   const rvm = new THREE.Group();
   rvm.position.set(0, yTop - 0.11, zTop + 0.1);
-  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.06, 0.03), dash);
-  const glassFace = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.046), mirror);
+  if (style) {
+    // Down the screen to where the glass is a hand above your eyes, so it isn't in your face under a low header.
+    let t = d.roofF;
+    while (t > t0 + 0.02 && roof(t) > ey + 0.13) t -= 0.005;
+    rvm.position.set(0, roof(t) - 0.06, zAt(t) + 0.03);
+  }
+  // A low car's header is close to your face: its mirror is smaller and tucked up against the glass.
+  const mw = style ? 0.13 : 0.21;
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(mw, style ? 0.05 : 0.06, 0.03), style ? carbon : dash);
+  const glassFace = new THREE.Mesh(new THREE.PlaneGeometry(mw - 0.02, style ? 0.036 : 0.046), mirror);
   glassFace.position.z = 0.016;
   rvm.add(housing, glassFace);
   rvm.add(strut(new THREE.Vector3(0, 0.03, 0), new THREE.Vector3(0, 0.1, -0.04), 0.015, 0.015, dash));
@@ -289,8 +421,36 @@ export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
     const door = add(new THREE.Mesh(new THREE.PlaneGeometry(doorLen, lid - 0.25), trim));
     door.rotation.y = s * -Math.PI / 2;
     door.position.set(s * halfBase, (lid + 0.25) / 2, zBase + doorLen / 2);
-    const sill = add(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, doorLen), dash));
+    const sill = add(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, doorLen), style ? carbon : dash));
     sill.position.set(s * (halfBase - 0.05), lid + 0.02, zBase + doorLen / 2);
+  }
+  if (style && accent) {
+    // Carbon fascia across the dash's face with a stitched lip and two round vents, a screen on the dash, and a
+    // low tunnel between the seats with the start button under a red flap.
+    const face = gz + 0.012;
+    add(new THREE.Mesh(new THREE.BoxGeometry(halfBase * 2 - 0.04, 0.11, 0.02), carbon)).position.set(0, dashTop - 0.075, face - 0.01);
+    add(new THREE.Mesh(new THREE.BoxGeometry(halfBase * 2 - 0.06, 0.006, 0.006), accent)).position.set(0, dashTop - 0.012, face);
+    for (const x of [-halfBase + 0.16, -0.16]) {
+      const ring = add(new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.007, 8, 24), metal));
+      ring.position.set(x, dashTop - 0.075, face + 0.004);
+      const vent = add(new THREE.Mesh(new THREE.CircleGeometry(0.033, 20), MAT.hole));
+      vent.position.set(x, dashTop - 0.075, face + 0.002);
+    }
+    const scr = screenTexture(style.accent);
+    own.push(scr);
+    const screen = new THREE.Group();
+    screen.position.set(-0.06, dashTop + 0.035, gz - 0.1);
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.075), mat(new THREE.MeshBasicMaterial({ map: scr })));
+    panel.position.z = 0.007;
+    screen.add(new THREE.Mesh(new THREE.BoxGeometry(0.185, 0.09, 0.012), carbon), panel);
+    faceEye(screen);
+    inner.add(screen);
+    const tEnd = gz + 0.22;
+    const tunnel = add(new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.04, tEnd - gz), dash));
+    tunnel.position.set(0, lid + 0.005, (gz + tEnd) / 2);
+    const flap = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.008, 0.04), accent));
+    flap.position.set(0, lid + 0.03, gz + 0.07);
+    flap.rotation.x = -0.4;
   }
   // The lap: covers the rest of the lid between the dash and the seat.
   const lap = add(new THREE.Mesh(new THREE.PlaneGeometry(halfBase * 2, ez + 0.2 - gz), dash));
@@ -320,6 +480,7 @@ export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
     update(steer, rpm, kmh) {
       spin.rotation.z = -Math.max(-WHEEL_LOCK, Math.min(WHEEL_LOCK, steer * STEER_RATIO));
       setNeedles(needles, spec, rpm, kmh);
+      if (leds.length) shiftLights(leds, rpm / spec.redline);
     },
     dispose() {
       root.removeFromParent();

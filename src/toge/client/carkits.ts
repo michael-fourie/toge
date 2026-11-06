@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import type { BaseCar, BikeId, CarId } from '../shared/cars.ts';
-import { type Section, centreTop, endZ, heightAt, surface, zAt } from './carloft.ts';
+import { type Section, centreTop, curve, endZ, heightAt, smooth, surface, zAt } from './carloft.ts';
 import { MAT, rbox } from './carparts.ts';
 
 export interface Design {
@@ -37,7 +37,46 @@ export interface Design {
   roofSpoiler?: boolean;
   plate: string;
   plateY: number;
+  /** A raked windscreen whose side glass wraps forward under a slim A pillar (else the pillar is the whole
+   * rounded corner of the greenhouse, which on a long, low screen paints over the front of the side window). */
+  slimA?: boolean;
+  /** How far the driver's eyes sit under the roof (m, default `EYE_DROP`), and their t along the car (default:
+   * 0.7 m behind the windscreen header, but no further back than 0.2 m past the rear of the roof). */
+  eyeDrop?: number;
+  eyeT?: number;
+  /** How far the driver's seat lies back (rad): a low car needs it, or their legs come out under the floor. */
+  recline?: number;
+  /** No fuel flap (something else sits on the rear quarter). */
+  noFuelFlap?: boolean;
+  /** The cabin's own trim, inside and as seen through the glass (unset: the stock dark grey). */
+  interior?: Interior;
   kit(k: Kit): void;
+}
+
+/** Eyes this far under the roof, a fist and a half of headroom. */
+export const EYE_DROP = 0.25;
+
+/** The driver's eyes in body space (right-hand drive), shared by the cabin seen from outside and the cockpit camera. */
+export function driverEye(d: Design, L: number, W: number, H: number): THREE.Vector3 {
+  const roof = curve(d.roof.map(([t, v]) => [t, v * H]));
+  const halfTop = W * d.cabin * (1 - d.cabTumble) * 0.9 - 0.04;
+  const x = Math.min(0.4, halfTop * 0.5);
+  const z = d.eyeT !== undefined ? (d.eyeT - 0.5) * L : Math.min((d.roofF - 0.5) * L + 0.7, (d.roofR - 0.5) * L + 0.2);
+  return new THREE.Vector3(x, roof(Math.min(d.roofR, z / L + 0.5)) - (d.eyeDrop ?? EYE_DROP), z);
+}
+
+/**
+ * A cabin's trim: seat leather and its bolsters, an accent (stitching, belts, the wheel's top marker, the start
+ * button), the headliner, carbon on the dash, tunnel and door tops, and a sports wheel (flat bottomed, with
+ * shift lights).
+ */
+export interface Interior {
+  seat: number;
+  bolster: number;
+  accent: number;
+  liner: number;
+  carbon: boolean;
+  sport: boolean;
 }
 
 /** What a kit builds with. Positions are body space: ground y = 0, the body's middle z = 0, front -Z. */
@@ -170,6 +209,42 @@ function louvres(k: Kit, t0: number, t1: number, n: number, width: (t: number) =
     const slope = Math.atan2(height(t + 0.005) - height(t - 0.005), dz);
     k.put(rbox(width(t), 0.018, ((t1 - t0) * k.L) / n * 0.55, 0.006), mat, [0, height(t) + 0.012, k.z(t)], [-slope - 0.35, 0, 0]);
   }
+}
+
+/**
+ * A fin along the roof's spine from t0 to t1, `w` wide, standing h(t) proud of the roof: a rounded hump that
+ * follows the greenhouse (a box laid on a curved roof floats off it at one end).
+ */
+function spine(k: Kit, t0: number, t1: number, w: number, h: (t: number) => number, mat: THREE.Material) {
+  const N = 20;
+  const P = 11;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = t0 + ((t1 - t0) * i) / N;
+    const y = k.cabin.top(t) - 0.012;
+    const hh = Math.max(0.002, h(t)) + 0.012;
+    for (let j = 0; j < P; j++) {
+      const a = (Math.PI * j) / (P - 1);
+      pos.push(Math.cos(a) * (w / 2) * Math.sqrt(Math.max(0.15, Math.sin(a) ** 0.3)), y + Math.sin(a) * hh, k.z(t));
+    }
+  }
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < P - 1; j++) {
+      const a = i * P + j;
+      const b = a + P;
+      idx.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+  }
+  // Cap the open front (the mouth's back wall).
+  const c = pos.length / 3;
+  pos.push(0, pos[1], pos[2]);
+  for (let j = 0; j < P - 1; j++) idx.push(c, j + 1, j);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  k.put(g, mat, [0, 0, 0]);
 }
 
 /** A dark grille slab on the nose. */
@@ -401,20 +476,14 @@ export const DESIGNS: Record<Exclude<CarId, BikeId>, Design> = {
     top: [[0, 0.27], [0.05, 0.46], [0.12, 0.6], [0.209, 0.69], [0.3, 0.62], [0.45, 0.6], [0.62, 0.66], [0.791, 0.72], [0.92, 0.7], [0.98, 0.66], [1, 0.58]],
     dip: [[0, 0], [0.06, 0.08], [0.15, 0.15], [0.24, 0.13], [0.32, 0.04], [0.38, 0], [0.6, 0], [0.72, 0.08], [0.9, 0.1], [1, 0.04]],
     floor: [[0, 0.2], [0.04, 0.14], [0.1, 0.12], [0.92, 0.12], [0.97, 0.18], [1, 0.3]],
-    roof: [[0.3, 0.56], [0.38, 0.8], [0.46, 0.975], [0.56, 1], [0.66, 0.88], [0.78, 0.64]],
-    roofF: 0.46, roofR: 0.56, bPillar: 0, cPillar: 0.62, cabin: 0.78, cabTumble: 0.28,
+    roof: [[0.3, 0.56], [0.36, 0.78], [0.43, 0.955], [0.5, 1], [0.6, 0.975], [0.68, 0.86], [0.78, 0.64]],
+    roofF: 0.43, roofR: 0.6, bPillar: 0, cPillar: 0.64, cabin: 0.78, cabTumble: 0.28,
     waist: 0.09, flareF: 0.08, flareR: 0.13, nose: [0.18, 0.5], tail: [0.05, 0.9], tumble: 0.12, rb: 0.05, rt: 0.14,
-    plate: 'V10', plateY: 0.36,
+    plate: 'V10', plateY: 0.36, slimA: true, eyeT: 0.52, eyeDrop: 0.2, recline: 0.26, noFuelFlap: true,
+    interior: { seat: 0x8a1216, bolster: 0x121215, accent: 0xe0281e, liner: 0x1d1e22, carbon: true, sport: true },
     kit(k) {
-      // Arrow running lights in dark housings, set into the top of the nose ahead of the fenders.
-      const lt = 0.07;
-      const hx = k.W * 0.6;
-      const hy = k.height(lt, hx);
-      const slope = Math.atan2(k.height(lt + 0.02, hx) - k.height(lt - 0.02, hx), 0.04 * k.L);
-      k.put(rbox(0.3, 0.035, 0.24, 0.015), MAT.gloss, [hx, hy - 0.01, k.z(lt)], [-slope, 0.2, 0], true);
-      for (const [dx, yaw] of [[-0.06, 0.75], [0.06, -0.75]]) {
-        k.put(rbox(0.17, 0.016, 0.018, 0.006), MAT.drl, [hx + dx, hy + 0.016, k.z(lt) - 0.03], [-slope, yaw, 0], true);
-      }
+      // Slim headlamps lying along the top of the nose, ahead of the fenders.
+      slitLamp(k, k.W * 0.4, 0.045, k.W * 0.8, 0.095, 0.1);
       // Big front intakes and a carbon splitter.
       // Corner intakes, set into the nose (it tapers hard here, so they follow it in).
       for (const x of [0.46]) k.put(rbox(0.3, 0.14, 0.14, 0.04), MAT.grille, [x * k.W, 0.27, k.front(x * k.W, 0.27) + 0.11], [0, 0.45, 0], true);
@@ -426,9 +495,11 @@ export const DESIGNS: Record<Exclude<CarId, BikeId>, Design> = {
       const flank = Math.atan2(k.side(it + 0.02, 0.5).x - k.side(it - 0.02, 0.5).x, 0.04 * k.L);
       k.put(rbox(0.1, 0.22, 0.36, 0.05), MAT.grille, [p.x - 0.035, p.y, p.z], [0, flank, 0], true);
       k.put(rbox(0.03, 0.025, 0.42, 0.01), MAT.carbon, [p.x - 0.005, p.y + 0.13, p.z], [0, flank, 0], true);
-      // Roof airbox scoop.
-      k.put(rbox(0.3, 0.08, 0.62, 0.04), MAT.carbon, [0, k.H + 0.015, k.z(0.56)], [0.04, 0, 0]);
-      k.put(rbox(0.22, 0.05, 0.02, 0.02), MAT.grille, [0, k.H + 0.03, k.z(0.56) - 0.31]);
+      // Roof airbox scoop: a carbon fin down the spine from just behind the header, fading into the rear glass.
+      const s0 = 0.45;
+      const s1 = 0.62;
+      spine(k, s0, s1, 0.26, (t) => 0.06 * (1 - smooth(0.57, s1, t)) * smooth(s0 - 0.01, s0 + 0.02, t), MAT.carbon);
+      k.put(rbox(0.22, 0.05, 0.02, 0.012), MAT.hole, [0, k.cabin.top(s0 + 0.008) + 0.035, k.z(s0 + 0.008)]);
       // The V10 under the rear glass: two red cam covers either side of a carbon plenum and its intake trumpets.
       const et = 0.715;
       const ey = k.top(et);

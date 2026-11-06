@@ -9,10 +9,10 @@ import { buildBike } from './bikemodel.ts';
 import { type Rider, defaultRider } from '../shared/rider.ts';
 import { type DriverRig, arrive } from './driver.ts';
 import { bodyKit, hasWing } from './bodykits.ts';
-import { DESIGNS, type Design, type Kit, makeKitHelpers } from './carkits.ts';
+import { DESIGNS, type Design, type Interior, type Kit, driverEye, makeKitHelpers } from './carkits.ts';
 import { type Section, centreTop, curve, loft, smooth, surface, zAt } from './carloft.ts';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { GLASS, MAT, glowMaterial, isShared, mergeByMaterial, paintMaterial, plateMaterial, rbox, stripeTexture, wheel } from './carparts.ts';
+import { GLASS, MAT, glowMaterial, isShared, mergeByMaterial, paintMaterial, plateMaterial, rbox, share, stripeTexture, wheel } from './carparts.ts';
 import { equipped } from '../shared/cosmetics.ts';
 import { caliperMaterial, coverMaterial, cosPaint, cosPlateMaterial, exhaustMaterials, frameMaterial, headMaterials, rimMaterial, windowMaterial } from './cosmeticsview.ts';
 
@@ -82,6 +82,16 @@ function cabinSection(d: Design, body: Section, W: number, H: number): Section {
   };
 }
 
+/** The greenhouse's height at t, x from the centre line: its top, rounding down over the shoulder. */
+function glassAt(cabin: Section, t: number, x: number): number {
+  const top = cabin.top(t);
+  const h = top - cabin.bottom(t);
+  const w = cabin.half(t, 1);
+  const r = Math.min(cabin.rt, h * 0.5, w * 0.6);
+  const out = Math.abs(x) - (w - r);
+  return out <= 0 ? top : top - r + Math.sqrt(Math.max(0, r * r - out * out));
+}
+
 /** The cabin group's name: the race hides it for the car you're sitting in (cockpit camera). */
 export const INTERIOR = 'carInterior';
 /** Tail lamp glow: running lights, and on the brakes. */
@@ -135,6 +145,23 @@ interface Cockpit {
   side: THREE.Group;
 }
 
+/** Each design's cabin trim materials, made once and shared by every car built from it (eight Vantas in a time
+ * trial draw their cabins with the same few materials). */
+const trims = new Map<Interior, { seat: THREE.Material; bolster: THREE.Material; accent: THREE.Material; liner: THREE.Material }>();
+function trimOf(i: Interior) {
+  let t = trims.get(i);
+  if (!t) {
+    t = {
+      seat: share(new THREE.MeshStandardMaterial({ color: i.seat, map: MAT.seat.map, roughness: 0.7 })),
+      bolster: share(new THREE.MeshStandardMaterial({ color: i.bolster, roughness: 0.6 })),
+      accent: share(new THREE.MeshStandardMaterial({ color: i.accent, roughness: 0.45 })),
+      liner: share(new THREE.MeshStandardMaterial({ color: i.liner, roughness: 1, side: THREE.BackSide })),
+    };
+    trims.set(i, t);
+  }
+  return t;
+}
+
 /**
  * Dash, seats and steering wheel, laid out like the cockpit camera's (right-hand drive): only what shows
  * through the glass, so it's a handful of boxes.
@@ -146,13 +173,8 @@ function cabinParts(g: THREE.Group, d: Design, body: Section, cabin: Section, W:
   const tAt = (zz: number) => zz / L + 0.5;
   const t0 = d.roof[0][0];
   const halfBase = W * d.cabin * 0.9 - 0.04;
-  const halfTop = W * d.cabin * (1 - d.cabTumble) * 0.9 - 0.04;
   const zBase = z(t0);
-  const zTop = z(d.roofF);
-  const zRear = z(d.roofR);
-  const ex = Math.min(0.4, halfTop * 0.5);
-  const ez = Math.min(zTop + 0.7, zRear + 0.2);
-  const ey = roof(Math.min(d.roofR, tAt(ez))) - 0.25;
+  const { x: ex, y: ey, z: ez } = driverEye(d, L, W, H);
   let lid = 0;
   for (let t = t0; t <= tAt(ez) + 0.04; t += 0.01) lid = Math.max(lid, centreTop(body, t));
   const side = new THREE.Group();
@@ -164,11 +186,29 @@ function cabinParts(g: THREE.Group, d: Design, body: Section, cabin: Section, W:
     to.add(m);
     return m;
   };
-  // Dash: a slab under the windscreen with a soft top, and a binnacle hood in front of the driver.
+  // A car's own trim (DESIGNS interior): its leather, an accent for belts and stitching, carbon on the dash.
+  const style = d.interior;
+  const trim = style ? trimOf(style) : null;
+  const seatMat = trim?.seat ?? MAT.seat;
+  const bolsterMat = trim?.bolster ?? MAT.bolster;
+  const dashMat = style?.carbon ? MAT.carbon : MAT.cabin;
+  const accent = trim?.accent ?? null;
+  // Dash: a slab under the windscreen with a soft top, and a binnacle hood in front of the driver. A raked
+  // screen comes down low at its foot, so the dash starts where the glass clears it (or it pokes out through it).
   const dashDepth = Math.max(0.3, ez - 0.5 - zBase);
   const dashTop = Math.max(roof(t0) - 0.02, lid + 0.04);
-  put(rbox(halfBase * 2 - 0.04, 0.16, dashDepth, 0.05), MAT.cabin, 0, dashTop - 0.08, zBase + dashDepth / 2 + 0.02);
+  const dashEnd = zBase + dashDepth + 0.02;
+  let dashFront = zBase + 0.02;
+  while (dashFront < dashEnd - 0.2 && glassAt(cabin, tAt(dashFront), halfBase - 0.06) < dashTop + 0.03) dashFront += 0.02;
+  put(rbox(halfBase * 2 - 0.04, 0.16, dashEnd - dashFront, 0.05), dashMat, 0, dashTop - 0.08, (dashFront + dashEnd) / 2);
   put(rbox(0.34, 0.08, 0.18, 0.04), MAT.bolster, ex, dashTop + 0.02, zBase + dashDepth - 0.06);
+  if (accent) {
+    // Stitching along the dash's lip, and a carbon tunnel between the seats with the start button on it.
+    put(rbox(halfBase * 2 - 0.12, 0.008, 0.008, 0.003), accent, 0, dashTop + 0.001, dashEnd - 0.03);
+    const tunnelEnd = ez + 0.12;
+    put(rbox(0.2, 0.12, tunnelEnd - dashEnd + 0.04, 0.04), dashMat, 0, lid + 0.02, (dashEnd + tunnelEnd) / 2);
+    put(new THREE.CylinderGeometry(0.02, 0.02, 0.012, 16), accent, 0, lid + 0.085, dashEnd + 0.1);
+  }
   // Steering wheel on its column, face tipped toward the driver.
   const wz = zBase + dashDepth + 0.04;
   const wy = dashTop - 0.03;
@@ -188,10 +228,12 @@ function cabinParts(g: THREE.Group, d: Design, body: Section, cabin: Section, W:
       m.position.set(px, py, pz);
       back.add(m);
     };
-    add(rbox(0.34, 0.56, 0.1, 0.04), MAT.seat, 0, 0.28, 0);
-    for (const s of [-1, 1]) add(rbox(0.07, 0.5, 0.15, 0.03), MAT.bolster, s * 0.2, 0.26, -0.02);
-    add(rbox(0.26, 0.17, 0.1, 0.05), MAT.bolster, 0, 0.66, 0.01);
-    put(rbox(0.46, 0.12, 0.48, 0.04), MAT.seat, x, ey - 0.66, sz - 0.24, 0, 0, 0, to);
+    add(rbox(0.34, 0.56, 0.1, 0.04), seatMat, 0, 0.28, 0);
+    for (const s of [-1, 1]) add(rbox(0.07, 0.5, 0.15, 0.03), bolsterMat, s * 0.2, 0.26, -0.02);
+    add(rbox(0.26, 0.17, 0.1, 0.05), bolsterMat, 0, 0.66, 0.01);
+    // A four-point harness in the accent colour.
+    if (accent) for (const s of [-1, 1]) add(rbox(0.05, 0.5, 0.012, 0.004), accent, s * 0.08, 0.32, -0.056);
+    put(rbox(0.46, 0.12, 0.48, 0.04), seatMat, x, ey - 0.66, sz - 0.24, 0, 0, 0, to);
   }
   // A rear shelf (or rear seat backs in the hatches) so the back of the cabin isn't an empty hole.
   const tr = Math.min(d.cPillar, d.roof[d.roof.length - 1][0] - 0.02);
@@ -201,7 +243,7 @@ function cabinParts(g: THREE.Group, d: Design, body: Section, cabin: Section, W:
     const bz = Math.max(sz + 0.45, endZ - 0.3);
     put(rbox(halfBase * 1.8, 0.42, 0.12, 0.04), MAT.seat, 0, lid + 0.1, bz, 0.2);
     for (const x of [-ex, ex]) put(rbox(0.24, 0.14, 0.09, 0.045), MAT.bolster, x, lid + 0.38, bz + 0.05, 0.2);
-  } else if (endZ > sz + 0.2) put(rbox(halfBase * 1.8, 0.3, 0.12, 0.04), MAT.seat, 0, lid + 0.12, endZ - 0.1, 0.25);
+  } else if (endZ > sz + 0.2) put(rbox(halfBase * 1.8, 0.3, 0.12, 0.04), style?.carbon ? dashMat : MAT.seat, 0, lid + 0.12, endZ - 0.1, 0.25);
   void cabin;
   return { eye: new THREE.Vector3(ex, ey, ez), roofIn: roof(Math.min(d.roofR, tAt(ez))) - 0.04, side };
 }
@@ -275,7 +317,7 @@ function details(k: Kit, d: Design, zones: Zones, beltMat: THREE.Material) {
   // The fuel flap goes on the rear quarter, clear of the door and the arch; a car with no room there has none.
   const doorEnd = Math.max(...zones.doors.map(([, b]) => b));
   const ft = Math.min(k.tR - (k.b.radius + 0.2) / k.L, doorEnd + 0.2 / k.L);
-  if (ft > doorEnd + 0.14 / k.L) {
+  if (!d.noFuelFlap && ft > doorEnd + 0.14 / k.L) {
     const fp = body_side(body, ft, 0.74, 1, 0.002);
     k.put(new THREE.CylinderGeometry(0.07, 0.07, 0.004, 24), k.paint, [fp.x, fp.y, fp.z], [0, 0, Math.PI / 2]);
     k.put(new THREE.TorusGeometry(0.071, 0.003, 4, 28), MAT.seam, [fp.x + 0.001, fp.y, fp.z], [0, Math.PI / 2, 0]);
@@ -396,16 +438,25 @@ export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()):
     if (zone === 'top' && zones.onHood(t, u)) return HOOD;
     return PAINT;
   }, PAINT);
+  // A slim A pillar: ahead of the roof only the top of the greenhouse's rounded corner is pillar, and the side
+  // glass wraps up under it.
+  const sideGlass = (t: number, v: number) => {
+    if (!d.slimA || t >= d.roofF - 0.004) return false;
+    const h = cabin.top(t) - cabin.bottom(t);
+    const r = Math.min(0.1, h * 0.5);
+    return v < (h - r * 0.35) / h;
+  };
   // Greenhouse: glass framed by painted pillars and roof, a black B pillar, and the window seals in the trim finish.
   const glazed = (t: number, zone: string, v: number) => {
-    if (zone === 'bottom' || zone === 'lower' || zone === 'shoulder') return false;
+    if (zone === 'shoulder') return sideGlass(t, v);
+    if (zone === 'bottom' || zone === 'lower') return false;
     if (zone === 'top') return !(t > d.roofF + 0.004 && t < d.roofR - 0.004);
     if (d.bPillar && Math.abs(t - d.bPillar) < 0.012) return false;
     return t <= d.cPillar && v >= 0.12;
   };
   const cabinGeos = loft(cabin, 44, mats.length, (t, zone, v) => {
     if (zone === 'bottom' || zone === 'lower') return TRIM;
-    if (zone === 'shoulder') return t > d.roofF + 0.004 && t < d.roofR - 0.004 ? ROOF : PAINT;
+    if (zone === 'shoulder') return t > d.roofF + 0.004 && t < d.roofR - 0.004 ? ROOF : sideGlass(t, v) ? GLAZE : PAINT;
     if (zone === 'top') return t > d.roofF + 0.004 && t < d.roofR - 0.004 ? ROOF : GLAZE;
     if (d.bPillar && Math.abs(t - d.bPillar) < 0.012) return TRIM;
     if (t > d.cPillar) return PAINT;
@@ -419,7 +470,7 @@ export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()):
   inside.name = INTERIOR;
   body.add(inside);
   const [liner] = loft(cabin, 44, 1, (t, zone, v) => (glazed(t, zone, v) ? -1 : 0));
-  inside.add(new THREE.Mesh(liner, MAT.liner));
+  inside.add(new THREE.Mesh(liner, d.interior ? trimOf(d.interior).liner : MAT.liner));
   const cockpit = cabinParts(inside, d, lower, cabin, W, H);
 
   const kit: Kit = {
@@ -494,7 +545,9 @@ export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()):
   // The driver gets in once their model has loaded: eyes where the cockpit camera's are, never through the roof.
   const seat = arrive(root, rider, (rig) => {
     rig.sit();
-    const at = cockpit.eye.clone().sub(rig.fit.eye);
+    // A low car lays its driver back (DESIGNS recline), pivoting at the hip, so their legs stay in the footwell.
+    rig.root.rotation.x = d.recline ?? 0;
+    const at = cockpit.eye.clone().sub(rig.fit.eye.clone().applyEuler(rig.root.rotation));
     at.y = Math.min(at.y, cockpit.roofIn - rig.fit.headTop);
     rig.root.position.copy(at);
     cockpit.side.visible = false;

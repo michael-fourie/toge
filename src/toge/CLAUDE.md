@@ -219,6 +219,11 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   car has a cabin behind it: the greenhouse loft drawn again from inside (`MAT.liner`, back faces, glass faces skipped),
   a dark cabin floor (the lower body's top inside the greenhouse), dash, wheel and bucket seats (`cabinParts`), a rear
   bench when there's room. It's the group named `INTERIOR`, which the race hides for the car the cockpit camera is in.
+  A design can tune its cabin (carkits.ts `Design`): `interior` (seat leather, accent, liner, carbon, a sports wheel with
+  shift lights in the cockpit), `eyeT` / `eyeDrop` (where the eyes sit; `driverEye()` is shared by the outside cabin and
+  cockpit.ts), `recline` (lays a low car's driver back so their legs stay above the floor), `slimA` (side glass wraps
+  under a slim A pillar on a raked screen) and `noFuelFlap`. The Vanta uses them all; the dash always starts where the
+  windscreen clears it, so it never pokes out through a raked screen.
   `panelZones` says where the hood, doors and boot are, so the hood option and the shut lines (`details`: grooves,
   handles, repeaters, fuel flap, wipers, third brake light, badge) agree. Flanks carry a character line
   (`Section.crease`, `Design.crease`, default 0.012 m; carloft.ts samples the side finely enough to hold it, and every

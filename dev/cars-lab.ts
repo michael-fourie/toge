@@ -1,11 +1,11 @@
 // Dev-only lab for the TŌGE car models: every car in a row (or one up close) under studio lights.
 // window.lab: show(id | 'all'), view(yawDeg, pitchDeg, dist), look({...}), cos({slot: itemId}), spin(on), rider(random), pose(steer, lat) (a bike leans
-// with lat, m/s²), cockpit() (the driver's / rider's eye of the one car shown).
+// with lat, m/s²), cockpit(rpm) (the driver's / rider's eye of the one car shown).
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { CAR_IDS, type CarId, type Look, carSpec, newOwnedCar } from '../src/toge/shared/cars.ts';
-import { type CarModel, buildCar } from '../src/toge/client/carmodel.ts';
+import { type CarModel, INTERIOR, buildCar } from '../src/toge/client/carmodel.ts';
 import type { CosKit } from '../src/toge/shared/cosmetics.ts';
 import { buildCockpit } from '../src/toge/client/cockpit.ts';
 import { type Rider, RIDER_IDS, defaultRider } from '../src/toge/shared/rider.ts';
@@ -131,6 +131,21 @@ requestAnimationFrame(frame);
     spinning = on;
   },
   render: () => renderer.render(scene, camera),
+  /** Body-space bounds of the shown car and of its driver (once they've loaded), to check nothing pokes out. */
+  bounds() {
+    const m = models[0];
+    const inv = m.body.matrixWorld.clone().invert();
+    const box = (o: THREE.Object3D) => new THREE.Box3().setFromObject(o).applyMatrix4(inv);
+    const parts: Record<string, number[]> = {};
+    m.driver?.root.traverse((o) => {
+      const sk = o as THREE.SkinnedMesh;
+      if (!sk.isSkinnedMesh || !sk.visible) return;
+      sk.computeBoundingBox();
+      const b = sk.boundingBox!.clone().applyMatrix4(sk.matrixWorld).applyMatrix4(inv);
+      parts[sk.name] = [b.min.y, b.max.y, b.min.z, b.max.z].map((v) => +v.toFixed(2));
+    });
+    return { car: box(m.body), parts };
+  },
   /** Draw calls and triangles of the last frame, to keep an eye on what a car costs. */
   info: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
   /** Steers every model shown and leans the bikes (lat: cornering force, m/s², + left); pose() repeats until settled. */
@@ -142,7 +157,7 @@ requestAnimationFrame(frame);
     renderer.render(scene, camera);
   },
   /** Looks out from the driver's seat of the one model shown (a bike's rider is hidden, as in the race). */
-  cockpit() {
+  cockpit(rpm = 6000) {
     if (current === 'all') return;
     const m = models[0];
     const seat = (m.root.userData.lean as THREE.Object3D | undefined) ?? m.root;
@@ -150,13 +165,16 @@ requestAnimationFrame(frame);
     seat.add(pit.root);
     const rider = m.root.userData.rider as THREE.Object3D | undefined;
     if (rider) rider.visible = false;
+    // The race hides the outside model's cabin from in here (the cockpit draws its own).
+    const cabin = m.root.getObjectByName(INTERIOR);
+    if (cabin) cabin.visible = false;
     scene.updateMatrixWorld(true);
     camera.position.copy(pit.eye.clone().applyMatrix4(seat.matrixWorld));
     camera.quaternion.copy(seat.getWorldQuaternion(new THREE.Quaternion())).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.05, 0, 0)));
     camera.fov = 60;
     camera.near = 0.06;
     camera.updateProjectionMatrix();
-    pit.update(0, 6000, 120);
+    pit.update(0, rpm, 120);
     renderer.render(scene, camera);
   },
 };
