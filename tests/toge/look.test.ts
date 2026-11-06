@@ -41,7 +41,7 @@ test('random looks round-trip', () => {
 
 test('junk codes are refused', () => {
   const good = encodeLook(DEFAULT_LOOK);
-  for (const bad of [undefined, 42, '', 'marlowe', 'L2.', good + '.0', good.replace('L2.', 'L1.'), good.replace(/\.[0-9a-f]{6}\./, '.zzzzzz.'), 'L2.' + 'x'.repeat(300)]) {
+  for (const bad of [undefined, 42, '', 'marlowe', 'L2.', good + '.', good + '.0.0', good.replace('L2.', 'L1.'), good.replace(/\.[0-9a-f]{6}\./, '.zzzzzz.'), 'L2.' + 'x'.repeat(300)]) {
     assert.equal(decodeLook(bad), null, String(bad));
   }
   const f = good.split('.');

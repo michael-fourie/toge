@@ -1,6 +1,7 @@
 import { decodeCar, encodeCar, newOwnedCar, raceCars, rivalCar } from '../shared/cars.ts';
 import { ITEM_MAX_USES, clampDrift } from '../shared/drift.ts';
 import { payout, raceBonus } from '../shared/garage.ts';
+import { raceXp } from '../shared/pass.ts';
 import type { Item } from '../shared/powerups.ts';
 import { cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
 import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, type CarRule, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
@@ -472,12 +473,12 @@ export class Race {
     const peopleDone = done.filter((m) => !m.cpu);
     const rows: ResultRow[] = [...done, ...dnf].map((m, i) => {
       const place = m.time === null ? 0 : i + 1;
-      if (m.cpu) return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize: 0, drift: 0, bonus: { drift: 0, items: 0 }, cpu: true };
+      if (m.cpu) return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize: 0, drift: 0, bonus: { drift: 0, items: 0 }, cpu: true, xp: 0 };
       const bonus = raceBonus(m.drift, m.uses, this.track, false);
       const among = m.time === null ? 0 : peopleDone.indexOf(m) + 1;
       const base = cpus ? Math.max(payout(among, people, this.track, false), payout(place, field.length, this.track, true)) : payout(place, field.length, this.track, false);
       const prize = base + bonus.drift + bonus.items;
-      return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize, drift: m.drift, bonus };
+      return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize, drift: m.drift, bonus, xp: raceXp(place, field.length, m.drift, false) };
     });
     this.phase = 'results';
     this.phaseEnds = now + RACE.resultsSeconds * 1000;

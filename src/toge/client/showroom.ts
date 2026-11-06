@@ -12,12 +12,13 @@ import { type DriverRig, loadDriver } from './driver.ts';
 import { Post } from './post.ts';
 import { frameGate, lowGraphics, LOW_PIXEL_RATIO } from '../../client/graphics.ts';
 import { stone } from './tracktextures.ts';
+import { type BgId, STAGES, type Stage } from '../shared/pass.ts';
 
 const CYAN = new THREE.Color(0x38c9ff);
 const MAGENTA = new THREE.Color(0xff3d9a);
 
-/** What the paint reflects: a dark bay, three softbox strips overhead, a neon panel each side. */
-export function garageEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
+/** What the paint reflects: a dark bay, three softbox strips overhead, a neon panel each side (a stage's own neon). */
+export function garageEnvironment(renderer: THREE.WebGLRenderer, left = CYAN, right = MAGENTA, glow = new THREE.Color(0.012, 0.014, 0.02)): THREE.Texture {
   const scene = new THREE.Scene();
   const own: { dispose(): void }[] = [];
   const add = (geo: THREE.BufferGeometry, color: THREE.Color, at?: [number, number, number]) => {
@@ -30,11 +31,11 @@ export function garageEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture 
     scene.add(m);
     own.push(geo, mat);
   };
-  add(new THREE.SphereGeometry(40, 24, 12), new THREE.Color(0.012, 0.014, 0.02));
+  add(new THREE.SphereGeometry(40, 24, 12), glow);
   add(new THREE.CircleGeometry(30, 24).rotateX(-Math.PI / 2).translate(0, -2, 0), new THREE.Color(0.02, 0.02, 0.025));
   for (const x of [-4, 0, 4]) add(new THREE.PlaneGeometry(1.2, 16), new THREE.Color(7, 7, 7.4), [x, 10, 0]);
-  add(new THREE.PlaneGeometry(10, 2), CYAN.clone().multiplyScalar(3), [-14, 2, -6]);
-  add(new THREE.PlaneGeometry(10, 2), MAGENTA.clone().multiplyScalar(3), [14, 2, -6]);
+  add(new THREE.PlaneGeometry(10, 2), left.clone().multiplyScalar(3), [-14, 2, -6]);
+  add(new THREE.PlaneGeometry(10, 2), right.clone().multiplyScalar(3), [14, 2, -6]);
   const pmrem = new THREE.PMREMGenerator(renderer);
   const tex = pmrem.fromScene(scene, 0.02).texture;
   pmrem.dispose();
@@ -55,6 +56,62 @@ function fadeTexture(): THREE.CanvasTexture {
   g.fillRect(0, 0, 256, 256);
   return new THREE.CanvasTexture(c);
 }
+
+/** A soft round dot for the motes (petals, leaves, embers, sparks, stars). */
+function moteTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.4, 'rgba(255,255,255,0.8)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
+/** The synthwave sun: a hot gradient disc cut by bars toward its foot. */
+function sunTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  const grad = g.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, '#fff27a');
+  grad.addColorStop(0.55, '#ff7a2b');
+  grad.addColorStop(1, '#ff2bd6');
+  g.fillStyle = grad;
+  g.beginPath();
+  g.arc(128, 128, 126, 0, Math.PI * 2);
+  g.fill();
+  g.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 6; i++) g.fillRect(0, 150 + i * 18, 256, 3 + i * 1.6);
+  return new THREE.CanvasTexture(c);
+}
+
+/**
+ * The panorama's radius and its top and bottom (fractions of the radius above and below the camera's eye). The
+ * showroom camera looks down at the car, so the real horizon is at the very top of the window: the stage's horizon
+ * dips below it (`STAGE_DIP`), as if the garage stood on a ridge, and the scenery sits behind the car.
+ */
+const STAGE_R = 40;
+const STAGE_DIP = 0.16;
+const BD_TOP = 0.075;
+const BD_BOTTOM = -STAGE_DIP;
+/** Where the horizon sits in the race's strips (their band below it is fog colour, which reads as a wall here). */
+const BD_HORIZON = 0.06 / 0.32;
+
+const MOTES = 420;
+/** Where the motes live: a box round the turntable (they wrap round inside it). */
+const MOTE_BOX = { x: 22, y: 9, z: 22 };
+/** Per kind: colours, size (m), fall speed (m/s; negative rises), sideways drift. */
+const MOTE_KIND: Record<NonNullable<Stage['motes']>, { colors: number[]; size: number; fall: number; sway: number }> = {
+  petals: { colors: [0xffb7d5, 0xffd6e7, 0xff8fbf], size: 0.11, fall: 0.55, sway: 0.5 },
+  leaves: { colors: [0xff8a00, 0xd9473d, 0xffc940], size: 0.14, fall: 0.7, sway: 0.7 },
+  embers: { colors: [0xff6a1a, 0xffae3c], size: 0.06, fall: -0.45, sway: 0.25 },
+  sparks: { colors: [0xffd76a, 0xfff1c9], size: 0.05, fall: -0.2, sway: 0.15 },
+  stars: { colors: [0xffffff, 0xcfe4ff], size: 0.05, fall: 0, sway: 0 },
+};
 
 export class Showroom {
   private renderer: THREE.WebGLRenderer;
@@ -88,6 +145,20 @@ export class Showroom {
   /** Low graphics (src/client/graphics.ts), read when the showroom opens, and its frame cap. */
   private readonly low = lowGraphics();
   private gate = frameGate(30);
+  /** The stage (pass.ts `STAGES`; '' the garage bay) and what draws it. */
+  private stageId: BgId | '' = '';
+  private env: THREE.Texture;
+  private floorMat!: THREE.MeshStandardMaterial;
+  private rings: THREE.MeshBasicMaterial[] = [];
+  private rims: THREE.DirectionalLight[] = [];
+  private sky!: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
+  private backdrop!: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>;
+  private backdrops = new Map<string, THREE.Texture>();
+  private orb!: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
+  private grid!: THREE.GridHelper;
+  private motes!: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
+  private moteKind: Stage['motes'] = null;
+  private moteSeed = new Float32Array(MOTES);
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -98,7 +169,8 @@ export class Showroom {
     this.renderer.shadowMap.enabled = !this.low;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const keep = <T extends { dispose(): void }>(x: T) => (this.own.push(x), x);
-    this.scene.environment = keep(garageEnvironment(this.renderer));
+    this.env = garageEnvironment(this.renderer);
+    this.scene.environment = this.env;
     this.scene.environmentIntensity = 0.7;
     this.scene.background = new THREE.Color(0x05070b);
     this.scene.fog = new THREE.Fog(0x05070b, 12, 26);
@@ -110,10 +182,8 @@ export class Showroom {
       t.repeat.set(5, 5);
     }
     tex.map.colorSpace = THREE.SRGBColorSpace;
-    const floor = new THREE.Mesh(
-      keep(new THREE.CircleGeometry(16, 64)),
-      keep(new THREE.MeshStandardMaterial({ color: 0x1a1c21, ...tex, normalScale: new THREE.Vector2(0.12, 0.12), roughness: 0.6, envMapIntensity: 0.35, alphaMap: keep(fadeTexture()), transparent: true, depthWrite: false })),
-    );
+    this.floorMat = keep(new THREE.MeshStandardMaterial({ color: 0x1a1c21, ...tex, normalScale: new THREE.Vector2(0.12, 0.12), roughness: 0.6, envMapIntensity: 0.35, alphaMap: keep(fadeTexture()), transparent: true, depthWrite: false }));
+    const floor = new THREE.Mesh(keep(new THREE.CircleGeometry(16, 64)), this.floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -0.004;
     floor.receiveShadow = true;
@@ -127,7 +197,10 @@ export class Showroom {
       [4.2, 4.3, CYAN, 2.2],
       [3.9, 3.93, MAGENTA, 1.6],
     ] as const) {
-      const ring = new THREE.Mesh(keep(new THREE.RingGeometry(r0, r1, 128)), keep(new THREE.MeshBasicMaterial({ color: c.clone().multiplyScalar(k) })));
+      const mat = keep(new THREE.MeshBasicMaterial({ color: c.clone().multiplyScalar(k) }));
+      mat.userData.k = k;
+      this.rings.push(mat);
+      const ring = new THREE.Mesh(keep(new THREE.RingGeometry(r0, r1, 128)), mat);
       ring.rotation.x = -Math.PI / 2;
       ring.position.y = 0.002;
       this.turntable.add(ring);
@@ -146,6 +219,8 @@ export class Showroom {
     const rimM = new THREE.DirectionalLight(MAGENTA, 1.2);
     rimM.position.set(8, 6, -2);
     this.scene.add(rimC, rimM);
+    this.rims = [rimC, rimM];
+    this.buildStage(keep);
     // Low's simple materials don't see the garage environment: a soft fill stands in for it.
     if (this.low) this.scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x20232a, 1.6));
     this.post = new Post(this.renderer, this.scene, this.camera, {
@@ -166,6 +241,184 @@ export class Showroom {
     this.ro.observe(canvas);
     this.resize();
     this.raf = requestAnimationFrame(this.frame);
+  }
+
+  /**
+   * Everything a stage can show, made once and hidden (the garage bay shows none of it): a gradient sky, a painted
+   * panorama, a sun or moon, a neon grid and drifting motes. Switching stages only changes colours, maps and
+   * visibility, so nothing recompiles (and no light is ever added or removed).
+   */
+  private buildStage(keep: <T extends { dispose(): void }>(x: T) => T) {
+    const sky = new THREE.Mesh(
+      keep(new THREE.SphereGeometry(60, 32, 16)),
+      keep(
+        new THREE.ShaderMaterial({
+          uniforms: { zenith: { value: new THREE.Color() }, horizon: { value: new THREE.Color() } },
+          vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+          fragmentShader:
+            'uniform vec3 zenith; uniform vec3 horizon; varying vec3 vDir; void main() { float h = smoothstep(-0.16, 0.14, vDir.y); vec3 c = mix(horizon, zenith, pow(h, 0.7)); if (vDir.y < -0.16) c = horizon * 0.16; gl_FragColor = vec4(c, 1.0); }',
+          side: THREE.BackSide,
+          depthWrite: false,
+          fog: false,
+        }),
+      ),
+    );
+    sky.renderOrder = -3;
+    sky.frustumCulled = false;
+    sky.onBeforeRender = (_r, _s, cam) => {
+      sky.position.copy(cam.position);
+      sky.updateMatrixWorld();
+    };
+    // The panorama: the race's backdrop strips, low on the horizon behind the car.
+    const blank = keep(new THREE.DataTexture(new Uint8Array(4), 1, 1));
+    blank.needsUpdate = true;
+    const backdrop = new THREE.Mesh(
+      // Like the race's (trackview.ts BACKDROP), squashed and dipped (STAGE_DIP).
+      keep(new THREE.CylinderGeometry(STAGE_R, STAGE_R, STAGE_R * (BD_TOP - BD_BOTTOM), 96, 1, true).translate(0, (STAGE_R * (BD_TOP + BD_BOTTOM)) / 2, 0)),
+      keep(new THREE.MeshBasicMaterial({ map: blank, transparent: true, depthWrite: false, fog: false, side: THREE.BackSide })),
+    );
+    backdrop.renderOrder = -2;
+    backdrop.frustumCulled = false;
+    backdrop.onBeforeRender = (_r, _s, cam) => {
+      backdrop.position.copy(cam.position);
+      backdrop.updateMatrixWorld();
+    };
+    const orb = new THREE.Mesh(keep(new THREE.CircleGeometry(1, 48)), keep(new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, fog: false })));
+    orb.renderOrder = -2;
+    const grid = new THREE.GridHelper(48, 48);
+    keep(grid.geometry);
+    keep(grid.material as THREE.Material);
+    grid.position.y = 0.003;
+    const mg = keep(new THREE.BufferGeometry());
+    const pos = new Float32Array(MOTES * 3);
+    for (let i = 0; i < MOTES; i++) {
+      pos.set([(Math.random() - 0.5) * MOTE_BOX.x, Math.random() * MOTE_BOX.y, (Math.random() - 0.5) * MOTE_BOX.z], i * 3);
+      this.moteSeed[i] = Math.random() * Math.PI * 2;
+    }
+    mg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    mg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MOTES * 3), 3));
+    const motes = new THREE.Points(mg, keep(new THREE.PointsMaterial({ size: 0.1, map: keep(moteTexture()), vertexColors: true, transparent: true, depthWrite: false })));
+    motes.frustumCulled = false;
+    this.sky = sky;
+    this.backdrop = backdrop;
+    this.orb = orb;
+    this.grid = grid;
+    this.motes = motes;
+    for (const o of [sky, backdrop, orb, grid, motes]) {
+      o.visible = false;
+      this.scene.add(o);
+    }
+  }
+
+  /** Puts the car on a stage (a battle pass home background), or back in the garage bay (''). */
+  stage(id: BgId | '') {
+    if (id === this.stageId) return;
+    this.stageId = id;
+    const st = id ? STAGES[id] : null;
+    const [a, b] = st ? st.neon.map((c) => new THREE.Color(c)) : [CYAN, MAGENTA];
+    this.rings[0].color.copy(a).multiplyScalar(this.rings[0].userData.k as number);
+    this.rings[1].color.copy(b).multiplyScalar(this.rings[1].userData.k as number);
+    this.rims[0].color.copy(a);
+    this.rims[1].color.copy(b);
+    const horizon = new THREE.Color(st ? st.sky[1] : 0x05070b);
+    const void_ = st ? horizon.clone().multiplyScalar(0.16) : new THREE.Color(0x05070b);
+    // The panorama takes the stage's light: tinted toward the horizon and dimmed, so it sits in the dusk or the night.
+    this.backdrop.material.color.copy(horizon).lerp(new THREE.Color(1, 1, 1), 0.45).multiplyScalar(0.72);
+    this.scene.background = st ? null : void_;
+    (this.scene.fog as THREE.Fog).color.copy(void_);
+    (this.scene.fog as THREE.Fog).far = st ? 40 : 26;
+    this.floorMat.color.setHex(st ? st.floor : 0x1a1c21);
+    // The paint reflects the stage's neon too.
+    this.env.dispose();
+    this.env = garageEnvironment(this.renderer, a, b, st ? horizon.clone().multiplyScalar(0.25) : undefined);
+    this.scene.environment = this.env;
+    this.sky.visible = !!st;
+    if (st) {
+      this.sky.material.uniforms.zenith.value.setHex(st.sky[0]);
+      this.sky.material.uniforms.horizon.value.setHex(st.sky[1]);
+    }
+    this.backdrop.visible = !!st?.backdrop;
+    if (st?.backdrop) this.loadBackdrop(st.backdrop);
+    this.orb.visible = st?.orb !== undefined;
+    if (st?.orb !== undefined) {
+      const synth = id === 'synth';
+      this.orb.material.map?.dispose();
+      this.orb.material.map = synth ? sunTexture() : null;
+      // The sun's colours are in its texture; the moon is a plain disc. Both a touch brighter than white to bloom.
+      if (synth) this.orb.material.color.setRGB(1.4, 1.4, 1.4);
+      else this.orb.material.color.setHex(st.orb).multiplyScalar(1.6);
+      this.orb.material.needsUpdate = true;
+      this.orb.scale.setScalar(synth ? 9 : 1.5);
+      if (synth) this.orb.position.set(-30, 3, -34);
+      else this.orb.position.set(-34, 3.4, -30);
+      this.orb.lookAt(0, this.orb.position.y, 0);
+    }
+    this.grid.visible = id === 'synth';
+    if (id === 'synth') {
+      const m = this.grid.material as THREE.LineBasicMaterial;
+      m.vertexColors = false;
+      m.color.setRGB(2.2, 0.3, 1.9);
+      m.needsUpdate = true;
+    }
+    this.moteKind = st?.motes ?? null;
+    this.motes.visible = !!this.moteKind;
+    if (this.moteKind) {
+      const k = MOTE_KIND[this.moteKind];
+      const col = this.motes.geometry.attributes.color as THREE.BufferAttribute;
+      const pos = this.motes.geometry.attributes.position as THREE.BufferAttribute;
+      const c = new THREE.Color();
+      const glow = this.moteKind === 'embers' || this.moteKind === 'sparks' ? 2.4 : 1;
+      for (let i = 0; i < MOTES; i++) {
+        c.setHex(k.colors[i % k.colors.length]).multiplyScalar(glow);
+        col.setXYZ(i, c.r, c.g, c.b);
+        // Stars sit high and far, like a sky; the rest fill the air round the car.
+        if (this.moteKind === 'stars') {
+          const v = new THREE.Vector3().setFromSphericalCoords(34, Math.acos(0.15 + Math.random() * 0.85), Math.random() * Math.PI * 2);
+          pos.setXYZ(i, v.x, v.y, v.z);
+        }
+      }
+      col.needsUpdate = true;
+      pos.needsUpdate = true;
+      this.motes.material.size = this.moteKind === 'stars' ? 0.16 : k.size;
+      this.motes.material.fog = this.moteKind !== 'stars';
+      this.motes.material.needsUpdate = true;
+    }
+  }
+
+  private loadBackdrop(name: string) {
+    const crop = (t: THREE.Texture) => {
+      // Only the part above the strip's horizon (see BD_HORIZON).
+      t.repeat.set(1, 1 - BD_HORIZON);
+      t.offset.set(0, BD_HORIZON);
+    };
+    const have = this.backdrops.get(name);
+    if (have) {
+      this.backdrop.material.map = have;
+      return;
+    }
+    new THREE.TextureLoader().load(`/race/backdrops/${name}.webp`, (tex) => {
+      if (!this.canvas.isConnected) return void tex.dispose();
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 4;
+      crop(tex);
+      this.backdrops.set(name, tex);
+      if (this.stageId && STAGES[this.stageId].backdrop === name) this.backdrop.material.map = tex;
+    });
+  }
+
+  /** Motes drift: petals and leaves fall and sway, embers and sparks rise, stars stay put. */
+  private drift(dt: number, t: number) {
+    if (!this.moteKind || this.moteKind === 'stars') return;
+    const k = MOTE_KIND[this.moteKind];
+    const pos = this.motes.geometry.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < MOTES; i++) {
+      const s = this.moteSeed[i];
+      let y = pos.getY(i) - k.fall * dt * (0.6 + 0.4 * Math.sin(s * 3));
+      if (y < 0) y += MOTE_BOX.y;
+      else if (y > MOTE_BOX.y) y -= MOTE_BOX.y;
+      pos.setXYZ(i, pos.getX(i) + Math.sin(t * 0.8 + s) * k.sway * dt, y, pos.getZ(i) + Math.cos(t * 0.6 + s) * k.sway * dt);
+    }
+    pos.needsUpdate = true;
   }
 
   show(owned: OwnedCar) {
@@ -299,6 +552,7 @@ export class Showroom {
       this.rider.root.rotation.y = -Math.PI / 2 + 0.35 + this.riderYaw;
       this.rider.update(dt);
     }
+    this.drift(dt, now / 1000);
     this.post.render(now / 1000);
   };
 
@@ -311,6 +565,9 @@ export class Showroom {
     this.rider?.dispose();
     this.post.dispose();
     for (const d of this.own) d.dispose();
+    this.env.dispose();
+    this.orb.material.map?.dispose();
+    for (const t of this.backdrops.values()) t.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss(); // the canvas is never reused: give the GPU context back now
   }

@@ -125,6 +125,8 @@ const AS: CaseId[] = ['aero', 'street'];
 const AN: CaseId[] = ['aero', 'night'];
 const AC: CaseId[] = ['aero', 'chrome'];
 const AV: CaseId[] = ['aero', 'livery'];
+/** Battle pass exclusives (pass.ts): in no case, so only the pass gives them. */
+const PASS: CaseId[] = [];
 
 const p = make('paint');
 const paint = (finish: Finish, pattern: Pattern, base: number, accent = 0xffffff, accent2 = 0x111317, glow = false): PaintFx => ({ finish, pattern, base, accent, accent2, ...(glow ? { glow } : {}) });
@@ -196,6 +198,12 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     p('p_nebula', 'Nebula', 'mythic', N, paint('pearl', 'galaxy', 0x0b0620, 0xff2bd6, 0x22e6ff, true)),
     p('p_solarcrown', 'Solar Crown', 'mythic', C, paint('chrome', 'fade', 0xffb020, 0xff3d6e)),
     p('p_ninetails', 'Nine Tails', 'mythic', V, paint('pearl', 'flames', 0xf6f0e0, 0xd9473d, 0xffd76a, true)),
+    p('ps_torii', 'Torii Vermilion', 'rare', PASS, paint('candy', 'solid', 0xd8261c)),
+    p('ps_foxfire', 'Foxfire', 'epic', PASS, paint('pearl', 'flames', 0x0a0f2a, 0x3affd2, 0x9a7bff, true)),
+    p('ps_inari', 'Inari Wave', 'legendary', PASS, paint('gloss', 'wave', 0xf6f0e0, 0xd8261c, 0xffd76a)),
+    p('ps_spiritcircuit', 'Spirit Circuit', 'legendary', PASS, paint('satin', 'circuit', 0x05060f, 0x3affd2, 0xffd76a, true)),
+    p('ps_shrine', 'Shrine Gold', 'legendary', PASS, paint('chrome', 'fade', 0xffd76a, 0xd8261c)),
+    p('ps_kitsunerun', 'Kitsune Run', 'mythic', PASS, paint('pearl', 'galaxy', 0x120a2a, 0xff7a2b, 0x3affd2, true)),
   ],
   decal: [
     d('d_wakaba', 'Beginner Leaf', 'common', S, { kind: 'wakaba', ink: 0x2fae4a, ink2: 0xf5d23a }),
@@ -217,6 +225,9 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     d('d_kitsune', 'Fox Spirit', 'legendary', V, { kind: 'kitsune', ink: 0xf6f0e0, ink2: 0xd9473d }),
     d('d_driftking', 'Drift King', 'legendary', SV, { kind: 'banner', ink: 0xffd76a, ink2: 0x111317, text: 'DRIFT KING' }),
     d('d_goldragon', 'Gold Leaf Dragon', 'mythic', V, { kind: 'kanji', ink: 0xffd76a, ink2: 0x7a1a0a, text: '龍', glow: true }),
+    d('ds_season', 'Kitsune Run Banner', 'rare', PASS, { kind: 'banner', ink: 0xff7a2b, ink2: 0x111317, text: 'KITSUNE RUN' }),
+    d('ds_spirit', 'Kanji: Spirit', 'epic', PASS, { kind: 'kanji', ink: 0xffd76a, ink2: 0x7a1a0a, text: '魂', glow: true }),
+    d('ds_foxmask', 'Foxfire Mask', 'legendary', PASS, { kind: 'kitsune', ink: 0x3affd2, ink2: 0x0a0f2a, glow: true }),
   ],
   window: [
     w('w_light', 'Light Smoke', 'common', S, { color: 0x2a323c, dark: 0.3 }),
@@ -232,6 +243,7 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     w('w_goldmirror', 'Gold Mirror', 'legendary', C, { color: 0xffcf5a, dark: 0, mirror: true }),
     w('w_neonfilm', 'Neon Film', 'legendary', N, { color: 0x3a0a3a, dark: 0.1, iri: true }),
     w('w_opal', 'Black Opal', 'mythic', N, { color: 0x05060a, dark: 0.5, mirror: true, iri: true }),
+    w('ws_goldleaf', 'Gold Leaf Film', 'legendary', PASS, { color: 0xffd76a, dark: 0.1, mirror: true, iri: true }),
   ],
   head: [
     h('h_xenon', 'Xenon Blue', 'common', S, { color: 0xcfe4ff, power: 1 }),
@@ -244,6 +256,7 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     h('h_demon', 'Demon Eyes', 'epic', NC, { color: 0xff2a2a, power: 1.4 }),
     h('h_laser', 'Laser White', 'legendary', C, { color: 0xffffff, power: 2.2 }),
     h('h_spirit', 'Spirit Fire', 'mythic', N, { color: 0x3affd2, power: 2.6 }),
+    h('hs_foxeyes', 'Fox Eyes', 'legendary', PASS, { color: 0xffb020, power: 2.4 }),
   ],
   tail: [
     t('t_smoked', 'Smoked Lens', 'common', S, { lens: 0x1a0505, light: 0xff1a12 }),
@@ -254,6 +267,7 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     t('t_bluedot', 'Blue Dot', 'epic', N, { lens: 0x0a1a4a, light: 0x2a6aff }),
     t('t_neonpink', 'Neon Pink', 'epic', N, { lens: 0x3a0a2a, light: 0xff2bd6 }),
     t('t_lava', 'Lava Core', 'legendary', NC, { lens: 0x2a0a00, light: 0xff6a00 }),
+    t('ts_spirit', 'Spirit Lamps', 'epic', PASS, { lens: 0x0a2a2a, light: 0x3affd2 }),
   ],
   rims: [
     r('r_black', 'Gloss Black', 'common', S, { color: 0x111214, metal: 0.6, rough: 0.2 }),
@@ -270,6 +284,8 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     r('r_neon', 'Neon Ring', 'epic', N, { color: 0x22e6ff, metal: 0.3, rough: 0.3, glow: true }),
     r('r_blackchrome', 'Black Chrome', 'legendary', C, { color: 0x2a2c31, metal: 1, rough: 0.04 }),
     r('r_plasma', 'Plasma', 'mythic', N, { color: 0xff2bd6, metal: 0.4, rough: 0.2, glow: true }),
+    r('rs_foxgold', 'Fox Gold', 'epic', PASS, { color: 0xffc94a, metal: 1, rough: 0.1 }),
+    r('rs_spirit', 'Spirit Ring', 'legendary', PASS, { color: 0x3affd2, metal: 0.4, rough: 0.2, glow: true }),
   ],
   caliper: [
     c('c_yellow', 'Brembo Yellow', 'common', S, { color: 0xf5c400 }),
@@ -281,6 +297,7 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     c('c_pink', 'Hot Pink', 'rare', N, { color: 0xff4fa8 }),
     c('c_cyanglow', 'Cyan Glow', 'epic', N, { color: 0x22e6ff, glow: true }),
     c('c_hotbrakes', 'Hot Brakes', 'legendary', NC, { color: 0xff4a00, glow: true }),
+    c('cs_vermilion', 'Vermilion', 'rare', PASS, { color: 0xd8261c, glow: true }),
   ],
   glow: [
     g('g_blue', 'Electric Blue', 'common', S, { color: 0x2a6aff, power: 1 }),
@@ -293,6 +310,8 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     g('g_supernova', 'Supernova', 'epic', NC, { color: 0xe8f1ff, power: 2 }),
     g('g_ultraviolet', 'Ultraviolet', 'legendary', N, { color: 0x6a2aff, power: 2.6 }),
     g('g_solarflare', 'Solar Flare', 'mythic', S, { color: 0xffb020, power: 3.2 }),
+    g('gs_torii', 'Torii Red', 'rare', PASS, { color: 0xff3b1a, power: 1.6 }),
+    g('gs_foxfire', 'Foxfire Glow', 'epic', PASS, { color: 0x3affd2, power: 1.7 }),
   ],
   plate: [
     pl('pl_jdm', 'JDM Plate', 'common', S, { bg: 0xf4f1e8, ink: 0x0f5a2a }),
@@ -308,6 +327,7 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     pl('pl_ggez', 'Vanity: GG EZ', 'epic', SN, { bg: 0x111317, ink: 0xff2bd6, text: 'GG EZ', glow: true }),
     pl('pl_toge1', 'Vanity: TOGE 1', 'legendary', C, { bg: 0xd4a017, ink: 0x111317, text: 'TOGE 1' }),
     pl('pl_goat', 'Vanity: GOAT', 'mythic', N, { bg: 0x05060a, ink: 0xffd76a, text: 'GOAT', glow: true }),
+    pl('pls_shrine', 'Shrine Plate', 'epic', PASS, { bg: 0x111317, ink: 0xffd76a, band: 0xd8261c, glow: true }),
   ],
   frame: [
     f('f_chrome', 'Chrome Frame', 'common', SC, { color: 0xe6e9ee, metal: 1, rough: 0.08, cover: 0 }),
@@ -321,6 +341,7 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     f('f_pinkneon', 'Pink Neon Frame', 'epic', N, { color: 0xff2bd6, metal: 0, rough: 0.5, glow: true, cover: 0 }),
     f('f_diamond', 'Diamond Frame', 'legendary', C, { color: 0xf4f8ff, metal: 1, rough: 0.02, cover: 0 }),
     f('f_halo', 'Halo Frame', 'mythic', C, { color: 0xffd76a, metal: 0, rough: 0.4, glow: true, cover: 0.3 }),
+    f('fs_gold', 'Shrine Frame', 'rare', PASS, { color: 0xffd76a, metal: 1, rough: 0.1, cover: 0 }),
   ],
   exhaust: [
     e('e_polished', 'Polished Tips', 'common', SC, { color: 0xe6e9ee, metal: 1, rough: 0.08, heat: 0 }),
@@ -332,6 +353,7 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     e('e_afterfire', 'Afterfire', 'epic', SN, { color: 0x5a5f68, metal: 1, rough: 0.3, heat: 0xff6a00 }),
     e('e_blueflame', 'Blue Flame', 'legendary', NC, { color: 0x7a6ab0, metal: 1, rough: 0.15, heat: 0x3a8aff }),
     e('e_dragon', 'Dragon Breath', 'mythic', C, { color: 0xffc94a, metal: 1, rough: 0.1, heat: 0xff2a00 }),
+    e('es_spirit', 'Spirit Flame Tips', 'epic', PASS, { color: 0x2a2c31, metal: 1, rough: 0.15, heat: 0x3affd2 }),
   ],
   wing: [
     wi('wg_ducktail', 'Ducktail', 'common', AS, { style: 'ducktail', ...PAINT }),
@@ -342,6 +364,7 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     wi('wg_dual', 'Twin Plane', 'epic', AV, { style: 'dual', ...tint(0xc8102e) }),
     wi('wg_boso', 'Bōsōzoku Wing', 'legendary', AN, { style: 'bosozoku', ...tint(0xff2bd6) }),
     wi('wg_neonblade', 'Neon Blade', 'mythic', AN, { style: 'gt', ...tint(0x111317, 0x22e6ff) }),
+    wi('wgs_ninetail', 'Nine-Tail Wing', 'legendary', PASS, { style: 'swan', ...tint(0x111317, 0x3affd2) }),
   ],
   hood: [
     ho('hd_vents', 'Heat Vents', 'common', AS, { style: 'vents', ...CARBON }),
@@ -351,6 +374,7 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     ho('hd_snorkels', 'Twin Snorkels', 'epic', AC, { style: 'snorkels', ...CHROME }),
     ho('hd_shaker', 'Shaker', 'epic', AV, { style: 'shaker', ...tint(0x16181c) }),
     ho('hd_blower', 'Supercharger', 'legendary', AC, { style: 'blower', ...CHROME }),
+    ho('hds_shrine', 'Shrine Louvres', 'epic', PASS, { style: 'louvres', ...tint(0x111317, 0xff7a2b) }),
   ],
   roof: [
     ro('rf_fin', 'Shark Fin', 'common', AS, { style: 'fin', ...PAINT }),
@@ -361,6 +385,7 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     ro('rf_surf', 'Surf Trip', 'epic', AS, { style: 'surf', ...tint(0x22c3c9) }),
     ro('rf_duck', 'Lucky Duck', 'legendary', AV, { style: 'duck', ...tint(0xffd21a) }),
     ro('rf_halo', 'Halo', 'mythic', AN, { style: 'halo', ...tint(0xffd76a, 0xffc94a) }),
+    ro('rfs_halo', 'Spirit Halo', 'legendary', PASS, { style: 'halo', ...tint(0x111317, 0x3affd2) }),
   ],
   lip: [
     li('lp_lip', 'Front Lip', 'common', AS, { style: 'lip', ...CARBON }),
@@ -388,6 +413,9 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
 };
 
 export const COS_ITEMS: readonly CosItem[] = COS_SLOTS.flatMap((s) => CATALOG[s] as readonly CosItem[]);
+
+/** A battle pass exclusive: no case drops it (pass.ts hands it out by tier). */
+export const passOnly = (i: CosItem): boolean => i.cases.length === 0;
 const BY_ID = new Map(COS_ITEMS.map((i) => [i.id, i]));
 export const cosById = (id: unknown): CosItem | undefined => (typeof id === 'string' ? BY_ID.get(id) : undefined);
 
@@ -417,7 +445,7 @@ export const cosCaseById = (id: unknown): CosCase | undefined => COS_CASES.find(
 
 /** What a case can drop. The Legend Case holds every epic-or-better item. */
 export function caseItems(id: CaseId): CosItem[] {
-  if (id === 'legend') return COS_ITEMS.filter((i) => RARITIES.indexOf(i.rarity) >= RARITIES.indexOf('epic'));
+  if (id === 'legend') return COS_ITEMS.filter((i) => !passOnly(i) && RARITIES.indexOf(i.rarity) >= RARITIES.indexOf('epic'));
   return COS_ITEMS.filter((i) => i.cases.includes(id));
 }
 

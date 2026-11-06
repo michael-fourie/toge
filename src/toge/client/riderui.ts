@@ -6,12 +6,13 @@ import { RIDERS, RIDER_IDS, type Rider, riderInfo } from '../shared/rider.ts';
 import { esc } from '../../client/menu/ui.ts';
 import type { Look } from '../shared/look.ts';
 import { creatorHtml } from './creator.ts';
+import type { PassState } from '../shared/pass.ts';
 import { ICON } from './brand.ts';
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
 /** The page body. `own`: your own driver's look (shown on its card and in the creator). */
-export function driverTab(r: Rider, own: Look, status: string): string {
+export function driverTab(r: Rider, own: Look, pass: PassState, status: string): string {
   const cards = RIDER_IDS.map((id) => {
     const d = RIDERS[id];
     const on = id === r;
@@ -27,7 +28,7 @@ export function driverTab(r: Rider, own: Look, status: string): string {
     <p class="tg-lede">Your driver sits in every car you race, rides your bike, waits by your car and lines up with the crew in race lobbies. Free to change, any time.</p>
     <div class="tg-drivers">${cards}${ownCard}</div>
     <p class="tg-status" role="status" data-status>${esc(status)}</p>
-    ${mine ? creatorHtml(own) : ''}`;
+    ${mine ? creatorHtml(own, pass) : ''}`;
 }
 
 /** The card bottom right on the Driver page: who's on the platform. */

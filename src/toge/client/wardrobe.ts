@@ -13,6 +13,7 @@
 //   (a mechanical arm's metal skin, gloves) and `sleeve` (cut that sleeve off, show the arm under it).
 
 import * as THREE from 'three';
+import { addGear } from './passgear.ts';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { type GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
@@ -104,13 +105,19 @@ function texture(url: string, color: boolean): Promise<THREE.Texture> {
 // ---------------------------------------------------------------------------------------------
 // Materials
 
-const METAL: Record<MetalId, { color: number; rough: number; metal: number; coat?: number; trim: number }> = {
+const METAL: Record<MetalId, { color: number; rough: number; metal: number; coat?: number; trim: number; glow?: number; iri?: boolean }> = {
   brass: { color: 0xc8963e, rough: 0.32, metal: 1, trim: 0x7a5526 },
   copper: { color: 0xb8643a, rough: 0.35, metal: 1, trim: 0x6e3a20 },
   gunmetal: { color: 0x2b2e33, rough: 0.38, metal: 1, trim: 0x1a1c20 },
   chrome: { color: 0xe8ecf0, rough: 0.08, metal: 1, trim: 0x9aa0a8 },
   steel: { color: 0x9aa0a8, rough: 0.28, metal: 1, trim: 0x5c6168 },
   carbon: { color: 0x141518, rough: 0.3, metal: 0.2, coat: 1, trim: 0x2b2e33 },
+  // Battle pass metals (pass.ts). Ember glows from within (`glow`, brighter than white so it blooms); prism is an
+  // iridescent film over dark chrome.
+  gold: { color: 0xffc94a, rough: 0.14, metal: 1, coat: 0.6, trim: 0xb8862b },
+  obsidian: { color: 0x07070a, rough: 0.12, metal: 0.6, coat: 1, trim: 0x2a1a3a },
+  ember: { color: 0x3a1a10, rough: 0.4, metal: 0.8, trim: 0x1a0c08, glow: 0xff5a1a },
+  prism: { color: 0x4a5060, rough: 0.1, metal: 1, coat: 1, trim: 0x2b2e33, iri: true },
 };
 const LEATHER: Record<LeatherId, { color: number; rough: number }> = {
   leather: { color: 0x3b2316, rough: 0.55 },
@@ -123,6 +130,15 @@ function roleMaterial(src: THREE.MeshStandardMaterial | null, role: string, look
   if (role === 'metal' || role === 'trim') {
     const m = METAL[look.metal];
     const out = new THREE.MeshPhysicalMaterial({ name: role, color: role === 'metal' ? m.color : m.trim, roughness: m.rough + (role === 'trim' ? 0.1 : 0), metalness: m.metal, clearcoat: m.coat ?? 0 });
+    if (m.glow !== undefined && role === 'metal') {
+      out.emissive.setHex(m.glow);
+      out.emissiveIntensity = 1.6;
+    }
+    if (m.iri) {
+      out.iridescence = 1;
+      out.iridescenceIOR = 1.8;
+      out.iridescenceThicknessRange = [200, 900];
+    }
     return out;
   }
   if (role === 'strap') return new THREE.MeshStandardMaterial({ name: role, color: LEATHER[look.leather].color, roughness: LEATHER[look.leather].rough });
@@ -395,5 +411,7 @@ export async function assemble(look: Look): Promise<Assembled> {
     }
     cards(m.material as THREE.Material);
   });
+  // Battle pass gear (passgear.ts), on the head bone.
+  owned.push(...addGear(scene, look));
   return { scene, animations: base.animations, owned };
 }

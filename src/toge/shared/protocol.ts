@@ -130,6 +130,8 @@ export interface ResultRow {
   bonus: { drift: number; items: number };
   /** A CPU racer (never paid). */
   cpu?: boolean;
+  /** Battle pass XP the race earned (pass.ts `raceXp`; 0 for CPU racers). */
+  xp: number;
 }
 
 export interface RaceLobbyInfo {

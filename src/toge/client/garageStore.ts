@@ -131,13 +131,13 @@ export const garage = {
     noteBest(b, car);
   },
 
-  /** Prize money from an online race. The server pays accounts itself; guests are paid here. */
-  credit(amount: number, won: boolean) {
+  /** Prize money and pass XP from an online race. The server pays accounts itself; guests are paid here. */
+  credit(amount: number, won: boolean, xp = 0) {
     if (onServer) {
       void garage.refresh();
       return;
     }
-    const next = award(g, amount, won);
+    const next = award(g, amount, won, xp);
     saveLocal(next);
     set(next);
   },

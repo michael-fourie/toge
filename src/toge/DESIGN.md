@@ -124,7 +124,8 @@ Seven top tabs; a tab with more than one page shows sub-tabs at the top of the r
 
 | Tab | Pages | What lives there |
 | --- | --- | --- |
-| **Race** | Race · Leaderboard | Race: the selected track as a hero with its map, rivals and *Race solo*; the track grid; Online (host, join by code, open races). Leaderboard (leaderboardui.ts): a track's hero with its record, where you stand and *Race it*; its all-time board (one time per account, top 50: yours lit cyan with a You tag, friends tagged, the record holder's row gets a red tick); every track with its record holder to switch boards. Michael asked for it (2026-11-05). |
+| **Race** | Race · Leaderboard · Battle pass | Race: the selected track as a hero with its map, rivals and *Race solo*; the track grid; Online (host, join by code, open races). Leaderboard (leaderboardui.ts): a track's hero with its record, where you stand and *Race it*; its all-time board (one time per account, top 50: yours lit cyan with a You tag, friends tagged, the record holder's row gets a red tick); every track with its record holder to switch boards. Michael asked for it (2026-11-05). |
+| **Race → Battle pass** | (third Race page) | passui.ts: the season hero (tier, cyan XP bar, the red Buy the pass with its gold price, or a Pass owned tag), the open reward's card (`.tg-pass-detail`, edged in its rarity) with what you can do with it, Home and Title pickers once owned, then the 50-tier track (`.tg-pass-tile`: ✓ unlocked, gold PASS when reached without the pass, a lock ahead). Picking a tile previews it on the showroom (car item tried on, the stage put up, your own driver walked in wearing the piece). The top bar's tier chip (`.tg-passchip`) opens it. Michael asked for it (2026-11-06). |
 | **Garage** | My cars · Dealer | Your cars (drive, sell) and driver stats; buying new cars. |
 | **Performance** | Upgrades · Tuning | Upgrade crates per part; the tuning sliders. |
 | **Style** | Paint · Locker · Cases | Free paint/wheels/body/glass and trim (cars only for the body and glass options); cosmetics you own (equip, try on, plates); buying cases. |
@@ -132,7 +133,7 @@ Seven top tabs; a tab with more than one page shows sub-tabs at the top of the r
 | **Friends** | (one page) | Add a friend by username, your friends (Mutual tag when they added you back), "Added you" with Add back, your best time per track. Opening a friend (friendsui.ts) shows their record, their garage (View puts a car on the turntable, their driver beside it, the card ribbon says whose garage it is) and their best times beside yours with the gap (green you're quicker, red slower). Signed in only; guests get a sign-in card and their own times. Michael asked for it (2026-11-03). |
 | **Settings** | (one page) | Device settings (settingsui.ts), saved in this browser: Graphics High / Low as two option cards (`.tg-gfx`). Michael asked for it as its own tab (2026-11-02). |
 
-Page ids (`dtab` in history, `Page` in hub.ts) are `race`, `leaderboard`, `garage`, `dealer`, `upgrades`, `tuning`, `paint`,
+Page ids (`dtab` in history, `Page` in hub.ts) are `race`, `leaderboard`, `pass`, `garage`, `dealer`, `upgrades`, `tuning`, `paint`,
 `locker`, `cases`, `driver`, `friends`, `settings`. Keep them stable: they're restored on reload.
 
 **Adding a page:** add it to `PAGES` in hub.ts under the right tab and give it a body function. Add a new top tab only
@@ -170,6 +171,9 @@ All in hub.css (cosmetics-specific ones, `.cz-*`, in cosmetics.css).
 | Your car (lobby) | `.tg-mycar` | The lobby's card for the car you'll line up in: a stripe of your paint down the left, maker and drive, name, class badge, hp · kg · paint, the car rule's note in cyan (spec / maxed), then Edit car (`.tg-go.alt small`, wrench icon) and ‹ n / N › to switch between your cars right there. |
 | Lobby garage | `.tg-pit` + `.tg-pitbar` | Edit car opens the garage over the lobby (hub.ts `pitGarage`, mounted by lobby.ts): only Garage, Performance, Style and Driver, sliding up over the lobby. The top bar's strip shows the lobby (code, track, racers, a pulsing cyan dot while you wait on the host), Done, and the host's red Start. Back, Done, Esc and B return to the lobby; when the host starts, everyone goes straight to the race from wherever they are. Others see a cyan Garage tag on your grid row and "In the garage" in the crew. Michael asked for it (2026-11-05). |
 | Face | `.tg-face` | A racer's head cropped from their portrait, ringed in their car's paint. Grid rows. |
+| Tier chip | `.tg-passchip` | Top bar, left of the wallet: your battle pass tier in a cyan square and a thin XP bar (the bar hides under 1560 px). Opens Race → Battle pass. |
+| Pass tile | `.tg-pass-tile` (in `.tg-pass-track`) | A tier: number top left, the reward's art (`.cz-art`), name and kind, state top right; top edge in the reward's colour (rarity, gold for money, the stage's neon). Picked = cyan frame. |
+| Locked pill | `.tg-pill.tg-locked` | A battle pass piece in the creator you haven't unlocked: dashed, disabled, "Tier n" in gold. |
 | Loading screen | `.tg-loader` (loading.css) | Shown while a race builds (loading.ts, called from `drive()` in src/client/main.ts; Gambol keeps its own). Full bleed: the track theme's sky and painted backdrop rolling slowly forward under an ink shade, logo top left, the run ("Solo · 5 rivals", "Online race · 4 racers · Physics") as a glass chip top right, then the track's kind and length, its name huge, its tag and the kerb; the track map draws itself on the right in the theme accent. At the foot a cyan Tip, an indeterminate cyan sweep and "Own the pass.". Stays up at least 1.1 s, fades in 0.6 s. Tips live in loadingcopy.ts: one line, house voice, true to the game. |
 
 ## 8. Motion
@@ -184,7 +188,7 @@ All in hub.css (cosmetics-specific ones, `.cz-*`, in cosmetics.css).
 - Every interactive thing is a real `<button>` / `<input>`; the pad's spatial navigation (src/client/pad.ts) walks
   them by position, so keep layouts on a clear grid.
 - Focus is a **3 px cyan ring with a glow**, bigger in pad mode (`html.pad`). Never remove it.
-- **LB / RB** walk the pages in order (Race → Leaderboard → My cars → Dealer → Upgrades → Tuning → Paint → Locker → Cases → Driver → Friends → Settings); the
+- **LB / RB** walk the pages in order (Race → Leaderboard → Battle pass → My cars → Dealer → Upgrades → Tuning → Paint → Locker → Cases → Driver → Friends → Settings); the
   top tab follows. Start (Menu) is the page's main action where one exists.
 - Each page marks its first sensible control `data-autofocus`.
 - Text on glass must hit 4.5:1 against `--tg-ink-1`. `--tg-dim` on ink-1 passes; `--tg-faint` is only for disabled.

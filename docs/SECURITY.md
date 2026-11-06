@@ -28,6 +28,12 @@ player sees is decided or checked by the server; anything the server can't check
   - What other racers see: an account's race car code has unowned cosmetics stripped by the Accounts DO, at join (the
     Worker) and on every `car` message (RaceRoom). Guests' codes are only checked to name real items. Plate text is
     `[A-Z0-9 ]`, at most 8 characters, and is only ever drawn on a canvas.
+  - The battle pass (`src/toge/shared/pass.ts`) is bought with garage money on the server (`{a:'pass'}`, 50,000) and its
+    XP is paid with the prize: by the race room for online races (`ResultRow.xp`, worked out from the room's own
+    places and clamped drift) and by the `solo` action, under the same once per `SOLO_GAP_MS` limit. Tiers are handed
+    over by the server (`givePass`: money and cosmetics, each tier once, tracked by `given`); a stored garage keeps
+    only pass items, backgrounds and titles its pass has unlocked. Pass driver metals and gear are refused by the
+    `rider` action until unlocked and stripped from an account's driver on every `rider` message (RaceRoom).
 
 ## Input from clients
 

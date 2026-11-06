@@ -1,4 +1,5 @@
-import { type ActionResult, type Garage, type GarageAction, applyAction, award, cleanGarage, newGarage, ownedCarCode } from '../shared/garage.ts';
+import { type ActionResult, type Garage, type GarageAction, applyAction, award, cleanGarage, newGarage, ownedCarCode, ownedRider } from '../shared/garage.ts';
+import { cleanRider } from '../shared/rider.ts';
 import type { KV } from '../../server/accountStore.ts';
 
 /** Dice for crates and cosmetic cases: [0, 1) from the platform's CSPRNG, so rolls can't be predicted from earlier ones. */
@@ -30,7 +31,13 @@ export class GarageStore {
     return ownedCarCode(code, await this.get(user));
   }
 
-  async award(user: string, amount: number, won: boolean): Promise<void> {
-    await this.kv.put(this.key(user), award(await this.get(user), amount, won));
+  /** A driver code with any battle pass piece the account hasn't unlocked taken off. */
+  async raceRider(user: string, rider: string): Promise<string> {
+    return ownedRider(await this.get(user), cleanRider(rider));
+  }
+
+  /** A race's prize, its win, and its battle pass XP (which hands over any tiers it reaches). */
+  async award(user: string, amount: number, won: boolean, xp = 0): Promise<void> {
+    await this.kv.put(this.key(user), award(await this.get(user), amount, won, xp));
   }
 }

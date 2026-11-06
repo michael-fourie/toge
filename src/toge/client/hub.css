@@ -2420,3 +2420,290 @@ html:not(.pad) .tg-bumper {
     order: -1;
   }
 }
+
+/* ============================================================================================
+   Battle pass (passui.ts): the top bar's tier chip, the hero, the open reward, the 50-tier track
+   ============================================================================================ */
+.tg-passchip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--tg-line-2);
+  background: rgba(255, 255, 255, 0.04);
+  text-align: left;
+  line-height: 1.1;
+}
+.tg-passchip.on {
+  border-color: var(--tg-cyan);
+}
+.tg-passchip > b {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--tg-ink-3);
+  font: italic 800 18px/1 var(--tg-display);
+  color: var(--tg-cyan);
+}
+.tg-passchip span {
+  display: grid;
+  gap: 4px;
+}
+.tg-passchip small {
+  font: 700 11px/1 var(--tg-display);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tg-dim);
+}
+.tg-passchip i {
+  display: block;
+  width: 72px;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--tg-cyan) calc(var(--v) * 100%), rgba(255, 255, 255, 0.12) 0);
+}
+
+.tg-pass-hero {
+  padding: 18px 20px 20px;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(255, 122, 43, 0.22), transparent 55%),
+    radial-gradient(90% 120% at 0% 100%, rgba(58, 255, 210, 0.12), transparent 60%),
+    var(--tg-ink-2);
+}
+.tg-pass-hero .tg-display {
+  margin: 6px 0 14px;
+}
+.tg-pass-level {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.tg-pass-tier {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.tg-pass-tier small {
+  font: 700 13px/1 var(--tg-display);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tg-dim);
+}
+.tg-pass-tier b {
+  font: italic 800 52px/0.9 var(--tg-display);
+}
+.tg-pass-xp {
+  flex: 1;
+  display: grid;
+  gap: 6px;
+}
+.tg-pass-xp small {
+  color: var(--tg-dim);
+}
+.tg-pass-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.tg-pass-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--v) * 100%);
+  background: var(--tg-cyan);
+  box-shadow: 0 0 14px var(--tg-cyan);
+  transition: width 0.4s var(--tg-ease);
+}
+.tg-pass-blurb {
+  margin: 14px 0 12px;
+  color: var(--tg-dim);
+}
+.tg-pass-buy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.tg-pass-note {
+  font-size: 12px;
+  color: var(--tg-dim);
+}
+
+.tg-pass-detail {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--tg-ink-2);
+  border-left: 3px solid var(--r);
+}
+.tg-pass-detail-art .cz-art {
+  width: 84px;
+  height: 84px;
+  box-shadow: 0 0 24px color-mix(in srgb, var(--r) 45%, transparent);
+}
+.tg-pass-detail .tg-title {
+  margin: 4px 0 2px;
+}
+.tg-pass-act {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.tg-pass-why {
+  margin: 0;
+  color: var(--tg-dim);
+}
+.tg-pass-why.gold {
+  color: var(--tg-gold);
+}
+.tg-pass-using {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tg-pass-art {
+  overflow: hidden;
+}
+.tg-pass-gear {
+  background: radial-gradient(circle, #1a2333, #0b0f17);
+  color: #3affd2;
+}
+.tg-pass-gear svg {
+  width: 70%;
+  height: 70%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+.tg-pass-title {
+  background: linear-gradient(135deg, #2a1a10, #0b0f17);
+}
+.tg-pass-title b {
+  max-width: 80%;
+  font: italic 800 11px/1 var(--tg-display) !important;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: normal;
+  color: #ffd76a;
+}
+.tg-pass-money {
+  background: radial-gradient(circle at 35% 30%, #fff1b0, var(--tg-gold) 40%, #8a5a10 85%);
+  color: #2a1a04;
+}
+
+.tg-pass-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tg-pass-tile {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 22px 6px 10px;
+  border-radius: var(--tg-radius);
+  border: 1px solid var(--tg-line);
+  border-top: 3px solid var(--r);
+  background: var(--tg-ink-2);
+  text-align: center;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.tg-pass-tile:hover {
+  background: var(--tg-ink-3);
+}
+.tg-pass-tile[aria-pressed='true'] {
+  border-color: var(--tg-cyan);
+  box-shadow: 0 0 0 1px var(--tg-cyan);
+}
+.tg-pass-tile .cz-art {
+  width: 48px;
+  height: 48px;
+}
+.tg-pass-tile.ahead .cz-art {
+  filter: saturate(0.55) brightness(0.8);
+}
+.tg-pass-tile b {
+  max-width: 100%;
+  overflow: hidden;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tg-pass-tile small {
+  font-size: 11px;
+  color: var(--tg-dim);
+}
+.tg-pass-n {
+  position: absolute;
+  top: 5px;
+  left: 7px;
+  font: italic 800 14px/1 var(--tg-display);
+  color: var(--tg-dim);
+}
+.tg-pass-tile em {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  font: 700 10px/1 var(--tg-display);
+  font-style: normal;
+  letter-spacing: 0.1em;
+  color: var(--tg-faint);
+}
+.tg-pass-tile em svg {
+  width: 13px;
+  height: 13px;
+}
+.tg-pass-tile.got em {
+  color: var(--tg-cyan);
+  font-size: 13px;
+}
+.tg-pass-tile.ready em {
+  color: var(--tg-gold);
+}
+.tg-pass-tile.got .tg-pass-n {
+  color: var(--tg-text);
+}
+
+/* The creator's locked battle pass pieces */
+.tg-pill.tg-locked {
+  opacity: 0.75;
+  border-style: dashed;
+}
+.tg-pill.tg-locked small {
+  margin-left: 2px;
+  font: 700 10px/1 var(--tg-display);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tg-gold);
+}
+@media (max-width: 1560px) {
+  .tg-passchip span {
+    display: none;
+  }
+  .tg-passchip {
+    padding: 5px;
+  }
+}

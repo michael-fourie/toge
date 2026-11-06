@@ -95,6 +95,18 @@ a component or a page.
   public/models/drivers/wardrobe (built by `tools/drivers/wardrobe.py`, Draco .gltf with shared textures; the decoder is
   in public/draco/). `/dev/drivers.html` (`window.lab`) shows legends and looks side by side. Keep
   `tests/toge/look.test.ts` green after a wardrobe rebuild.
+- **Battle pass** (pass.ts, the Race → Battle pass page in passui.ts; Michael asked for it 2026-11-06): a 50-tier season
+  (`PASS`, $50,000 of garage money, 500 XP a tier). Every race earns XP whether or not you own the pass (`raceXp`:
+  finishing, cars beaten, a win, drifting; solo a 0.6 share, only when the solo prize pays), carried on the garage
+  (`xp`, `pass`, `given`). Online the room puts `xp` on each `ResultRow` and `Accounts.raceReward` pays it; guests credit
+  themselves. Buying the pass (`{a:'pass'}`) hands over every tier already reached (`givePass`), and each later tier
+  as it comes. One reward per tier (`TIERS`), all exclusive: car cosmetics in no case (`passOnly`: their `cases` list is
+  empty, and the Legend Case skips them), home backgrounds (`STAGES`: showroom.ts `stage()` draws a gradient sky, a
+  dipped race backdrop, a sun or moon, a neon grid and motes; `g.bg`), driver metals (`PASS_METALS` in look.ts) and gear
+  (`GEAR`: horns, ears, visor, halo, built in code on the head bone by client/passgear.ts; a look code's optional 17th
+  field), player card titles (`g.title`) and money. Non-owners see every reward and preview it (the page tries cars'
+  items on, puts the stage up, dresses your own driver); the creator shows pass pieces locked with their tier.
+  New season: new items (append only, `PASS` in their cases list), new `TIERS`; keep `tests/toge/pass.test.ts` green.
 - **Best times** (records.ts): every racer's quickest finish per track (`Bests`), whatever the mode or car. Accounts'
   live on the server (`b:<user>`, toge/server/recordStore.ts): online finishes go in from the room's results
   (`Accounts.raceTime`, then the room sends `records` so every client marks the new bests), solo ones ride on the `solo`
@@ -186,6 +198,8 @@ src/toge/shared/
   rider.ts     your driver: RIDER_IDS / RIDERS (names, bios, glow colours), a legend or a look code (`Rider`), riderInfo,
                encode/decode/cleanRider, rivalRider. Racers carry the code as `Racer.rider` (the `rider` socket param and lobby message; the room cleans bad codes to the
                default, and old saves of the customisable drivers get it too).
+  pass.ts      the battle pass: PASS (price, tiers, XP per tier), raceXp, TIERS (one reward each), STAGES (home
+               backgrounds), TITLES, lockedLookParts / ownedLook (pass driver pieces). garage.ts givePass / addXp / ownedRider.
   look.ts      your own driver: the wardrobe catalogue, `Look`, encodeLook/decodeLook (`L2.` codes), withBase/withOutfit/
                withKit, randomLook. Mirrors the wardrobe manifest (tests/toge/look.test.ts).
   cardstats.ts the player card's numbers: Highs (best drift race, top speed; toge/client/highs.ts keeps them in this
@@ -300,6 +314,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in toge/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

@@ -3,7 +3,8 @@
 // things on in the showroom and equip them on the car you drive. hub.ts hosts both tabs.
 
 import { type OwnedCar } from '../shared/cars.ts';
-import { COS_CASES, COS_ITEMS, COS_SLOTS, CATALOG, type CosCase, type CosItem, type CosSlot, RARITIES, RARITY, SLOT_INFO, caseItems, caseOdds, cosById, PLATE_MAX, rollCosCase } from '../shared/cosmetics.ts';
+import { COS_CASES, COS_ITEMS, COS_SLOTS, CATALOG, type CosCase, type CosItem, type CosSlot, RARITIES, RARITY, SLOT_INFO, caseItems, caseOdds, cosById, PLATE_MAX, passOnly, rollCosCase } from '../shared/cosmetics.ts';
+import { tierFor } from '../shared/pass.ts';
 import type { CaseDrop, Garage } from '../shared/garage.ts';
 import { $, esc } from '../../client/menu/ui.ts';
 import { money } from './hud.ts';
@@ -72,7 +73,7 @@ const PART_GLYPH: Record<string, string> = {
   skirts: '▬', flares: '◖', rivets: '⁘', sidepipes: '🔥', flaps: '▮',
 };
 
-function art(it: CosItem): string {
+export function art(it: CosItem): string {
   const s = swatch(it);
   const ink = it.slot === 'plate' || it.slot === 'decal' ? hex(it.fx.ink) : it.slot === 'frame' ? '#1b1d22' : '#fff';
   const frame = it.slot === 'frame' ? `--fc:${hex(it.fx.color)};` : '';
@@ -81,7 +82,7 @@ function art(it: CosItem): string {
 
 /** A card in the rarity's colour. */
 export function itemCard(it: CosItem, extra = ''): string {
-  return `<span class="cz-card ${it.rarity}" style="--r:${rarityCss(it)}">${art(it)}<b>${esc(it.name)}</b><small>${esc(SLOT_INFO[it.slot].name)} · ${RARITY[it.rarity].name}</small>${extra}</span>`;
+  return `<span class="cz-card ${it.rarity}" style="--r:${rarityCss(it)}">${art(it)}<b>${esc(it.name)}</b><small>${esc(SLOT_INFO[it.slot].name)} · ${passOnly(it) ? 'Battle pass' : RARITY[it.rarity].name}</small>${extra}</span>`;
 }
 
 const pct = (p: number) => (p * 100).toFixed(p < 0.01 ? 2 : 1) + '%';
@@ -169,7 +170,7 @@ export function lockerTab(g: Garage, car: OwnedCar, carName: string, slot: CosSl
       <span class="tg-label">${esc(SLOT_INFO[slot].name)}: ${on ? esc(cosById(on)!.name) : 'stock'}</span>
       ${on ? `<button class="tg-pill" data-unequip="${slot}">Back to stock</button>` : ''}
     </div>
-    ${tryItem ? `<p class="cz-trying" style="--r:${rarityCss(tryItem)}">Trying on <b>${esc(tryItem.name)}</b>. Not yours yet: find it in the ${esc(where(tryItem))}.</p>` : ''}
+    ${tryItem ? `<p class="cz-trying" style="--r:${rarityCss(tryItem)}">Trying on <b>${esc(tryItem.name)}</b>. Not yours yet: ${passOnly(tryItem) ? `it's a battle pass reward (tier ${tierFor('cos', tryItem.id)})` : `find it in the ${esc(where(tryItem))}`}.</p>` : ''}
     ${
       slot === 'plate' || slot === 'frame'
         ? `<div class="tg-row cz-plate"><label><span class="tg-label">Plate text</span><input data-plate-text maxlength="${PLATE_MAX}" placeholder="stock" autocomplete="off" spellcheck="false" /></label><button class="tg-pill" data-plate-save>Save</button></div>`

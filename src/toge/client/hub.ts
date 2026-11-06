@@ -1,4 +1,4 @@
-// TŌGE's home: the garage. Seven tabs (DESIGN.md §6): Race (Race, Leaderboard: leaderboardui.ts); Garage (My cars, Dealer); Performance (Upgrades,
+// TŌGE's home: the garage. Seven tabs (DESIGN.md §6): Race (Race, Leaderboard: leaderboardui.ts, Battle pass: passui.ts); Garage (My cars, Dealer); Performance (Upgrades,
 // Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts); Driver (your character: riderui.ts); Settings (graphics:
 // settingsui.ts); Friends (friendsui.ts: add friends, their garages and best times). LB / RB walk every page in that order. The showroom fills
 // the window behind the glass rail, with your car framed in the free space and its card bottom right.
@@ -23,6 +23,8 @@ import type { Ctx, Render, Screen } from '../../client/menu/router.ts';
 import { $, esc, playerName } from '../../client/menu/ui.ts';
 import { DEFAULT_LOOK, decodeLook, encodeLook, type Look as DriverLook } from '../shared/look.ts';
 import { lookAfter } from './creator.ts';
+import { passChip, passRibbon, passTab } from './passui.ts';
+import { PASS, TIERS, type BgId, type TitleId, tierOf } from '../shared/pass.ts';
 import { garage } from './garageStore.ts';
 import { money } from './hud.ts';
 import { raceNet } from './racenet.ts';
@@ -32,10 +34,10 @@ import { TRACK_IDS, trackKind, trackMap, trackStyle, trackTile } from './trackar
 import './race.css';
 import './hub.css';
 
-type Page = 'race' | 'leaderboard' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'friends' | 'settings';
+type Page = 'race' | 'leaderboard' | 'pass' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'friends' | 'settings';
 type TabId = 'race' | 'garage' | 'perf' | 'style' | 'driver' | 'friends' | 'settings';
 const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
-  { id: 'race', label: 'Race', pages: [['race', 'Race'], ['leaderboard', 'Leaderboard']] },
+  { id: 'race', label: 'Race', pages: [['race', 'Race'], ['leaderboard', 'Leaderboard'], ['pass', 'Battle pass']] },
   { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['dealer', 'Dealer']] },
   { id: 'perf', label: 'Performance', pages: [['upgrades', 'Upgrades'], ['tuning', 'Tuning']] },
   { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['cases', 'Cases']] },
@@ -137,6 +139,9 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   let leaders: Leaders | null = null;
   const boards = new Map<TrackId, BoardRow[]>();
   let lbFailed = false;
+  /** Battle pass: the tier open in its detail card (previewed in the showroom while the page is up): the next to reach. */
+  let passSel = Math.min(PASS.tiers, tierOf(garage.g.xp) + 1);
+  const passReward = () => (page === 'pass' ? TIERS[passSel - 1] : null);
 
   root.innerHTML = `
     <main class="tg${pit ? ' tg-pit' : ''}" aria-label="${pit ? 'Your car, from the race lobby' : 'TŌGE garage'}" ${pit ? 'data-nav-scope' : ''}>
@@ -149,7 +154,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
           ${tabs.map((t) => `<button role="tab" data-tab="${t.id}">${esc(t.label)}</button>`).join('')}
           <span class="tg-bumper" aria-hidden="true">RB</span>
         </nav>
-        <div class="tg-wallet">${pit ? '<div class="tg-pitbar" data-pitbar></div>' : ''}<b class="tg-num" data-money></b>${pit ? '' : '<button class="tg-who" data-who></button>'}</div>
+        <div class="tg-wallet">${pit ? '<div class="tg-pitbar" data-pitbar></div>' : '<button class="tg-passchip" data-passchip aria-label="Battle pass"></button>'}<b class="tg-num" data-money></b>${pit ? '' : '<button class="tg-who" data-who></button>'}</div>
       </header>
       <section class="tg-body">
         <div class="tg-rail">
@@ -199,15 +204,37 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     const theirs = visiting() && friendCar(friendsView());
     if (theirs) return theirs;
     const c = draft ? { ...car(), look: draft.look, tune: draft.tune } : car();
+    const pr = passReward();
+    const pc = pr?.kind === 'cos' ? cosById(pr.id) : undefined;
+    if (pc) return { ...c, cos: { ...c.cos, [pc.slot]: pc.id } };
     return trying ? { ...c, cos: { ...c.cos, [lockerSlot]: trying } } : c;
+  };
+  /** Your own driver wearing a pass metal or gear piece (the Battle pass page's preview, or Wear it). */
+  const lookWith = (kind: 'metal' | 'gear', id: string): DriverLook => {
+    const l = ownLook();
+    return kind === 'metal' ? { ...l, metal: id as DriverLook['metal'] } : { ...l, gear: l.gear.includes(id as DriverLook['gear'][number]) ? l.gear : [...l.gear, id as DriverLook['gear'][number]] };
   };
   const viewedRider = (): Rider => {
     const f = visiting();
-    return f ? (decodeRider(f.rider) ?? defaultRider()) : (riderDraft ?? garage.g.rider);
+    if (f) return decodeRider(f.rider) ?? defaultRider();
+    const pr = passReward();
+    if (pr?.kind === 'metal' || pr?.kind === 'gear') return encodeLook(lookWith(pr.kind, pr.id));
+    return riderDraft ?? garage.g.rider;
+  };
+  /** The showroom's stage: your home background, or the one being previewed. */
+  const viewedStage = (): BgId | '' => {
+    const pr = passReward();
+    return pr?.kind === 'bg' ? pr.id : garage.g.bg;
   };
 
   const drawTop = () => {
     $(root, '[data-money]').textContent = money(garage.g.money);
+    const chip = root.querySelector<HTMLElement>('[data-passchip]');
+    if (chip) {
+      chip.innerHTML = passChip(garage.g);
+      chip.setAttribute('aria-label', `Battle pass, tier ${tierOf(garage.g.xp)} of ${PASS.tiers}`);
+      chip.classList.toggle('on', page === 'pass');
+    }
     const who = root.querySelector<HTMLElement>('[data-who]');
     if (who) who.innerHTML = account.user
       ? `${ICON.user}<span>${esc(account.user)}</span><small>${garage.g.wins} wins · Player card</small>`
@@ -233,9 +260,11 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       ? `<p class="tg-card-ribbon">Dealer · ${b.price ? money(b.price) : 'Free'}</p>`
       : visiting()
         ? `<p class="tg-card-ribbon cyan">${esc(visiting()!.name)}'s garage</p>`
-        : trying
-          ? `<p class="tg-card-ribbon cyan">Trying on · ${esc(cosById(trying)?.name ?? '')}</p>`
-          : '';
+        : passReward()
+          ? passRibbon(passSel)
+          : trying
+            ? `<p class="tg-card-ribbon cyan">Trying on · ${esc(cosById(trying)?.name ?? '')}</p>`
+            : '';
     $(root, '[data-card]').innerHTML = `
       ${ribbon}
       <div class="tg-card-head"><div><small>${esc(b.maker)} · ${driveLabel(b)}</small><h2 class="tg-title">${esc(b.name)}</h2></div>${classBadge(c)}</div>
@@ -248,8 +277,11 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       <p class="tg-card-hint">${ICON.spin} Drag or right stick to spin</p>`;
     $(root, '[data-stage-name]').innerHTML = `<small>${esc(b.maker)}</small>${esc(b.name)}`;
     showroom.showRider(viewedRider());
-    showroom.focus(page === 'driver' ? 'rider' : 'car');
-    if (page === 'driver') {
+    const pr = passReward();
+    const onRider = page === 'driver' || pr?.kind === 'metal' || pr?.kind === 'gear';
+    showroom.focus(onRider ? 'rider' : 'car');
+    showroom.stage(viewedStage());
+    if (onRider) {
       $(root, '[data-card]').innerHTML = driverCard(viewedRider());
       $(root, '[data-stage-name]').innerHTML = `<small>Driver</small>${esc(riderInfo(viewedRider()).name)}`;
     }
@@ -451,7 +483,8 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
 
   const lockerPage = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
   const casesPage = () => casesTab(garage.g, status);
-  const driverPage = () => driverTab(viewedRider(), ownLook(), status);
+  const driverPage = () => driverTab(viewedRider(), ownLook(), garage.g, status);
+  const passPage = () => passTab({ g: garage.g, sel: passSel, car: CARS[car().model].name, status });
   const settingsPage = () => settingsTab(graphics(), status);
   const leaderboardPage = () => {
     if (account.user && !friendList) void loadFriends();
@@ -470,7 +503,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     if (account.user && !friendList) void loadFriends();
     return friendsTab(friendsView(), classBadge);
   };
-  const BODIES: Record<Page, () => string> = { race: racePage, leaderboard: leaderboardPage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, friends: friendsPage, settings: settingsPage };
+  const BODIES: Record<Page, () => string> = { race: racePage, leaderboard: leaderboardPage, pass: passPage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, friends: friendsPage, settings: settingsPage };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -719,6 +752,37 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       draw(false);
       root.querySelector<HTMLElement>('[data-panel] [data-autofocus]')?.focus({ preventScroll: true });
     });
+    // Battle pass: pick a tier (previews it), buy the pass, use what it's unlocked.
+    panel.querySelectorAll<HTMLElement>('[data-pass-tier]').forEach((b) =>
+      b.addEventListener('click', () => {
+        passSel = Number(b.dataset.passTier);
+        status = '';
+        draw();
+      }),
+    );
+    panel.querySelector('[data-pass-buy]')?.addEventListener('click', () => {
+      const reached = tierOf(garage.g.xp);
+      void act({ a: 'pass' }).then((r) => r !== null && setStatus(reached ? `The pass is yours. Tiers 1-${reached} unlocked.` : 'The pass is yours. Race to unlock tier 1.'));
+    });
+    panel.querySelectorAll<HTMLElement>('[data-pass-equip]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const it = cosById(b.dataset.passEquip);
+        if (it) void act({ a: 'equip', i: garage.g.sel, slot: it.slot, id: it.id }).then((r) => r !== null && setStatus(`Equipped ${it.name}.`));
+      }),
+    );
+    panel.querySelectorAll<HTMLElement>('[data-pass-bg]').forEach((b) =>
+      b.addEventListener('click', () => void act({ a: 'bg', id: (b.dataset.passBg ?? '') as BgId | '' }).then((r) => r !== null && setStatus(garage.g.bg ? 'Home background set.' : 'Back in the garage bay.'))),
+    );
+    panel.querySelectorAll<HTMLElement>('[data-pass-title]').forEach((b) =>
+      b.addEventListener('click', () => void act({ a: 'title', id: (b.dataset.passTitle ?? '') as TitleId | '' }).then((r) => r !== null && setStatus(garage.g.title ? 'Title on your player card.' : 'Title taken off.'))),
+    );
+    panel.querySelectorAll<HTMLElement>('[data-pass-wear]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const [kind, id] = (b.dataset.passWear ?? '').split(':') as ['metal' | 'gear', string];
+        const code = encodeLook(lookWith(kind, id));
+        void act({ a: 'rider', rider: code, look: code }).then((r) => r !== null && setStatus('Your driver is wearing it.'));
+      }),
+    );
     panel.querySelectorAll<HTMLElement>('[data-buy]').forEach((b) =>
       b.addEventListener('click', () => {
         const id = b.dataset.buy as (typeof CAR_IDS)[number];
@@ -943,6 +1007,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     });
   };
   root.querySelector('[data-who]')?.addEventListener('click', showCard);
+  root.querySelector('[data-passchip]')?.addEventListener('click', () => switchPage('pass'));
   const onPadTab = (e: Event) => {
     if (!root.querySelector<HTMLElement>('[data-modal]')!.hidden) return;
     const i = pages.indexOf(page);
@@ -1009,7 +1074,7 @@ function focusId(el: Element | null): string | null {
   const dl = el.getAttribute('data-dl');
   if (dl) return el.hasAttribute('data-pick') ? `input[data-dl="${dl}"]` : `button[data-dl="${dl}"][data-v="${el.getAttribute('data-v')}"]`;
   if (el.hasAttribute('data-dl-random')) return '[data-dl-random]';
-  for (const attr of ['data-track', 'data-rivals', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
+  for (const attr of ['data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-track', 'data-rivals', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }
