@@ -52,6 +52,7 @@ const grade = (g: Partial<Grade> = {}): Grade => ({
   shadows: [0.9, 0.97, 1.1],
   highlights: [1.07, 1.0, 0.91],
   vignette: 0.42,
+  flare: 1,
   ...g,
 });
 
@@ -59,9 +60,9 @@ const LOOKS: Record<Theme, Look> = {
   alpine: { skyGain: 0.5, clouds: [0.45, 0.45], backdrop: 'alpine', sun: [22, 215], turbidity: 4, rayleigh: 1.4, fog: 0xa9bfd6, fogDensity: 0.00038, exposure: 0.42, grass: [0.16, 0.28, 0.09], grassDry: [0.34, 0.36, 0.16], rock: [0.36, 0.35, 0.34], verge: [0.28, 0.31, 0.17], snowline: 470, treeline: 440, grade: grade() },
   coast: { skyGain: 0.5, clouds: [0.35, 0.4], backdrop: 'coast', sun: [14, 250], turbidity: 6, rayleigh: 2.2, fog: 0xd8c8b4, fogDensity: 0.00034, exposure: 0.42, grass: [0.42, 0.45, 0.2], grassDry: [0.62, 0.55, 0.32], rock: [0.72, 0.66, 0.55], verge: [0.55, 0.5, 0.3], snowline: 1e9, treeline: 1e9, grade: grade({ highlights: [1.1, 1.0, 0.86] }) },
   desert: { skyGain: 0.48, clouds: [0.15, 0.3], backdrop: 'desert', sun: [30, 140], turbidity: 8, rayleigh: 1.2, fog: 0xe0b48a, fogDensity: 0.0003, exposure: 0.4, grass: [0.66, 0.42, 0.24], grassDry: [0.78, 0.55, 0.32], rock: [0.62, 0.3, 0.18], verge: [0.7, 0.5, 0.32], snowline: 1e9, treeline: 1e9, forest: -0.35, grade: grade({ contrast: 1.16, shadows: [0.86, 0.98, 1.14], highlights: [1.08, 0.99, 0.88] }) },
-  night: { backdrop: 'night', sun: [-5, 230], moon: [38, 120], turbidity: 2, rayleigh: 3, fog: 0x0b1120, fogDensity: 0.0006, exposure: 0.9, grass: [0.12, 0.2, 0.08], grassDry: [0.22, 0.25, 0.12], rock: [0.3, 0.3, 0.32], verge: [0.22, 0.24, 0.16], snowline: 520, treeline: 500, light: 0x9db5ff, lightPower: 0.55, hemi: 0.12, forest: 0.2, whiteRail: true, grade: grade({ bloom: 0.45, threshold: 4.5, contrast: 1.12, saturation: 1.08, shadows: [0.82, 0.94, 1.22], highlights: [1.1, 0.98, 0.92], vignette: 0.55 }) },
+  night: { backdrop: 'night', sun: [-5, 230], moon: [38, 120], turbidity: 2, rayleigh: 3, fog: 0x0b1120, fogDensity: 0.0006, exposure: 0.9, grass: [0.12, 0.2, 0.08], grassDry: [0.22, 0.25, 0.12], rock: [0.3, 0.3, 0.32], verge: [0.22, 0.24, 0.16], snowline: 520, treeline: 500, light: 0x9db5ff, lightPower: 0.55, hemi: 0.12, forest: 0.2, whiteRail: true, grade: grade({ bloom: 0.45, threshold: 4.5, contrast: 1.12, saturation: 1.08, shadows: [0.82, 0.94, 1.22], highlights: [1.1, 0.98, 0.92], vignette: 0.55, flare: 0 }) },
   autumn: { skyGain: 0.5, clouds: [0.4, 0.4], backdrop: 'autumn', sun: [18, 200], turbidity: 5, rayleigh: 1.6, fog: 0xd9c7a8, fogDensity: 0.00036, exposure: 0.42, grass: [0.42, 0.4, 0.14], grassDry: [0.58, 0.46, 0.18], rock: [0.45, 0.42, 0.38], verge: [0.42, 0.36, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.2, whiteRail: true, grade: grade({ highlights: [1.1, 1.0, 0.85] }) },
-  city: { backdrop: 'city', sun: [-6, 200], moon: [30, 150], turbidity: 2, rayleigh: 3, fog: 0x1b1730, fogDensity: 0.0009, exposure: 0.9, grass: [0.1, 0.1, 0.11], grassDry: [0.16, 0.15, 0.15], rock: [0.2, 0.2, 0.21], verge: [0.18, 0.18, 0.19], snowline: 1e9, treeline: 1e9, light: 0xb4c2ff, lightPower: 0.5, hemi: 0.3, grade: grade({ bloom: 0.6, threshold: 4, contrast: 1.12, saturation: 1.15, shadows: [0.84, 0.9, 1.2], highlights: [1.1, 0.98, 0.95], vignette: 0.5 }) },
+  city: { backdrop: 'city', sun: [-6, 200], moon: [30, 150], turbidity: 2, rayleigh: 3, fog: 0x1b1730, fogDensity: 0.0009, exposure: 0.9, grass: [0.1, 0.1, 0.11], grassDry: [0.16, 0.15, 0.15], rock: [0.2, 0.2, 0.21], verge: [0.18, 0.18, 0.19], snowline: 1e9, treeline: 1e9, light: 0xb4c2ff, lightPower: 0.5, hemi: 0.3, grade: grade({ bloom: 0.6, threshold: 4, contrast: 1.12, saturation: 1.15, shadows: [0.84, 0.9, 1.2], highlights: [1.1, 0.98, 0.95], vignette: 0.5, flare: 0 }) },
   spring: { skyGain: 0.5, clouds: [0.35, 0.35], backdrop: 'spring', sun: [28, 160], turbidity: 3, rayleigh: 1.8, fog: 0xdcdfec, fogDensity: 0.00034, exposure: 0.44, grass: [0.22, 0.38, 0.12], grassDry: [0.38, 0.44, 0.2], rock: [0.5, 0.48, 0.46], verge: [0.32, 0.4, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.1, whiteRail: true, grade: grade({ saturation: 0.98, shadows: [0.93, 0.95, 1.08], highlights: [1.05, 1.0, 0.97] }) },
 };
 
@@ -70,6 +71,8 @@ export interface TrackView {
   sun: THREE.DirectionalLight;
   exposure: number;
   grade: Grade;
+  /** Towards the sun (for the lens flare), or null when it's down. */
+  sunDir: THREE.Vector3 | null;
   /** Keeps the shadow box and the sea under the camera. */
   follow(x: number, y: number, z: number, t: number): void;
   dispose(): void;
@@ -532,6 +535,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     sun,
     exposure: look.exposure,
     grade: look.grade,
+    sunDir: look.moon ? null : sunDir,
     follow(x, y, z, time) {
       // Move the shadow box with the camera, in whole texels so the edges don't crawl.
       const texel = 90 / 2048;

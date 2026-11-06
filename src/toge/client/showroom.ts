@@ -231,6 +231,7 @@ export class Showroom {
       shadows: [0.9, 0.96, 1.12],
       highlights: [1.04, 1.0, 0.96],
       vignette: 0.55,
+      flare: 0,
     }, this.low);
     this.camera.position.set(6.4, 2.1, 6.4);
     this.camera.lookAt(0, 0.45, 0);

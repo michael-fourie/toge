@@ -1,10 +1,12 @@
-// Tyre smoke (and dust off the tarmac) as soft points, and skid marks as a ring buffer of quads on the
-// ground. Both are single draw calls however many cars are sliding.
+// Tyre smoke (and dust off the tarmac) as soft points, sparks as hot points with a core that blooms, skid
+// marks as a ring buffer of quads on the ground, and slipstream air as thin streaks. Each is a single draw
+// call however many cars are sliding.
 
 import * as THREE from 'three';
 
 const SMOKE_MAX = 900;
 const SKID_MAX = 3000;
+const STREAK_MAX = 160;
 
 export class Effects {
   private smoke: THREE.Points;
@@ -19,6 +21,8 @@ export class Effects {
   private sGrow = new Float32Array(SMOKE_MAX);
   private sFade = new Float32Array(SMOKE_MAX);
   private sAlpha = new Float32Array(SMOKE_MAX);
+  /** 1 for a spark (a hot core, brighter than white so the bloom catches it), 0 for smoke. */
+  private sGlow = new Float32Array(SMOKE_MAX);
   private next = 0;
 
   private skid: THREE.Mesh;
@@ -28,35 +32,52 @@ export class Effects {
   /** Last skid point per wheel key (car id × 4 + wheel), so marks join up. */
   private lastMark = new Map<number, { x: number; y: number; z: number; rx: number; rz: number }>();
 
+  private streaks: THREE.LineSegments;
+  /** Per streak: its head, its drift (m/s) and its length along the air flow (m); the buffer holds both ends. */
+  private tPos = new Float32Array(STREAK_MAX * 6);
+  private tAlpha = new Float32Array(STREAK_MAX * 2);
+  private tHead = new Float32Array(STREAK_MAX * 3);
+  private tVel = new Float32Array(STREAK_MAX * 3);
+  private tLen = new Float32Array(STREAK_MAX * 3);
+  private tAge = new Float32Array(STREAK_MAX).fill(1e9);
+  private tLife = new Float32Array(STREAK_MAX).fill(1);
+  private tPeak = new Float32Array(STREAK_MAX);
+  private tNext = 0;
+
   constructor(scene: THREE.Scene) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.sp, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('color', new THREE.BufferAttribute(this.sCol, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('size', new THREE.BufferAttribute(this.sSize, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('alpha', new THREE.BufferAttribute(this.sAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('glow', new THREE.BufferAttribute(this.sGlow, 1).setUsage(THREE.DynamicDrawUsage));
     const mat = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
       vertexColors: true,
       uniforms: { scale: { value: 600 } },
       vertexShader: `
-        attribute float size; attribute float alpha;
-        varying vec3 vColor; varying float vAlpha;
+        attribute float size; attribute float alpha; attribute float glow;
+        varying vec3 vColor; varying float vAlpha; varying float vGlow;
         uniform float scale;
         void main() {
-          vColor = color; vAlpha = alpha;
+          vColor = color; vAlpha = alpha; vGlow = glow;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           gl_PointSize = size * scale / -mv.z;
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `
-        varying vec3 vColor; varying float vAlpha;
+        varying vec3 vColor; varying float vAlpha; varying float vGlow;
         void main() {
           vec2 d = gl_PointCoord - 0.5;
           float r = length(d) * 2.0;
           if (r > 1.0) discard;
           float a = (1.0 - r * r) * vAlpha;
-          gl_FragColor = vec4(vColor, a);
+          // A spark: a white-hot core several times brighter than white (bloom) fading into its colour.
+          float core = (1.0 - r) * (1.0 - r);
+          vec3 c = mix(vColor, mix(vColor, vec3(1.0), core * 0.7) * (1.0 + 5.0 * core), vGlow);
+          a = mix(a, min(1.0, (1.0 - r) * 1.6) * vAlpha, vGlow);
+          gl_FragColor = vec4(c, a);
         }`,
     });
     this.smoke = new THREE.Points(g, mat);
@@ -81,6 +102,32 @@ export class Effects {
     this.skid = new THREE.Mesh(kg, km);
     this.skid.frustumCulled = false;
     scene.add(this.skid);
+
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(this.tPos, 3).setUsage(THREE.DynamicDrawUsage));
+    tg.setAttribute('alpha', new THREE.BufferAttribute(this.tAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+    const tm = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: `attribute float alpha; varying float vA; void main(){ vA = alpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+      fragmentShader: `varying float vA; void main(){ gl_FragColor = vec4(vec3(0.75, 0.9, 1.0) * vA, 1.0); }`,
+    });
+    this.streaks = new THREE.LineSegments(tg, tm);
+    this.streaks.frustumCulled = false;
+    scene.add(this.streaks);
+  }
+
+  /** A streak of moving air (slipstream): from (x, y, z) back along (lx, ly, lz), drifting at (vx, vy, vz). */
+  streak(x: number, y: number, z: number, lx: number, ly: number, lz: number, vx: number, vy: number, vz: number, life: number, strength: number) {
+    const i = this.tNext;
+    this.tNext = (this.tNext + 1) % STREAK_MAX;
+    this.tHead.set([x, y, z], i * 3);
+    this.tLen.set([lx, ly, lz], i * 3);
+    this.tVel.set([vx, vy, vz], i * 3);
+    this.tAge[i] = 0;
+    this.tLife[i] = life;
+    this.tPeak[i] = strength;
   }
 
   /** A puff at a sliding wheel. `dust` is for off-road (brown, bigger, faster to settle). */
@@ -94,6 +141,7 @@ export class Effects {
     const c = dust ? [0.55, 0.47, 0.36] : [0.86, 0.86, 0.88];
     this.sCol.set(c, i * 3);
     this.sAlpha[i] = Math.min(0.35, 0.1 + amount * 0.18);
+    this.sGlow[i] = 0;
     this.sBase[i] = 1;
     this.sGrow[i] = 5;
     this.sFade[i] = 0.6;
@@ -109,6 +157,7 @@ export class Effects {
     this.sLife[i] = life;
     this.sCol.set(color, i * 3);
     this.sAlpha[i] = 1;
+    this.sGlow[i] = 1;
     this.sBase[i] = size;
     this.sGrow[i] = -size * 0.8;
     this.sFade[i] = 2;
@@ -127,6 +176,7 @@ export class Effects {
     this.sLife[i] = life;
     this.sCol.set(color, i * 3);
     this.sAlpha[i] = alpha;
+    this.sGlow[i] = 0;
     this.sBase[i] = size;
     this.sGrow[i] = grow;
     this.sFade[i] = 0.5;
@@ -175,7 +225,29 @@ export class Effects {
       this.sAlpha[i] *= 1 - dt * this.sFade[i];
     }
     const g = this.smoke.geometry;
-    for (const n of ['position', 'size', 'alpha', 'color']) g.getAttribute(n).needsUpdate = true;
+    for (const n of ['position', 'size', 'alpha', 'color', 'glow']) g.getAttribute(n).needsUpdate = true;
+
+    // Streaks: in fast, out slow, both ends drifting together.
+    const { tPos, tHead, tVel, tLen, tAlpha } = this;
+    for (let i = 0; i < STREAK_MAX; i++) {
+      const age = (this.tAge[i] += dt);
+      const k = age / this.tLife[i];
+      if (k >= 1) {
+        tAlpha[i * 2] = tAlpha[i * 2 + 1] = 0;
+        continue;
+      }
+      const j = i * 3;
+      tHead[j] += tVel[j] * dt;
+      tHead[j + 1] += tVel[j + 1] * dt;
+      tHead[j + 2] += tVel[j + 2] * dt;
+      tPos.set([tHead[j], tHead[j + 1], tHead[j + 2], tHead[j] - tLen[j], tHead[j + 1] - tLen[j + 1], tHead[j + 2] - tLen[j + 2]], i * 6);
+      const a = this.tPeak[i] * Math.min(1, k * 6) * (1 - k);
+      tAlpha[i * 2] = a;
+      tAlpha[i * 2 + 1] = 0; // the tail fades into the air
+    }
+    const sg = this.streaks.geometry;
+    sg.getAttribute('position').needsUpdate = true;
+    sg.getAttribute('alpha').needsUpdate = true;
   }
 
   dispose() {
@@ -183,5 +255,7 @@ export class Effects {
     (this.smoke.material as THREE.Material).dispose();
     this.skid.geometry.dispose();
     (this.skid.material as THREE.Material).dispose();
+    this.streaks.geometry.dispose();
+    (this.streaks.material as THREE.Material).dispose();
   }
 }
