@@ -1,6 +1,7 @@
 import { decodeCar, encodeCar, newOwnedCar, raceCars, rivalCar } from '../shared/cars.ts';
 import { ITEM_MAX_USES, clampDrift } from '../shared/drift.ts';
 import { payout, raceBonus } from '../shared/garage.ts';
+import { raceXp } from '../shared/pass.ts';
 import type { Item } from '../shared/powerups.ts';
 import { cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
 import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, type CarRule, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
@@ -108,8 +109,6 @@ export class Race {
     private onResults: (rows: ResultRow[], users: Set<number>, track: TrackId, tapes: Map<number, GhostTape>) => void,
     private now: () => number = Date.now,
     tick = true,
-    /** The dice for the spec car (tests pass their own). */
-    private rand: () => number = Math.random,
   ) {
     if (tick) this.timer = setInterval(() => guarded(() => this.tick(), `race ${code}`), 1000 / RACE.snapshotHz);
   }
@@ -423,9 +422,9 @@ export class Race {
       m.pit = false;
       grid[m.client.id] = slot++;
     }
-    // Settle every racer's car for this race here, once, so a spec car's draw is the same for everyone.
+    // Settle every racer's car for this race here, once, so every client draws the same cars.
     const rule: CarRule = cleanMode(this.mode) ? this.cars : 'own';
-    const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })), this.rand());
+    const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })));
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
     const ghost = this.ghost && this.ghostOf === this.track ? this.ghostRun : null;
     this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics, ghost });
@@ -475,12 +474,12 @@ export class Race {
     const peopleDone = done.filter((m) => !m.cpu);
     const rows: ResultRow[] = [...done, ...dnf].map((m, i) => {
       const place = m.time === null ? 0 : i + 1;
-      if (m.cpu) return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize: 0, drift: 0, bonus: { drift: 0, items: 0 }, cpu: true };
+      if (m.cpu) return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize: 0, drift: 0, bonus: { drift: 0, items: 0 }, cpu: true, xp: 0 };
       const bonus = raceBonus(m.drift, m.uses, this.track, false);
       const among = m.time === null ? 0 : peopleDone.indexOf(m) + 1;
       const base = cpus ? Math.max(payout(among, people, this.track, false), payout(place, field.length, this.track, true)) : payout(place, field.length, this.track, false);
       const prize = base + bonus.drift + bonus.items;
-      return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize, drift: m.drift, bonus };
+      return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize, drift: m.drift, bonus, xp: raceXp(place, field.length, m.drift, false) };
     });
     this.phase = 'results';
     this.phaseEnds = now + RACE.resultsSeconds * 1000;

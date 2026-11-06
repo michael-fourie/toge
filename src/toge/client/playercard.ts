@@ -9,6 +9,7 @@ import { CARS, CLASS_COLORS, PAINTS, type OwnedCar, carSpec, peakPower, rating, 
 import type { Garage } from '../shared/garage.ts';
 import { current } from '../shared/garage.ts';
 import { COS_ITEMS } from '../shared/cosmetics.ts';
+import { TITLES, tierOf } from '../shared/pass.ts';
 import { bestBuild, cardBests, winRate } from '../shared/cardstats.ts';
 import type { Bests } from '../shared/records.ts';
 import type { TrackId } from '../shared/track.ts';
@@ -59,6 +60,9 @@ export interface CardData {
   drift: number;
   best: { name: string; cls: string; pi: number } | null;
   bests: { track: TrackId; name: string; time: number; car: string }[];
+  /** Your battle pass title ('' none) and tier. */
+  title: string;
+  tier: number;
 }
 
 /** Everything the card shows, from your garage, your best times and your highs. */
@@ -68,6 +72,8 @@ export function cardData(g: Garage, bests: Bests, name: string, guest: boolean, 
   return {
     name,
     guest,
+    title: g.title ? TITLES[g.title] : '',
+    tier: tierOf(g.xp),
     car: current(g),
     rider,
     races: g.races,
@@ -360,7 +366,8 @@ function nameplate(ctx: Ctx, d: CardData) {
   // You.
   font(ctx, `700 22px ${DISPLAY}`, 5);
   ctx.fillStyle = C.cyan;
-  ctx.fillText(d.guest ? 'GUEST DRIVER' : 'DRIVER', 58, 728);
+  const label = d.title ? d.title.toUpperCase() : d.guest ? 'GUEST DRIVER' : 'DRIVER';
+  ctx.fillText(d.tier ? `${label} · TIER ${d.tier}` : label, 58, 728);
   ctx.fillStyle = '#fff';
   ctx.shadowColor = 'rgba(0,0,0,0.6)';
   ctx.shadowBlur = 18;

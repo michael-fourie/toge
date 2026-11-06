@@ -24,7 +24,8 @@ imports the other game's (`tests/boundaries.test.ts`).
 | `GET /api/lobbies` | Directory `"all"` `.list()` (shooter lobbies) |
 | `/api/races` | Directory `"race"` `.listRaces()` |
 | `/api/parties?game=<id>` | Directory `"party:<id>"` `.listParties()` (`isGameId` checked) |
-| `/api/me`, `POST /api/register`, `/api/login`, `/api/logout` | Accounts `"all"` (`accountApi`; cookie `gambol_session`) |
+| `/api/me`, `POST /api/register`, `/api/login`, `/api/logout`, `/api/password` (change, signed in) | Accounts `"all"` (`accountApi`; cookie `gambol_session`) |
+| `POST /api/admin/reset-password` (`Authorization: Bearer <ADMIN_KEY>`, `{username}`) | Accounts `"all"` `.resetPassword` (`adminReset`; 404 unless the `ADMIN_KEY` secret is set; how-to in docs/DEPLOYMENT.md) |
 | `/api/stash`, `/api/garage` (GET reads, POST applies one action) | Accounts `"all"`. `GET /api/garage` also returns your TŌGE best times; `?u=<name>` returns a friend's TŌGE profile instead (null unless you've added them) |
 | `/api/leaderboard` (GET, open to anyone) | Accounts `"all"`: TŌGE's all-time boards. No params: every track's record; `?t=<track>`: that track's board (one row per account) |
 | `/api/friends` (GET your list, POST `{a: 'add' \| 'remove', name}`) | Accounts `"all"` (`friendStore.ts`; rules in `src/shared/friends.ts`) |

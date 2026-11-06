@@ -42,3 +42,15 @@
   outline: none;
   border-color: var(--meadow-dark);
 }
+.account-change {
+  margin-top: 18px;
+}
+.account-change summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin-bottom: 12px;
+}
+.account-change .notice.ok {
+  color: var(--meadow-dark);
+}

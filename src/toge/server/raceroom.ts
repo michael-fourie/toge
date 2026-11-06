@@ -49,6 +49,15 @@ export class RaceRoom extends DurableObject<Env> {
             .catch(() => {}); // the accounts store was busy: keep the old car rather than throw in the room
           return;
         }
+        // Likewise their driver: battle pass gear and metals they haven't unlocked come off.
+        if (client.user && msg && msg.t === 'rider' && typeof msg.rider === 'string') {
+          const accounts = this.env.ACCOUNTS.getByName('all');
+          void accounts
+            .raceRider(client.name, msg.rider.slice(0, 200))
+            .then((rider) => this.race?.handle(client, { t: 'rider', rider }))
+            .catch(() => {});
+          return;
+        }
         this.race?.handle(client, msg);
       } catch {
         // malformed JSON: ignore
@@ -83,7 +92,7 @@ export class RaceRoom extends DurableObject<Env> {
         for (const row of rows) {
           if (!users.has(row.id) || paid.has(row.name.toLowerCase())) continue;
           paid.add(row.name.toLowerCase());
-          this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && people > 1));
+          this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && people > 1, row.xp));
           // The room timed this finish itself, so it can count as a best time.
           const time = row.time;
           if (time !== null) timed.push(() => accounts.raceTime(row.name, track, time, row.car, tapes.get(row.id)).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev, rank: b.rank ?? null, beat: b.beat ?? null } : null)));

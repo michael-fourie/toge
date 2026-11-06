@@ -11,6 +11,7 @@ import { Blasts, CarDents } from './damageview.ts';
 import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
 import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { SOLO_SHARE } from '../shared/garage.ts';
+import { tierOf } from '../shared/pass.ts';
 import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
@@ -184,6 +185,16 @@ function bonusNote(b: { drift: number; items: number } | undefined): string {
   return ` (incl. ${parts.join(' and ')})`;
 }
 
+/**
+ * " · +350 XP" for a results note, with the battle pass tier it reached when it reached one. `before`: your XP before
+ * the race (an account's new total lands from the server a moment later).
+ */
+function xpNote(xp: number, before: number): string {
+  if (xp <= 0) return '';
+  const tier = tierOf(before + xp);
+  return ` · +${xp} XP${tier > tierOf(before) ? ` · Battle pass tier ${tier}${garage.g.pass ? ' unlocked' : ' reached'}` : ''}`;
+}
+
 /** " · New best on Kōri Pass (−1.234 s), 4th all-time" (or a new track record) for a results note. */
 function bestNote(b: NewBest | null | undefined, track: string): string {
   if (!b) return '';
@@ -346,13 +357,13 @@ export class RaceGame {
     const rivals = online ? 0 : Math.max(0, Math.min(7, setup.rivals ?? 5));
     // Solo, you start mid-pack.
     const mySlot = online ? (online.grid[online.net.id] ?? 0) : Math.floor(rivals / 2);
-    // Online, the server says what you drive (a spec car, or your car maxed out, in a time trial).
+    // Online, the server says what you drive (a maxed Vanta, or your car maxed out, in a time trial).
     const myCar = online ? myRaceCar(online.rule, online.cars[online.net.id], setup.car) : setup.car;
     this.me = this.spawn(myCar, mySlot, setup.name, true, setup.rider);
     if (online) {
       // Say what everyone's driving now, and again with the time trial's banner at GO.
-      this.carNote = online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}, the same for everyone` : online.rule === 'maxed' ? `${CAR_RULES.maxed.name}: every part at level 5` : '';
-      if (this.carNote) this.hud.banner(online.rule === 'spec' ? `Spec car: ${CARS[myCar.model].name}` : CAR_RULES.maxed.name, online.rule === 'spec' ? 'Everyone drives the same car' : 'Every part at level 5', 3500);
+      this.carNote = online.rule === 'vanta' ? `${CAR_RULES.vanta.name}: the same ${CARS.vanta.name} for everyone` : online.rule === 'maxed' ? `${CAR_RULES.maxed.name}: every part at level 5` : '';
+      if (this.carNote) this.hud.banner(CAR_RULES[online.rule].name, online.rule === 'vanta' ? `Everyone drives a maxed ${CARS.vanta.name}` : 'Every part at level 5', 3500);
       else this.hud.banner('Waiting for racers', 'Loading the track…', 0);
       // The host drives the lobby's CPU racers here, with the solo race's AI; everyone else sees them as racers.
       const host = online.net.room?.hostId === online.net.id;
@@ -738,7 +749,7 @@ export class RaceGame {
       // The host raced again from the results: straight to the next start.
       this.dispose();
       this.setup.onNext?.(roomRace(m));
-    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id, cpu: r.cpu })));
+    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id, cpu: r.cpu, xp: r.xp })));
     else if (m.t === 'records') this.records(m.rows);
     else if (m.t === 'room') {
       // Someone left mid-race: drop their car.
@@ -1195,11 +1206,12 @@ export class RaceGame {
     const behind = field.filter((r) => r.finished === null).sort((a, b) => b.car.s - a.car.s);
     const myPlace = done.indexOf(this.me) + 1;
     const drift = this.driftMeter.total;
+    const xpBefore = garage.g.xp;
     const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift, uses: this.uses, time: this.me.finished ?? undefined, ghost: this.me.finished !== null ? { car: this.me.code, rider: encodeRider(this.setup.rider), d: this.tape.d } : undefined });
     this.myPrize = res.ok ? (res.paid ?? 0) : 0;
     const bonus = res.ok ? res.bonus : undefined;
     const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined, newBest: r === this.me ? res.best : undefined }));
-    const note = (res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`) + bestNote(res.best, this.track.def.name);
+    const note = (res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}${xpNote(res.xp ?? 0, xpBefore)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`) + bestNote(res.best, this.track.def.name);
     const p = this.hud.panel(`${this.hud.resultsHtml(this.track.def.name, lines)}
       <p class="rh-note">${esc(note)}</p>
       <div class="rh-buttons"><button data-act="again" data-autofocus>Race again</button><button data-act="garage">Garage</button></div>`);
@@ -1208,18 +1220,19 @@ export class RaceGame {
     p.querySelector('[data-act="garage"]')!.addEventListener('click', () => this.exit('garage'));
   }
 
-  private onlineResults(lines: (ResultLine & { id: number })[]) {
+  private onlineResults(lines: (ResultLine & { id: number; xp?: number })[]) {
     this.phase = 'done';
     this.watching = null;
     this.hud.watching('', '');
     const mine = lines.find((l) => l.me);
-    if (mine) garage.credit(mine.prize, mine.place === 1 && lines.filter((l) => !l.cpu).length > 1);
+    const xpBefore = garage.g.xp;
+    if (mine) garage.credit(mine.prize, mine.place === 1 && lines.filter((l) => !l.cpu).length > 1, mine.xp ?? 0);
     // A guest's best is kept here; an account's comes from the server a moment later (`records`).
     if (mine && mine.time !== null && !garage.onServer) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
     const title = this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
     this.shownResults = { lines, title };
     this.hud.panel(`${this.hud.resultsHtml(title, lines, this.clean)}
-      <p class="rh-note">${mine ? `You earned ${money(mine.prize)}${bonusNote(mine.bonus)}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}<span data-best-note>${esc(bestNote(mine?.newBest, this.track.def.name))}</span></p>
+      <p class="rh-note">${mine ? `You earned ${money(mine.prize)}${bonusNote(mine.bonus)}${esc(xpNote(mine.xp ?? 0, xpBefore))}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}<span data-best-note>${esc(bestNote(mine?.newBest, this.track.def.name))}</span></p>
       <div class="rh-buttons" data-result-acts></div>`);
     setMenuNav(true);
     this.resultActs();

@@ -6,6 +6,8 @@ import {
   type BaseId,
   BROWS,
   EYES,
+  GEAR,
+  type GearId,
   HAIRS,
   KIT,
   type KitId,
@@ -13,6 +15,7 @@ import {
   type Look,
   METALS,
   OUTFITS,
+  PASS_METALS,
   type OutfitId,
   randomLook,
   SKINS,
@@ -23,6 +26,7 @@ import {
   withOutfit,
 } from '../shared/look.ts';
 import { esc } from '../../client/menu/ui.ts';
+import { GEAR_NAMES, type PassState, PASS_METAL_NAMES, owns, tierFor } from '../shared/pass.ts';
 
 const FRAMES = { m: 'Masculine', f: 'Feminine' } as const;
 const BUILDS = { slim: 'Slim', avg: 'Average', heavy: 'Heavy' } as const;
@@ -101,6 +105,10 @@ const METAL: Record<(typeof METALS)[number], [string, string]> = {
   chrome: ['Chrome', '#e8ecf0'],
   steel: ['Steel', '#9aa0a8'],
   carbon: ['Carbon', '#1c1d21'],
+  gold: ['24k Gold', '#ffc94a'],
+  obsidian: ['Obsidian', '#2a1a3a'],
+  ember: ['Ember', '#ff5a1a'],
+  prism: ['Prism', 'conic-gradient(#ff6ad5, #6ad5ff, #6aff9e, #ffe66a, #ff6ad5)'],
 };
 const LEATHER: Record<(typeof LEATHERS)[number], [string, string]> = { leather: ['Brown', '#3b2316'], leather_black: ['Black', '#151313'], leather_tan: ['Tan', '#7a4a28'] };
 const WHEEL: Record<(typeof WHEELS)[number], string> = { wood: 'Wood rim', yoke: 'Yoke', iron: 'Riveted iron', deep: 'Deep dish' };
@@ -117,7 +125,7 @@ const frameOf = (b: BaseId) => BASES[b];
 const buildOf = (b: BaseId) => b.split('_')[1] as keyof typeof BUILDS;
 
 /** What a control changes: a field of the look, an outfit zone ('zone:i'), or a kit piece. */
-type Field = 'frame' | 'build' | 'skin' | 'eyes' | 'brows' | 'hair' | 'hairColor' | 'outfit' | 'shoes' | 'shoeColor' | 'kit' | 'metal' | 'leather' | 'glow' | 'wheel' | `zone:${number}`;
+type Field = 'frame' | 'build' | 'skin' | 'eyes' | 'brows' | 'hair' | 'hairColor' | 'outfit' | 'shoes' | 'shoeColor' | 'kit' | 'gear' | 'metal' | 'leather' | 'glow' | 'wheel' | `zone:${number}`;
 
 const pill = (f: Field, v: string, label: string, on: boolean, extra = '') =>
   `<button class="tg-pill" data-dl="${f}" data-v="${v}" aria-pressed="${on}" ${extra}>${label}</button>`;
@@ -130,7 +138,15 @@ function colours(f: Field, list: number[], value: number) {
     .join('')}<label class="tg-sw tg-sw-pick" aria-pressed="${!known}" title="Any colour" style="--sw:${hex(value)}"><input type="color" data-dl="${f}" data-pick value="${hex(value)}" aria-label="Any colour" /></label></div>`;
 }
 
-export function creatorHtml(l: Look): string {
+/** A battle pass piece: usable once its tier is unlocked; before that a locked pill naming the tier. */
+function passPill(p: PassState, f: 'metal' | 'gear', v: string, label: string, on: boolean): string {
+  if (owns(p, f, v)) return pill(f, v, label, on, 'data-passitem');
+  const tier = tierFor(f, v);
+  return `<button class="tg-pill tg-locked" disabled title="Battle pass tier ${tier}">${label}<small>Tier ${tier}</small></button>`;
+}
+
+/** `pass`: what the battle pass has unlocked (its metals and gear show locked until then). */
+export function creatorHtml(l: Look, pass: PassState): string {
   const frame = frameOf(l.base);
   const skins = SKINS[frame] as readonly SkinId[];
   return `
@@ -153,9 +169,14 @@ export function creatorHtml(l: Look): string {
       ${colours('shoeColor', SHOE_COLORS, l.shoeColor)}
       <h3 class="tg-h">Kit <small>one per spot, up to five</small></h3>
       <div class="tg-row">${(Object.keys(KIT) as KitId[]).map((k) => pill('kit', k, KIT_NAME[k], l.kit.includes(k))).join('')}</div>
-      <div class="tg-row"><span class="tg-label">Metal</span>${METALS.map((m) => pill('metal', m, `<i class="tg-dot" style="--sw:${METAL[m][1]}"></i>${METAL[m][0]}`, l.metal === m)).join('')}</div>
+      <div class="tg-row"><span class="tg-label">Metal</span>${METALS.map((m) => {
+        const label = `<i class="tg-dot" style="--sw:${METAL[m][1]}"></i>${esc(PASS_METAL_NAMES[m] ?? METAL[m][0])}`;
+        return PASS_METALS.includes(m) ? passPill(pass, 'metal', m, label, l.metal === m) : pill('metal', m, label, l.metal === m);
+      }).join('')}</div>
       <div class="tg-row"><span class="tg-label">Leather</span>${LEATHERS.map((m) => pill('leather', m, `<i class="tg-dot" style="--sw:${LEATHER[m][1]}"></i>${LEATHER[m][0]}`, l.leather === m)).join('')}</div>
       <div class="tg-label">Glow</div>${colours('glow', GLOWS, l.glow)}
+      <h3 class="tg-h">Battle pass gear <small>${pass.pass ? 'unlocked as you climb the tiers' : 'buy the pass to wear it'}</small></h3>
+      <div class="tg-row">${GEAR.map((g) => passPill(pass, 'gear', g, esc(GEAR_NAMES[g]), l.gear.includes(g))).join('')}</div>
       <h3 class="tg-h">Wheel</h3>
       <div class="tg-row">${WHEELS.map((w) => pill('wheel', w, WHEEL[w], l.wheel === w)).join('')}</div>
     </div>`;
@@ -182,6 +203,10 @@ export function lookAfter(l: Look, el: HTMLElement): Look | null {
       return withOutfit(l, raw as OutfitId);
     case 'kit':
       return withKit(l, raw as KitId, !l.kit.includes(raw as KitId));
+    case 'gear': {
+      const g = raw as GearId;
+      return { ...l, gear: l.gear.includes(g) ? l.gear.filter((x) => x !== g) : GEAR.filter((x) => x === g || l.gear.includes(x)) };
+    }
     case 'hairColor':
     case 'shoeColor':
     case 'glow':

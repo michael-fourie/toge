@@ -8,7 +8,7 @@ import { current } from '../shared/garage.ts';
 import { CAR_RULES, PHYSICS, RACE, RECORD_GHOST, RACE_MODES, cleanMode, modeTracks, type CarRule, type RaceMode, type RaceServerMsg } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
-import { $, copy, esc, playerName } from '../../client/menu/ui.ts';
+import { copy, esc, playerName } from '../../client/menu/ui.ts';
 import { garage } from './garageStore.ts';
 import { raceNet, roomRace } from './racenet.ts';
 import { fmtTime } from './hud.ts';
@@ -34,8 +34,10 @@ const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 export const driveLobby: Render = (root, ctx, screen) => {
   let starting = false;
   // The lobby draws into `view`; the garage (when it's open) sits over it in `pitHost`.
-  root.innerHTML = '<div data-lobby-view></div><div data-pit-host></div>';
-  const view = root.querySelector<HTMLElement>('[data-lobby-view]')!;
+  // The screen's shell (`.tg`, which fades in) is made once; every room update only redraws what's inside it.
+  // Rebuilding the shell replayed that fade from transparent, so each join or car change flashed the whole screen.
+  root.innerHTML = '<div data-lobby-view><main class="tg tg-lobby" aria-label="Race lobby" tabindex="-1"></main></div><div data-pit-host></div>';
+  const view = root.querySelector<HTMLElement>('.tg-lobby')!;
   const pitHost = root.querySelector<HTMLElement>('[data-pit-host]')!;
   /** The open garage's cleanup (null when it's closed). */
   let pitOff: (() => void) | null = null;
@@ -54,12 +56,15 @@ export const driveLobby: Render = (root, ctx, screen) => {
   const redraw = () => {
     if (root.isConnected) draw();
   };
+  /** Racers already in the crew row: only newcomers slide in, not everyone on every update. */
+  let crewShown = new Set<number>();
   const draw = () => {
     const room = raceNet.room;
     if (!room) {
-      view.innerHTML = `<main class="tg tg-lobby"><p class="tg-status">Connecting…</p></main>`;
+      view.innerHTML = `<p class="tg-status">Connecting…</p>`;
       return;
     }
+    const scroll = view.querySelector('.tg-lobby-body')?.scrollTop ?? 0;
     const isHost = room.hostId === raceNet.id;
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
     const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : null;
@@ -88,7 +93,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
       .map((r) => {
         const pic = riderPortrait(r.rider, redraw);
         const c = decodeCar(r.car);
-        return `<figure class="tg-crew-m ${r.id === raceNet.id ? 'me' : ''}">
+        return `<figure class="tg-crew-m ${r.id === raceNet.id ? 'me' : ''} ${crewShown.has(r.id) ? '' : 'new'}">
           ${pic ? `<img src="${pic}" alt="" width="${PORTRAIT.w}" height="${PORTRAIT.h}" />` : '<span class="tg-crew-none"></span>'}
           <figcaption><b>${esc(r.name)}</b><small>${r.pit ? 'In the garage' : c ? esc(CARS[c.model].name) : ''}</small></figcaption>
         </figure>`;
@@ -98,7 +103,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const modes = (Object.keys(RACE_MODES) as RaceMode[])
       .map((id) => `<button class="tg-mode" data-mode="${id}" aria-pressed="${id === room.mode}" ${canPick ? '' : 'disabled'}><b>${esc(RACE_MODES[id].name)}</b><small>${esc(RACE_MODES[id].blurb)}</small></button>`)
       .join('');
-    // A time trial's or hill climb's car rule: own cars, one spec car for everyone, or everyone's car maxed out.
+    // A time trial's or hill climb's car rule: own cars, everyone in a maxed Vanta, or everyone's car maxed out.
     const rules =
       cleanMode(room.mode)
         ? `<h2 class="tg-h">Cars</h2><div class="tg-modes">${(Object.keys(CAR_RULES) as CarRule[])
@@ -124,8 +129,8 @@ export const driveLobby: Render = (root, ctx, screen) => {
           : `<span class="tg-muted">Waiting for the host to start…</span>`
         : `<span class="tg-muted">A race is under way. You'll line up for the next one.</span>`;
     const d = TRACK_DEFS[room.track];
+    crewShown = new Set(room.racers.map((r) => r.id));
     view.innerHTML = `
-      <main class="tg tg-lobby" aria-label="Race lobby">
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
@@ -168,8 +173,8 @@ export const driveLobby: Render = (root, ctx, screen) => {
             </div>
             <div class="tg-lobby-start">${state}</div>
           </div>
-        </section>
-      </main>`;
+        </section>`;
+    view.querySelector('.tg-lobby-body')!.scrollTop = scroll;
     view.querySelectorAll<HTMLElement>('[data-pick]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'track', track: b.dataset.pick as TrackId })));
     view.querySelectorAll<HTMLElement>('[data-mode]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'mode', mode: b.dataset.mode as RaceMode })));
     view.querySelectorAll<HTMLElement>('[data-rule]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cars', cars: b.dataset.rule as CarRule })));
@@ -197,7 +202,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const r = rating(sp);
     const cos = Object.values(c.cos ?? {}).filter(Boolean).length;
     const many = g.cars.length > 1;
-    const note = rule === 'spec' && cleanMode(raceNet.room?.mode ?? 'race') ? "Spec car: you'll race a car drawn from the grid, in your paint." : rule === 'maxed' && cleanMode(raceNet.room?.mode ?? 'race') ? 'Maxed out: every part goes to level 5 for this race.' : '';
+    const note = rule === 'vanta' && cleanMode(raceNet.room?.mode ?? 'race') ? "Maxed Vanta: you'll race a Vanta V10 with every part at level 5, in your paint." : rule === 'maxed' && cleanMode(raceNet.room?.mode ?? 'race') ? 'Maxed out: every part goes to level 5 for this race.' : '';
     return `<div class="tg-mycar tg-cardbox" style="--paint:${hex(PAINTS[c.look.paint])}">
       <i class="tg-mycar-paint" aria-hidden="true"></i>
       <div class="tg-mycar-head">
@@ -301,7 +306,6 @@ export const driveLobby: Render = (root, ctx, screen) => {
   const quick = () => view.querySelector<HTMLButtonElement>('[data-start]')?.click();
   addEventListener('padstart', quick);
   draw();
-  $(root, 'main')?.setAttribute('tabindex', '-1');
   return () => {
     pitOff?.();
     pitOff = null;

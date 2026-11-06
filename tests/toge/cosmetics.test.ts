@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CAR_CODE_MAX, decodeCar, encodeCar, newOwnedCar } from '../../src/toge/shared/cars.ts';
-import { CATALOG, COS_CASES, COS_ITEMS, COS_SLOTS, RARITIES, RARITY, caseItems, caseOdds, cleanKit, cleanPlate, cosById, decodeKit, encodeKit, rollCosCase } from '../../src/toge/shared/cosmetics.ts';
+import { CATALOG, COS_CASES, COS_ITEMS, COS_SLOTS, RARITIES, RARITY, caseItems, caseOdds, cleanKit, cleanPlate, cosById, decodeKit, encodeKit, passOnly, rollCosCase } from '../../src/toge/shared/cosmetics.ts';
 import { applyAction, cleanGarage, current, newGarage, ownedCarCode } from '../../src/toge/shared/garage.ts';
 import type { KV } from '../../src/server/accountStore.ts';
 import { GarageStore, secureRandom } from '../../src/toge/server/garageStore.ts';
@@ -16,7 +16,7 @@ const memoryKv = (): KV => {
 };
 const rich = () => ({ ...newGarage(), money: 1_000_000 });
 
-test('the catalog is big, ids are unique, every item sits in a case', () => {
+test('the catalog is big, ids are unique, every item sits in a case (or is a battle pass exclusive)', () => {
   assert.ok(COS_ITEMS.length >= 100, `${COS_ITEMS.length} items`);
   assert.equal(new Set(COS_ITEMS.map((i) => i.id)).size, COS_ITEMS.length);
   for (const s of COS_SLOTS) {
@@ -26,7 +26,7 @@ test('the catalog is big, ids are unique, every item sits in a case', () => {
   }
   for (const it of COS_ITEMS) {
     assert.ok(RARITIES.includes(it.rarity), it.id);
-    assert.ok(COS_CASES.some((c) => caseItems(c.id).includes(it)), `${it.id} can drop from some case`);
+    if (!passOnly(it)) assert.ok(COS_CASES.some((c) => caseItems(c.id).includes(it)), `${it.id} can drop from some case`);
     for (const v of Object.values(it.fx)) if (typeof v === 'number') assert.ok(Number.isFinite(v) && v >= 0 && v <= 0xffffff, `${it.id} params`);
   }
 });

@@ -28,6 +28,12 @@ player sees is decided or checked by the server; anything the server can't check
   - What other racers see: an account's race car code has unowned cosmetics stripped by the Accounts DO, at join (the
     Worker) and on every `car` message (RaceRoom). Guests' codes are only checked to name real items. Plate text is
     `[A-Z0-9 ]`, at most 8 characters, and is only ever drawn on a canvas.
+  - The battle pass (`src/toge/shared/pass.ts`) is bought with garage money on the server (`{a:'pass'}`, 50,000) and its
+    XP is paid with the prize: by the race room for online races (`ResultRow.xp`, worked out from the room's own
+    places and clamped drift) and by the `solo` action, under the same once per `SOLO_GAP_MS` limit. Tiers are handed
+    over by the server (`givePass`: money and cosmetics, each tier once, tracked by `given`); a stored garage keeps
+    only pass items, backgrounds and titles its pass has unlocked. Pass driver metals and gear are refused by the
+    `rider` action until unlocked and stripped from an account's driver on every `rider` message (RaceRoom).
 
 ## Input from clients
 
@@ -42,6 +48,11 @@ player sees is decided or checked by the server; anything the server can't check
 ## Accounts and hosting
 
 - Passwords: PBKDF2-SHA256 (100k iterations), per-user salt, constant-time compare, 5 misses lock a username for 30 s.
+- Changing a password (`/api/password`) needs the session and the current password (same lockout and per-address limit
+  as sign-in), and signs out every older session (`pwAt` on the user record).
+- Admin reset (`/api/admin/reset-password`): only exists when the `ADMIN_KEY` secret is set (32+ characters), compared
+  in constant time. It's not same-origin only (it's for curl), so the key is the whole lock: keep it out of the repo
+  and chats. It returns a random 12-character temporary password and signs the account out everywhere.
 - Per address: 10 sign-in attempts a minute and 5 new accounts (then one per 10 minutes); 10 new lobbies a minute
   (then one per 6 s). In memory, per Durable Object (`server/limiter.ts`), so they reset if it's evicted.
 - Session cookie: random 256-bit token, HttpOnly, SameSite=Lax, Secure on https; only its hash is stored.

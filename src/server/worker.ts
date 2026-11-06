@@ -22,6 +22,8 @@ export interface Env {
   PARTY: DurableObjectNamespace<PartyRoom>;
   DIRECTORY: DurableObjectNamespace<Directory>;
   ACCOUNTS: DurableObjectNamespace<Accounts>;
+  /** Secret (`wrangler secret put ADMIN_KEY`) for `/api/admin/reset-password`. Unset or short: that route doesn't exist. */
+  ADMIN_KEY?: string;
 }
 
 const COOKIE = 'gambol_session';
@@ -60,15 +62,52 @@ async function jsonBody<T>(req: Request, url: URL, max: number): Promise<T | nul
   }
 }
 
-/** Sign-up / sign-in / sign-out / who-am-I. POSTs are same-origin JSON only (cookie is SameSite=Lax as well). */
+/** Shortest admin key we accept, so it can't be guessed (`openssl rand -hex 32` gives 64). */
+const ADMIN_KEY_MIN = 32;
+
+/** Compares two secrets without leaking where they differ (both hashed first, so lengths don't matter either). */
+async function sameSecret(a: string, b: string): Promise<boolean> {
+  const [x, y] = await Promise.all([a, b].map(async (s) => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))));
+  let d = 0;
+  for (let i = 0; i < x.length; i++) d |= x[i] ^ y[i];
+  return d === 0;
+}
+
+/**
+ * Michael's password reset for a friend who forgot theirs: `POST /api/admin/reset-password` with
+ * `Authorization: Bearer <ADMIN_KEY>` and `{"username": "..."}` returns a temporary password (docs/DEPLOYMENT.md).
+ * Not same-origin only (it's meant for curl), so the key is the whole lock.
+ */
+async function adminReset(req: Request, env: Env): Promise<Response> {
+  const key = env.ADMIN_KEY ?? '';
+  if (key.length < ADMIN_KEY_MIN) return new Response('Not found', { status: 404 });
+  const auth = req.headers.get('Authorization') ?? '';
+  if (req.method !== 'POST' || !auth.startsWith('Bearer ') || !(await sameSecret(auth.slice(7), key))) return Response.json({ ok: false, error: 'Not allowed.' }, { status: 403 });
+  let body: { username?: unknown } | null = null;
+  try {
+    body = JSON.parse((await req.text()).slice(0, 256));
+  } catch {
+    /* falls through */
+  }
+  if (!body || typeof body !== 'object') return Response.json({ ok: false, error: 'Send {"username": "..."}.' }, { status: 400 });
+  const result = await env.ACCOUNTS.getByName('all').resetPassword(body.username);
+  return Response.json(result, { status: result.ok ? 200 : 404, headers: { 'Cache-Control': 'no-store' } });
+}
+
+/** Sign-up / sign-in / sign-out / who-am-I / change password. POSTs are same-origin JSON only (cookie is SameSite=Lax as well). */
 async function accountApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
   const token = readCookie(req);
   if (url.pathname === '/api/me') return Response.json({ user: await accounts.me(token) });
-  const body = await jsonBody<{ username?: unknown; password?: unknown }>(req, url, 1024);
+  const body = await jsonBody<{ username?: unknown; password?: unknown; current?: unknown }>(req, url, 1024);
   if (!body || typeof body !== 'object') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
   if (url.pathname === '/api/logout') {
     await accounts.logout(token);
     return Response.json({ ok: true }, { headers: { 'Set-Cookie': sessionCookie('', url, 0) } });
+  }
+  if (url.pathname === '/api/password') {
+    const changed = await accounts.changePassword(token, body.current, body.password, clientIp(req));
+    if (!changed.ok) return Response.json({ ok: false, error: changed.error }, { status: 400 });
+    return Response.json({ ok: true, user: changed.name }, { headers: { 'Set-Cookie': sessionCookie(changed.token, url) } });
   }
   const username = String(body.username ?? '');
   const password = String(body.password ?? '');
@@ -209,7 +248,8 @@ export default {
       const game = url.searchParams.get('game');
       return isGameId(game) ? Response.json(await env.DIRECTORY.getByName(`party:${game}`).listParties()) : Response.json([]);
     }
-    if (['/api/me', '/api/register', '/api/login', '/api/logout'].includes(url.pathname)) return accountApi(req, url, env.ACCOUNTS.getByName('all'));
+    if (url.pathname === '/api/admin/reset-password') return adminReset(req, env);
+    if (['/api/me', '/api/register', '/api/login', '/api/logout', '/api/password'].includes(url.pathname)) return accountApi(req, url, env.ACCOUNTS.getByName('all'));
 
     if (url.pathname === '/ws') {
       if (req.headers.get('Upgrade') !== 'websocket') return new Response('Expected websocket', { status: 426 });

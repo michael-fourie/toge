@@ -7,7 +7,7 @@ import type { GhostRun, GhostTape } from '../toge/shared/ghost.ts';
 import type { FriendAction, FriendList, FriendResult } from '../shared/friends.ts';
 import type { Inv } from '../gambol/shared/inventory.ts';
 import type { StashAction, StashResult } from '../gambol/shared/stash.ts';
-import { AccountStore, type Result } from './accountStore.ts';
+import { AccountStore, type ResetResult, type Result } from './accountStore.ts';
 import { FriendStore } from './friendStore.ts';
 import { GarageStore } from '../toge/server/garageStore.ts';
 import { RecordStore } from '../toge/server/recordStore.ts';
@@ -38,6 +38,16 @@ export class Accounts extends DurableObject {
   login(username: string, password: string, ip = ''): Promise<Result> {
     if (!this.logins.take(ip)) return Promise.resolve({ ok: false, error: 'Too many tries. Wait a minute and try again.' });
     return this.store.login(username, password);
+  }
+
+  changePassword(token: string | undefined, current: unknown, next: unknown, ip = ''): Promise<Result> {
+    if (!this.logins.take(ip)) return Promise.resolve({ ok: false, error: 'Too many tries. Wait a minute and try again.' });
+    return this.store.changePassword(token, current, next);
+  }
+
+  /** Admin only: the Worker checks the admin key before calling this. */
+  resetPassword(username: unknown): Promise<ResetResult> {
+    return this.store.resetPassword(username);
   }
 
   me(token: string | undefined): Promise<string | null> {
@@ -144,6 +154,12 @@ export class Accounts extends DurableObject {
     return this.stashes.spend(name, coins);
   }
 
+  /** A driver code as an account may show it: battle pass pieces it hasn't unlocked are taken off. Guests' pass as they are. */
+  async raceRider(name: string, rider: string): Promise<string> {
+    if (!(await this.ctx.storage.get(`u:${name.toLowerCase()}`))) return rider;
+    return this.garages.raceRider(name, rider);
+  }
+
   /** A race car code as an account may show it: cosmetics it doesn't own are taken off. Guests' codes pass as they are. */
   async raceCar(name: string, code: string): Promise<string> {
     if (!(await this.ctx.storage.get(`u:${name.toLowerCase()}`))) return code;
@@ -163,8 +179,8 @@ export class Accounts extends DurableObject {
     return this.records.ghost(track);
   }
 
-  /** A race room pays a signed-in racer (by display name, which for accounts is the username). */
-  async raceReward(name: string, amount: number, won: boolean): Promise<void> {
-    if (await this.ctx.storage.get(`u:${name.toLowerCase()}`)) await this.garages.award(name, amount, won);
+  /** A race room pays a signed-in racer (by display name, which for accounts is the username): prize and pass XP. */
+  async raceReward(name: string, amount: number, won: boolean, xp = 0): Promise<void> {
+    if (await this.ctx.storage.get(`u:${name.toLowerCase()}`)) await this.garages.award(name, amount, won, xp);
   }
 }

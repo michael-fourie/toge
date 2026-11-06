@@ -23,7 +23,7 @@ The shell may import the games (it wires them in); the games import the shell, n
   menu/play.ts    hosts a plug-in game (GameApi, parties)
   menu/banners.ts the animated Gambol / TŌGE tiles; menu/skirmish.ts the animated island scene (Gambol's tile and the
                   loading veil)
-  menu/account.ts the sign-in / create-account screen (account.css)
+  menu/account.ts the sign-in / create-account screen, and Change password when signed in (account.css)
   account.ts      who's signed in (asks `/api/me`; the session cookie is HttpOnly)
   pad.ts          gamepads for every menu (spatial focus, A/B/LB/RB) and for driving (readPad, padAxis, rumble)
   graphics.ts     the Graphics setting, High / Low, saved per device (`atrous.graphics`; picked in TŌGE's Settings tab):

@@ -12,6 +12,8 @@ interface User {
   salt: string;
   hash: string;
   created: number;
+  /** When the password last changed: sessions opened before then are signed out. */
+  pwAt?: number;
 }
 
 interface Session {
@@ -20,6 +22,7 @@ interface Session {
 }
 
 export type Result = { ok: true; name: string; token: string } | { ok: false; error: string };
+export type ResetResult = { ok: true; name: string; password: string } | { ok: false; error: string };
 
 /** workerd caps PBKDF2 at 100k iterations. */
 export const PBKDF2_ITERATIONS = 100_000;
@@ -30,6 +33,11 @@ const LOCK_MS = 30_000;
 const hex = (b: ArrayBuffer | Uint8Array) => [...new Uint8Array(b as ArrayBuffer)].map((x) => x.toString(16).padStart(2, '0')).join('');
 const fromHex = (s: string) => new Uint8Array(s.match(/../g)!.map((h) => parseInt(h, 16)));
 const randomHex = (bytes: number) => hex(crypto.getRandomValues(new Uint8Array(bytes)));
+
+/** Temporary passwords from an admin reset: easy to read out to a friend (no 0/O, 1/l/I). */
+const TEMP_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+const TEMP_LENGTH = 12;
+const tempPassword = () => [...crypto.getRandomValues(new Uint8Array(TEMP_LENGTH))].map((b) => TEMP_ALPHABET[b % TEMP_ALPHABET.length]).join('');
 
 async function sha256(text: string): Promise<string> {
   return hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
@@ -77,10 +85,11 @@ export class AccountStore {
     return { ok: true, ...(await this.open(username)) };
   }
 
-  async login(username: string, password: string): Promise<Result> {
+  /** Checks a password, with the per-username lockout. The user on success, or the error to show. */
+  private async check(username: unknown, password: unknown): Promise<User | string> {
     const lower = String(username).toLowerCase();
     const lock = this.failures.get(lower);
-    if (lock && lock.until > this.now()) return { ok: false, error: 'Too many tries. Wait a few seconds and try again.' };
+    if (lock && lock.until > this.now()) return 'Too many tries. Wait a few seconds and try again.';
     const user = typeof username === 'string' && typeof password === 'string' ? await this.kv.get<User>(`u:${lower}`) : undefined;
     // Hash even for unknown names so timing doesn't reveal which usernames exist.
     const hash = await this.derive(String(password).slice(0, 72), user?.salt ?? '00'.repeat(16));
@@ -88,23 +97,71 @@ export class AccountStore {
       const count = (lock?.count ?? 0) + 1;
       if (this.failures.size > 10_000) for (const [k, f] of this.failures) if (f.until <= this.now()) this.failures.delete(k); // random names can't grow it forever
       this.failures.set(lower, { count, until: count >= MAX_FAILS ? this.now() + LOCK_MS : 0 });
-      return { ok: false, error: 'Wrong username or password.' };
+      return 'Wrong username or password.';
     }
     this.failures.delete(lower);
-    return { ok: true, ...(await this.open(lower)) };
+    return user;
   }
 
-  /** The signed-in display name for a session token, or null. */
-  async me(token: string | undefined): Promise<string | null> {
+  /** Stores a new password and signs out every session opened before now. */
+  private async setPassword(user: User, password: string): Promise<void> {
+    const salt = randomHex(16);
+    await this.kv.put(`u:${user.name.toLowerCase()}`, { ...user, salt, hash: await this.derive(password, salt), pwAt: this.now() } satisfies User);
+  }
+
+  async login(username: string, password: string): Promise<Result> {
+    const user = await this.check(username, password);
+    if (typeof user === 'string') return { ok: false, error: user };
+    return { ok: true, ...(await this.open(user.name)) };
+  }
+
+  /** The signed-in user (lower-cased) for a session token, or null. */
+  private async session(token: string | undefined): Promise<string | null> {
     if (!token || !/^[0-9a-f]{64}$/.test(token)) return null;
     const key = `s:${await sha256(token)}`;
     const s = await this.kv.get<Session>(key);
     if (!s) return null;
-    if (s.expires < this.now()) {
+    const user = await this.kv.get<User>(`u:${s.user}`);
+    // Expired, the account is gone, or opened before the password last changed.
+    if (s.expires < this.now() || !user || s.expires - SESSION_MS < (user.pwAt ?? 0)) {
       await this.kv.delete(key);
       return null;
     }
-    return (await this.kv.get<User>(`u:${s.user}`))?.name ?? null;
+    return s.user;
+  }
+
+  /** The signed-in display name for a session token, or null. */
+  async me(token: string | undefined): Promise<string | null> {
+    const lower = await this.session(token);
+    return lower && ((await this.kv.get<User>(`u:${lower}`))?.name ?? null);
+  }
+
+  /**
+   * Signed in, with the current password: sets a new one. Every other session is signed out; the result is a fresh
+   * session for this browser.
+   */
+  async changePassword(token: string | undefined, current: unknown, next: unknown): Promise<Result> {
+    const lower = await this.session(token);
+    if (!lower) return { ok: false, error: 'Sign in first.' };
+    const user = await this.check(lower, current);
+    if (typeof user === 'string') return { ok: false, error: user === 'Wrong username or password.' ? 'Your current password is wrong.' : user };
+    const bad = checkCredentials(user.name, String(next ?? ''));
+    if (bad) return { ok: false, error: bad };
+    await this.setPassword(user, String(next));
+    return { ok: true, ...(await this.open(user.name)) };
+  }
+
+  /**
+   * Admin only (the Worker checks the admin key): gives an account a random temporary password and signs it out
+   * everywhere. For a friend who forgot theirs; they change it once they're in.
+   */
+  async resetPassword(username: unknown): Promise<ResetResult> {
+    const user = typeof username === 'string' ? await this.kv.get<User>(`u:${username.toLowerCase()}`) : undefined;
+    if (!user) return { ok: false, error: 'No account with that username.' };
+    const password = tempPassword();
+    await this.setPassword(user, password);
+    this.failures.delete(user.name.toLowerCase());
+    return { ok: true, name: user.name, password };
   }
 
   async logout(token: string | undefined): Promise<void> {

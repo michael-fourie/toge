@@ -52,7 +52,16 @@ export const KIT = {
   belt: 'waist',
   chest_strap: 'chest',
 } as const;
-export const METALS = ['brass', 'copper', 'gunmetal', 'chrome', 'steel', 'carbon'] as const;
+/** Wire order: append only. The first six are free; the rest are battle pass rewards (`PASS_METALS`). */
+export const METALS = ['brass', 'copper', 'gunmetal', 'chrome', 'steel', 'carbon', 'gold', 'obsidian', 'ember', 'prism'] as const;
+/** Metals only the battle pass unlocks (pass.ts says at which tier). */
+export const PASS_METALS: readonly (typeof METALS)[number][] = ['gold', 'obsidian', 'ember', 'prism'];
+export const FREE_METALS = METALS.filter((m) => !PASS_METALS.includes(m));
+/**
+ * Battle pass gear: drawn in code on the driver's head bone (toge/client/passgear.ts), not built in Blender, so it
+ * fits every body. Wire order: append only. Gear has no slot rule; each piece is in its own spot.
+ */
+export const GEAR = ['horns', 'ears', 'visor', 'halo'] as const;
 export const LEATHERS = ['leather', 'leather_black', 'leather_tan'] as const;
 export const WHEELS = ['wood', 'yoke', 'iron', 'deep'] as const;
 /** At most this many kit pieces at once. */
@@ -70,6 +79,7 @@ export type KitId = keyof typeof KIT;
 export type MetalId = (typeof METALS)[number];
 export type LeatherId = (typeof LEATHERS)[number];
 type WheelId = (typeof WHEELS)[number];
+export type GearId = (typeof GEAR)[number];
 
 /** A look on the wire. */
 export type LookCode = `L2.${string}`;
@@ -94,6 +104,8 @@ export interface Look {
   /** Lenses, seams, implants: their glow. */
   glow: number;
   wheel: WheelId;
+  /** Battle pass gear (empty for most looks; the code only carries it when there is some). */
+  gear: GearId[];
 }
 
 const BASE_IDS = Object.keys(BASES) as BaseId[];
@@ -119,6 +131,7 @@ export const DEFAULT_LOOK: Look = {
   leather: 'leather',
   glow: 0xffae3c,
   wheel: 'wood',
+  gear: [],
 };
 
 /** Why a look can't be worn, or null. */
@@ -141,6 +154,7 @@ export function lookProblem(l: Look): string | null {
   if (!METALS.includes(l.metal)) return 'metal';
   if (!LEATHERS.includes(l.leather)) return 'leather';
   if (!WHEELS.includes(l.wheel)) return 'wheel';
+  if (l.gear.length > GEAR.length || new Set(l.gear).size !== l.gear.length || l.gear.some((x) => !GEAR.includes(x))) return 'gear';
   for (const c of [l.hairColor, l.shoeColor, l.glow, ...l.colors]) if (!Number.isInteger(c) || c < 0 || c > 0xffffff) return 'colour';
   return null;
 }
@@ -185,6 +199,8 @@ export function encodeLook(l: Look): LookCode {
     idx(LEATHERS, l.leather),
     hex(l.glow),
     idx(WHEELS, l.wheel),
+    // A 17th field only when there's gear, so every look from before the pass keeps its code.
+    ...(l.gear.length ? [l.gear.map((x) => idx(GEAR, x)).join('-')] : []),
   ].join('.') as LookCode;
 }
 
@@ -192,10 +208,12 @@ export function encodeLook(l: Look): LookCode {
 export function decodeLook(code: unknown): Look | null {
   if (typeof code !== 'string' || !code.startsWith('L2.') || code.length > 200) return null;
   const f = code.split('.');
-  if (f.length !== 16) return null;
+  // 16 fields, or 17 with battle pass gear (never an empty 17th: a code has one spelling).
+  if (f.length !== 16 && !(f.length === 17 && f[16])) return null;
   const pick = <T>(list: readonly T[], s: string): T | undefined => (/^[0-9a-z]{1,2}$/.test(s) ? list[parseInt(s, 36)] : undefined);
   const col = (s: string) => (/^[0-9a-f]{6}$/.test(s) ? parseInt(s, 16) : NaN);
   const kit = f[11] === '' ? [] : f[11].split('-').map((s) => pick(KIT_IDS, s));
+  const gear = f[16] ? f[16].split('-').map((s) => pick(GEAR, s)) : [];
   const l = {
     base: pick(BASE_IDS, f[1]),
     skin: pick(ALL_SKINS, f[2]),
@@ -212,8 +230,9 @@ export function decodeLook(code: unknown): Look | null {
     leather: pick(LEATHERS, f[13]),
     glow: col(f[14]),
     wheel: pick(WHEELS, f[15]),
+    gear,
   };
-  if (Object.values(l).some((v) => v === undefined) || kit.some((k) => k === undefined)) return null;
+  if (Object.values(l).some((v) => v === undefined) || kit.some((k) => k === undefined) || gear.some((x) => x === undefined)) return null;
   return lookProblem(l as Look) ? null : (l as Look);
 }
 
@@ -236,10 +255,11 @@ export function randomLook(rand: () => number = Math.random): Look {
     shoes: any(SHOES),
     shoeColor: any([0x1c1410, 0x121010, 0x5a3420, 0xe9dcc0]),
     kit: [],
-    metal: any(METALS),
+    metal: any(FREE_METALS),
     leather: any(LEATHERS),
     glow: any(glows),
     wheel: any(WHEELS),
+    gear: [],
   };
   const n = 1 + Math.floor(rand() * 3);
   for (let i = 0; i < n; i++) l = withKit(l, any(KIT_IDS), true);
