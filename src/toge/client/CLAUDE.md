@@ -6,7 +6,11 @@ The whole TŌGE guide (physics, tracks, cars, server, rendering rules, how to ad
 
 The rules that bite most often in this folder:
 
-- Plain `THREE.WebGLRenderer` through `Post` (post.ts: bloom, film grade per theme, ACES). No WebGPU.
+- Plain `THREE.WebGLRenderer` through `Post` (post.ts: bloom, then one last pass for the film grade per theme, the sun's lens
+  flare and ACES + sRGB; keep it one pass). No WebGPU. The flare (`Grade.flare`, 0 on night themes) checks whether the sun is
+  hidden by sampling the image at the sun in the vertex shader, so it costs nothing per pixel.
+- Contact shadows (contactshadow.ts): one instanced quad darkens the road under every car, on High and Low. Add a car
+  with `contact.add(root, ...)` and take it out with `contact.remove(root)` when its model goes.
 - Low graphics (Settings tab; `lowGraphics()` from src/client/graphics.ts) must stay cheap: no shadows, no post chain,
   Lambert/Phong stand-ins for PBR (lowgfx.ts). A new effect either skips itself on Low or costs next to nothing.
 - A renderer that goes away goes out through `releaseRenderer()` (src/client/graphics.ts), or `dispose()` + `forceContextLoss()`
@@ -31,5 +35,6 @@ The rules that bite most often in this folder:
 - Body parts (wings, hoods, roof gear, lips, sides, mudflaps): bodykits.ts builds them from the Kit helpers (`k.top`,
   `k.height`, `k.side`, `k.front`, `k.cabin`) inside carmodel.ts's `common()`, before the merge; a cosmetic wing replaces
   the stock spoiler. Bikes don't wear them. Glowing edges are MeshBasicMaterial brighter than white (bloom) and marked `userData.glow` (no shadow).
-- Dev hooks: `window.__race` (the running race), `/dev/cars.html` + `window.lab` for car models (`lab.cos({...})` dresses them), `/dev/cosmetics.html` +
+- Dev hooks: `window.__race` (the running race), `/dev/race.html?track=…&car=…` + `window.rl` (a solo race the AI drives, stepped
+  by hand: `rl.drive(s)`, `rl.sun(at)` to face the sun, `rl.cost(n)` for ms per frame, draw calls and triangles: shoot and measure before and after a visual change), `/dev/cars.html` + `window.lab` for car models (`lab.cos({...})` dresses them), `/dev/cosmetics.html` +
   `window.cz` for any cosmetic kit on any car in the real garage showroom (and every Locker card).

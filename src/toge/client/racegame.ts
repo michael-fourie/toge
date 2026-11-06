@@ -38,6 +38,7 @@ import { DriveControls } from './input.ts';
 import { type RaceNet, roomRace } from './racenet.ts';
 import type { DriveOpts } from '../../client/menu/router.ts';
 import { Post } from './post.ts';
+import { ContactShadows } from './contactshadow.ts';
 import { frameGate, lowGraphics, LOW_PIXEL_RATIO, releaseRenderer } from '../../client/graphics.ts';
 import { buildTrackView, type TrackView } from './trackview.ts';
 
@@ -211,6 +212,7 @@ export class RaceGame {
   private hud: RaceHud;
   private audio: RaceAudio;
   private fx: Effects;
+  private contact: ContactShadows;
   private propView: PropView;
   /** City traffic, and the race clock it runs on (seconds since GO; counts up to 0 during the countdown). */
   private traffic: Traffic | null;
@@ -344,7 +346,9 @@ export class RaceGame {
     this.view.scene.add(this.cometLight);
     this.renderer.toneMappingExposure = this.view.exposure;
     this.post = new Post(this.renderer, this.view.scene, this.camera, this.view.grade, this.low);
+    this.post.sun = this.view.sunDir;
     this.fx = new Effects(this.view.scene);
+    this.contact = new ContactShadows(this.view.scene);
     this.propView = new PropView(this.view.scene, this.track);
     if (this.clean) this.propView.clearBoxes();
     if (this.physics) this.blasts = new Blasts(this.view.scene, this.track, this.fx);
@@ -418,6 +422,8 @@ export class RaceGame {
     this.view.scene.add(model.root);
     this.headlights(model.root, owned);
     const b = CARS[owned.model];
+    // Darkest with all four wheels down, gone by the time it's a metre or so in the air.
+    this.contact.add(model.root, b.length, b.width, car.spec.cg, () => car.wheels.reduce((n, w) => n + (w.contact ? 1 : 0), 0) / car.wheels.length);
     return {
       car,
       model,
@@ -445,6 +451,8 @@ export class RaceGame {
     this.view.scene.add(model.root);
     this.headlights(model.root, owned);
     const spec = carSpec(owned);
+    // A time trial's ghosts float through everything: no shadow under them.
+    if (!this.trial) this.contact.add(model.root, CARS[owned.model].length, CARS[owned.model].width, spec.cg);
     const slot = this.setup.online!.grid[r.id] ?? 0;
     const g = gridSlot(this.track, slot);
     const ghost = newCar(spec, g.x, g.y, g.z, g.yaw);
@@ -757,6 +765,7 @@ export class RaceGame {
         if (!m.racers.some((r) => r.id === id)) {
           const r = this.remotes.get(id)!;
           this.view.scene.remove(r.model.root);
+          this.contact.remove(r.model.root);
           this.cockpits.get(r.model.root)?.dispose();
           this.cockpits.delete(r.model.root);
           r.model.dispose();
@@ -1441,6 +1450,7 @@ export class RaceGame {
     this.view.follow(this.camera.position.x, view.root.position.y, this.camera.position.z, now);
     this.sound();
     this.updateHud();
+    this.contact.update();
     this.post.render(now);
   }
 
@@ -1470,11 +1480,15 @@ export class RaceGame {
   private windFx(c: Car, root: THREE.Object3D) {
     if (c.draft < 0.15) return;
     const n = Math.random() < c.draft ? 2 : 1;
+    const sp = Math.hypot(c.v.x, c.v.z);
+    if (sp < 1) return;
+    // Streaks of air along the car's travel, a little longer the faster it goes.
+    const len = Math.min(6, 1.5 + sp * 0.06) / sp;
     for (let k = 0; k < n; k++) {
       const side = (Math.random() < 0.5 ? -1 : 1) * (0.9 + Math.random() * 1.2);
       const p = new THREE.Vector3(side, 0.2 + Math.random() * 1.3, -4 - Math.random() * 6).applyMatrix4(root.matrixWorld);
       // Barely moving in the world: at speed they rush past the car like wind.
-      this.fx.spark(p.x, p.y, p.z, c.v.x * 0.15, 0, c.v.z * 0.15, [0.75, 0.92, 1], 0.35, 0.12 + c.draft * 0.1);
+      this.fx.streak(p.x, p.y, p.z, c.v.x * len, 0, c.v.z * len, c.v.x * 0.15, 0, c.v.z * 0.15, 0.4, 0.35 + c.draft * 0.4);
     }
   }
 
@@ -1809,6 +1823,7 @@ export class RaceGame {
     this.cometMat.dispose();
     this.view.dispose();
     this.post.dispose();
+    this.contact.dispose();
     this.audio.close();
     releaseRenderer(this.renderer); // dispose() alone leaks the whole context (see releaseRenderer)
     setMenuNav(true);
