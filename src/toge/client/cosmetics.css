@@ -124,6 +124,13 @@
   overflow: hidden;
   text-shadow: 0 0 6px var(--glow, transparent);
 }
+.cz-art b.long {
+  font-size: 11px;
+  line-height: 1.05;
+  max-width: 44px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
 .cz-art.plate,
 .cz-art.frame {
   width: 76px;

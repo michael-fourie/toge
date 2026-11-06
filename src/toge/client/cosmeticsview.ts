@@ -92,12 +92,16 @@ const PATTERNS: Record<PaintFx['pattern'], (g: CanvasRenderingContext2D, k: Inks
     const flame = (ux: (u: number) => number, band: number, ink: string, shrink: number) => {
       g.fillStyle = ink;
       for (const t of tongues) {
+        // Rooted just behind the nose with narrow bases: roots that start at the very front and overlap (the
+        // band squeezes round the bumper there) merged into one solid blob over the front wheel.
         const y0 = t.y * band;
+        const u0 = 0.035;
         const len = t.len * shrink;
+        const at = (k: number) => ux(u0 + len * k);
         g.beginPath();
-        g.moveTo(ux(0), y0 - band * 0.09 * shrink);
-        g.bezierCurveTo(ux(len * 0.4), y0 - band * 0.12, ux(len * 0.75), y0 + band * 0.08 * Math.sin(t.wob), ux(len), y0 + band * 0.02);
-        g.bezierCurveTo(ux(len * 0.7), y0 + band * 0.05, ux(len * 0.35), y0 + band * 0.1, ux(0), y0 + band * 0.09 * shrink);
+        g.moveTo(at(0), y0 - band * 0.055 * shrink);
+        g.bezierCurveTo(at(0.4), y0 - band * 0.1, at(0.75), y0 + band * 0.08 * Math.sin(t.wob), at(1), y0 + band * 0.02);
+        g.bezierCurveTo(at(0.7), y0 + band * 0.05, at(0.35), y0 + band * 0.08, at(0), y0 + band * 0.055 * shrink);
         g.closePath();
         g.fill();
       }
@@ -322,9 +326,10 @@ function drawDecal(g: CanvasRenderingContext2D, fx: DecalFx) {
   switch (fx.kind) {
     case 'wakaba':
     case 'momiji':
-      // The Japanese driver marks: a two-colour chevron (beginner) or a four-colour teardrop (elder), on the tail.
+      // The Japanese driver marks: a two-colour chevron (beginner) or a four-colour teardrop (elder), on the rear
+      // door. (At u 0.86 it sat over the rear wheel arch, where the flank band rides up onto the pillar.)
       onFlanks(g, (ux, band) => {
-        const x = ux(0.86);
+        const x = ux(0.64);
         const y = band / 2;
         const s = band * 0.32;
         g.fillStyle = ink;
@@ -364,24 +369,26 @@ function drawDecal(g: CanvasRenderingContext2D, fx: DecalFx) {
       break;
     case 'sponsor':
       onFlanks(g, (ux, band) => {
-        g.font = font(band * 0.24, 700);
+        g.font = font(band * 0.3, 700);
         g.fillStyle = ink2;
-        const x = ux(0.6);
-        const wdt = g.measureText(fx.text ?? '').width + 24;
-        g.fillRect(x - wdt / 2, band * 0.62, wdt, band * 0.3);
+        const x = ux(0.5);
+        const wdt = g.measureText(fx.text ?? '').width + 28;
+        g.fillRect(x - wdt / 2, band * 0.56, wdt, band * 0.36);
         g.fillStyle = ink;
-        g.fillText(fx.text ?? '', x, band * 0.775);
+        g.fillText(fx.text ?? '', x, band * 0.745);
       });
       break;
     case 'banner':
       onFlanks(g, (ux, band) => {
+        // A strip along the top of the doors, clear of both wheel arches, with the crown leading the words.
         g.fillStyle = ink2;
-        g.fillRect(Math.min(ux(0.25), ux(0.75)), band * 0.04, TW * 0.5, band * 0.26);
+        g.fillRect(Math.min(ux(0.28), ux(0.72)), band * 0.04, TW * 0.44, band * 0.36);
         g.fillStyle = ink;
-        g.font = font(band * 0.22);
-        g.fillText(fx.text ?? '', ux(0.5), band * 0.18);
-        g.font = font(band * 0.3);
-        g.fillText('♛', ux(0.5) - TW * 0.17, band * 0.18);
+        g.font = font(band * 0.32);
+        const tw = g.measureText(fx.text ?? '').width;
+        g.fillText(fx.text ?? '', ux(0.5) + band * 0.18, band * 0.23);
+        g.font = font(band * 0.34);
+        g.fillText('♛', ux(0.5) + band * 0.18 - tw / 2 - band * 0.26, band * 0.22);
       });
       break;
     case 'kanji':
@@ -389,17 +396,21 @@ function drawDecal(g: CanvasRenderingContext2D, fx: DecalFx) {
         g.font = `900 ${band * 0.85}px 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif`;
         g.lineWidth = band * 0.06;
         g.strokeStyle = ink2;
-        g.strokeText(fx.text ?? '', ux(0.68), band / 2);
+        // On the rear door: further back (0.68) the rear wheel arch cut the character in half.
+        g.strokeText(fx.text ?? '', ux(0.58), band / 2);
         g.fillStyle = ink;
-        g.fillText(fx.text ?? '', ux(0.68), band / 2);
+        g.fillText(fx.text ?? '', ux(0.58), band / 2);
       });
       break;
     case 'bolt':
       onFlanks(g, (ux, band) => {
-        const pts: [number, number][] = [[0.18, 0.2], [0.5, 0.45], [0.46, 0.52], [0.84, 0.8], [0.52, 0.62], [0.56, 0.55], [0.18, 0.2]];
+        // A fat zigzag along the doors. (It used to run 0.18 to 0.84 of the car's length at under a fifth of
+        // the band's height: a hairline across both wheel arches that read as a scratch.)
+        const pts: [number, number][] = [[0.3, 0.42], [0.47, 0.12], [0.48, 0.36], [0.7, 0.2], [0.5, 0.9], [0.49, 0.6], [0.3, 0.72]];
         g.fillStyle = ink;
         g.strokeStyle = ink2;
-        g.lineWidth = 4;
+        g.lineWidth = 5;
+        g.lineJoin = 'round';
         g.beginPath();
         for (const [u, v] of pts) g.lineTo(ux(u), v * band);
         g.fill();
@@ -419,7 +430,7 @@ function drawDecal(g: CanvasRenderingContext2D, fx: DecalFx) {
       onFlanks(g, (ux, band) => {
         for (let i = 0; i < 6; i++) {
           g.fillStyle = i % 2 ? ink2 : ink;
-          star(ux(0.7 + i * 0.04), band * (0.3 + (i % 3) * 0.2), band * (0.16 - i * 0.015));
+          star(ux(0.46 + i * 0.045), band * (0.3 + (i % 3) * 0.2), band * (0.18 - i * 0.015));
         }
       });
       break;
@@ -427,11 +438,11 @@ function drawDecal(g: CanvasRenderingContext2D, fx: DecalFx) {
     case 'rising':
       onTop(g, () => {
         const cx = TW * 0.12;
+        // Both inks, like the flag: red rays alone vanished on a red car (the white ink2 was never drawn).
         for (let i = 0; i < 16; i++) {
-          if (i % 2) continue;
           const a0 = (i / 16) * Math.PI * 2;
           const a1 = ((i + 1) / 16) * Math.PI * 2;
-          g.fillStyle = ink;
+          g.fillStyle = i % 2 ? ink2 : ink;
           g.beginPath();
           g.moveTo(cx, 0);
           g.lineTo(cx + Math.cos(a0) * TW * 0.12, Math.sin(a0) * TH * 0.16);
@@ -447,10 +458,11 @@ function drawDecal(g: CanvasRenderingContext2D, fx: DecalFx) {
     case 'sakura':
       onFlanks(g, (ux, band) => {
         const rnd = seeded('petals');
-        for (let i = 0; i < 14; i++) {
-          const x = ux(0.7 + rnd() * 0.25);
-          const y = rnd() * band;
-          const r = band * (0.05 + rnd() * 0.07);
+        // Blown along the doors, between the wheel arches (they used to bunch over the rear arch).
+        for (let i = 0; i < 18; i++) {
+          const x = ux(0.32 + rnd() * 0.38);
+          const y = band * (0.1 + rnd() * 0.8);
+          const r = band * (0.06 + rnd() * 0.08);
           g.fillStyle = i % 3 ? ink : ink2;
           g.beginPath();
           g.ellipse(x, y, r, r * 0.6, rnd() * Math.PI, 0, Math.PI * 2);
@@ -569,7 +581,12 @@ const STOCK_FINISH: Partial<Record<Finish, number>> = { gloss: 0, metallic: 1, m
 
 function finishMaterial(finish: Finish, base: number, look: Look): THREE.MeshPhysicalMaterial {
   const stock = STOCK_FINISH[finish];
-  if (stock !== undefined) return paintMaterial({ ...look, finish: stock }, base);
+  if (stock !== undefined) {
+    const m = paintMaterial({ ...look, finish: stock }, base);
+    // The stock pearl's white sheen turns a dark pearl (Nebula's deep space) silver-grey: sheen in the paint's own tint.
+    if (finish === 'pearl') m.sheenColor = new THREE.Color(base).lerp(new THREE.Color(0xffffff), 0.25);
+    return m;
+  }
   const m = paintMaterial({ ...look, finish: 0 }, base);
   if (finish === 'satin') {
     m.metalness = 0.3;
@@ -577,9 +594,16 @@ function finishMaterial(finish: Finish, base: number, look: Look): THREE.MeshPhy
     m.clearcoat = 0.35;
     m.clearcoatRoughness = 0.3;
   } else if (finish === 'chrome') {
+    // A pure mirror only shows what's around it, and the garage bay (and a night road) is nearly all black, so
+    // a 0.04-rough chrome read as a black car with a few hot spots. Brushed just enough that the softboxes and
+    // neon smear into long highlights, a bright mirror coat on top, and a faint self-tint so the metal's colour
+    // still reads where nothing bright is reflected.
     m.metalness = 1;
-    m.roughness = 0.04;
-    m.envMapIntensity = 2.2;
+    m.roughness = 0.2;
+    m.clearcoat = 1;
+    m.clearcoatRoughness = 0.02;
+    m.envMapIntensity = 3.2;
+    m.emissive = new THREE.Color(base).multiplyScalar(0.16);
   } else if (finish === 'candy') {
     // Deep tinted coat over bright flake.
     m.metalness = 0.6;
@@ -629,17 +653,25 @@ export const windowMaterial = (it: ItemOf<'window'>) =>
 export const headMaterials = (it: ItemOf<'head'>) => ({
   head: cached(it.id, () => lamp(new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: it.fx.color, emissiveIntensity: 9 * it.fx.power, roughness: 0.1 }))),
   drl: cached(it.id + ':drl', () => lamp(new THREE.MeshBasicMaterial({ color: bright(it.fx.color, 8 * it.fx.power) }))),
+  // The polished bowl round the bulb is most of what you see of a headlamp, and the stock one glows warm
+  // white: left alone, every tint (Demon Eyes, Toxic Green...) looked like plain halogen. Tint its glow too.
+  reflector: cached(it.id + ':bowl', () =>
+    lamp(new THREE.MeshStandardMaterial({ color: new THREE.Color(it.fx.color).lerp(new THREE.Color(0xf2f4f7), 0.5), metalness: 1, roughness: 0.22, side: THREE.DoubleSide, emissive: it.fx.color, emissiveIntensity: 1.6 * it.fx.power })),
+  ),
 });
 
 export const rimMaterial = (it: ItemOf<'rims'>) =>
   cached(it.id, () =>
     it.fx.glow
-      ? new THREE.MeshStandardMaterial({ color: it.fx.color, emissive: it.fx.color, emissiveIntensity: 2.5, metalness: it.fx.metal, roughness: it.fx.rough })
+      ? // Lit diffuse + 2.5x emissive clipped Neon Ring (cyan) and Plasma (pink) to plain white wheels: a darker
+        // body and a gentler glow keep the hue and still clear the night bloom threshold.
+        new THREE.MeshStandardMaterial({ color: bright(it.fx.color, 0.25), emissive: it.fx.color, emissiveIntensity: 1.25, metalness: it.fx.metal, roughness: it.fx.rough })
       : new THREE.MeshPhysicalMaterial({ color: it.fx.color, metalness: it.fx.metal, roughness: it.fx.rough, clearcoat: 0.6 }),
   );
 
 export const caliperMaterial = (it: ItemOf<'caliper'>) =>
-  cached(it.id, () => new THREE.MeshStandardMaterial({ color: it.fx.color, roughness: 0.35, metalness: 0.3, ...(it.fx.glow ? { emissive: it.fx.color, emissiveIntensity: 2.5 } : {}) }));
+  // Glowing ones as the rims above (Cyan Glow rendered white).
+  cached(it.id, () => new THREE.MeshStandardMaterial({ color: it.fx.glow ? bright(it.fx.color, 0.25) : it.fx.color, roughness: 0.35, metalness: 0.3, ...(it.fx.glow ? { emissive: it.fx.color, emissiveIntensity: 1.25 } : {}) }));
 
 export const exhaustMaterials = (it: ItemOf<'exhaust'>) => ({
   pipe: cached(it.id, () => new THREE.MeshStandardMaterial({ color: it.fx.color, metalness: it.fx.metal, roughness: it.fx.rough })),
@@ -702,6 +734,12 @@ export function cosPlateMaterial(owned: OwnedCar, stock: string): THREE.MeshStan
     m.emissiveMap = plateTexture(text, it.fx, it.id, true);
     m.emissive.set(0xffffff);
     m.emissiveIntensity = 3;
+  } else {
+    // Plates are retroreflective. Without a little of that, every coloured plate (Kei Yellow, Gold, TOGE 1,
+    // Navy) went a muddy brown-grey under the garage's single key light while the white stock plate still read.
+    m.emissiveMap = m.map;
+    m.emissive.set(0xffffff);
+    m.emissiveIntensity = 0.3;
   }
   return m;
 }

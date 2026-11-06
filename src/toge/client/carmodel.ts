@@ -537,19 +537,26 @@ export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()):
 function tintParts(root: THREE.Object3D, owned: OwnedCar) {
   const swap = new Map<THREE.Material, THREE.Material>();
   const win = equipped(owned.cos, 'window');
-  if (win) swap.set(MAT.glass, windowMaterial(win));
+  if (win) {
+    // The cabin glass is one of the stock tints (GLASS[look.tint]), not MAT.glass: swap those too, or a
+    // window tint from a case never showed on a car (only on a bike's screen).
+    const wm = windowMaterial(win);
+    for (const gl of [MAT.glass, ...GLASS]) swap.set(gl, wm);
+  }
   const head = equipped(owned.cos, 'head');
   if (head) {
     const m = headMaterials(head);
     swap.set(MAT.head, m.head);
     swap.set(MAT.drl, m.drl);
+    swap.set(MAT.reflector, m.reflector);
   }
   const cal = equipped(owned.cos, 'caliper');
   if (cal) swap.set(MAT.caliper, caliperMaterial(cal));
   if (!swap.size) return;
   root.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.isMesh && !Array.isArray(m.material)) m.material = swap.get(m.material) ?? m.material;
+    if (!m.isMesh) return;
+    m.material = Array.isArray(m.material) ? m.material.map((x) => swap.get(x) ?? x) : (swap.get(m.material) ?? m.material);
   });
 }
 
