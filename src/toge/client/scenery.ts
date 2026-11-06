@@ -1,7 +1,8 @@
 // What stands outside the barriers besides the forest (trackview.ts calls it): farmhouses and barns in the clearings,
 // telegraph poles and their wires along the passes, wayside shrines (torii, stone lanterns), road signs, and a landmark
 // or two per theme (a pagoda on the hill, a lighthouse and boats by the sea, a windmill and water tower in the desert,
-// a radio mast up the mountain); grandstands and trackside boards round the circuits.
+// a radio mast up the mountain); round the circuits the pits and race control, grandstands, trackside boards and a big
+// wheel by the harbour.
 //
 // Cheap by construction: every prop is baked into merged meshes per 1.6 km chunk, one per material (vertex
 // colours with glowing windows, and a sign atlas), so the whole lot is a handful of draw calls; the wires are one line mesh. Placement
@@ -347,6 +348,83 @@ function grandstand(L: number, rnd: () => number) {
   return merge(parts);
 }
 
+/** Garage doors in team colours along the pits. */
+const TEAMS = [0xc0392b, 0x2f5f8a, 0xf2c14e, 0x2a2c30, 0x3a8a5a, 0xe8e8e8, 0xe07a2a, 0x6a3a9a];
+
+/**
+ * A circuit's pit building, L long: a row of garages opening onto the pit lane (front, local -z), a set-back glass
+ * hospitality floor above with a terrace, a flat roof. The garage lights and the glass are `pitGlow`.
+ */
+function pitBuilding(L: number) {
+  const parts = [
+    box(L, 4.6, 14, 0, 2.3, 0, 0xdadde0),
+    box(L + 1, 0.4, 15, 0, 4.8, 0, 0x6d7278),
+    box(L, 3.4, 11, 0, 6.7, 1.5, 0xc9cdd2),
+    box(L + 1.6, 0.5, 13, 0, 8.65, 1.2, 0x4a5057),
+    // Terrace railing in front of the glass.
+    box(L, 0.9, 0.08, 0, 5.45, -7.3, 0xb8bcc0),
+  ];
+  const n = Math.floor((L - 2) / 6);
+  for (let k = 0; k < n; k++) {
+    const x = -((n - 1) * 6) / 2 + k * 6;
+    parts.push(box(4.6, 3.7, 0.12, x, 1.85, -7.04, 0x2b2f35), box(4.8, 0.55, 0.14, x, 4.0, -7.06, TEAMS[k % TEAMS.length]));
+  }
+  for (let x = -L / 2; x <= L / 2 + 0.1; x += 6) parts.push(box(0.5, 4.6, 0.3, x, 2.3, -7.05, 0xe9ebed));
+  return merge(parts);
+}
+function pitGlow(L: number) {
+  const n = Math.floor((L - 2) / 6);
+  const parts = [box(L - 0.6, 2.4, 0.1, 0, 6.6, -4.05, 0x6f8aa6)];
+  for (let k = 0; k < n; k++) parts.push(box(4.2, 0.5, 0.1, -((n - 1) * 6) / 2 + k * 6, 3.4, -7.12, 0xfff1d8));
+  return merge(parts);
+}
+
+/** Race control: a slim concrete tower with a glass cab (`towerCab`) and a mast on top. */
+function controlTower() {
+  return merge([
+    box(4.4, 22, 4.4, 0, 11, 0, 0xd5d8db),
+    box(9.4, 0.6, 9.4, 0, 22.3, 0, 0x5d646b),
+    box(10.2, 0.6, 10.2, 0, 26.1, 0, 0x40464c),
+    ...[-4.3, 4.3].flatMap((x) => [-4.3, 4.3].map((z) => box(0.3, 3.4, 0.3, x, 24.1, z, 0x40464c))),
+    cyl(0.16, 0.08, 7, 5, 0, 29.9, 0, 0x8a8e92),
+  ]);
+}
+const towerCab = () => merge([box(8.4, 3.2, 8.4, 0, 24.1, 0, 0x6f8aa6)]);
+
+/** A big wheel, its rim facing the road (local -z): twin rims, spokes, gondolas, A-frame legs. Lights: `wheelLights`. */
+const WHEEL_R = 21;
+const WHEEL_HUB = WHEEL_R + 4;
+function bigWheel() {
+  const parts: THREE.BufferGeometry[] = [];
+  for (const z of [-1.3, 1.3]) parts.push(tint(new THREE.TorusGeometry(WHEEL_R, 0.32, 4, 48).translate(0, WHEEL_HUB, z), 0xeceef0));
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2;
+    for (const z of [-1.3, 1.3]) parts.push(tint(new THREE.BoxGeometry(0.16, WHEEL_R, 0.16).translate(0, WHEEL_R / 2, 0).rotateZ(a).translate(0, WHEEL_HUB, z), 0xd0d4d8));
+    // A gondola hanging under the rim.
+    const gx = Math.sin(a) * WHEEL_R;
+    const gy = WHEEL_HUB + Math.cos(a) * WHEEL_R;
+    parts.push(box(1.8, 1.9, 1.8, gx, gy - 1.4, 0, TEAMS[k % 4]), box(2.0, 0.2, 2.0, gx, gy - 0.35, 0, 0xeceef0));
+  }
+  parts.push(tint(new THREE.CylinderGeometry(1.1, 1.1, 4.4, 10).rotateX(Math.PI / 2).translate(0, WHEEL_HUB, 0), 0x8a8e92));
+  // Legs: two A-frames, from the ground out to the hub.
+  for (const z of [-2.6, 2.6])
+    for (const x of [-11, 11]) {
+      const len = Math.hypot(x, WHEEL_HUB);
+      parts.push(tint(new THREE.BoxGeometry(0.7, len, 0.7).translate(0, len / 2, 0).rotateZ(Math.atan2(x, WHEEL_HUB)).translate(x, 0, z), 0xb8bcc0));
+    }
+  parts.push(box(26, 1.2, 9, 0, 0.6, 0, 0x9a9da1), box(6, 3, 4, 0, 2.1, -3, 0xe8e2d6));
+  return merge(parts);
+}
+function wheelLights() {
+  const parts: THREE.BufferGeometry[] = [];
+  for (const z of [-1.55, 1.55]) parts.push(tint(new THREE.TorusGeometry(WHEEL_R, 0.12, 3, 64).translate(0, WHEEL_HUB, z), 0xffc8f0));
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2;
+    parts.push(tint(new THREE.BoxGeometry(0.1, WHEEL_R - 1.5, 0.1).translate(0, (WHEEL_R - 1.5) / 2 + 1.2, -1.5).rotateZ(a).translate(0, WHEEL_HUB, 0), 0x9fe8ff));
+  }
+  return merge(parts);
+}
+
 // --- The sign atlas -------------------------------------------------------------------------------------------------
 
 /** Atlas cells across the top row (128 px each of 1024): speed limit, curve left, curve right, round back, diamond back, plain grey. */
@@ -622,6 +700,39 @@ export function decor(
     }
   }
 
+  // --- A circuit's pits: on the inside of the lap, along the straight before the line, with race control at the end
+  const pits: { geo: THREE.BufferGeometry; glow: THREE.BufferGeometry; x: number; y: number; z: number; yaw: number }[] = [];
+  if (lap) {
+    let turn = 0;
+    for (let i = 0; i < t.n; i++) turn += t.curv[i];
+    const side = turn > 0 ? 1 : -1; // a clockwise lap's inside is on the right
+    const L = 96;
+    const straight = (s: number, half: number) => {
+      for (let u = s - half; u <= s + half; u += SAMPLE * 2) if (Math.abs(t.curv[Math.round((((u % t.length) + t.length) % t.length) / SAMPLE)]) > 1 / 450) return false;
+      return true;
+    };
+    for (const off of [-60, -90, -30, -120, 0, 30]) {
+      const s = t.startS + off;
+      if (!straight(s, L / 2 + 14)) continue;
+      const p0 = pointAt(t, s, 0);
+      const p = pointAt(t, s, side * (railOf(t, p0.i, side) + 15));
+      const yaw = facing(p0.tx, p0.tz, side);
+      if (!free(p.x, p.z, L / 2)) continue;
+      const y = footprint(p.x, p.z, yaw, L, 15, 2.5, 4);
+      if (y === null) continue;
+      sites.push({ x: p.x, z: p.z, r: L / 2 + 4 });
+      pits.push({ geo: keep(pitBuilding(L)), glow: keep(pitGlow(L)), x: p.x, y: y - 0.1, z: p.z, yaw });
+      // Race control just past the far end of the pits.
+      const c = pointAt(t, s + L / 2 + 12, side * (railOf(t, p0.i, side) + 20));
+      const cy = footprint(c.x, c.z, yaw, 11, 11, 2.5, 4);
+      if (cy !== null && free(c.x, c.z, 7)) {
+        sites.push({ x: c.x, z: c.z, r: 8 });
+        pits.push({ geo: keep(controlTower()), glow: keep(towerCab()), x: c.x, y: cy - 0.1, z: c.z, yaw });
+      }
+      break;
+    }
+  }
+
   // --- A landmark or two
   const marks: { geo: THREE.BufferGeometry; glow?: THREE.BufferGeometry; x: number; y: number; z: number; yaw: number }[] = [];
   const landmark = (geo: () => THREE.BufferGeometry, glow: (() => THREE.BufferGeometry) | null, r: number, near: number, far: number, flat: number, score: (x: number, z: number, h: number) => number, n = 1) => {
@@ -650,6 +761,8 @@ export function decor(
   if ((theme === 'alpine' || theme === 'night') && !lap && !t.def.climb) landmark(radioMast, mastBeacon, 4, 40, 260, 2.5, high, 1);
   if (t.def.climb) landmark(radioMast, mastBeacon, 4, 20, 120, 3, high, 1);
   if (theme === 'coast' && water !== undefined) landmark(lighthouse, lighthouseLamp, 4, 20, 220, 3, (_x, _z, h) => -Math.abs(h - water - 8), 1);
+  // A big wheel by the harbour on the seaside and street circuits.
+  if (lap && water !== undefined && (city || theme === 'coast')) landmark(bigWheel, wheelLights, 15, 25, 150, 3, (_x, _z, h) => -Math.abs(h - water - 6), 1);
   if (theme === 'desert') {
     // Hoodoos standing out on the plain.
     const any = () => rnd();
@@ -773,7 +886,11 @@ export function decor(
         for (let s = 400; s < t.length - 300; s += 700) if (Math.abs(t.curv[Math.round(s / SAMPLE)]) < 1 / 250) sign(s, speed);
       }
 
-      // --- Circuits: grandstands by the line, sponsor boards along the straights
+      // --- Circuits: the pits and race control by the line, grandstands, sponsor boards along the straights
+      for (const p of pits) {
+        place('body', p.geo, p.x, p.y, p.z, p.yaw);
+        place('glow', p.glow, p.x, p.y, p.z, p.yaw);
+      }
       if (lap) {
         const stand = keep(grandstand(36, mulberry(t.def.seed + 5)));
         for (const off of [-150, -105, -60, 40, 85, 130]) {
@@ -833,7 +950,7 @@ export function decor(
       }
 
       // Where things went, for /dev/scenery.html (`scn.props()`).
-      scene.userData.props = { houses: houses.map((h) => [h.x, h.y, h.z]), shrines: shrines.map((h) => [h.x, h.y, h.z]), marks: marks.map((h) => [h.x, h.y, h.z]) };
+      scene.userData.props = { houses: houses.map((h) => [h.x, h.y, h.z]), shrines: shrines.map((h) => [h.x, h.y, h.z]), marks: marks.map((h) => [h.x, h.y, h.z]), pits: pits.map((h) => [h.x, h.y, h.z]) };
       // Windows, lantern fireboxes, beacons: dark glass by day, lit (brighter than white, so they bloom) at night.
       const body = keep(propMaterial(opts.night ? 2.6 : 0));
       const signMat = keep(new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.5, emissive: 0xffffff, emissiveMap: atlas, emissiveIntensity: opts.night ? 0.9 : 0.08, roughness: 0.5, side: THREE.FrontSide }));

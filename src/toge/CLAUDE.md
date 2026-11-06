@@ -56,7 +56,10 @@ a component or a page.
   gravel, crests, canyon), `tsukiyo` (night: bridge, tunnel), `momiji` (autumn), `sakura` (spring), `nagare` (Nagare Pass: alpine, 3.2 km, gentle
   (< 6%), 8 corners, a ~1 minute run built for grinding time trials; `clean: true` = no item boxes, obstacles or ramps);
   circuits `monza` (3 laps), `spa`, `monaco` (2 laps), `kodama` (the time trial's ring), `hachi` (Hachi-no-ji: a 1.2 km figure 8 for drifting, 3 laps,
-  the first pass over the crossing on a bridge); city `neonbay` (Neon Bay, live
+  the first pass over the crossing on a bridge), and three original grand prix layouts (2026-11-06): `minato` (Minato
+  Street: a night street circuit in the city theme round a harbour, open waterfront, big wheel), `akane` (Akane Sands:
+  desert GP in the late sun, long straights and hairpins) and `kazeoka` (Kazeoka Dunes: coast, a rollercoaster through
+  sandy dunes above the sea), 2 laps each; city `neonbay` (Neon Bay, live
   traffic); hill climb `karasu` (Karasu Peak: uphill, 4.1 km and 336 m up, narrow, `climb: true`, only in a Hill climb lobby).
   Track `Feature`s: gravel, canyon, bridge, tunnel, crest, `cut` (a gravel shortcut through gaps in the barrier) and
   `bumps` (heaved tarmac between two control points; the grade test skips them, like crests).
@@ -274,6 +277,14 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   it is merged into one mesh per 1.6 km chunk per material (windows glow through a `glow` vertex attribute at night), so
   it's a handful of draw calls. `/dev/scenery.html` (`window.scn`) shows any track from any spot, with draw calls and a
   triangle budget (`scn.budget()`, `scn.props()`).
+- **Circuit dressing** (every `laps` track): red-and-white kerbs over the shoulder on the bends (`kerbs()` in
+  trackview.ts, drawn only; the physics' road is the plane under them), asphalt with edge lines and no centre line
+  (`asphalt(..., circuit)`), the pits and a race control tower on the inside of the lap by the line where the straight
+  is long and flat enough (scenery.ts `pitBuilding`, `controlTower`), grandstands then fill the other side, and a big
+  wheel by the water on the seaside and street circuits (`bigWheel`). A city circuit's towers keep off scenery sites
+  and off the low ground by the sea (its waterfront stays open). `TRACK_LOOKS` in trackview.ts overrides a theme's
+  LOOKS for one track (Minato's floodlit fill, Kazeoka's dune colours and thin pines, Akane's low gold sun); keep fog
+  as the theme's (the backdrop's haze is painted in it).
 - **Graphics High / Low** (the Settings tab, settingsui.ts; the choice is site-wide, `src/client/graphics.ts`, saved per
   device as `atrous.graphics`, read when a race or showroom is built). Low is for laptops: pixel ratio 1, no MSAA, no
   shadow map, no `Post` chain (it renders straight to the screen), every MeshStandard/Physical swapped for a Lambert (Phong
@@ -288,7 +299,7 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 - Rerace (Race again): solo results restart the race in place (`restart()`); online, the host's results have Rerace, which sends `start` straight from the `results` phase (the room allows it there as well as in the lobby). Racers still on their results get `load` in racegame.ts and hand over to the next race (`onNext` → `drive(roomRace(m), true)`, no extra history entry); `roomRace()` (racenet.ts) is the one place a `load` becomes drive options, for the lobby too. Without it, results go back to the lobby after `RACE.resultsSeconds`.
 - **Drift and item bonus:** racegame.ts runs your `DriftMeter` each tick (the HUD shows the live combo over the spark readout and the banked total in the top bar) and counts your item uses (a gold `+$` pops by the item slot). Online it sends `drift` (the total) as each combo banks and before `finish`, and `used` for turbos and shields; the room counts relayed attack items itself, caps drift by its own clock, and puts `drift` + `bonus` on each `ResultRow` (`prize` includes the bonus). Solo sends `drift` + `uses` with the `solo` action. Time trials pay drift but not items. Limits are in docs/SECURITY.md.
 - A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts. A time-trial pass gets `clean: true` (no props; the `clean passes` test also holds it under 7%).
-- Circuits (`laps` on the TrackDef: Monza, Spa, Monaco) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
+- Circuits (`laps` on the TrackDef: Monza, Spa, Monaco, Minato, Akane, Kazeoka, Kodama, Hachi) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
 - **Figure 8** (`overpass: <rise m>` on a circuit's TrackDef, Hachi-no-ji): `crossing()` in track.ts finds where the lap
   crosses itself, raises the first pass over it (a raised cosine over `OVERPASS.ramp`, so the grade stays under ~10%) and
   dips the second, and flags samples in `t.cross`: `deck` (the bridge), `up` (the upper road near it) and `low` (the lower
