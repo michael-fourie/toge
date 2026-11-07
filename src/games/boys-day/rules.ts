@@ -25,8 +25,14 @@ export const newSeed = () => Math.floor(Math.random() * SEED_MAX);
 export const BUS = {
   length: 11,
   width: 2.7,
-  /** The roof deck the gunners stand on. */
-  roof: 3.3,
+  /** Inside: the floor's height, the windows' band (bottom and top), the roof. Everyone rides inside. */
+  floor: 0.9,
+  sill: 1.75,
+  lintel: 2.6,
+  top: 2.9,
+  /** Eye height above the floor: standing at a window, and sitting at the wheel. */
+  eye: 1.2,
+  driverEye: 1.05,
   /** Wheelbase for the steering (m). */
   wheelbase: 6.2,
   maxSpeed: 24,
@@ -164,17 +170,22 @@ export function onBus(b: Pick<Bus, 'x' | 'z' | 'h'>, x: number, z: number, pad =
   return Math.abs(p.side) < BUS.width / 2 + pad && Math.abs(p.along) < BUS.length / 2 + pad;
 }
 
-/** The roof spots, bus-local (side, along): seat 0 is the driver's, the rest stand on the roof deck. */
-export const SEATS: readonly { side: number; along: number }[] = [
-  { side: -0.7, along: 4.4 },
-  { side: -0.75, along: 2.6 },
-  { side: 0.75, along: 2.6 },
-  { side: -0.75, along: 0.6 },
-  { side: 0.75, along: 0.6 },
-  { side: -0.75, along: -1.4 },
-  { side: 0.75, along: -1.4 },
-  { side: 0, along: -3.4 },
+/**
+ * The seats, bus-local (side, along) and which way each looks (`face`, yaw relative to the bus: 0 ahead, +π/2 out of
+ * the left windows, −π/2 the right, π the back). Seat 0 is the driver at the windscreen; the rest stand at a window.
+ */
+export const SEATS: readonly { side: number; along: number; face: number }[] = [
+  { side: -0.65, along: 4.25, face: 0 },
+  { side: -0.85, along: 2.6, face: Math.PI / 2 },
+  { side: 0.85, along: 2.6, face: -Math.PI / 2 },
+  { side: -0.85, along: 0.5, face: Math.PI / 2 },
+  { side: 0.85, along: 0.5, face: -Math.PI / 2 },
+  { side: -0.85, along: -1.6, face: Math.PI / 2 },
+  { side: 0.85, along: -1.6, face: -Math.PI / 2 },
+  { side: 0, along: -4.7, face: Math.PI },
 ];
+/** How far you can turn from your seat's direction (rad): the driver looks round the cab, the rest out their window. */
+export const LOOK = { driver: 1.7, window: 1.5 } as const;
 
 // ---------------------------------------------------------------------------------------------
 // The run: the stops in order, what each needs
@@ -184,7 +195,7 @@ export const STOP_ORDER: readonly StopKind[] = ['arena', 'golf', 'casino', 'jail
 
 export const STOP_INFO: Record<StopKind, { name: string; sign: string; goal: string }> = {
   arena: { name: 'the paintball arena', sign: 'SPLAT ZONE PAINTBALL', goal: 'Wake up. Grab the markers.' },
-  golf: { name: 'the driving range', sign: 'TEE TIME DRIVING RANGE', goal: 'Land 3 balls on the green to win the golf club.' },
+  golf: { name: 'the driving range', sign: 'TEE TIME DRIVING RANGE', goal: 'Tee off 4 zombies on the range to win the golf club.' },
   casino: { name: 'the casino', sign: 'LUCKY LIMESTONE CASINO', goal: 'Win Gordie’s bail money on the slots.' },
   jail: { name: 'the jail', sign: 'KINGSTON HOLDING CELLS', goal: 'Pay the bail, then hold them off while Gordie’s released.' },
   home: { name: 'the house', sign: 'THE BOYS’ HOUSE', goal: 'Get home. Bong tokes with the boys.' },
@@ -194,7 +205,7 @@ export const RUN = {
   /** Stop when the bus is this close to a stop's marker, going slower than `parkSpeed`. */
   parkRadius: 16,
   parkSpeed: 4,
-  golfGreens: 3,
+  golfTees: 4,
   bail: 600,
   /** Money you wake up with (whatever's left in your pockets). */
   startMoney: 40,
@@ -217,7 +228,7 @@ export interface RunState {
   phase: Phase;
   busHp: number;
   money: number;
-  greens: number;
+  teed: number;
   /** Seconds of the jail hold done. */
   hold: number;
   bailPaid: boolean;
@@ -236,7 +247,7 @@ export function newRun(seed: number): RunState {
     phase: 'drive',
     busHp: BUS.hp,
     money: RUN.startMoney,
-    greens: 0,
+    teed: 0,
     hold: 0,
     bailPaid: false,
     club: false,
@@ -252,7 +263,7 @@ export const stopOf = (r: RunState): StopKind => STOP_ORDER[Math.min(r.stage, ST
 /** Is this stop's job done? (Then the bus can go on to the next one.) */
 export function stopDone(r: RunState): boolean {
   const k = stopOf(r);
-  if (k === 'golf') return r.greens >= RUN.golfGreens;
+  if (k === 'golf') return r.teed >= RUN.golfTees;
   if (k === 'casino') return r.money >= RUN.bail;
   if (k === 'jail') return r.hold >= RUN.jailHold;
   return k === 'home';
@@ -275,7 +286,7 @@ export function finishStop(r: RunState): string {
   if (k === 'jail') {
     r.gordie = true;
     r.stage++;
-    return 'GORDIE IS FREE! He’s on the roof. Home time.';
+    return 'GORDIE IS FREE! He’s on the bus. Home time.';
   }
   r.phase = 'won';
   return 'HOME! Bong tokes with the boys.';
@@ -287,7 +298,7 @@ export function objective(r: RunState): string {
   if (r.phase === 'won') return 'Home. Pack the bong.';
   if (r.phase === 'lost') return 'The bus is done.';
   if (r.phase === 'drive') return `Drive to ${STOP_INFO[k].name}`;
-  if (k === 'golf') return `Hit balls onto the green: ${r.greens}/${RUN.golfGreens} (E at the range)`;
+  if (k === 'golf') return `Tee off zombies on the range: ${r.teed}/${RUN.golfTees} (E at the range)`;
   if (k === 'casino') return `Win bail on the slots: $${r.money}/$${RUN.bail} (E at the casino)`;
   if (k === 'jail') return r.bailPaid ? `Hold them off: Gordie’s out in ${Math.ceil(RUN.jailHold - r.hold)} s` : 'Paying bail…';
   return STOP_INFO[k].goal;
@@ -307,8 +318,8 @@ export const HORDE = {
   /** How many are about, by stage, while driving and while stopped (for a full bus: see `crewScale`). */
   drive: (stage: number) => 22 + stage * 6,
   stop: (stage: number) => 30 + stage * 8,
-  /** Fewer of them for a smaller crew: a solo run gets 45%, four or more get the lot. */
-  crewScale: (crew: number) => Math.min(1, 0.3 + 0.175 * Math.max(1, crew)),
+  /** The horde grows with the crew: solo gets half, four get the lot, a full bus of eight about half again. */
+  crewScale: (crew: number) => 0.35 + 0.15 * Math.max(1, Math.min(8, crew)),
   /** Spawn ring round the bus (m), weighted ahead of it. */
   near: 45,
   far: 85,
@@ -318,7 +329,7 @@ export const HORDE = {
   yeetSpeed: 5,
   /** Hanging on the bus, they hurt it (hp/s, by kind) until shot off. */
   climbReach: 0.9,
-  /** Spawn cadence (zombies per second at most). */
+  /** Spawn cadence (zombies per second at most, for a crew of four; it scales with the crew too). */
   rate: 6,
 } as const;
 
@@ -342,19 +353,33 @@ export const CLUB = {
   damage: 99,
 } as const;
 
-/** Gordie on the roof: a shot every `every` s at the nearest zombie in range, hitting `hit` of the time. */
+/** Gordie on the bus: a shot every `every` s at the nearest zombie in range, hitting `hit` of the time. */
 export const GORDIE = { every: 0.7, range: 35, hit: 0.55 } as const;
 
 // ---------------------------------------------------------------------------------------------
 // Minigames
 
-/** Golf: the meter's swing (s per back-and-forth), and how close counts as on the green. */
+/** Golf: Zombie Tee-Off at the driving range. */
+/**
+ * Zombie Tee-Off: zombies shamble up the floodlit range toward your tee. Aim across (−1..1), hold to wind up the
+ * power (how far down the range, 0..1; it swings back if you hold too long), let go to swing. A ball that lands on
+ * a zombie tees it off. Let one reach the tee and it grabs you for a moment.
+ */
 export const GOLF = {
-  aimPeriod: 1.3,
-  powerPeriod: 1.0,
-  /** The green's half-width in aim (−1..1), and its depth in power (0..1) around the target power. */
-  aimTol: 0.16,
-  powerTol: 0.08,
+  /** The power meter's swing: up and back down over this long (s). */
+  powerPeriod: 1.4,
+  /** How close the ball has to land to a zombie: across, and down the range. */
+  hitX: 0.11,
+  hitD: 0.075,
+  /** How fast they shamble toward you (range per second), and how many are out there at once. */
+  speedMin: 0.05,
+  speedMax: 0.11,
+  crowd: 4,
+  /** A zombie this close to the tee grabs you (you can't swing for `grabbed` s). */
+  reach: 0.04,
+  grabbed: 2,
+  /** The ball's flight (s). */
+  flight: 0.9,
 } as const;
 
 /** A sweep from 0 to 1 and back over `period` seconds. */
@@ -363,12 +388,16 @@ export const sweep = (t: number, period: number) => {
   return k < 0.5 ? k * 2 : 2 - k * 2;
 };
 
-/** Golf: does a shot (aim −1..1, power 0..1) land on a green at `target` power? */
-export const onGreen = (aim: number, power: number, target: number) =>
-  Math.abs(aim) <= GOLF.aimTol && Math.abs(power - target) <= GOLF.powerTol;
+/** Golf: does a ball landing at (aim, power) tee off a zombie standing at (x, d)? */
+export const teesOff = (aim: number, power: number, z: { x: number; d: number }) =>
+  Math.abs(aim - z.x) <= GOLF.hitX && Math.abs(power - z.d) <= GOLF.hitD;
 
 /** Slots: the reel symbols, and what a line pays. */
-export const SLOTS = ['🧟', '🍺', '🎱', '🍁', '💰', '7'] as const;
+export const SLOTS = ['🧟', '🍺', '💀', '🎃', '💰', '7'] as const;
+/** Each reel spins at its own speed (symbols per second); you stop them one at a time. */
+export const REEL_SPEED = [7, 9, 11.5] as const;
+/** Which symbol a reel shows `t` seconds after it started at `start`. */
+export const reelAt = (t: number, reel: number, start = 0) => Math.floor(start + t * REEL_SPEED[reel]) % SLOTS.length;
 export const SLOT_PAY = { triple7: 400, tripleCash: 250, triple: 120, pair: 50 } as const;
 
 export function slotPay(reels: readonly number[]): number {

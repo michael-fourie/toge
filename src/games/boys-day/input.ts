@@ -1,8 +1,9 @@
 // Keyboard + mouse (pointer lock) and controller, boiled down to one Frame per tick. The same keys mean different
-// things in the driver's seat and on the roof; the session reads what it needs.
+// things in the driver's seat and at a window; the session reads what it needs.
 //
 // Driver:  W/S or RT/LT gas and brake (hold to reverse), A/D or left stick steer, Space or Ⓧ handbrake, H or LB horn.
-// Roof:    mouse or right stick aim, click or RT fire, R or Ⓧ reload, V / right-click or RB swing the club.
+// Window:  mouse or right stick aim, click or RT fire, R or Ⓧ reload, V / right-click or RB swing the club.
+// Driver:  mouse or right stick look round, C or View the chase camera.
 // Anyone:  F or Ⓨ swap seats, E or Ⓐ use (the stop's minigame), Esc or Start pause.
 
 import type { GameApi } from '../types.ts';
@@ -22,8 +23,12 @@ export interface Frame {
   seat: boolean;
   honk: boolean;
   pause: boolean;
+  /** The driver's camera: in the cab or chasing the bus. */
+  view: boolean;
   /** Minigames: the big button (Space, click, Ⓐ), and close (Ⓑ; Esc is handled by the session). */
   confirm: boolean;
+  /** Minigames: the big button held (wind up a golf swing). */
+  charge: boolean;
   back: boolean;
   /** Minigames' sideways nudge (A/D, arrows, left stick or d-pad). */
   nudge: number;
@@ -123,7 +128,9 @@ export class Input {
       seat: this.any(['KeyF'], this.pressed) || !!pp[3],
       honk: this.any(['KeyH']) || !!pd[4],
       pause: !!pp[9],
+      view: this.any(['KeyC'], this.pressed) || !!pp[8],
       confirm: this.any(['Space', 'Enter'], this.pressed) || this.click || !!pp[0],
+      charge: this.any(['Space', 'Enter']) || this.mouse || !!pd[0],
       back: !!pp[1],
       nudge,
     };

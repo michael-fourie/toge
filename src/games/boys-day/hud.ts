@@ -63,6 +63,14 @@ export class Hud {
     this.lockHint = div('bd-lockhint', this.el, 'Click to aim');
   }
 
+  /** The health bar flashes green (a repair kit). */
+  flashHp() {
+    const bar = this.hp.parentElement!;
+    bar.classList.remove('heal');
+    void bar.offsetWidth;
+    bar.classList.add('heal');
+  }
+
   say(text: string) {
     this.banner.textContent = text;
     this.banner.classList.remove('show');
@@ -89,8 +97,9 @@ export class Hud {
       toStop: number;
       /** Arrow angle on screen (radians, 0 = straight up). */
       arrow: number;
-      roof: boolean;
+      gunner: boolean;
       driver: boolean;
+      chase: boolean;
       ammo: number;
       reloading: boolean;
       club: number;
@@ -111,15 +120,15 @@ export class Hud {
     this.dist.textContent = run.phase === 'drive' ? `${Math.round(o.toStop)} m` : '';
     this.arrow.style.visibility = run.phase === 'drive' ? 'visible' : 'hidden';
     this.arrow.style.transform = `rotate(${o.arrow - Math.PI / 2}rad)`;
-    this.cross.style.display = o.roof && !o.busy ? 'block' : 'none';
-    this.ammo.style.display = o.roof ? 'block' : 'none';
+    this.cross.style.display = o.gunner && !o.busy ? 'block' : 'none';
+    this.ammo.style.display = o.gunner ? 'block' : 'none';
     this.ammo.textContent = o.reloading ? 'RELOADING…' : `🎨 ${o.ammo}/${GUN.hopper}${run.club ? (o.club > 0 ? '  🏌 …' : '  🏌 READY') : ''}`;
     this.speed.style.display = o.driver ? 'block' : 'none';
     this.speed.textContent = `${Math.round(Math.abs(o.bus.v) * 3.6)} km/h`;
     this.hints.textContent = o.driver
-      ? 'W/S or RT/LT drive · A/D steer · Space/Ⓧ handbrake · H/LB horn · F/Ⓨ go up top'
-      : `Click/RT shoot · R/Ⓧ reload${run.club ? ' · V/RB swing the club' : ''} · F/Ⓨ drive · E/Ⓐ at a stop: go in`;
-    this.lockHint.style.display = o.roof && !o.locked && !o.busy ? 'block' : 'none';
+      ? `W/S or RT/LT drive · A/D steer · Space/Ⓧ handbrake · H/LB horn · C/View ${o.chase ? 'cab view' : 'chase cam'} · F/Ⓨ to a window`
+      : `Click/RT shoot · R/Ⓧ reload${run.club ? ' · V/RB swing the club' : ''} · F/Ⓨ take the wheel · E/Ⓐ at a stop: go in`;
+    this.lockHint.style.display = o.gunner && !o.locked && !o.busy ? 'block' : 'none';
     this.crew.replaceChildren(
       ...o.crew.map((c) => {
         const d = document.createElement('div');

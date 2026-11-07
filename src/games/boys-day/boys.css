@@ -24,7 +24,7 @@
   align-items: center;
   gap: 18px;
   padding: 16px;
-  background: linear-gradient(#3b5fa8, #c97bb0 55%, #ffb36b);
+  background: linear-gradient(#07061a, #2a1a4a 55%, #4b2f5e);
   overflow-y: auto;
 }
 /* Centred when it fits, scrolls from the top when it doesn't (justify-content: center would clip the top). */
@@ -479,4 +479,22 @@
   .boys-day .bd-hints {
     display: none;
   }
+}
+.boys-day .bd-bar.heal {
+  animation: bd-heal 0.9s ease-out;
+}
+@keyframes bd-heal {
+  0% {
+    box-shadow: 0 0 0 0 rgba(94, 224, 106, 0.9);
+    border-color: #5ee06a;
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(94, 224, 106, 0);
+  }
+}
+
+/* The minigames sit over the banner: solid, so it doesn't show through. */
+.boys-day .bd-mini {
+  background: #1b1530;
+  z-index: 2;
 }

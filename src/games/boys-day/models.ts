@@ -51,61 +51,120 @@ const box = (w: number, h: number, d: number, mat: THREE.Material, x = 0, y = 0,
 };
 
 // ---------------------------------------------------------------------------------------------
-// The bus: a battered city bus with a roof deck. Its origin is on the ground under its middle; it faces -Z.
+// The bus: a battered city bus you ride inside. Walls are thin boxes round open windows, so it reads from inside and
+// out: the driver sees through the windscreen, everyone else leans out of a side (or the back) window. Its origin is
+// on the ground under its middle; it faces -Z. The steering wheel is named 'steer' (it turns with the wheels).
 
 export function makeBus(): THREE.Group {
   const g = new THREE.Group();
   const paint = toon('#f2a516');
   const trim = toon('#2a2d3a');
-  const glass = toon('#7fc8e8', { emissive: '#163444' });
   const rust = toon('#9b4a1c');
   const white = toon('#f4efe6');
+  const inside = toon('#c9cbd6');
   const L = BUS.length;
   const W = BUS.width;
-  // Body, with a black skirt and a white stripe.
-  g.add(box(W, 2.2, L, paint, 0, 1.75, 0));
-  g.add(box(W + 0.04, 0.5, L + 0.04, trim, 0, 0.75, 0));
-  g.add(box(W + 0.06, 0.18, L + 0.06, white, 0, 1.55, 0));
-  // Windows down both sides and the windscreen.
-  for (const side of [-1, 1])
-    for (let k = 0; k < 5; k++) g.add(box(0.06, 0.8, 1.6, glass, (side * W) / 2, 2.25, -L / 2 + 2.6 + k * 1.85));
-  g.add(box(W - 0.3, 1.0, 0.06, glass, 0, 2.2, -L / 2 - 0.02));
-  g.add(box(W - 0.6, 0.7, 0.06, glass, 0, 2.3, L / 2 + 0.02));
-  // The destination sign.
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.5, 0.42), new THREE.MeshBasicMaterial({ map: signTexture('BOYS DAY ★ NOT IN SERVICE', '#111', '#ffb000', 512, 80) }));
-  sign.position.set(0, 2.68, -L / 2 - 0.04);
+  const { floor, sill, lintel, top } = BUS;
+  const wall = 0.08;
+  const half = W / 2 - wall / 2;
+  // Floor and roof.
+  g.add(box(W, 0.14, L, toon('#3a3a44'), 0, floor - 0.07, 0));
+  g.add(box(W, 0.14, L, paint, 0, top + 0.07, 0));
+  g.add(box(W - 0.2, 0.02, L - 0.4, inside, 0, top - 0.01, 0)); // the ceiling
+  // Below the windows: the body, the black skirt and the white stripe outside, panelling inside.
+  g.add(box(W, floor - 0.35, L, trim, 0, 0.35 + (floor - 0.35) / 2, 0));
+  for (const s of [-1, 1]) {
+    g.add(box(wall, sill - floor, L, paint, s * half, (floor + sill) / 2, 0));
+    g.add(box(0.02, 0.16, L + 0.02, white, s * (W / 2 + 0.01), sill - 0.25, 0));
+    g.add(box(wall, top - lintel, L, paint, s * half, (lintel + top) / 2, 0)); // above the windows
+  }
+  // Window pillars down both sides (the gaps between are open: no glass left).
+  const panes = 6;
+  for (let k = 0; k <= panes; k++) {
+    const z = -L / 2 + 0.2 + (k * (L - 0.4)) / panes;
+    for (const s of [-1, 1]) g.add(box(wall + 0.02, lintel - sill, 0.16, paint, s * half, (sill + lintel) / 2, z));
+  }
+  // The front: a low dash wall, the windscreen (the only glass left), corner pillars and the destination sign.
+  const front = -L / 2 + wall / 2;
+  g.add(box(W, 1.5 - floor, wall, paint, 0, (floor + 1.5) / 2, front));
+  g.add(box(W, top - lintel, wall, paint, 0, (lintel + top) / 2, front));
+  for (const s of [-1, 1]) g.add(box(0.14, lintel - 1.5, wall, paint, s * (W / 2 - 0.07), (1.5 + lintel) / 2, front));
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.28, lintel - 1.5), new THREE.MeshBasicMaterial({ color: '#9fd8ff', transparent: true, opacity: 0.1, depthWrite: false, side: THREE.DoubleSide }));
+  glass.position.set(0, (1.5 + lintel) / 2, front - 0.01);
+  g.add(glass);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.5, top - lintel - 0.04), new THREE.MeshBasicMaterial({ map: signTexture('BOYS DAY ★ NOT IN SERVICE', '#111', '#ffb000', 512, 64) }));
+  sign.position.set(0, (lintel + top) / 2, front - wall / 2 - 0.01);
   sign.rotation.y = Math.PI;
   g.add(sign);
-  // Lights and a cow-catcher of plywood (the apocalypse upgrade).
-  const lamp = toon('#fff6c0', { emissive: '#fff2a0', emissiveIntensity: 0.8 });
+  // The back: a wall below the rear window, pillars, a band above.
+  const back = L / 2 - wall / 2;
+  g.add(box(W, sill - floor, wall, paint, 0, (floor + sill) / 2, back));
+  g.add(box(W, top - lintel, wall, paint, 0, (lintel + top) / 2, back));
+  for (const s of [-1, 1]) g.add(box(0.4, lintel - sill, wall, paint, s * (W / 2 - 0.2), (sill + lintel) / 2, back));
+  // The cab: dashboard, gauges and the wheel.
+  const cab = SEATS[0];
+  const dash = box(W - 0.2, 0.32, 0.6, toon('#2c2f3a'), 0, 1.36, -L / 2 + 0.4);
+  g.add(dash);
+  const wheel = new THREE.Group();
+  wheel.name = 'steer';
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.025, 8, 20), toon('#1b1b1f'));
+  const spoke = box(0.34, 0.035, 0.025, toon('#1b1b1f'));
+  wheel.add(rim, spoke);
+  wheel.position.set(cab.side, floor + 0.6, -cab.along - 0.75);
+  wheel.rotation.x = -0.9;
+  g.add(wheel);
+  const driverSeat = toon('#3a4c8a');
+  g.add(box(0.55, 0.12, 0.5, driverSeat, cab.side, floor + 0.42, -cab.along + 0.1));
+  g.add(box(0.55, 0.65, 0.1, driverSeat, cab.side, floor + 0.75, -cab.along + 0.38));
+  // The cabin: bench seats along both sides (between the window spots, so nobody's view is a bench back), grab
+  // poles, a ceiling light strip.
+  const bench = toon('#3a5aa8');
+  for (const along of [1.55, -0.55, -2.75])
+    for (const s of [-1, 1]) {
+      const z = -along;
+      g.add(box(0.75, 0.14, 0.9, bench, s * (W / 2 - 0.5), floor + 0.42, z));
+      g.add(box(0.12, 0.5, 0.9, bench, s * (W / 2 - 0.16), floor + 0.7, z));
+    }
+  const pole = toon('#ffd23f');
+  for (const z of [-3.5, -1.0, 1.5, 3.4]) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, top - floor, 6), pole);
+    p.position.set(0.25, (floor + top) / 2, z);
+    g.add(p);
+  }
+  g.add(box(0.12, 0.03, L - 1.5, new THREE.MeshBasicMaterial({ color: '#a8c0d0' }), 0, top - 0.03, 0));
+  // Headlights (real ones: it's night out there) and a cow-catcher of plywood (the apocalypse upgrade). Added once
+  // with the bus, never mid-run: adding a light recompiles every lit shader.
+  const lamp = new THREE.MeshBasicMaterial({ color: '#fff8d0' });
   for (const s of [-1, 1]) g.add(box(0.4, 0.25, 0.06, lamp, s * 0.85, 1.05, -L / 2 - 0.04));
+  const beam = new THREE.SpotLight('#fff1c8', 160, 70, 0.5, 0.6, 1.2);
+  beam.position.set(0, 1.4, -L / 2);
+  beam.target.position.set(0, 0, -L / 2 - 25);
+  g.add(beam, beam.target);
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: '#fff1c8', transparent: true, opacity: 0.07, depthWrite: false }));
+  glow.rotation.x = -Math.PI / 2;
+  glow.scale.set(3.2, 9, 1);
+  glow.position.set(0, 0.07, -L / 2 - 9);
+  g.add(glow);
+  // The cabin light, so you can see your friends.
+  const cabin = new THREE.PointLight('#ffe2b0', 2.5, 8, 2);
+  cabin.position.set(0, top - 0.4, 0);
+  g.add(cabin);
   const ram = box(W + 0.3, 0.7, 0.25, toon('#b98a52'), 0, 0.6, -L / 2 - 0.35);
   ram.rotation.x = -0.35;
   g.add(ram);
   // Rust patches, for character.
-  for (const [x, y, z] of [[W / 2 + 0.01, 1.2, 1.8], [-W / 2 - 0.01, 1.4, -2.6], [W / 2 + 0.01, 1.9, -4.1]]) g.add(box(0.03, 0.4, 0.7, rust, x, y, z));
+  for (const [x, y, z] of [[W / 2 + 0.01, 1.2, 1.8], [-W / 2 - 0.01, 1.4, -2.6], [W / 2 + 0.01, 1.3, -4.1]]) g.add(box(0.03, 0.4, 0.7, rust, x, y, z));
   // Wheels.
-  const wheel = new THREE.CylinderGeometry(0.55, 0.55, 0.4, 14);
-  wheel.rotateZ(Math.PI / 2);
+  const wheelGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.4, 14);
+  wheelGeo.rotateZ(Math.PI / 2);
   const tyre = toon('#1b1b1f');
   for (const z of [-L / 2 + 2, L / 2 - 2.2])
     for (const s of [-1, 1]) {
-      const w = new THREE.Mesh(wheel, tyre);
+      const w = new THREE.Mesh(wheelGeo, tyre);
       w.position.set(s * (W / 2 - 0.05), 0.55, z);
       w.name = 'wheel';
       g.add(w);
     }
-  // The roof deck: planks and a railing round it for the boys to hold.
-  g.add(box(W - 0.1, 0.12, L - 0.4, toon('#8a6a45'), 0, BUS.roof - 0.42, 0));
-  const rail = toon('#c9ccd6');
-  for (const s of [-1, 1]) g.add(box(0.06, 0.06, L - 0.6, rail, (s * (W - 0.2)) / 2, BUS.roof + 0.45, 0));
-  g.add(box(W - 0.2, 0.06, 0.06, rail, 0, BUS.roof + 0.45, L / 2 - 0.3));
-  for (let z = -L / 2 + 0.4; z <= L / 2 - 0.3; z += 1.7)
-    for (const s of [-1, 1]) g.add(box(0.06, 0.85, 0.06, rail, (s * (W - 0.2)) / 2, BUS.roof + 0.05, z));
-  // A couch strapped on the back of the roof, because of course.
-  const couch = toon('#3a4c8a');
-  g.add(box(1.9, 0.35, 0.8, couch, 0, BUS.roof - 0.2, L / 2 - 0.9));
-  g.add(box(1.9, 0.5, 0.2, couch, 0, BUS.roof + 0.1, L / 2 - 0.4));
   return g;
 }
 
@@ -117,10 +176,9 @@ export interface Bean {
   /** Turns with the aim (yaw); the gun tilts with pitch. */
   aim: THREE.Group;
   gun: THREE.Group;
-  label: THREE.Sprite | null;
 }
 
-export function makeBean(color: string, name: string | null, driver = false): Bean {
+export function makeBean(color: string, driver = false): Bean {
   const root = new THREE.Group();
   const aim = new THREE.Group();
   root.add(aim);
@@ -147,15 +205,7 @@ export function makeBean(color: string, name: string | null, driver = false): Be
   gun.position.set(0.28, 0.85, -0.3);
   gun.scale.setScalar(0.8);
   if (!driver) aim.add(gun);
-  let label: THREE.Sprite | null = null;
-  if (name) {
-    label = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture(name, 'rgba(0,0,0,0.55)', '#ffffff', 256, 64, 'bold 40px system-ui, sans-serif'), depthTest: false }));
-    label.scale.set(1.4, 0.35, 1);
-    label.position.y = 2.1;
-    label.renderOrder = 10;
-    root.add(label);
-  }
-  return { root, aim, gun, label };
+  return { root, aim, gun };
 }
 
 /** A paintball marker: body, barrel, a hopper on top. Points down -Z. */
@@ -191,13 +241,6 @@ export function makeClub(): THREE.Group {
   return g;
 }
 
-/** Where a seat is in the world: the bus pose plus the seat's spot (the driver sits inside). */
-export function seatPos(busRoot: THREE.Object3D, seat: number, out = new THREE.Vector3()) {
-  const s = SEATS[seat] ?? SEATS[1];
-  out.set(s.side, seat === 0 ? 1.0 : BUS.roof - 0.36, -s.along);
-  return busRoot.localToWorld(out);
-}
-
 // ---------------------------------------------------------------------------------------------
 // The horde: one InstancedMesh per body part.
 
@@ -206,7 +249,7 @@ const SHIRTS = ['#6d5f8a', '#8a5f5f', '#5f7a8a', '#8a805f', '#4f6a4f', '#a0663a'
 
 export class Horde {
   readonly group = new THREE.Group();
-  private parts: Record<'body' | 'head' | 'armL' | 'armR' | 'legL' | 'legR' | 'eyes', THREE.InstancedMesh>;
+  private parts: Record<'body' | 'head' | 'armL' | 'armR' | 'legL' | 'legR' | 'eyes' | 'xx', THREE.InstancedMesh>;
   private dummy = new THREE.Object3D();
   private m = new THREE.Matrix4();
   private c = new THREE.Color();
@@ -228,8 +271,9 @@ export class Horde {
     const head = new THREE.SphereGeometry(0.3, 10, 8);
     const limb = new THREE.BoxGeometry(0.14, 0.6, 0.14);
     limb.translate(0, -0.27, 0); // pivot at the shoulder / hip
-    // X_X eyes: two little crosses, as one flat strip in front of the face.
+    // Eyes, as one flat strip in front of the face: glowing while they're up, X_X once they're down.
     const eyes = new THREE.PlaneGeometry(0.34, 0.12);
+    eyes.rotateY(Math.PI); // face out of the front (-Z)
     eyes.translate(0, 0.05, -0.29);
     this.parts = {
       body: mk(body, white),
@@ -238,7 +282,8 @@ export class Horde {
       armR: mk(limb, white),
       legL: mk(limb, toon('#3b3b48')),
       legR: mk(limb, toon('#3b3b48')),
-      eyes: mk(eyes, new THREE.MeshBasicMaterial({ map: eyesTexture(), transparent: true })),
+      eyes: mk(eyes, new THREE.MeshBasicMaterial({ map: glowEyesTexture(), transparent: true, fog: false })),
+      xx: mk(eyes.clone(), new THREE.MeshBasicMaterial({ map: eyesTexture(), transparent: true })),
     };
   }
 
@@ -290,10 +335,10 @@ export class Horde {
     const walk = z.st === 'run' ? Math.sin(phase) : 0;
     const lurch = z.st === 'run' ? 0.12 : 0;
     // Each part: offset in the zombie's own frame, and a swing about X.
-    const part = (im: THREE.InstancedMesh, x: number, y: number, zz: number, rx: number, rz = 0) => {
+    const part = (im: THREE.InstancedMesh, x: number, y: number, zz: number, rx: number, rz = 0, s = 1) => {
       d.position.set(x, y, zz);
       d.rotation.set(rx, 0, rz);
-      d.scale.setScalar(1);
+      d.scale.setScalar(s);
       d.updateMatrix();
       this.m.multiplyMatrices(this.base, d.matrix);
       im.setMatrixAt(i, this.m);
@@ -301,7 +346,9 @@ export class Horde {
     const climbing = z.st === 'climb';
     part(this.parts.body, 0, 0.95, 0, lurch);
     part(this.parts.head, 0, 1.6 + Math.sin(phase * 0.5) * 0.03, -0.08, 0, Math.sin(phase * 0.5) * 0.2);
-    part(this.parts.eyes, 0, 1.6 + Math.sin(phase * 0.5) * 0.03, -0.08, 0, Math.sin(phase * 0.5) * 0.2);
+    const down = z.st === 'dead' || z.st === 'fly';
+    part(this.parts.eyes, 0, 1.6 + Math.sin(phase * 0.5) * 0.03, -0.08, 0, Math.sin(phase * 0.5) * 0.2, down ? 0 : 1);
+    part(this.parts.xx, 0, 1.6, -0.08, 0, 0, down ? 1 : 0);
     // Arms out front (the classic), up when climbing.
     const arm = climbing ? -2.6 + Math.sin(t * 9 + z.id) * 0.3 : -1.45 + walk * 0.15;
     part(this.parts.armL, -0.36, 1.35, 0, arm);
@@ -318,7 +365,8 @@ export class Horde {
     this.parts.body.setColorAt(i, this.c);
     this.parts.legL.setColorAt(i, this.c.set('#3b3b48'));
     this.parts.legR.setColorAt(i, this.c);
-    this.parts.eyes.setColorAt(i, this.c.set('#ffffff'));
+    this.parts.eyes.setColorAt(i, this.c.set(z.k === 1 ? '#ff5050' : z.k === 2 ? '#ffb030' : '#c8ff5a'));
+    this.parts.xx.setColorAt(i, this.c.set('#ffffff'));
   }
 
   /** Where zombie `id` is drawn right now (for hits, which use what you see). */
@@ -333,6 +381,27 @@ export class Horde {
       im.dispose();
     }
   }
+}
+
+/** Two glowing slits (tinted per kind: green shamblers, red sprinters, amber chonks). */
+function glowEyesTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 48;
+  const g = c.getContext('2d')!;
+  for (const cx of [34, 94]) {
+    const r = g.createRadialGradient(cx, 24, 2, cx, 24, 22);
+    r.addColorStop(0, 'rgba(255,255,255,1)');
+    r.addColorStop(0.35, 'rgba(255,255,255,0.9)');
+    r.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = r;
+    g.beginPath();
+    g.ellipse(cx, 24, 22, 14, 0, 0, 7);
+    g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 function eyesTexture() {

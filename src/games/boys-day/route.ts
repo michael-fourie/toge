@@ -31,7 +31,7 @@ export interface Stop {
   d: number;
 }
 
-export type PropKind = 'tree' | 'pine' | 'house' | 'wreck' | 'barrel' | 'lamp' | 'hay' | 'fence';
+export type PropKind = 'tree' | 'pine' | 'dead' | 'house' | 'wreck' | 'barrel' | 'lamp' | 'hay' | 'fence' | 'grave' | 'pumpkin';
 export interface Prop {
   kind: PropKind;
   x: number;
@@ -179,13 +179,28 @@ export function makeRoute(seed: number): Route {
           const q = at(side, ROAD.half + 1.4);
           if (place('lamp', q.x, q.z, p.h, i, ROAD.half + 1)) obstacles.push({ x: q.x, z: q.z, r: 0.25 });
         }
+        // Jack-o'-lanterns on the verges: it's homecoming, it's nearly Halloween, the world has ended.
+        if (r() < 0.12) {
+          const q = at(side, ROAD.half + 2 + r() * 4, (r() - 0.5) * 6);
+          place('pumpkin', q.x, q.z, r() * 6.28, i, ROAD.half + 1.5);
+        }
       } else {
-        // Country: woods in clumps, the odd hay bale and fence run.
+        // Country: woods in clumps (plenty of them dead and bare), the odd hay bale, fence run and graveyard.
         const n = r() < 0.35 ? 3 : r() < 0.6 ? 1 : 0;
         for (let k = 0; k < n; k++) {
           const q = at(side, ROAD.clear + 2 + r() * 40, (r() - 0.5) * 10);
-          const kind: PropKind = r() < 0.45 ? 'pine' : 'tree';
+          const roll = r();
+          const kind: PropKind = roll < 0.35 ? 'pine' : roll < 0.7 ? 'dead' : 'tree';
           if (place(kind, q.x, q.z, r() * 6.28, i, ROAD.clear)) obstacles.push({ x: q.x, z: q.z, r: 0.55 });
+        }
+        if (r() < 0.025) {
+          // A little graveyard: rows of headstones set back from the road.
+          const base = ROAD.clear + 4 + r() * 10;
+          for (let row = 0; row < 3; row++)
+            for (let col = 0; col < 4; col++) {
+              const q = at(side, base + row * 2.6, (col - 1.5) * 2.2);
+              if (place('grave', q.x, q.z, p.h + (r() - 0.5) * 0.3, i, ROAD.clear)) obstacles.push({ x: q.x, z: q.z, r: 0.45 });
+            }
         }
         if (r() < 0.05) {
           const q = at(side, ROAD.clear + 4 + r() * 20);
