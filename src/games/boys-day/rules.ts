@@ -15,6 +15,10 @@ export function rng(seed: number): () => number {
 
 export const MAX_PLAYERS = 8;
 
+/** Seeds are whole numbers in [0, SEED_MAX). The host rolls one per run; readMsg checks against the same range. */
+export const SEED_MAX = 2 ** 31;
+export const newSeed = () => Math.floor(Math.random() * SEED_MAX);
+
 // ---------------------------------------------------------------------------------------------
 // The bus
 

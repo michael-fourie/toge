@@ -5,7 +5,7 @@
 // party relay's 60 messages a second.
 
 import { Z_STATES, type FxKind } from './director.ts';
-import { MAX_PLAYERS, SLOT_MAX, type Phase, type RunState } from './rules.ts';
+import { MAX_PLAYERS, SEED_MAX, SLOT_MAX, type Phase, type RunState } from './rules.ts';
 
 export type Msg =
   | { t: 'start'; seed: number; seats: number[] }
@@ -37,13 +37,14 @@ const PHASES: Phase[] = ['drive', 'stop', 'won', 'lost'];
 
 const num = (v: unknown, max = 1e6): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max;
 const int = (v: unknown, max = 1e9): v is number => Number.isInteger(v) && Math.abs(v as number) <= max;
+const seed = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) < SEED_MAX;
 const bool = (v: unknown): v is boolean => typeof v === 'boolean';
 const str = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
 
 function readRun(r: unknown): RunState | null {
   if (!r || typeof r !== 'object') return null;
   const o = r as Record<string, unknown>;
-  if (!int(o.seed) || !int(o.stage, 10) || !PHASES.includes(o.phase as Phase)) return null;
+  if (!seed(o.seed) || !int(o.stage, 10) || !PHASES.includes(o.phase as Phase)) return null;
   if (!num(o.busHp) || !int(o.money) || !int(o.greens, 10) || !num(o.hold, 999) || !num(o.time)) return null;
   if (!bool(o.bailPaid) || !bool(o.club) || !bool(o.gordie) || !int(o.kills) || !int(o.yeets)) return null;
   return {
@@ -68,7 +69,7 @@ export function readMsg(d: unknown): Msg | null {
   const m = d as Record<string, unknown>;
   switch (m.t) {
     case 'start':
-      return int(m.seed) && Array.isArray(m.seats) && m.seats.length <= MAX_PLAYERS && m.seats.every((s) => int(s)) ? { t: 'start', seed: m.seed, seats: m.seats as number[] } : null;
+      return seed(m.seed) && Array.isArray(m.seats) && m.seats.length <= MAX_PLAYERS && m.seats.every((s) => int(s)) ? { t: 'start', seed: m.seed, seats: m.seats as number[] } : null;
     case 'seats':
       return Array.isArray(m.seats) && m.seats.length <= MAX_PLAYERS && m.seats.every((s) => int(s)) ? { t: 'seats', seats: m.seats as number[] } : null;
     case 'run': {
