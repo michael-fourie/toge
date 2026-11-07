@@ -8,10 +8,12 @@ import {
   GOLF,
   NO_DRIVE,
   RUN,
+  SEED_MAX,
   STOP_ORDER,
   collideBus,
   fwdOf,
   newRun,
+  newSeed,
   onGreen,
   slotPay,
   stepBus,
@@ -272,6 +274,22 @@ test('boys day minigames: golf greens need aim and power; slots pay what the tab
   let total = 0;
   for (let a = 0; a < 6; a++) for (let b = 0; b < 6; b++) for (let c = 0; c < 6; c++) total += slotPay([a, b, c]);
   assert.ok(total / 216 > 24, `average pull $${(total / 216).toFixed(0)}`);
+});
+
+test('boys day net: every seed the host can roll gets through to the joiners (start and run state)', () => {
+  // A seed over a billion used to fail the check, so half the time the joiners never left the lobby.
+  for (const s of [0, 1, 999_999_999, 1_000_000_001, SEED_MAX - 1]) {
+    assert.deepEqual(readMsg({ t: 'start', seed: s, seats: [1, 2] }), { t: 'start', seed: s, seats: [1, 2] }, `start, seed ${s}`);
+    const r = newRun(s);
+    assert.deepEqual(readMsg({ t: 'run', run: r, taken: [] }), { t: 'run', run: r, taken: [] }, `run, seed ${s}`);
+  }
+  for (let k = 0; k < 2000; k++) {
+    const s = newSeed();
+    assert.ok(readMsg({ t: 'start', seed: s, seats: [0] }), `rolled ${s}`);
+  }
+  assert.equal(readMsg({ t: 'start', seed: SEED_MAX, seats: [0] }), null);
+  assert.equal(readMsg({ t: 'start', seed: -1, seats: [0] }), null);
+  assert.equal(readMsg({ t: 'start', seed: 1.5, seats: [0] }), null);
 });
 
 test('boys day net: junk is dropped; seats swap only into free spots', () => {

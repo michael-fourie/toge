@@ -7,7 +7,7 @@ import type { GameApi } from '../types.ts';
 import { paintBanner } from './banner.ts';
 import { paintOf } from './models.ts';
 import { firstSeats, readMsg } from './net.ts';
-import { MAX_PLAYERS } from './rules.ts';
+import { MAX_PLAYERS, newSeed } from './rules.ts';
 import { Session } from './session.ts';
 import './boys.css';
 
@@ -179,7 +179,7 @@ class App {
 
   /** Host: a fresh map for everyone. */
   private startRun() {
-    const seed = (Math.random() * 2 ** 31) | 0;
+    const seed = newSeed();
     const p = this.party;
     if (!p) return this.begin(seed, firstSeats([0], 0));
     const crew = p.members.slice(0, MAX_PLAYERS).map((m) => m.id);
