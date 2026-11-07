@@ -2,7 +2,8 @@
 // things in the driver's seat and at a window; the session reads what it needs.
 //
 // Driver:  W/S or RT/LT gas and brake (hold to reverse), A/D or left stick steer, Space or Ⓧ handbrake, H or LB horn.
-// Window:  mouse or right stick aim, click or RT fire, R or Ⓧ reload, V / right-click or RB swing the club.
+// On foot: WASD or left stick walk round the bus, Space or Ⓑ at the hatch climb up or down,
+//          mouse or right stick aim, click or RT fire, R or Ⓧ reload, V / right-click or RB swing the club.
 // Driver:  mouse or right stick look round, C or View the chase camera.
 // Anyone:  F or Ⓨ swap seats, E or Ⓐ use (the stop's minigame), Esc or Start pause.
 
@@ -13,6 +14,11 @@ export interface Frame {
   brake: number;
   steer: number;
   handbrake: boolean;
+  /** Walking: forward and right, −1..1 (WASD or the left stick). */
+  fwd: number;
+  side: number;
+  /** Space or Ⓑ: up or down the hatch ladder. */
+  climb: boolean;
   /** Aim change this frame (radians). */
   yaw: number;
   pitch: number;
@@ -114,11 +120,16 @@ export class Input {
     let steer = key(['KeyD', 'ArrowRight']) - key(['KeyA', 'ArrowLeft']);
     if (pad && Math.abs(pad.lx) > 0) steer = pad.lx;
     const nudge = steer || (pd[15] ? 1 : 0) - (pd[14] ? 1 : 0);
+    let fwd = key(['KeyW', 'ArrowUp']) - key(['KeyS', 'ArrowDown']);
+    if (pad && Math.abs(pad.ly) > 0) fwd = -pad.ly;
     const f: Frame = {
       throttle: Math.max(key(['KeyW', 'ArrowUp']), pad?.rt ?? 0),
       brake: Math.max(key(['KeyS', 'ArrowDown']), pad?.lt ?? 0),
       steer,
       handbrake: this.any(['Space']) || !!pd[2],
+      fwd,
+      side: steer,
+      climb: this.any(['Space'], this.pressed) || !!pp[1],
       yaw: -this.dx * LOOK.mouse * this.sens - (pad?.rx ?? 0) * LOOK.stick * dt,
       pitch: -this.dy * LOOK.mouse * this.sens - (pad?.ry ?? 0) * LOOK.stick * dt * 0.75,
       fire: this.mouse || (pad?.rt ?? 0) > 0.5,

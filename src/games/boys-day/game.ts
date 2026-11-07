@@ -6,7 +6,7 @@ import type { Party } from '../party.ts';
 import type { GameApi } from '../types.ts';
 import { paintBanner } from './banner.ts';
 import { paintOf } from './models.ts';
-import { firstSeats, readMsg } from './net.ts';
+import { readMsg } from './net.ts';
 import { MAX_PLAYERS, newSeed } from './rules.ts';
 import { Session } from './session.ts';
 import './boys.css';
@@ -115,7 +115,7 @@ class App {
     const code = el('p', 'bd-roomcode');
     code.append('Room code: ', el('b', '', p.code));
     card.append(code);
-    card.append(el('p', 'bd-blurb', p.isHost ? 'Get the boys on board, then start. You’ll drive first; anyone can swap seats with F / Ⓨ.' : 'On board. Waiting for the host to start the bus…'));
+    card.append(el('p', 'bd-blurb', p.isHost ? 'Get the boys on board, then start. You’ll drive first; anyone can walk up to the wheel when it’s free (F / Ⓨ).' : 'On board. Waiting for the host to start the bus…'));
     const list = el('div', 'bd-crewlist');
     p.members.slice(0, MAX_PLAYERS).forEach((m, i) => {
       const row = el('div', 'bd-crewrow');
@@ -171,7 +171,7 @@ class App {
     if (!m || !this.party) return;
     if (m.t === 'start') {
       if (from !== this.party.hostId) return;
-      this.begin(m.seed, m.seats);
+      this.begin(m.seed, m.driver);
       return;
     }
     this.session?.onMsg(from, m);
@@ -181,12 +181,10 @@ class App {
   private startRun() {
     const seed = newSeed();
     const p = this.party;
-    if (!p) return this.begin(seed, firstSeats([0], 0));
-    const crew = p.members.slice(0, MAX_PLAYERS).map((m) => m.id);
-    const seats = firstSeats(crew, p.id);
+    if (!p) return this.begin(seed, 0);
     p.setOpen(false);
-    p.send({ t: 'start', seed, seats });
-    this.begin(seed, seats);
+    p.send({ t: 'start', seed, driver: p.id });
+    this.begin(seed, p.id);
   }
 
   private solo() {
@@ -194,7 +192,7 @@ class App {
     this.startRun();
   }
 
-  private begin(seed: number, seats: number[]) {
+  private begin(seed: number, driver: number) {
     this.session?.dispose();
     this.root.replaceChildren();
     const p = this.party;
@@ -211,7 +209,7 @@ class App {
         send: (m) => p?.send(m),
       },
       seed,
-      seats,
+      driver,
       this.api,
       () => this.leave(''),
       () => this.startRun(),

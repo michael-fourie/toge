@@ -5,12 +5,13 @@
 // players' hit claims and minigame results, checked for shape and range. It's co-op between friends: the checks keep a
 // broken client from wrecking the run, not a determined cheat from winning it.
 
-import { roadNear, type Route } from './route.ts';
+import { HAZARD, roadNear, type Route } from './route.ts';
 import {
   BUS,
   CLUB,
   GORDIE,
   HORDE,
+  ROUNDS,
   RUN,
   SLOT_MAX,
   ZOMBIE,
@@ -51,7 +52,7 @@ export interface Zombie {
   paint: number;
 }
 
-export type FxKind = 'yeet' | 'fore' | 'splat' | 'gordie' | 'grab' | 'hurt' | 'shake' | 'heal';
+export type FxKind = 'yeet' | 'fore' | 'splat' | 'gordie' | 'grab' | 'hurt' | 'shake' | 'heal' | 'bump' | 'round';
 export interface Fx {
   k: FxKind;
   x: number;
@@ -76,8 +77,12 @@ export class Director {
   /** Lines for everyone's banner. */
   said: string[] = [];
   taken = new Set<number>();
-  private woke = new Set<number>();
   private nextId = 1;
+  /** Zombies still to send this round. */
+  private toSpawn = 0;
+  /** Where the bus was last step (fuel burns by the metre), and the potholes it's just hit (no double jolts). */
+  private lastXZ: { x: number; z: number } | null = null;
+  private jolted = new Map<number, number>();
   private spawnAcc = 0;
   private gordieT = 0;
   private r: () => number;
@@ -90,7 +95,7 @@ export class Director {
     /** How many are on the bus (a smaller crew faces a smaller horde). */
     readonly crew = 1,
   ) {
-    this.run = newRun(seed);
+    this.run = newRun(seed, crew);
     this.r = rng(seed ^ 0x5eed);
   }
 
@@ -110,6 +115,8 @@ export class Director {
     this.busS = near.s;
     this.stops(dt, bus);
     this.driveOver(bus);
+    this.burn(bus);
+    this.potholes(bus);
     this.spawn(dt, bus);
     this.zombies(dt, bus);
     this.gordie(dt);
@@ -134,41 +141,70 @@ export class Director {
     }
     if (run.phase !== 'stop') return;
     if (stopOf(run) === 'jail') {
-      if (!run.bailPaid && run.money >= RUN.bail) {
-        run.money -= RUN.bail;
+      if (!run.bailPaid && run.money >= run.bail) {
+        run.money -= run.bail;
         run.bailPaid = true;
-        this.said.push(`Paid $${RUN.bail} bail. Now hold them off!`);
+        this.said.push(`Paid $${run.bail} bail. Now hold them off!`);
       }
       if (run.bailPaid) run.hold = Math.min(RUN.jailHold, run.hold + dt);
     }
     if (stopDone(run)) this.said.push(finishStop(run));
   }
 
-  /** How many should be about right now. */
-  target() {
-    const s = this.run.stage;
-    return Math.min(Z_CAP, Math.round((this.run.phase === 'stop' ? HORDE.stop(s) : HORDE.drive(s)) * HORDE.crewScale(this.crew)));
-  }
-
+  /** Rounds: a calm, then "ROUND n" sends its zombies (a few at a time); kill them all and the next calm starts. */
   private spawn(dt: number, bus: Bus) {
-    const alive = this.zs.filter((z) => z.st === 'run' || z.st === 'climb').length;
-    // Sleeping crowds wake as the bus comes up the road.
-    for (const h of this.route.hordes) {
-      if (this.woke.has(h.id) || Math.hypot(h.x - bus.x, h.z - bus.z) > 90) continue;
-      this.woke.add(h.id);
-      for (let k = 0; k < h.n && this.zs.length < Z_CAP; k++) this.add(h.x + (this.r() - 0.5) * 10, h.z + (this.r() - 0.5) * 10);
+    const run = this.run;
+    let alive = this.zs.filter((z) => z.st === 'run' || z.st === 'climb').length;
+    if (run.calm > 0) {
+      run.calm = Math.max(0, run.calm - dt);
+      if (run.calm === 0) {
+        run.round++;
+        this.toSpawn = ROUNDS.size(run.round, this.crew) + run.stage * 2;
+        this.said.push(`ROUND ${run.round}`);
+        this.fx.push({ k: 'round', x: bus.x, y: 0, z: bus.z, n: run.round });
+      }
+      run.left = alive + this.toSpawn;
+      return;
     }
-    this.spawnAcc = Math.min(5, this.spawnAcc + dt * HORDE.rate * HORDE.crewScale(this.crew));
-    let want = this.target() - alive;
-    while (want > 0 && this.spawnAcc >= 1 && this.zs.length < Z_CAP) {
+    this.spawnAcc = Math.min(3, this.spawnAcc + dt * ROUNDS.rate);
+    const cap = Math.min(Z_CAP, ROUNDS.alive(run.round, this.crew));
+    while (this.toSpawn > 0 && this.spawnAcc >= 1 && alive < cap) {
       this.spawnAcc -= 1;
-      want--;
+      this.toSpawn--;
+      alive++;
       // Mostly ahead of the bus, so you drive into them; some from anywhere.
       const ahead = this.r() < 0.7;
       const a = bus.h + (ahead ? (this.r() - 0.5) * 2.4 : this.r() * Math.PI * 2);
       const dist = HORDE.near + this.r() * (HORDE.far - HORDE.near);
       this.add(bus.x - Math.sin(a) * dist, bus.z - Math.cos(a) * dist);
     }
+    run.left = alive + this.toSpawn;
+    if (this.toSpawn === 0 && alive === 0) {
+      run.calm = ROUNDS.calm;
+      this.said.push(`ROUND ${run.round} SURVIVED! Catch your breath.`);
+    }
+  }
+
+  /** The tank empties by the metre driven. */
+  private burn(bus: Bus) {
+    if (this.lastXZ) {
+      const d = Math.hypot(bus.x - this.lastXZ.x, bus.z - this.lastXZ.z);
+      // A jump of more than a few metres is a teleport (a join, a reset), not driving.
+      if (d < 5) this.run.fuel = Math.max(0, this.run.fuel - d * RUN.burn);
+    }
+    this.lastXZ = { x: bus.x, z: bus.z };
+  }
+
+  /** Hitting a pothole at speed hurts the bus (the driver's screen takes the speed off). */
+  private potholes(bus: Bus) {
+    const t = this.run.time;
+    this.route.hazards.forEach((h, i) => {
+      if (h.kind !== 'pothole' || Math.abs(h.x - bus.x) > 9 || Math.abs(h.z - bus.z) > 9) return;
+      if (!onBus(bus, h.x, h.z, h.r * 0.5) || Math.abs(bus.v) < 4 || t - (this.jolted.get(i) ?? -9) < 2) return;
+      this.jolted.set(i, t);
+      this.run.busHp -= HAZARD.potholeDamage;
+      this.fx.push({ k: 'bump', x: h.x, y: 1, z: h.z, n: HAZARD.potholeDamage });
+    });
   }
 
   /** A new zombie at (x, z). */
@@ -343,7 +379,7 @@ export class Director {
   mini(kind: 'golf' | 'casino', v: number) {
     const run = this.run;
     if (run.phase !== 'stop' || stopOf(run) !== kind) return;
-    if (kind === 'golf') run.teed = Math.min(RUN.golfTees, run.teed + 1);
+    if (kind === 'golf') run.teed = Math.min(run.tees, run.teed + 1);
     else run.money += Math.max(0, Math.min(SLOT_MAX, Math.round(v)));
   }
 
@@ -355,6 +391,10 @@ export class Director {
     this.fx.push({ k: 'grab', x: p.x, y: 1.2, z: p.z, n: id });
     if (p.kind === 'cash') {
       this.run.money += RUN.cash;
+      return;
+    }
+    if (p.kind === 'gas') {
+      this.run.fuel = Math.min(RUN.fuel, this.run.fuel + RUN.gas);
       return;
     }
     // Say what it actually fixed (a full bus gets nothing, and the popup says so).
