@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import type { ZView } from './director.ts';
-import { BUS, SEATS, ZOMBIE } from './rules.ts';
+import { BUS, DRIVER, WALK, ZOMBIE } from './rules.ts';
 
 /** Paint colours: one per seat-order player, then Gordie's. */
 export const PAINT = ['#ff3d7f', '#2fd3ff', '#ffd23f', '#7cff5b', '#b06bff', '#ff8a2a', '#ffffff', '#00e0b0', '#ff2020'];
@@ -51,8 +51,9 @@ const box = (w: number, h: number, d: number, mat: THREE.Material, x = 0, y = 0,
 };
 
 // ---------------------------------------------------------------------------------------------
-// The bus: a battered city bus you ride inside. Walls are thin boxes round open windows, so it reads from inside and
-// out: the driver sees through the windscreen, everyone else leans out of a side (or the back) window. Its origin is
+// The bus: a battered city bus you ride in and on. Walls are thin boxes round open windows, so it reads from inside and
+// out: the driver sees through the windscreen, everyone else walks about inside or climbs the ladder through the
+// roof hatch onto the railed deck up top. Its origin is
 // on the ground under its middle; it faces -Z. The steering wheel is named 'steer' (it turns with the wheels).
 
 export function makeBus(): THREE.Group {
@@ -67,9 +68,33 @@ export function makeBus(): THREE.Group {
   const { floor, sill, lintel, top } = BUS;
   const wall = 0.08;
   const half = W / 2 - wall / 2;
-  // Floor and roof.
+  // Floor and roof (in two halves round the hatch), the deck's planks and its railing.
+  const hatch = WALK.hatch;
+  const hz = -hatch.along;
+  const hs = 0.55;
   g.add(box(W, 0.14, L, toon('#3a3a44'), 0, floor - 0.07, 0));
-  g.add(box(W, 0.14, L, paint, 0, top + 0.07, 0));
+  const front0 = -L / 2;
+  const back0 = L / 2;
+  g.add(box(W, 0.14, hz - hs - front0, paint, 0, top + 0.07, (front0 + hz - hs) / 2));
+  g.add(box(W, 0.14, back0 - (hz + hs), paint, 0, top + 0.07, (back0 + hz + hs) / 2));
+  for (const s of [-1, 1]) g.add(box(W / 2 - hs, 0.14, hs * 2, paint, s * (hs + (W / 2 - hs) / 2), top + 0.07, hz));
+  const plank = toon('#8a6a45');
+  for (let z = -L / 2 + 0.6; z < L / 2 - 0.3; z += 0.9) if (Math.abs(z - hz) > hs + 0.3) g.add(box(W - 0.4, 0.02, 0.7, plank, 0, BUS.deck + 0.005, z));
+  const rail = toon('#c9ccd6');
+  for (const s of [-1, 1]) g.add(box(0.06, 0.06, L - 0.4, rail, s * (W / 2 - 0.12), BUS.deck + 0.95, 0));
+  g.add(box(W - 0.24, 0.06, 0.06, rail, 0, BUS.deck + 0.95, L / 2 - 0.2));
+  g.add(box(W - 0.24, 0.06, 0.06, rail, 0, BUS.deck + 0.95, -L / 2 + 0.2));
+  for (let z = -L / 2 + 0.2; z <= L / 2 - 0.2; z += 1.75)
+    for (const s of [-1, 1]) g.add(box(0.06, 0.95, 0.06, rail, s * (W / 2 - 0.12), BUS.deck + 0.47, z));
+  // The hatch's rim, and the ladder up to it.
+  const hatchRim = toon('#2a2d3a');
+  for (const s of [-1, 1]) {
+    g.add(box(hs * 2 + 0.1, 0.12, 0.08, hatchRim, 0, BUS.deck + 0.06, hz + s * hs));
+    g.add(box(0.08, 0.12, hs * 2, hatchRim, s * hs, BUS.deck + 0.06, hz));
+  }
+  const rung = toon('#c9ccd6');
+  for (const s of [-1, 1]) g.add(box(0.05, top - floor + 0.2, 0.05, rung, s * 0.25, (floor + top) / 2 + 0.1, hz + hs - 0.1));
+  for (let y = floor + 0.3; y < top; y += 0.32) g.add(box(0.5, 0.04, 0.04, rung, 0, y, hz + hs - 0.1));
   g.add(box(W - 0.2, 0.02, L - 0.4, inside, 0, top - 0.01, 0)); // the ceiling
   // Below the windows: the body, the black skirt and the white stripe outside, panelling inside.
   g.add(box(W, floor - 0.35, L, trim, 0, 0.35 + (floor - 0.35) / 2, 0));
@@ -102,7 +127,7 @@ export function makeBus(): THREE.Group {
   g.add(box(W, top - lintel, wall, paint, 0, (lintel + top) / 2, back));
   for (const s of [-1, 1]) g.add(box(0.4, lintel - sill, wall, paint, s * (W / 2 - 0.2), (sill + lintel) / 2, back));
   // The cab: dashboard, gauges and the wheel.
-  const cab = SEATS[0];
+  const cab = DRIVER;
   const dash = box(W - 0.2, 0.32, 0.6, toon('#2c2f3a'), 0, 1.36, -L / 2 + 0.4);
   g.add(dash);
   const wheel = new THREE.Group();
@@ -137,7 +162,8 @@ export function makeBus(): THREE.Group {
   const lamp = new THREE.MeshBasicMaterial({ color: '#fff8d0' });
   for (const s of [-1, 1]) g.add(box(0.4, 0.25, 0.06, lamp, s * 0.85, 1.05, -L / 2 - 0.04));
   const beam = new THREE.SpotLight('#fff1c8', 160, 70, 0.5, 0.6, 1.2);
-  beam.position.set(0, 1.4, -L / 2);
+  // Just ahead of the cow-catcher, so it lights the road and not the plywood right under it.
+  beam.position.set(0, 1.4, -L / 2 - 0.8);
   beam.target.position.set(0, 0, -L / 2 - 25);
   g.add(beam, beam.target);
   const glow = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: '#fff1c8', transparent: true, opacity: 0.07, depthWrite: false }));
@@ -287,8 +313,8 @@ export class Horde {
     };
   }
 
-  /** Lays out every zombie for this frame. `t` is the clock, for the shamble. */
-  update(zs: readonly ZView[], dt: number, t: number) {
+  /** Lays out every zombie for this frame, standing on the ground. `t` is the clock, for the shamble. */
+  update(zs: readonly ZView[], dt: number, t: number, ground: (x: number, z: number) => number) {
     const keep = new Set<number>();
     let n = 0;
     for (const z of zs) {
@@ -310,7 +336,7 @@ export class Horde {
       s.y += (z.y - s.y) * k;
       if (Math.hypot(dx, dz) > 0.05 && z.st === 'run') s.yaw = Math.atan2(-dx, -dz);
       s.spin = z.st === 'fly' ? s.spin + dt * 14 : 0;
-      this.pose(n++, z, s, t);
+      this.pose(n++, z, s, t, ground(s.x, s.z));
     }
     for (const id of this.shown.keys()) if (!keep.has(id)) this.shown.delete(id);
     for (const im of Object.values(this.parts)) {
@@ -320,11 +346,11 @@ export class Horde {
     }
   }
 
-  private pose(i: number, z: ZView, s: { x: number; y: number; z: number; yaw: number; spin: number }, t: number) {
+  private pose(i: number, z: ZView, s: { x: number; y: number; z: number; yaw: number; spin: number }, t: number, gy: number) {
     const spec = ZOMBIE[z.k];
     const scale = z.k === 2 ? 1.45 : z.k === 1 ? 0.92 : 1;
     const d = this.dummy;
-    d.position.set(s.x, s.y, s.z);
+    d.position.set(s.x, gy + s.y, s.z);
     d.rotation.set(0, s.yaw, 0);
     d.scale.setScalar(scale);
     if (z.st === 'fly') d.rotation.set(s.spin, s.yaw, s.spin * 0.6);
@@ -475,7 +501,7 @@ export class Paint {
   }
 
   /** Moves the balls; `test` is asked about each of mine and returns true when it hit something. */
-  update(dt: number, gravity: number, test: (b: Ball, from: THREE.Vector3) => boolean) {
+  update(dt: number, gravity: number, test: (b: Ball, from: THREE.Vector3) => boolean, ground: (x: number, z: number) => number) {
     const from = new THREE.Vector3();
     for (let i = this.balls.length - 1; i >= 0; i--) {
       const b = this.balls[i];
@@ -485,8 +511,9 @@ export class Paint {
       b.life -= dt;
       let gone = b.life <= 0;
       if (!gone && b.mine && test(b, from)) gone = true;
-      if (!gone && b.p.y <= 0.02) {
-        this.splat(b.p.x, 0.04, b.p.z, b.c, true, 0.45 + Math.random() * 0.3);
+      const gy = gone ? 0 : ground(b.p.x, b.p.z);
+      if (!gone && b.p.y <= gy + 0.02) {
+        this.splat(b.p.x, gy + 0.05, b.p.z, b.c, true, 0.45 + Math.random() * 0.3);
         gone = true;
       }
       if (gone) this.balls.splice(i, 1);

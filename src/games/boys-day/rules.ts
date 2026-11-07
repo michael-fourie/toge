@@ -25,13 +25,15 @@ export const newSeed = () => Math.floor(Math.random() * SEED_MAX);
 export const BUS = {
   length: 11,
   width: 2.7,
-  /** Inside: the floor's height, the windows' band (bottom and top), the roof. Everyone rides inside. */
+  /** Inside: the floor's height, the windows' band (bottom and top), the roof (whose deck you can climb up to). */
   floor: 0.9,
   sill: 1.75,
   lintel: 2.6,
   top: 2.9,
-  /** Eye height above the floor: standing at a window, and sitting at the wheel. */
-  eye: 1.2,
+  /** The roof deck you stand on up top. */
+  deck: 3.04,
+  /** Eye height above what you stand on, and sitting at the wheel. */
+  eye: 1.5,
   driverEye: 1.05,
   /** Wheelbase for the steering (m). */
   wheelbase: 6.2,
@@ -53,7 +55,28 @@ export const BUS = {
   /** Circles down the bus's length that collide with trees and wrecks (offsets from the centre, m). */
   hull: [-3.8, 0, 3.8],
   hullR: 1.5,
+  /** Hills: gravity along the slope (m/s² per unit of grade, a bus is heavy and its engine weak). */
+  grade: 8.5,
+  /** Downhill the bus can run on to this much of its top speed. */
+  runaway: 1.2,
+  /** Mud: extra drag, and how much grip the steering keeps. */
+  mudDrag: 0.9,
+  mudGrip: 0.45,
+  /** Out of fuel, the bus only splutters along at this (m/s). */
+  fumes: 3,
 } as const;
+
+/** Where the bus is driving: the hills and the surface under it. */
+export interface Ground {
+  /** Rise over run along the bus's heading (positive: uphill). */
+  grade: number;
+  onRoad: boolean;
+  mud: boolean;
+  /** No fuel left. */
+  fumes: boolean;
+}
+
+export const FLAT: Ground = { grade: 0, onRoad: true, mud: false, fumes: false };
 
 export interface Bus {
   x: number;
@@ -81,15 +104,17 @@ export const fwdOf = (h: number) => ({ x: -Math.sin(h), z: -Math.cos(h) });
 /** The bus's right-hand side. */
 export const rightOf = (h: number) => ({ x: Math.cos(h), z: -Math.sin(h) });
 
-/** One step of the bus: a bicycle model with arcade grip. `onRoad` decides the grass slowdown. */
-export function stepBus(b: Bus, d: Drive, dt: number, onRoad: boolean): void {
+/** One step of the bus: a bicycle model with arcade grip, slowed by grass, mud and hills (and an empty tank). */
+export function stepBus(b: Bus, d: Drive, dt: number, g: Ground = FLAT): void {
+  const onRoad = g.onRoad;
   const speedK = Math.min(1, Math.abs(b.v) / BUS.maxSpeed);
   const maxSteer = BUS.steerMax * (1 - (1 - BUS.steerAtSpeed) * speedK);
-  const want = Math.max(-1, Math.min(1, d.steer)) * maxSteer;
+  const want = Math.max(-1, Math.min(1, d.steer)) * maxSteer * (g.mud ? BUS.mudGrip : 1);
   const ds = want - b.steer;
   b.steer += Math.sign(ds) * Math.min(Math.abs(ds), BUS.steerRate * dt);
 
-  const top = onRoad ? BUS.maxSpeed : BUS.maxSpeed * BUS.grass;
+  let top = onRoad ? BUS.maxSpeed : BUS.maxSpeed * BUS.grass;
+  if (g.fumes) top = Math.min(top, BUS.fumes);
   let a = 0;
   if (d.throttle > 0) a += d.throttle * BUS.accel * (b.v < 0 ? 2.5 : 1);
   // Going forward the brake pedal brakes; stopped (or rolling back) it reverses.
@@ -97,12 +122,16 @@ export function stepBus(b: Bus, d: Drive, dt: number, onRoad: boolean): void {
   if (braking) a -= d.brake * BUS.brake;
   else if (d.brake > 0) a -= d.brake * BUS.accel * 0.8;
   if (d.handbrake) a -= Math.sign(b.v) * BUS.handbrake;
-  a -= b.v * (onRoad ? BUS.drag : BUS.grassDrag);
+  a -= b.v * ((onRoad ? BUS.drag : BUS.grassDrag) + (g.mud ? BUS.mudDrag : 0));
+  // Uphill pulls the bus back, downhill runs it on: a steep climb from slow can stall it, or roll it backwards.
+  a -= BUS.grade * g.grade;
   const before = b.v;
   b.v += a * dt;
   // Brakes and the handbrake stop the bus where they'd push it past zero; reversing waits for the next tick.
   if ((braking || d.handbrake) && before !== 0 && Math.sign(b.v) !== Math.sign(before)) b.v = 0;
-  if (b.v > top) b.v = Math.max(top, b.v - BUS.brake * dt);
+  // Downhill it can run on a little past top speed, never away.
+  const cap = g.grade < 0 ? top * BUS.runaway : top;
+  if (b.v > cap) b.v = Math.max(cap, b.v - BUS.brake * dt);
   b.v = Math.max(-BUS.reverseSpeed, b.v);
 
   // Steering: right steer turns right, i.e. the heading (yaw) goes down.
@@ -170,22 +199,91 @@ export function onBus(b: Pick<Bus, 'x' | 'z' | 'h'>, x: number, z: number, pad =
   return Math.abs(p.side) < BUS.width / 2 + pad && Math.abs(p.along) < BUS.length / 2 + pad;
 }
 
+// ---------------------------------------------------------------------------------------------
+// On the bus: walking about inside and on the roof
+
+/** The driver's seat (bus-local), and how far the driver can look round the cab from straight ahead (rad). */
+export const DRIVER = { side: -0.65, along: 4.25, look: 1.7 } as const;
+
+/** Where you are on the bus: bus-local, and inside (0) or up on the roof (1). */
+export interface Spot {
+  side: number;
+  along: number;
+  level: 0 | 1;
+}
+
+export const WALK = {
+  speed: 3.4,
+  /** The hatch in the roof (with a ladder under it): climb up or down here. */
+  hatch: { side: 0, along: -3.4, r: 0.8 },
+  /** Close enough to the driver's seat to take the wheel. */
+  cab: 1.5,
+} as const;
+
+/** How far you can walk: inside (clear of the walls, behind the driver's seat) and on the roof (inside the rail). */
+export function walkBounds(level: 0 | 1) {
+  return level === 0
+    ? { side: BUS.width / 2 - 0.35, back: -BUS.length / 2 + 0.4, front: DRIVER.along - 0.5 }
+    : { side: BUS.width / 2 - 0.3, back: -BUS.length / 2 + 0.35, front: BUS.length / 2 - 0.35 };
+}
+
 /**
- * The seats, bus-local (side, along) and which way each looks (`face`, yaw relative to the bus: 0 ahead, +π/2 out of
- * the left windows, −π/2 the right, π the back). Seat 0 is the driver at the windscreen; the rest stand at a window.
+ * Walks you about the bus: `fwd` and `side` input (−1..1), looking `yaw` (relative to the bus: 0 is toward the front,
+ * positive turns left). Clamped to where you can stand.
  */
-export const SEATS: readonly { side: number; along: number; face: number }[] = [
-  { side: -0.65, along: 4.25, face: 0 },
-  { side: -0.85, along: 2.6, face: Math.PI / 2 },
-  { side: 0.85, along: 2.6, face: -Math.PI / 2 },
-  { side: -0.85, along: 0.5, face: Math.PI / 2 },
-  { side: 0.85, along: 0.5, face: -Math.PI / 2 },
-  { side: -0.85, along: -1.6, face: Math.PI / 2 },
-  { side: 0.85, along: -1.6, face: -Math.PI / 2 },
-  { side: 0, along: -4.7, face: Math.PI },
-];
-/** How far you can turn from your seat's direction (rad): the driver looks round the cab, the rest out their window. */
-export const LOOK = { driver: 1.7, window: 1.5 } as const;
+export function walk(p: Spot, fwd: number, strafe: number, yaw: number, dt: number) {
+  const l = Math.hypot(fwd, strafe);
+  if (l > 0) {
+    const k = (WALK.speed * dt) / Math.max(1, l);
+    p.side += (-Math.sin(yaw) * fwd + Math.cos(yaw) * strafe) * k;
+    p.along += (Math.cos(yaw) * fwd + Math.sin(yaw) * strafe) * k;
+  }
+  const b = walkBounds(p.level);
+  p.side = Math.max(-b.side, Math.min(b.side, p.side));
+  p.along = Math.max(b.back, Math.min(b.front, p.along));
+}
+
+export const atHatch = (p: Spot) => Math.hypot(p.side - WALK.hatch.side, p.along - WALK.hatch.along) < WALK.hatch.r;
+export const atCab = (p: Spot) => p.level === 0 && Math.hypot(p.side - DRIVER.side, p.along - DRIVER.along) < WALK.cab;
+/** Where you stand when you get up from the wheel. */
+export const OFF_CAB: Spot = { side: 0.2, along: DRIVER.along - 0.9, level: 0 };
+
+/** Where each player starts: down the aisle, in join order. */
+export const startSpot = (i: number): Spot => ({ side: i % 2 ? 0.55 : -0.55, along: 2.4 - Math.floor(i / 2) * 1.6, level: 0 });
+
+/**
+ * A paintball leaving the bus from inside: does the step from `a` to `b` (bus-local, x across, y up, z toward the
+ * back: three.js's frame on the bus model) go through a wall? It only gets out through a window (or the windscreen).
+ * Returns where it hit the wall, or null.
+ */
+export function wallHit(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) {
+  const W = BUS.width / 2;
+  const L = BUS.length / 2;
+  const inside = (p: { x: number; y: number; z: number }) => Math.abs(p.x) < W && Math.abs(p.z) < L && p.y > BUS.floor && p.y < BUS.top;
+  if (!inside(a) || inside(b)) return null;
+  // The first face the step crosses on its way out.
+  let t = Infinity;
+  let face = '';
+  const tryFace = (from: number, to: number, at: number, name: string) => {
+    if ((from - at) * (to - at) >= 0) return;
+    const k = (at - from) / (to - from);
+    if (k < t) {
+      t = k;
+      face = name;
+    }
+  };
+  tryFace(a.x, b.x, W, 'side');
+  tryFace(a.x, b.x, -W, 'side');
+  tryFace(a.z, b.z, L, 'back');
+  tryFace(a.z, b.z, -L, 'front');
+  tryFace(a.y, b.y, BUS.top, 'roof');
+  tryFace(a.y, b.y, BUS.floor, 'floor');
+  if (!face) return null;
+  const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t };
+  const band = p.y > BUS.sill && p.y < BUS.lintel;
+  const open = face === 'side' ? band : face === 'back' ? band && Math.abs(p.x) < W - 0.4 : face === 'front' ? p.y > 1.5 && p.y < BUS.lintel : false;
+  return open ? null : p;
+}
 
 // ---------------------------------------------------------------------------------------------
 // The run: the stops in order, what each needs
@@ -195,7 +293,7 @@ export const STOP_ORDER: readonly StopKind[] = ['arena', 'golf', 'casino', 'jail
 
 export const STOP_INFO: Record<StopKind, { name: string; sign: string; goal: string }> = {
   arena: { name: 'the paintball arena', sign: 'SPLAT ZONE PAINTBALL', goal: 'Wake up. Grab the markers.' },
-  golf: { name: 'the driving range', sign: 'TEE TIME DRIVING RANGE', goal: 'Tee off 4 zombies on the range to win the golf club.' },
+  golf: { name: 'the driving range', sign: 'TEE TIME DRIVING RANGE', goal: 'Tee off zombies on the range to win the golf club.' },
   casino: { name: 'the casino', sign: 'LUCKY LIMESTONE CASINO', goal: 'Win Gordie’s bail money on the slots.' },
   jail: { name: 'the jail', sign: 'KINGSTON HOLDING CELLS', goal: 'Pay the bail, then hold them off while Gordie’s released.' },
   home: { name: 'the house', sign: 'THE BOYS’ HOUSE', goal: 'Get home. Bong tokes with the boys.' },
@@ -205,8 +303,6 @@ export const RUN = {
   /** Stop when the bus is this close to a stop's marker, going slower than `parkSpeed`. */
   parkRadius: 16,
   parkSpeed: 4,
-  golfTees: 4,
-  bail: 600,
   /** Money you wake up with (whatever's left in your pockets). */
   startMoney: 40,
   /** How long the jail takes to release Gordie (s), while you hold them off. */
@@ -217,7 +313,20 @@ export const RUN = {
   cash: 25,
   /** Each finished stop patches the bus up this much (duct tape). */
   patch: 150,
+  /** A full tank, what a metre of driving burns, and a gas can's worth. */
+  fuel: 100,
+  burn: 0.045,
+  gas: 35,
 } as const;
+
+/**
+ * The stops' goals grow with the crew, so everyone gets a go before the job's done: zombies to tee off at the range,
+ * and Gordie's bail.
+ */
+export const goals = (crew: number) => {
+  const n = Math.max(1, Math.min(8, crew));
+  return { tees: 2 + 2 * n, bail: 250 + 100 * n };
+};
 
 export type Phase = 'drive' | 'stop' | 'won' | 'lost';
 
@@ -238,10 +347,23 @@ export interface RunState {
   yeets: number;
   /** Seconds since waking up. */
   time: number;
+  /** This crew's goals (see `goals`). */
+  tees: number;
+  bail: number;
+  fuel: number;
+  /** The zombie round: which one, how many are left in it, and the seconds of calm before the next. */
+  round: number;
+  left: number;
+  calm: number;
 }
 
-export function newRun(seed: number): RunState {
+export function newRun(seed: number, crew = 1): RunState {
   return {
+    ...goals(crew),
+    fuel: RUN.fuel,
+    round: 0,
+    left: 0,
+    calm: ROUNDS.first,
     seed,
     stage: 1,
     phase: 'drive',
@@ -263,8 +385,8 @@ export const stopOf = (r: RunState): StopKind => STOP_ORDER[Math.min(r.stage, ST
 /** Is this stop's job done? (Then the bus can go on to the next one.) */
 export function stopDone(r: RunState): boolean {
   const k = stopOf(r);
-  if (k === 'golf') return r.teed >= RUN.golfTees;
-  if (k === 'casino') return r.money >= RUN.bail;
+  if (k === 'golf') return r.teed >= r.tees;
+  if (k === 'casino') return r.money >= r.bail;
   if (k === 'jail') return r.hold >= RUN.jailHold;
   return k === 'home';
 }
@@ -298,8 +420,8 @@ export function objective(r: RunState): string {
   if (r.phase === 'won') return 'Home. Pack the bong.';
   if (r.phase === 'lost') return 'The bus is done.';
   if (r.phase === 'drive') return `Drive to ${STOP_INFO[k].name}`;
-  if (k === 'golf') return `Tee off zombies on the range: ${r.teed}/${RUN.golfTees} (E at the range)`;
-  if (k === 'casino') return `Win bail on the slots: $${r.money}/$${RUN.bail} (E at the casino)`;
+  if (k === 'golf') return `Tee off zombies on the range: ${r.teed}/${r.tees}`;
+  if (k === 'casino') return `Win bail on the slots: $${r.money}/$${r.bail}`;
   if (k === 'jail') return r.bailPaid ? `Hold them off: Gordie’s out in ${Math.ceil(RUN.jailHold - r.hold)} s` : 'Paying bail…';
   return STOP_INFO[k].goal;
 }
@@ -309,15 +431,26 @@ export function objective(r: RunState): string {
 
 export type ZKind = 0 | 1 | 2;
 export const ZOMBIE: Record<ZKind, { name: string; speed: number; hp: number; r: number; damage: number }> = {
-  0: { name: 'shambler', speed: 5, hp: 3, r: 0.45, damage: 3 },
-  1: { name: 'sprinter', speed: 8.5, hp: 2, r: 0.4, damage: 2 },
-  2: { name: 'chonk', speed: 3.4, hp: 8, r: 0.75, damage: 6 },
+  0: { name: 'shambler', speed: 4.5, hp: 3, r: 0.45, damage: 2 },
+  1: { name: 'sprinter', speed: 7.5, hp: 2, r: 0.4, damage: 1.5 },
+  2: { name: 'chonk', speed: 3.2, hp: 7, r: 0.75, damage: 4 },
 };
 
+/**
+ * Rounds, like CoD Zombies: each round sends a set number of zombies (no more than `alive` at once), and when every
+ * one of them is dead (or left behind), there's a calm before the next, bigger round.
+ */
+export const ROUNDS = {
+  size: (round: number, crew: number) => Math.round((5 + round * 4) * HORDE.crewScale(crew)),
+  alive: (round: number, crew: number) => Math.max(3, Math.round(Math.min(60, 5 + round * 3) * HORDE.crewScale(crew))),
+  /** Zombies per second while a round's still sending them. */
+  rate: 1.8,
+  /** Seconds of calm between rounds, and before the first. */
+  calm: 15,
+  first: 8,
+} as const;
+
 export const HORDE = {
-  /** How many are about, by stage, while driving and while stopped (for a full bus: see `crewScale`). */
-  drive: (stage: number) => 22 + stage * 6,
-  stop: (stage: number) => 30 + stage * 8,
   /** The horde grows with the crew: solo gets half, four get the lot, a full bus of eight about half again. */
   crewScale: (crew: number) => 0.35 + 0.15 * Math.max(1, Math.min(8, crew)),
   /** Spawn ring round the bus (m), weighted ahead of it. */
@@ -329,8 +462,6 @@ export const HORDE = {
   yeetSpeed: 5,
   /** Hanging on the bus, they hurt it (hp/s, by kind) until shot off. */
   climbReach: 0.9,
-  /** Spawn cadence (zombies per second at most, for a crew of four; it scales with the crew too). */
-  rate: 6,
 } as const;
 
 export const GUN = {

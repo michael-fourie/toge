@@ -1,10 +1,10 @@
-// One run on this screen: the bus, the road, the horde, your seat (driving it from the cab, or shooting out of a window, all
-// in first person), the stops'
-// minigames, the HUD and the end screen. Every browser runs a Session; the host's also runs the Director (the
-// zombies, the stops, the money) and sends what it decides. Solo is the same with nobody else.
+// One run on this screen, in first person: the bus over the hills, the road and its hazards, the horde, you (at the
+// wheel, or on foot about the bus: inside, or up the ladder on the roof), the stops' minigames, the HUD and the end
+// screen. Every browser runs a Session; the host's also runs the Director (the zombies, the rounds, the stops, the
+// money, the fuel) and sends what it decides. Solo is the same with nobody else.
 //
-// Who moves the bus: the driver's browser (seat 0) simulates it and sends its pose; everyone else smooths toward that.
-// With nobody driving, the host lets it coast to a stop.
+// Who moves the bus: the driver's browser simulates it and sends its pose; everyone else smooths toward that. With
+// nobody driving, the host lets it roll to a stop. Everyone else's spot on the bus comes with their aim.
 
 import * as THREE from 'three';
 import { Audio } from './audio.ts';
@@ -13,26 +13,34 @@ import { Hud } from './hud.ts';
 import { Input, type Frame } from './input.ts';
 import { Golf, Slots, type Minigame } from './minigames.ts';
 import { Horde, Paint, makeBean, makeBus, makeClub, makeMarker, paintOf, type Bean } from './models.ts';
-import { ACT_MAX, takeSeat, type Act, type Msg } from './net.ts';
-import { ROAD, makeRoute, roadNear, toGo, type Route } from './route.ts';
+import { ACT_MAX, takeWheel, type Act, type Msg } from './net.ts';
+import { HAZARD, ROAD, groundAt, hazardAt, makeRoute, roadNear, toGo, type Route } from './route.ts';
 import {
   BUS,
   CLUB,
+  DRIVER,
   GUN,
-  LOOK,
   NO_DRIVE,
+  OFF_CAB,
   RUN,
-  SEATS,
   ZOMBIE,
+  atCab,
+  atHatch,
   collideBus,
   fwdOf,
   objective,
   onBus,
+  rightOf,
+  startSpot,
   stepBus,
   stopOf,
+  walk,
+  wallHit,
   type Bus,
   type RunState,
+  type Spot,
 } from './rules.ts';
+import { Post } from './post.ts';
 import { World } from './world.ts';
 import type { GameApi } from '../types.ts';
 
@@ -47,7 +55,7 @@ export interface Link {
   solo: boolean;
 }
 
-const SEND = { bus: 1 / 15, aim: 1 / 6, act: 1 / 10, z: 1 / 10, run: 1 / 3 };
+const SEND = { bus: 1 / 15, aim: 1 / 8, act: 1 / 10, z: 1 / 10, run: 1 / 3 };
 const CHASE = { back: 15, up: 7.5, ahead: 9 };
 
 export class Session {
@@ -63,6 +71,7 @@ export class Session {
   private hud: Hud;
   private director: Director | null = null;
   private sky: ReturnType<typeof World.dress>;
+  private post: Post;
   /** Seconds to the next lightning strike, and to its thunder. */
   private boltT = 9;
   private thunderT = -1;
@@ -73,14 +82,23 @@ export class Session {
   private run: RunState;
   private taken = new Set<number>();
   private zs: ZView[] = [];
-  private seats: number[];
-  private aims = new Map<number, { yaw: number; pitch: number }>();
-  private beans = new Map<number, { bean: Bean; seat: number }>();
+  /** Who's at the wheel (-1: nobody, the bus rolls to a stop). */
+  private driver: number;
+  /** Where everyone else is on the bus, and where they're looking (from their 'aim'). */
+  private others = new Map<number, { spot: Spot; yaw: number; pitch: number }>();
+  private beans = new Map<number, Bean>();
   private gordie: Bean | null = null;
+  /** You, on foot: where on the bus, and inside or up top. */
+  private spot: Spot;
+  /** The bus's height and tilt over the hills (for drawing), and the bumps. */
+  private busY = 0;
+  private tilt = { pitch: 0, roll: 0 };
+  private shake = 0;
+  private jolted = new Map<number, number>();
 
+  /** Your look, relative to the bus (0 toward the front). */
   private yaw = 0;
-  /** The seat the look was last set up for (a new seat looks its own way). */
-  private lookSeat = -2;
+  private wasDriving = false;
   /** The driver's camera: false in the cab (first person), true chasing the bus. */
   private chase = false;
   private steer: THREE.Object3D | null = null;
@@ -117,14 +135,15 @@ export class Session {
     private renderer: THREE.WebGLRenderer,
     private link: Link,
     seed: number,
-    seats: number[],
+    driver: number,
     private api: GameApi,
     private onLeave: () => void,
     private onAgain: () => void,
   ) {
     this.route = makeRoute(seed);
     this.world = new World(this.route);
-    this.seats = seats;
+    this.driver = driver;
+    this.spot = startSpot(this.myColor);
     if (this.isHost) this.director = new Director(this.route, seed, link.crew.length);
     this.run = this.director?.run ?? { ...new Director(this.route, seed).run };
     const start = this.route.road[2];
@@ -132,6 +151,16 @@ export class Session {
 
     this.sky = World.dress(this.scene);
     this.scene.add(this.world.group, this.busModel, this.horde.group, this.paint.group, this.camera);
+    // Shadows: the bus and the horde cast them (not the glass); the ground, road and scenery take them.
+    this.busModel.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const mat = m.material as THREE.Material;
+      m.castShadow = !mat.transparent;
+      m.receiveShadow = true;
+    });
+    this.horde.group.traverse((o) => ((o as THREE.Mesh).isMesh && ((o as THREE.Mesh).castShadow = true)));
+    this.post = new Post(renderer, this.scene, this.camera);
     this.viewGun = makeMarker(paintOf(this.myColor));
     this.viewGun.scale.setScalar(0.5);
     this.viewGun.position.set(0.24, -0.24, -0.5);
@@ -146,7 +175,6 @@ export class Session {
     this.stage.append(renderer.domElement);
     this.hud = new Hud(this.stage);
     this.input = new Input(renderer.domElement, api);
-    this.syncBeans();
 
     const onClick = () => {
       this.audio.wake();
@@ -179,12 +207,11 @@ export class Session {
   private get isHost() {
     return this.link.me === this.link.hostId;
   }
-  private get mySeat() {
-    return this.seats.indexOf(this.link.me);
-  }
   private get driving() {
-    return this.mySeat === 0;
+    return this.driver === this.link.me;
   }
+  /** The ground's height at (x, z). */
+  private ground = (x: number, z: number) => groundAt(this.route, x, z, this.roadHint);
   private get myColor() {
     return Math.max(0, this.link.crew.findIndex((c) => c.id === this.link.me));
   }
@@ -196,6 +223,7 @@ export class Session {
     const w = this.stage.clientWidth || innerWidth;
     const h = this.stage.clientHeight || innerHeight;
     this.renderer.setSize(w, h);
+    this.post.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -208,10 +236,10 @@ export class Session {
     const fromHost = from === this.link.hostId;
     switch (m.t) {
       case 'bus':
-        if (from === this.seats[0]) this.busTarget = { x: m.x, z: m.z, h: m.h, v: m.v, steer: m.s };
+        if (from === this.driver) this.busTarget = { x: m.x, z: m.z, h: m.h, v: m.v, steer: m.s };
         break;
       case 'aim':
-        this.aims.set(from, { yaw: m.yaw, pitch: m.pitch });
+        this.others.set(from, { spot: { side: m.s, along: m.a, level: m.l }, yaw: m.yaw, pitch: m.pitch });
         break;
       case 'act':
         this.onAct(from, m);
@@ -227,13 +255,11 @@ export class Session {
         this.run = m.run;
         this.taken = new Set(m.taken);
         break;
-      case 'seats':
-        if (!fromHost) return;
-        this.seats = m.seats;
-        this.syncBeans();
+      case 'driver':
+        if (fromHost) this.driver = m.id;
         break;
-      case 'seat':
-        if (this.isHost) this.setSeats(takeSeat(this.seats, from, m.want));
+      case 'drive':
+        if (this.isHost) this.setDriver(takeWheel(this.driver, from, m.want));
         break;
       case 'mini':
         this.director?.mini(m.k, m.v);
@@ -264,37 +290,43 @@ export class Session {
     if (a.swing.length) d.swing(a.swing, c, this.bus);
   }
 
-  /** Players who left the party lose their seat (the host's call). */
+  /** A player who left the party leaves the wheel too (the host's call), and their bean goes. */
   dropMissing(ids: ReadonlySet<number>) {
-    if (!this.isHost) return;
-    const seats = this.seats.map((id) => (id >= 0 && !ids.has(id) ? -1 : id));
-    if (seats.some((id, i) => id !== this.seats[i])) this.setSeats(seats);
+    for (const id of [...this.others.keys()]) if (!ids.has(id)) this.others.delete(id);
+    if (this.isHost && this.driver >= 0 && !ids.has(this.driver)) this.setDriver(-1);
   }
 
-  private setSeats(seats: number[]) {
-    this.seats = seats;
-    this.link.send({ t: 'seats', seats });
-    this.syncBeans();
+  private setDriver(id: number) {
+    this.driver = id;
+    this.link.send({ t: 'driver', id });
   }
 
-  /** The beans on the bus match the seats (and Gordie, once he's free). */
-  private syncBeans() {
-    const want = new Map<number, number>();
-    this.seats.forEach((id, seat) => id >= 0 && want.set(id, seat));
-    for (const [id, b] of this.beans)
-      if (want.get(id) !== b.seat) {
-        this.busModel.remove(b.bean.root);
-        this.beans.delete(id);
+  /** Everyone's bean, where they are on the bus: the driver sat at the wheel, the rest on their feet. */
+  private placeBeans(dt: number) {
+    for (const c of this.link.crew) {
+      let bean = this.beans.get(c.id);
+      if (!bean) {
+        bean = makeBean(paintOf(this.colorOf(c.id)));
+        this.busModel.add(bean.root);
+        this.beans.set(c.id, bean);
       }
-    for (const [id, seat] of want) {
-      if (this.beans.has(id)) continue;
-      const bean = makeBean(paintOf(this.colorOf(id)), seat === 0);
-      const s = SEATS[seat];
-      // Standing at their window (the driver sits, a little lower).
-      bean.root.position.set(s.side, seat === 0 ? BUS.floor - 0.25 : BUS.floor, -s.along);
-      bean.aim.rotation.y = s.face;
-      this.busModel.add(bean.root);
-      this.beans.set(id, { bean, seat });
+      const me = c.id === this.link.me;
+      const o = me ? { spot: this.spot, yaw: this.yaw, pitch: this.pitch } : this.others.get(c.id);
+      bean.root.visible = (!me || (this.driving && this.chase)) && (!!o || c.id === this.driver);
+      bean.gun.visible = c.id !== this.driver;
+      if (c.id === this.driver) {
+        bean.root.position.set(DRIVER.side, BUS.floor - 0.25, -DRIVER.along);
+        bean.aim.rotation.y = 0;
+        continue;
+      }
+      if (!o) continue;
+      const y = o.spot.level ? BUS.deck : BUS.floor;
+      const k = me ? 1 : Math.min(1, dt * 10);
+      bean.root.position.x += (o.spot.side - bean.root.position.x) * k;
+      bean.root.position.z += (-o.spot.along - bean.root.position.z) * k;
+      bean.root.position.y += (y - bean.root.position.y) * Math.min(1, dt * 6);
+      bean.aim.rotation.y = o.yaw;
+      bean.gun.rotation.x = o.pitch;
     }
   }
 
@@ -315,19 +347,34 @@ export class Session {
     this.place(dt);
     this.sendAll(dt);
     this.checkEnd();
-    this.renderer.render(this.scene, this.camera);
+    this.post.render();
   }
 
   private moveBus(dt: number, f: Frame | null) {
     const b = this.bus;
-    const driver = this.seats[0];
+    const driver = this.driver;
     if (driver === this.link.me || (driver === -1 && this.isHost)) {
       // Nobody at the wheel (or the driver's in a minigame or the menu): it rolls to a stop.
       const mine = driver === this.link.me && f && this.run.phase !== 'won' && this.run.phase !== 'lost';
       const drive = mine ? { throttle: f.throttle, brake: f.brake, steer: f.steer, handbrake: f.handbrake } : b.v > 0.3 ? { ...NO_DRIVE, brake: 0.4 } : NO_DRIVE;
       const near = roadNear(this.route.road, b.x, b.z, this.roadHint);
       this.roadHint = near.i;
-      stepBus(b, drive, dt, near.d < ROAD.half + 1);
+      // The hills under it (front wheels against back), the mud, an empty tank.
+      const fw = fwdOf(b.h);
+      const span = 7;
+      const grade = (this.ground(b.x + (fw.x * span) / 2, b.z + (fw.z * span) / 2) - this.ground(b.x - (fw.x * span) / 2, b.z - (fw.z * span) / 2)) / span;
+      const haz = hazardAt(this.route, b.x, b.z);
+      stepBus(b, drive, dt, { grade, onRoad: near.d < ROAD.half + 1, mud: haz?.kind === 'mud', fumes: this.run.fuel <= 0 });
+      // Potholes: a jolt that kills speed (the host takes the damage).
+      this.route.hazards.forEach((h, i) => {
+        if (h.kind !== 'pothole' || Math.abs(h.x - b.x) > 9 || Math.abs(h.z - b.z) > 9 || Math.abs(b.v) < 4) return;
+        if (!onBus(b, h.x, h.z, h.r * 0.5) || this.clock - (this.jolted.get(i) ?? -9) < 2) return;
+        this.jolted.set(i, this.clock);
+        b.v *= HAZARD.potholeKeep;
+        this.shake = 1;
+        this.audio.play('bump', 1);
+        this.api.rumble(1, 0.6, 250);
+      });
       const lost = collideBus(b, this.route.obstacles);
       if (lost > 3 && this.bumpT <= 0) {
         this.audio.play('bump', Math.min(1, lost / 12));
@@ -382,14 +429,14 @@ export class Session {
     }
   }
 
-  /** Your own doings: aim, shoot, swing, seats, honks, the stop's minigame. */
+  /** Your own doings: walk, climb, take or leave the wheel, aim, shoot, swing, honk, the stop's minigame. */
   private act_(dt: number, f: Frame) {
-    const gunner = this.mySeat > 0;
-    if (this.mySeat !== this.lookSeat) {
-      // A new seat: look the way it faces.
-      this.lookSeat = this.mySeat;
+    if (this.driving !== this.wasDriving) {
+      // Sat down at the wheel (look ahead) or got up from it (stand beside it).
+      if (!this.driving) this.spot = { ...OFF_CAB };
       this.yaw = 0;
-      this.pitch = this.mySeat === 0 ? -0.08 : -0.12;
+      this.pitch = -0.08;
+      this.wasDriving = this.driving;
     }
     if (f.view && this.driving) this.chase = !this.chase;
     if (this.mini) {
@@ -397,7 +444,11 @@ export class Session {
       else this.mini.update(dt, f);
     } else {
       if (f.use && this.miniOpen()) this.openMini();
-      if (f.seat) this.wantSeat(this.driving ? -1 : 0);
+      if (f.seat && (this.driving || atCab(this.spot))) this.wantWheel(!this.driving);
+      if (f.climb && !this.driving && atHatch(this.spot)) {
+        this.spot.level = this.spot.level ? 0 : 1;
+        this.audio.play('reload', 0.5);
+      }
     }
     if (f.honk !== this.honking) {
       this.honking = f.honk;
@@ -408,12 +459,15 @@ export class Session {
     this.clubT -= dt;
     this.swingT -= dt;
     if (this.reloadT > 0 && (this.reloadT -= dt) <= 0) this.ammo = GUN.hopper;
-    if (this.mini || this.mySeat < 0) return;
-    // Look round: the driver round the cab, everyone else out of their window.
-    const reach = this.driving ? LOOK.driver : LOOK.window;
-    this.yaw = Math.max(-reach, Math.min(reach, this.yaw + f.yaw));
-    this.pitch = Math.max(-1.0, Math.min(0.8, this.pitch + f.pitch));
-    if (!gunner) return;
+    if (this.mini) return;
+    this.pitch = Math.max(-1.1, Math.min(0.9, this.pitch + f.pitch));
+    if (this.driving) {
+      // Look round the cab; the wheel's in your hands.
+      this.yaw = Math.max(-DRIVER.look, Math.min(DRIVER.look, this.yaw + f.yaw));
+      return;
+    }
+    this.yaw = (this.yaw + f.yaw) % (Math.PI * 2);
+    walk(this.spot, f.fwd, f.side, this.yaw, dt);
     if ((f.reload && this.ammo < GUN.hopper) || this.ammo <= 0) this.reload();
     if (f.fire && this.fireT <= 0 && this.ammo > 0 && this.reloadT <= 0) this.fire();
     if (f.swing && this.run.club && this.clubT <= 0) this.swing();
@@ -450,15 +504,25 @@ export class Session {
       this.act.shots.push(Math.round(from.x * 10), Math.round(from.y * 10), Math.round(from.z * 10), Math.round(dir.x * 1000), Math.round(dir.y * 1000), Math.round(dir.z * 1000));
   }
 
-  /** A paintball of mine: did it hit a zombie or a pickup on the way from `from` to `b.p`? */
+  /** A paintball of mine: did it hit the bus's wall, a zombie or a pickup on the way from `from` to `b.p`? */
   private testBall(b: { p: THREE.Vector3; c: number }, from: THREE.Vector3) {
+    // From inside the bus it only gets out through a window.
+    const a = this.busModel.worldToLocal(from.clone());
+    const c = this.busModel.worldToLocal(b.p.clone());
+    const wall = wallHit(a, c);
+    if (wall) {
+      const at = this.busModel.localToWorld(new THREE.Vector3(wall.x, wall.y, wall.z));
+      this.paint.splat(at.x, at.y, at.z, b.c, false, 0.35);
+      return true;
+    }
     for (const z of this.zs) {
       if (z.st === 'dead' || z.st === 'fly') continue;
       const s = this.horde.at(z.id) ?? z;
       const r = ZOMBIE[z.k].r + 0.3;
       const scale = z.k === 2 ? 1.45 : 1;
+      const gy = this.ground(s.x, s.z) + s.y;
       // The zombie as a vertical capsule: test the ball's step against its axis.
-      if (segToSeg(from, b.p, s.x, s.y + 0.4 * scale, s.y + 1.85 * scale, s.z) < r) {
+      if (segToSeg(from, b.p, s.x, gy + 0.4 * scale, gy + 1.85 * scale, s.z) < r) {
         this.paint.splat(b.p.x, b.p.y, b.p.z, b.c, false, 0.5);
         this.audio.play('splat', 0.5);
         if (this.director) this.director.hit(z.id, this.myColor);
@@ -468,11 +532,12 @@ export class Session {
     }
     for (const p of this.route.pickups) {
       if (this.taken.has(p.id) || Math.abs(p.x - b.p.x) > 3 || Math.abs(p.z - b.p.z) > 3) continue;
-      if (segToSeg(from, b.p, p.x, 0.8, 1.6, p.z) < 0.75) {
+      const gy = this.ground(p.x, p.z);
+      if (segToSeg(from, b.p, p.x, gy + 0.8, gy + 1.6, p.z) < 0.75) {
         if (this.director) this.director.grab(p.id);
         else if (this.act.grabs.length < ACT_MAX.grabs) this.act.grabs.push(p.id);
         this.taken.add(p.id);
-        this.audio.play(p.kind === 'cash' ? 'cash' : 'fix');
+        this.audio.play(p.kind === 'repair' ? 'fix' : 'cash');
         return true;
       }
     }
@@ -500,9 +565,9 @@ export class Session {
     else this.act.swing.push(...ids);
   }
 
-  private wantSeat(want: number) {
-    if (this.isHost) this.setSeats(takeSeat(this.seats, this.link.me, want));
-    else this.link.send({ t: 'seat', want });
+  private wantWheel(want: boolean) {
+    if (this.isHost) this.setDriver(takeWheel(this.driver, this.link.me, want));
+    else this.link.send({ t: 'drive', want });
   }
 
   /** Is there a minigame to play right here, right now? */
@@ -517,7 +582,7 @@ export class Session {
       if (this.director) this.director.mini(k, v);
       else this.link.send({ t: 'mini', k, v });
     };
-    this.mini = k === 'golf' ? new Golf(() => report(1), this.audio, () => this.run.teed, RUN.golfTees) : new Slots((v) => report(v), this.audio, () => this.run.money, RUN.bail);
+    this.mini = k === 'golf' ? new Golf(() => report(1), this.audio, () => this.run.teed, this.run.tees) : new Slots((v) => report(v), this.audio, () => this.run.money, this.run.bail);
     this.miniKind = k;
     this.stage.append(this.mini.el);
   }
@@ -533,19 +598,25 @@ export class Session {
 
   private place(dt: number) {
     const b = this.bus;
-    this.busModel.position.set(b.x, 0, b.z);
-    this.busModel.rotation.set(0, b.h, -b.steer * Math.min(1, Math.abs(b.v) / 20) * 0.08);
+    // Over the hills: sit on the ground under its wheels, nose up a climb, leaning on a slope; jolted by potholes.
+    const fw = fwdOf(b.h);
+    const rt = rightOf(b.h);
+    const g = (al: number, sd: number) => this.ground(b.x + fw.x * al + rt.x * sd, b.z + fw.z * al + rt.z * sd);
+    const front = g(3.5, 0);
+    const back = g(-3.5, 0);
+    const left = g(0, -1.3);
+    const right = g(0, 1.3);
+    const k = Math.min(1, dt * 8);
+    this.busY += ((front + back + left + right) / 4 - this.busY) * k;
+    this.tilt.pitch += (Math.atan2(front - back, 7) - this.tilt.pitch) * k;
+    this.tilt.roll += (Math.atan2(right - left, 2.6) - this.tilt.roll) * k;
+    this.shake = Math.max(0, this.shake - dt * 3);
+    const jolt = this.shake * Math.sin(this.clock * 40) * 0.12;
+    this.busModel.position.set(b.x, this.busY + jolt, b.z);
+    this.busModel.rotation.set(this.tilt.pitch + jolt * 0.2, b.h, this.tilt.roll - b.steer * Math.min(1, Math.abs(b.v) / 20) * 0.08, 'YXZ');
     this.busModel.children.forEach((c) => c.name === 'wheel' && (c.rotation.x -= (b.v * dt) / 0.55));
     if (this.steer) this.steer.rotation.z = -b.steer * 3;
-    // Everyone else at their windows, turning as they aim (yaw relative to their seat's direction).
-    for (const [id, { bean, seat }] of this.beans) {
-      bean.root.visible = id !== this.link.me || (this.driving && this.chase);
-      const a = this.aims.get(id);
-      if (a && seat > 0) {
-        bean.aim.rotation.y = SEATS[seat].face + a.yaw;
-        bean.gun.rotation.x = a.pitch;
-      }
-    }
+    this.placeBeans(dt);
     if (this.run.gordie && !this.gordie) {
       // Gordie, fresh out of the cells, stands in the aisle in his orange jumpsuit and fires out of both sides.
       this.gordie = makeBean('#ff7a1a');
@@ -562,26 +633,26 @@ export class Session {
       this.thunderT = 0.4 + Math.random() * 0.9;
     }
     if (this.thunderT > 0 && (this.thunderT -= dt) <= 0) this.audio.play('thunder');
-    this.horde.update(this.zs, dt, this.clock);
-    this.paint.update(dt, GUN.gravity, (ball, from) => this.testBall(ball, from));
+    this.horde.update(this.zs, dt, this.clock, this.ground);
+    this.busModel.updateMatrixWorld();
+    this.paint.update(dt, GUN.gravity, (ball, from) => this.testBall(ball, from), this.ground);
 
-    const gunner = this.mySeat > 0;
-    if (this.mySeat >= 0 && !(this.driving && this.chase)) {
-      // First person: at the wheel, or at your window.
-      this.busModel.updateMatrixWorld();
-      const s = SEATS[this.mySeat];
-      const p = new THREE.Vector3(s.side, BUS.floor + (this.driving ? BUS.driverEye : BUS.eye), -s.along);
+    const gunner = !this.driving;
+    if (!(this.driving && this.chase)) {
+      // First person: at the wheel, or on your feet (inside, or up on the roof deck).
+      const p = this.driving
+        ? new THREE.Vector3(DRIVER.side, BUS.floor + BUS.driverEye, -DRIVER.along)
+        : new THREE.Vector3(this.spot.side, (this.spot.level ? BUS.deck : BUS.floor) + BUS.eye, -this.spot.along);
       this.busModel.localToWorld(p);
       this.camera.position.copy(p);
-      this.camera.rotation.set(this.pitch, b.h + s.face + this.yaw, 0, 'YXZ');
+      this.camera.rotation.set(this.pitch + this.tilt.pitch * 0.5, b.h + this.yaw, this.tilt.roll * 0.5, 'YXZ');
     } else {
       // The chase camera, swinging round behind the bus.
-      const f = fwdOf(b.h);
-      const want = new THREE.Vector3(b.x - f.x * CHASE.back, CHASE.up, b.z - f.z * CHASE.back);
-      const k = Math.min(1, dt * 4);
+      const want = new THREE.Vector3(b.x - fw.x * CHASE.back, this.busY + CHASE.up, b.z - fw.z * CHASE.back);
+      const kc = Math.min(1, dt * 4);
       if (this.camera.position.distanceTo(want) > 60) this.camera.position.copy(want);
-      else this.camera.position.lerp(want, k);
-      this.camera.lookAt(b.x + f.x * CHASE.ahead, 2, b.z + f.z * CHASE.ahead);
+      else this.camera.position.lerp(want, kc);
+      this.camera.lookAt(b.x + fw.x * CHASE.ahead, this.busY + 2, b.z + fw.z * CHASE.ahead);
     }
     this.viewGun.visible = gunner && this.swingT <= 0 && !this.mini;
     this.viewClub.visible = gunner && this.swingT > 0;
@@ -602,7 +673,7 @@ export class Session {
     const s = roadNear(this.route.road, b.x, b.z, this.roadHint).s;
     let arrow = 0;
     if (stop) {
-      const look = this.mySeat >= 0 && !(this.driving && this.chase) ? b.h + SEATS[this.mySeat].face + this.yaw : b.h;
+      const look = this.driving && this.chase ? b.h : b.h + this.yaw;
       arrow = -angleDiff(Math.atan2(-(stop.x - b.x), -(stop.z - b.z)), look);
     }
     this.hud.update(dt, {
@@ -617,9 +688,10 @@ export class Session {
       reloading: this.reloadT > 0,
       club: this.clubT,
       bus: b,
-      crew: this.link.crew.map((c) => ({ name: c.name, seat: this.seats.indexOf(c.id), me: c.id === this.link.me, color: paintOf(this.colorOf(c.id)) })),
+      crew: this.link.crew.map((c) => ({ name: c.name, driver: c.id === this.driver, me: c.id === this.link.me, color: paintOf(this.colorOf(c.id)) })),
       locked: this.input.locked,
       busy: !!this.mini || this.paused || !!this.endEl,
+      prompt: this.prompt(),
     });
     this.hud.drawMap(this.route, b, this.zs, this.run.stage);
     if (this.miniKind && !this.miniOpen()) this.closeMini();
@@ -628,6 +700,17 @@ export class Session {
       this.lastPhase = this.run.phase;
       this.lastStage = this.run.stage;
     }
+  }
+
+  /** What you can do right where you are (the big prompt). */
+  private prompt() {
+    if (this.mini || this.endEl) return '';
+    if (this.miniOpen()) return stopOf(this.run) === 'golf' ? 'E / Ⓐ  TEE OFF AT THE RANGE' : 'E / Ⓐ  HIT THE SLOTS';
+    if (this.driving) return '';
+    if (atCab(this.spot)) return this.driver === -1 ? 'F / Ⓨ  DRIVE' : 'Someone’s driving';
+    if (atHatch(this.spot)) return this.spot.level ? 'SPACE / Ⓑ  CLIMB DOWN' : 'SPACE / Ⓑ  CLIMB UP TO THE ROOF';
+    if (this.driver === -1 && this.run.phase === 'drive') return 'Nobody’s driving! Get to the front (F / Ⓨ)';
+    return '';
   }
 
   /** A popup or a splat from the director. */
@@ -641,7 +724,7 @@ export class Session {
     if (f.k === 'yeet') {
       if (onScreen) this.hud.pop(pick(['YEET!', 'YOINK!', 'BYE!', 'SPLAT!', 'BONK!']), sx, sy, '#ffe14a', true);
       this.audio.play('yeet', vol);
-      this.paint.splat(f.x, 0.04, f.z, 3, true, 1.2);
+      this.paint.splat(f.x, this.ground(f.x, f.z) + 0.05, f.z, 3, true, 1.2);
     } else if (f.k === 'fore') {
       if (onScreen) this.hud.pop('FORE!', sx, sy, '#7cff5b', true);
       this.audio.play('fore', vol);
@@ -660,8 +743,14 @@ export class Session {
     } else if (f.k === 'grab') {
       const p = this.route.pickups[f.n];
       if (p?.kind === 'cash' && onScreen) this.hud.pop(`+$${RUN.cash}`, sx, sy, '#7cff5b');
-      if (p) this.audio.play(p.kind === 'cash' ? 'cash' : 'fix', Math.max(0.3, vol));
+      if (p?.kind === 'gas') this.hud.pop(`+GAS ⛽`, onScreen ? sx : this.stage.clientWidth / 2, onScreen ? sy : this.stage.clientHeight * 0.4, '#ffb03a', true);
+      if (p) this.audio.play(p.kind === 'repair' ? 'fix' : 'cash', Math.max(0.3, vol));
       this.taken.add(f.n);
+    } else if (f.k === 'bump') {
+      if (onScreen) this.hud.pop(`POTHOLE! −${f.n}`, sx, sy, '#ff8a8a');
+      this.shake = Math.max(this.shake, 0.6);
+    } else if (f.k === 'round') {
+      this.audio.play('bell');
     } else if (f.k === 'heal') {
       this.hud.pop(f.n > 0 ? `+${f.n} BUS 🔧` : 'BUS ALREADY FULL', onScreen ? sx : this.stage.clientWidth / 2, onScreen ? sy : this.stage.clientHeight * 0.4, f.n > 0 ? '#5ee06a' : '#c8c8d8', f.n > 0);
       if (f.n > 0) this.hud.flashHp();
@@ -672,9 +761,10 @@ export class Session {
 
   private sendAll(dt: number) {
     for (const k of Object.keys(this.timers) as (keyof typeof this.timers)[]) this.timers[k] -= dt;
-    if (this.mySeat > 0 && this.timers.aim <= 0) {
+    if (!this.driving && this.timers.aim <= 0) {
       this.timers.aim = SEND.aim;
-      this.link.send({ t: 'aim', yaw: round(this.yaw % (Math.PI * 2), 100), pitch: round(this.pitch, 100) });
+      const s = this.spot;
+      this.link.send({ t: 'aim', yaw: round(this.yaw, 100), pitch: round(this.pitch, 100), s: round(s.side, 100), a: round(s.along, 100), l: s.level });
     }
     const a = this.act;
     if (this.timers.act <= 0 && (a.shots.length || a.hits.length || a.grabs.length || a.swing.length)) {
@@ -703,12 +793,19 @@ export class Session {
     resume.textContent = 'Back to the bus';
     resume.dataset.autofocus = '';
     resume.onclick = () => this.setPaused(false);
+    const looks = document.createElement('button');
+    const label = () => (looks.textContent = `Graphics: ${this.post.fancy ? 'Fancy (glow + shadows)' : 'Fast'}`);
+    label();
+    looks.onclick = () => {
+      this.post.setFancy(!this.post.fancy);
+      label();
+    };
     const leave = document.createElement('button');
     leave.textContent = 'Leave the run';
     leave.onclick = () => this.onLeave();
     const how = document.createElement('p');
-    how.textContent = 'Driver: W/S or RT/LT, A/D or the stick, Space/Ⓧ handbrake, H/LB horn. Roof: mouse or right stick to aim, click/RT to shoot, R/Ⓧ reload, V/RB club. F/Ⓨ swaps seats; E/Ⓐ plays a stop’s game.';
-    el.append(h, resume, leave, how);
+    how.textContent = 'On foot: WASD or the left stick to walk the bus, mouse or right stick to aim, click/RT shoot, R/Ⓧ reload, V/RB club, Space/Ⓑ at the hatch to climb to the roof. F/Ⓨ at the front to drive (and again to get up). Driving: W/S or RT/LT, A/D or the stick, Space/Ⓧ handbrake, H/LB horn, C/View chase cam. E/Ⓐ at a stop plays its game.';
+    el.append(h, resume, looks, leave, how);
     this.stage.append(el);
     resume.focus();
   }
@@ -763,6 +860,8 @@ export class Session {
     this.horde.dispose();
     this.paint.dispose();
     this.sky.dispose();
+    this.post.dispose();
+    this.renderer.shadowMap.enabled = false;
     this.scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry && !(o as THREE.InstancedMesh).isInstancedMesh) m.geometry.dispose();

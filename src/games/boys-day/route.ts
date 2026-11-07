@@ -1,8 +1,10 @@
-// The run's map, generated from a seed: one long road that snakes from the paintball arena past the driving range,
-// the casino and the jail to the boys' house, with farmland, woods and town strips beside it. The same seed builds the
-// same map on every screen, so only the seed goes over the wire. Pure: no three.js.
+// The run's map, generated from a seed: one long road that snakes over the hills from the paintball arena past the
+// driving range, the casino and the jail to the boys' house, with farmland, woods and town strips beside it, and the
+// apocalypse's mess on it (fallen trees, boulders, potholes, mud). The same seed builds the same map on every screen,
+// so only the seed goes over the wire. Pure: no three.js.
 
 import { RUN, STOP_ORDER, rng, type Obstacle, type StopKind } from './rules.ts';
+import { hillsFor, roadHeights, wildness } from './terrain.ts';
 
 export interface RoadPoint {
   x: number;
@@ -11,6 +13,8 @@ export interface RoadPoint {
   h: number;
   /** Distance along the road from the start (m). */
   s: number;
+  /** The road's height here (m). */
+  y: number;
   /** Town stretch (lamp posts, houses) rather than country. */
   town: boolean;
 }
@@ -23,6 +27,8 @@ export interface Stop {
   z: number;
   /** -1: the building's on the left of the road, 1: on the right. */
   side: number;
+  /** The ground's height at the stop (it's flat there). */
+  y: number;
   /** The building: centre, facing the road (yaw), size. */
   bx: number;
   bz: number;
@@ -44,18 +50,31 @@ export interface Prop {
 
 export interface Pickup {
   id: number;
-  kind: 'cash' | 'repair';
+  kind: 'cash' | 'repair' | 'gas';
   x: number;
   z: number;
 }
 
-/** A crowd standing about that wakes up when the bus comes near. */
-export interface Horde {
-  id: number;
+/**
+ * The road's hazards: a fallen tree across a lane (solid), a pile of boulders (solid), a pothole (a jolt that
+ * hurts the bus and kills speed), a mud patch (drags and steals the steering's grip).
+ */
+export interface Hazard {
+  kind: 'log' | 'rocks' | 'pothole' | 'mud';
   x: number;
   z: number;
-  n: number;
+  /** Which way it lies (yaw), and its size (m: the log's length, the rocks' spread, the hole's or mud's radius). */
+  h: number;
+  r: number;
 }
+
+export const HAZARD = {
+  /** Chance per road point (past the start, clear of the stops). */
+  chance: 0.07,
+  /** Bus over a pothole: the speed it keeps, and the damage. */
+  potholeKeep: 0.7,
+  potholeDamage: 14,
+} as const;
 
 export interface Route {
   seed: number;
@@ -64,7 +83,7 @@ export interface Route {
   props: Prop[];
   obstacles: Obstacle[];
   pickups: Pickup[];
-  hordes: Horde[];
+  hazards: Hazard[];
   /** Box round everything (for the ground). */
   min: { x: number; z: number };
   max: { x: number; z: number };
@@ -93,7 +112,7 @@ export const ROAD = {
 /** Builds the whole map from a seed. */
 export function makeRoute(seed: number): Route {
   const r = rng(seed);
-  const road: RoadPoint[] = [{ x: 0, z: 0, h: 0, s: 0, town: true }];
+  const road: RoadPoint[] = [{ x: 0, z: 0, h: 0, s: 0, y: 0, town: true }];
   const stopAt: number[] = [0];
   let h = 0;
   let curve = 0;
@@ -116,15 +135,19 @@ export function makeRoute(seed: number): Route {
       h = Math.max(-ROAD.maxHeading, Math.min(ROAD.maxHeading, h + curve));
       const p = road[road.length - 1];
       const town = s < 120 || len - s < 140;
-      road.push({ x: p.x - Math.sin(h) * ROAD.step, z: p.z - Math.cos(h) * ROAD.step, h, s: start + s, town });
+      road.push({ x: p.x - Math.sin(h) * ROAD.step, z: p.z - Math.cos(h) * ROAD.step, h, s: start + s, y: 0, town });
     }
     stopAt.push(road.length - 1);
   }
   // A short run past the house, so it isn't at the end of the world.
   for (let k = 0; k < 12; k++) {
     const p = road[road.length - 1];
-    road.push({ x: p.x - Math.sin(h) * ROAD.step, z: p.z - Math.cos(h) * ROAD.step, h, s: p.s + ROAD.step, town: true });
+    road.push({ x: p.x - Math.sin(h) * ROAD.step, z: p.z - Math.cos(h) * ROAD.step, h, s: p.s + ROAD.step, y: 0, town: true });
   }
+  // Over the hills: the road follows them, smoothed and climbable, flat at every stop.
+  const hills = hillsFor(seed);
+  const heights = roadHeights(road.map((p) => hills(p.x, p.z)), ROAD.step, stopAt);
+  road.forEach((p, i) => (p.y = heights[i]));
 
   const stops: Stop[] = STOP_ORDER.map((kind, n) => {
     const i = stopAt[n];
@@ -138,6 +161,7 @@ export function makeRoute(seed: number): Route {
       x: p.x,
       z: p.z,
       side,
+      y: p.y,
       bx: p.x + right.x * side * ROAD.lot,
       bz: p.z + right.z * side * ROAD.lot,
       // Facing the road: the building's front (its -Z) points back at the road.
@@ -236,20 +260,42 @@ export function makeRoute(seed: number): Route {
   }
 
   const pickups: Pickup[] = [];
-  const hordes: Horde[] = [];
+  const hazards: Hazard[] = [];
   for (let i = 12; i < road.length - 6; i++) {
     const p = road[i];
     if (stops.some((s) => Math.abs(road[s.i].s - p.s) < 30)) continue;
-    if (i % 9 === 0 && r() < 0.55) {
-      const off = (r() - 0.5) * 2 * (ROAD.half + 3);
-      const right = { x: Math.cos(p.h), z: -Math.sin(p.h) };
-      pickups.push({ id: pickups.length, kind: r() < 0.62 ? 'cash' : 'repair', x: p.x + right.x * off, z: p.z + right.z * off });
+    const right = { x: Math.cos(p.h), z: -Math.sin(p.h) };
+    if (i % 9 === 0 && r() < 0.6) {
+      const off = (r() - 0.5) * 2 * (ROAD.half - 0.5);
+      const roll = r();
+      // Gas matters most: the tank won't last the whole way home without it.
+      const kind = roll < 0.4 ? 'gas' : roll < 0.75 ? 'cash' : 'repair';
+      pickups.push({ id: pickups.length, kind, x: p.x + right.x * off, z: p.z + right.z * off });
     }
-    if (i % 25 === 0 && r() < 0.6) {
-      const right = { x: Math.cos(p.h), z: -Math.sin(p.h) };
-      const off = (r() - 0.5) * 30;
-      hordes.push({ id: hordes.length, x: p.x + right.x * off, z: p.z + right.z * off, n: 5 + Math.floor(r() * 7) });
-    }
+    // The mess on the road: never two in a row, never by a stop or the start.
+    if (p.s < 90 || i % 3 !== 0 || hazards.some((h) => Math.hypot(h.x - p.x, h.z - p.z) < 40) || stops.some((s) => Math.abs(road[s.i].s - p.s) < 50)) continue;
+    if (r() > HAZARD.chance * 3) continue;
+    const roll = r();
+    const lane = r() < 0.5 ? -1 : 1;
+    if (roll < 0.25) {
+      // A fallen tree across one lane, root end off the shoulder: go round it on the other side.
+      const len = 5.5;
+      const cx = p.x + right.x * lane * (ROAD.half - len / 2 + 1.2);
+      const cz = p.z + right.z * lane * (ROAD.half - len / 2 + 1.2);
+      hazards.push({ kind: 'log', x: cx, z: cz, h: p.h + Math.PI / 2 + (r() - 0.5) * 0.3, r: len });
+      for (let k = -2; k <= 2; k++) obstacles.push({ x: cx + right.x * k * 1.1, z: cz + right.z * k * 1.1, r: 0.55 });
+    } else if (roll < 0.45) {
+      const cx = p.x + right.x * lane * 2.6;
+      const cz = p.z + right.z * lane * 2.6;
+      hazards.push({ kind: 'rocks', x: cx, z: cz, h: r() * 6.28, r: 1.6 });
+      for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * Math.PI * 2;
+        obstacles.push({ x: cx + Math.cos(a) * 1.1, z: cz + Math.sin(a) * 1.1, r: 0.9 });
+      }
+    } else if (roll < 0.75) {
+      const off = (r() - 0.5) * 2 * (ROAD.half - 1.5);
+      hazards.push({ kind: 'pothole', x: p.x + right.x * off, z: p.z + right.z * off, h: r() * 6.28, r: 1.1 + r() * 0.5 });
+    } else hazards.push({ kind: 'mud', x: p.x, z: p.z, h: p.h, r: 6 + r() * 4 });
   }
 
   const xs = road.map((p) => p.x);
@@ -262,21 +308,30 @@ export function makeRoute(seed: number): Route {
     props,
     obstacles,
     pickups,
-    hordes,
+    hazards,
     min: { x: Math.min(...xs) - pad, z: Math.min(...zs) - pad },
     max: { x: Math.max(...xs) + pad, z: Math.max(...zs) + pad },
   };
 }
 
-/** The nearest point on the road to (x, z): the segment index, the distance and how far along the road it is. */
+/**
+ * The nearest point on the road to (x, z): the segment index, the distance, how far along the road it is, and the
+ * road's height there. Without a hint it starts from the road point level with z (the road always heads on down -Z).
+ */
 export function roadNear(road: readonly RoadPoint[], x: number, z: number, hint = -1) {
-  let lo = 0;
-  let hi = road.length - 1;
-  if (hint >= 0) {
-    lo = Math.max(0, hint - 40);
-    hi = Math.min(road.length - 1, hint + 40);
+  if (hint < 0) {
+    let a = 0;
+    let b = road.length - 1;
+    while (b - a > 1) {
+      const m = (a + b) >> 1;
+      if (road[m].z > z) a = m;
+      else b = m;
+    }
+    hint = a;
   }
-  let best = { i: 0, d: Infinity, s: 0 };
+  const lo = Math.max(0, hint - 40);
+  const hi = Math.min(road.length - 1, hint + 40);
+  let best = { i: 0, d: Infinity, s: 0, y: 0 };
   for (let i = lo; i < hi; i++) {
     const a = road[i];
     const b = road[i + 1];
@@ -285,9 +340,31 @@ export function roadNear(road: readonly RoadPoint[], x: number, z: number, hint 
     const l2 = ex * ex + ez * ez;
     const t = Math.max(0, Math.min(1, ((x - a.x) * ex + (z - a.z) * ez) / l2));
     const d = Math.hypot(x - (a.x + ex * t), z - (a.z + ez * t));
-    if (d < best.d) best = { i, d, s: a.s + (b.s - a.s) * t };
+    if (d < best.d) best = { i, d, s: a.s + (b.s - a.s) * t, y: a.y + (b.y - a.y) * t };
   }
   return best;
+}
+
+const hillCache = new WeakMap<Route, (x: number, z: number) => number>();
+
+/** The ground's height at (x, z): the road's height on and by the road, the wild hills further out. */
+export function groundAt(route: Route, x: number, z: number, hint = -1) {
+  let hills = hillCache.get(route);
+  if (!hills) {
+    hills = hillsFor(route.seed);
+    hillCache.set(route, hills);
+  }
+  const near = roadNear(route.road, x, z, hint);
+  return near.y + (hills(x, z) - near.y) * wildness(near.d);
+}
+
+/** Which hazard (if any) a point is in: potholes and mud only (logs and rocks are solid obstacles). */
+export function hazardAt(route: Route, x: number, z: number) {
+  for (const h of route.hazards) {
+    if (h.kind !== 'pothole' && h.kind !== 'mud') continue;
+    if (Math.abs(h.x - x) < h.r && Math.abs(h.z - z) < h.r && Math.hypot(h.x - x, h.z - z) < h.r) return h;
+  }
+  return null;
 }
 
 /** How far the road runs from the start to stop `n`. */

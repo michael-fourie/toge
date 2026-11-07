@@ -1,10 +1,12 @@
-// The HUD, in the DOM over the canvas: the bus's health, the bail fund, what to do next (with an arrow and the
-// distance), a minimap, ammo, speed, the crew, big banners and the YEET!/FORE! popups. Player names only ever go in
+// The HUD, in the DOM over the canvas: the bus's health and fuel, the bail fund, the zombie round, what to do next
+// (with an arrow and the distance), what you can do right here, a minimap, ammo, speed, the crew, big banners and
+// the YEET!/FORE! popups. Player names only ever go in
 // with textContent.
 
 import type { ZView } from './director.ts';
 import type { Route } from './route.ts';
 import { BUS, GUN, RUN, type Bus, type RunState } from './rules.ts';
+
 
 const div = (cls: string, parent: HTMLElement, text = '') => {
   const d = document.createElement('div');
@@ -28,6 +30,10 @@ export class Hud {
   private speed: HTMLElement;
   private hints: HTMLElement;
   private crew: HTMLElement;
+  private fuel: HTMLElement;
+  private fuelText: HTMLElement;
+  private round: HTMLElement;
+  private prompt: HTMLElement;
   private cross: HTMLElement;
   private banner: HTMLElement;
   private bannerT = 0;
@@ -42,6 +48,10 @@ export class Hud {
     const bar = div('bd-bar', bus);
     this.hp = div('bd-bar-fill', bar);
     this.hpText = div('bd-bar-text', bar);
+    div('bd-label', bus, '⛽ FUEL');
+    const fuelBar = div('bd-bar fuel', bus);
+    this.fuel = div('bd-bar-fill', fuelBar);
+    this.fuelText = div('bd-bar-text', fuelBar);
     const row = div('bd-row', bus);
     this.money = div('bd-money', row);
     this.kills = div('bd-kills', row);
@@ -50,6 +60,7 @@ export class Hud {
     const where = div('bd-where', goal);
     this.arrow = div('bd-arrow', where, '➤');
     this.dist = div('bd-dist', where);
+    this.round = div('bd-round', goal);
     this.map = document.createElement('canvas');
     this.map.className = 'bd-map';
     this.map.width = this.map.height = 170;
@@ -61,6 +72,7 @@ export class Hud {
     this.crew = div('bd-crew', this.el);
     this.banner = div('bd-banner', this.el);
     this.lockHint = div('bd-lockhint', this.el, 'Click to aim');
+    this.prompt = div('bd-prompt', this.el);
   }
 
   /** The health bar flashes green (a repair kit). */
@@ -104,9 +116,10 @@ export class Hud {
       reloading: boolean;
       club: number;
       bus: Bus;
-      crew: { name: string; seat: number; me: boolean; color: string }[];
+      crew: { name: string; driver: boolean; me: boolean; color: string }[];
       locked: boolean;
       busy: boolean;
+      prompt: string;
     },
   ) {
     const { run } = o;
@@ -114,7 +127,15 @@ export class Hud {
     this.hp.style.width = `${k * 100}%`;
     this.hp.style.background = k > 0.5 ? '#5ee06a' : k > 0.25 ? '#ffc23f' : '#ff4a4a';
     this.hpText.textContent = `${Math.ceil(run.busHp)}`;
-    this.money.textContent = `$${run.money}${run.stage <= 3 && !run.bailPaid ? ` / $${RUN.bail} bail` : ''}`;
+    this.money.textContent = `$${run.money}${run.stage <= 3 && !run.bailPaid ? ` / $${run.bail} bail` : ''}`;
+    const fk = run.fuel / RUN.fuel;
+    this.fuel.style.width = `${fk * 100}%`;
+    this.fuel.style.background = fk > 0.3 ? '#ffb03a' : '#ff4a4a';
+    this.fuelText.textContent = run.fuel <= 0 ? 'EMPTY! Shoot or drive over gas cans' : `${Math.ceil(run.fuel)}%`;
+    this.round.textContent = run.calm > 0 ? (run.round ? `Round ${run.round} survived · next in ${Math.ceil(run.calm)} s` : `First round in ${Math.ceil(run.calm)} s`) : `ROUND ${run.round} · ${run.left} left`;
+    this.round.classList.toggle('calm', run.calm > 0);
+    this.prompt.textContent = o.prompt;
+    this.prompt.style.display = o.prompt ? 'block' : 'none';
     this.kills.textContent = `🧟 ${run.kills}`;
     this.goal.textContent = o.objective;
     this.dist.textContent = run.phase === 'drive' ? `${Math.round(o.toStop)} m` : '';
@@ -126,8 +147,8 @@ export class Hud {
     this.speed.style.display = o.driver ? 'block' : 'none';
     this.speed.textContent = `${Math.round(Math.abs(o.bus.v) * 3.6)} km/h`;
     this.hints.textContent = o.driver
-      ? `W/S or RT/LT drive · A/D steer · Space/Ⓧ handbrake · H/LB horn · C/View ${o.chase ? 'cab view' : 'chase cam'} · F/Ⓨ to a window`
-      : `Click/RT shoot · R/Ⓧ reload${run.club ? ' · V/RB swing the club' : ''} · F/Ⓨ take the wheel · E/Ⓐ at a stop: go in`;
+      ? `W/S or RT/LT drive · A/D steer · Space/Ⓧ handbrake · H/LB horn · C/View ${o.chase ? 'cab view' : 'chase cam'} · F/Ⓨ get up`
+      : `WASD walk · Click/RT shoot · R/Ⓧ reload${run.club ? ' · V/RB swing the club' : ''} · Space/Ⓑ at the hatch: roof`;
     this.lockHint.style.display = o.gunner && !o.locked && !o.busy ? 'block' : 'none';
     this.crew.replaceChildren(
       ...o.crew.map((c) => {
@@ -137,7 +158,7 @@ export class Hud {
         dot.className = 'dot';
         dot.style.background = c.color;
         const n = document.createElement('span');
-        n.textContent = `${c.seat === 0 ? '🚌 ' : ''}${c.name}`;
+        n.textContent = `${c.driver ? '🚌 ' : ''}${c.name}`;
         d.append(dot, n);
         return d;
       }),

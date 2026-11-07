@@ -1,22 +1,25 @@
 // The messages a run sends through the party room, and readMsg, which checks each one's shape before anything uses
-// it (party data is untrusted). Host → everyone: start, seats, run state, zombies (with the effects since the last
-// batch). Players → everyone: the driver's bus pose, aim, and 'act' (a tenth of a second's shots, hits, pickups and
-// club swings in one message), minigame results, seat requests, honks. Batching keeps a busy player well under the
+// it (party data is untrusted). Host → everyone: start, who's driving, run state, zombies (with the effects since the
+// last batch). Players → everyone: the driver's bus pose, where they are on the bus and where they're looking, and
+// 'act' (a tenth of a second's shots, hits, pickups and club swings in one message), minigame results, asking for
+// the wheel, honks. Batching keeps a busy player well under the
 // party relay's 60 messages a second.
 
 import { Z_STATES, type FxKind } from './director.ts';
-import { MAX_PLAYERS, SEED_MAX, SLOT_MAX, type Phase, type RunState } from './rules.ts';
+import { BUS, SEED_MAX, SLOT_MAX, type Phase, type RunState } from './rules.ts';
 
 export type Msg =
-  | { t: 'start'; seed: number; seats: number[] }
-  | { t: 'seats'; seats: number[] }
+  | { t: 'start'; seed: number; driver: number }
+  | { t: 'driver'; id: number }
   | { t: 'run'; run: RunState; taken: number[] }
   | { t: 'z'; z: number[]; fx: { k: FxKind; x: number; y: number; z: number; n: number }[]; said: string[] }
   | { t: 'bus'; x: number; z: number; h: number; v: number; s: number }
-  | { t: 'aim'; yaw: number; pitch: number }
+  /** Where you are on the bus (bus-local `s`ide and `a`long, `l`evel 0 inside or 1 on the roof) and your look. */
+  | { t: 'aim'; yaw: number; pitch: number; s: number; a: number; l: 0 | 1 }
   | Act
   | { t: 'mini'; k: 'golf' | 'casino'; v: number }
-  | { t: 'seat'; want: number }
+  /** Take the wheel (true) or get up from it (false). */
+  | { t: 'drive'; want: boolean }
   | { t: 'honk' }
   | { t: 'again' };
 
@@ -32,7 +35,7 @@ export interface Act {
 
 export const ACT_MAX = { shots: 20, hits: 20, grabs: 6, swing: 8 } as const;
 
-const FX: FxKind[] = ['yeet', 'fore', 'splat', 'gordie', 'grab', 'hurt', 'shake', 'heal'];
+const FX: FxKind[] = ['yeet', 'fore', 'splat', 'gordie', 'grab', 'hurt', 'shake', 'heal', 'bump', 'round'];
 const PHASES: Phase[] = ['drive', 'stop', 'won', 'lost'];
 
 const num = (v: unknown, max = 1e6): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max;
@@ -45,8 +48,9 @@ function readRun(r: unknown): RunState | null {
   if (!r || typeof r !== 'object') return null;
   const o = r as Record<string, unknown>;
   if (!seed(o.seed) || !int(o.stage, 10) || !PHASES.includes(o.phase as Phase)) return null;
-  if (!num(o.busHp) || !int(o.money) || !int(o.teed, 10) || !num(o.hold, 999) || !num(o.time)) return null;
+  if (!num(o.busHp) || !int(o.money) || !int(o.teed, 99) || !num(o.hold, 999) || !num(o.time)) return null;
   if (!bool(o.bailPaid) || !bool(o.club) || !bool(o.gordie) || !int(o.kills) || !int(o.yeets)) return null;
+  if (!int(o.tees, 99) || !int(o.bail, 1e5) || !num(o.fuel, 1000) || !int(o.round, 999) || !int(o.left, 9999) || !num(o.calm, 999)) return null;
   return {
     seed: o.seed,
     stage: o.stage,
@@ -54,6 +58,12 @@ function readRun(r: unknown): RunState | null {
     busHp: o.busHp,
     money: o.money,
     teed: o.teed,
+    tees: o.tees,
+    bail: o.bail,
+    fuel: o.fuel,
+    round: o.round,
+    left: o.left,
+    calm: o.calm,
     hold: o.hold,
     bailPaid: o.bailPaid,
     club: o.club,
@@ -69,9 +79,9 @@ export function readMsg(d: unknown): Msg | null {
   const m = d as Record<string, unknown>;
   switch (m.t) {
     case 'start':
-      return seed(m.seed) && Array.isArray(m.seats) && m.seats.length <= MAX_PLAYERS && m.seats.every((s) => int(s)) ? { t: 'start', seed: m.seed, seats: m.seats as number[] } : null;
-    case 'seats':
-      return Array.isArray(m.seats) && m.seats.length <= MAX_PLAYERS && m.seats.every((s) => int(s)) ? { t: 'seats', seats: m.seats as number[] } : null;
+      return seed(m.seed) && int(m.driver) ? { t: 'start', seed: m.seed, driver: m.driver } : null;
+    case 'driver':
+      return int(m.id) ? { t: 'driver', id: m.id } : null;
     case 'run': {
       const run = readRun(m.run);
       const taken = Array.isArray(m.taken) && m.taken.length <= 500 && m.taken.every((i) => int(i, 9999)) ? (m.taken as number[]) : null;
@@ -90,7 +100,9 @@ export function readMsg(d: unknown): Msg | null {
     case 'bus':
       return num(m.x) && num(m.z) && num(m.h, 1e4) && num(m.v, 60) && num(m.s, 2) ? { t: 'bus', x: m.x, z: m.z, h: m.h, v: m.v, s: m.s } : null;
     case 'aim':
-      return num(m.yaw, 100) && num(m.pitch, 2) ? { t: 'aim', yaw: m.yaw, pitch: m.pitch } : null;
+      return num(m.yaw, 100) && num(m.pitch, 2) && num(m.s, BUS.width) && num(m.a, BUS.length) && (m.l === 0 || m.l === 1)
+        ? { t: 'aim', yaw: m.yaw, pitch: m.pitch, s: m.s, a: m.a, l: m.l }
+        : null;
     case 'act': {
       const list = (v: unknown, n: number, max: number) => Array.isArray(v) && v.length <= n && v.every((x) => int(x, max));
       if (!int(m.c, 16) || !list(m.shots, ACT_MAX.shots * 6, 1e7) || (m.shots as number[]).length % 6 !== 0) return null;
@@ -99,8 +111,8 @@ export function readMsg(d: unknown): Msg | null {
     }
     case 'mini':
       return (m.k === 'golf' || m.k === 'casino') && num(m.v, SLOT_MAX) && m.v >= 0 ? { t: 'mini', k: m.k, v: m.v } : null;
-    case 'seat':
-      return int(m.want, MAX_PLAYERS) && m.want >= -1 ? { t: 'seat', want: m.want } : null;
+    case 'drive':
+      return bool(m.want) ? { t: 'drive', want: m.want } : null;
     case 'honk':
       return { t: 'honk' };
     case 'again':
@@ -109,25 +121,8 @@ export function readMsg(d: unknown): Msg | null {
   return null;
 }
 
-/**
- * Who sits where: `seats[i]` is the player in seat i (0 is the driver), -1 if it's empty. A player asking for a seat
- * gets it if it's free (leaving their old one); asking for -1 means any free window.
- */
-export function takeSeat(seats: readonly number[], who: number, want: number): number[] {
-  const out = seats.slice();
-  const now = out.indexOf(who);
-  const free = want >= 0 ? (out[want] === -1 ? want : -1) : out.findIndex((s, i) => i > 0 && s === -1);
-  if (free < 0 || free === now) return out;
-  if (now >= 0) out[now] = -1;
-  out[free] = who;
-  return out;
-}
-
-/** The opening seats: the host drives, everyone else takes a window in join order. */
-export function firstSeats(ids: readonly number[], driver: number): number[] {
-  const seats = Array<number>(MAX_PLAYERS).fill(-1);
-  seats[0] = driver;
-  let i = 1;
-  for (const id of ids) if (id !== driver && i < MAX_PLAYERS) seats[i++] = id;
-  return seats;
+/** Who's driving (-1: nobody) after `who` asks to take the wheel (`want`) or get up: the wheel is first come. */
+export function takeWheel(driver: number, who: number, want: boolean): number {
+  if (want) return driver === -1 ? who : driver;
+  return driver === who ? -1 : driver;
 }

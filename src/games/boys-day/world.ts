@@ -1,24 +1,36 @@
-// The run's world, built from the Route: sky, ground, the road ribbon, each stop's building with its sign, and the
-// scenery (instanced per kind, so a few hundred trees are a handful of draw calls). Pickups bob and spin.
+// The run's world, built from the Route: sky, the hilly ground (from `groundAt`, so it matches the bus's physics),
+// the road ribbon on it, each stop's building with its sign, the hazards on the road, and the scenery (instanced per
+// kind, so a few hundred trees are a handful of draw calls). Pickups bob and spin.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { signTexture, toon } from './models.ts';
-import { ROAD, type Prop, type PropKind, type Route, type Stop } from './route.ts';
+import { groundAt, ROAD, type Hazard, type Prop, type PropKind, type Route, type Stop } from './route.ts';
 import { STOP_INFO } from './rules.ts';
+
+/** The ground grid's spacing (m), how far the road ribbon sits above the ground, and how far buildings run on down
+ *  into a slope. */
+const GROUND_STEP = 5;
+const ROAD_LIFT = 0.12;
+const FOOTING = 6;
 
 export class World {
   readonly group = new THREE.Group();
   private pickupMeshes = new Map<number, THREE.Object3D>();
   private markers: THREE.Mesh[] = [];
   private disposables: { dispose(): void }[] = [];
+  /** Every jack-o'-lantern's transform (the stops' and the scenery's), built as one instanced set at the end. */
+  private pumpkins: THREE.Matrix4[] = [];
+  private y = (x: number, z: number) => groundAt(this.route, x, z);
 
   constructor(readonly route: Route) {
     this.ground();
     this.road();
     for (const s of route.stops) this.stop(s);
     this.props();
+    this.hazards();
     this.pickups();
+    this.lanterns();
     this.group.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry) this.disposables.push(m.geometry);
@@ -50,9 +62,15 @@ export class World {
     scene.fog = new THREE.Fog('#241c3c', 45, 260);
     const hemi = new THREE.HemisphereLight('#8f8fd8', '#26301f', 1.15);
     scene.add(hemi);
+    // The moonlight casts shadows in a box round the camera (it follows you down the road).
     const moonLight = new THREE.DirectionalLight('#c4ccff', 1.5);
-    moonLight.position.set(-60, 90, -40);
-    scene.add(moonLight);
+    const MOON = { x: -60, y: 90, z: -40, box: 55 };
+    moonLight.castShadow = true;
+    moonLight.shadow.mapSize.set(2048, 2048);
+    Object.assign(moonLight.shadow.camera, { left: -MOON.box, right: MOON.box, top: MOON.box, bottom: -MOON.box, near: 10, far: 260 });
+    moonLight.shadow.bias = -0.0008;
+    moonLight.shadow.normalBias = 0.04;
+    scene.add(moonLight, moonLight.target);
     // The moon: a big glowing disc that stays in the same spot of sky wherever you drive.
     const mc = document.createElement('canvas');
     mc.width = mc.height = 256;
@@ -78,9 +96,13 @@ export class World {
     moon.scale.setScalar(120);
     scene.add(moon);
     let flashT = 0;
+    const at = new THREE.Vector3();
     return {
       update(camera: THREE.Camera, dt: number) {
         moon.position.set(camera.position.x - 260, 170, camera.position.z - 380);
+        const c = camera.getWorldPosition(at);
+        moonLight.target.position.copy(c);
+        moonLight.position.set(c.x + MOON.x, c.y + MOON.y, c.z + MOON.z);
         // Lightning: a double flicker that fades.
         if (flashT > 0) flashT = Math.max(0, flashT - dt);
         const k = flashT > 0.32 ? 1 : flashT > 0.22 ? 0.2 : flashT > 0.12 ? 0.8 : flashT / 0.12;
@@ -97,6 +119,8 @@ export class World {
     };
   }
 
+  /** The ground: a grid over the map, each vertex lifted to `groundAt` and tinted by height (dark hollows, pale
+   *  hilltops, worn dirt by the road). */
   private ground() {
     const { min, max } = this.route;
     const w = max.x - min.x;
@@ -104,11 +128,11 @@ export class World {
     const c = document.createElement('canvas');
     c.width = c.height = 256;
     const g = c.getContext('2d')!;
-    g.fillStyle = '#4f6a3e';
+    g.fillStyle = '#ffffff';
     g.fillRect(0, 0, 256, 256);
-    // Cartoon grass by moonlight: soft blotches of lighter and darker green, a few dead patches.
+    // Cartoon grass blotches (the vertex colour gives the green; this just breaks it up).
     for (let i = 0; i < 260; i++) {
-      g.fillStyle = i % 7 === 0 ? 'rgba(120,100,70,0.35)' : i % 3 ? 'rgba(110,150,90,0.3)' : 'rgba(40,70,40,0.4)';
+      g.fillStyle = i % 7 === 0 ? 'rgba(150,120,80,0.35)' : i % 3 ? 'rgba(255,255,230,0.18)' : 'rgba(0,30,0,0.22)';
       const r = 4 + ((i * 37) % 14);
       g.beginPath();
       g.arc((i * 97) % 256, (i * 61) % 256, r, 0, 7);
@@ -118,9 +142,46 @@ export class World {
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.repeat.set(w / 24, d / 24);
     tex.colorSpace = THREE.SRGBColorSpace;
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, d), toon('#ffffff', { map: tex }));
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set((min.x + max.x) / 2, 0, (min.z + max.z) / 2);
+    const geo = new THREE.PlaneGeometry(w, d, Math.ceil(w / GROUND_STEP), Math.ceil(d / GROUND_STEP));
+    geo.rotateX(-Math.PI / 2);
+    geo.translate((min.x + max.x) / 2, 0, (min.z + max.z) / 2);
+    const pos = geo.attributes.position as THREE.BufferAttribute;
+    const colors = new Float32Array(pos.count * 3);
+    const low = new THREE.Color('#2c4a2c');
+    const high = new THREE.Color('#7d9a55');
+    const dirt = new THREE.Color('#6b5a40');
+    const col = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      const y = this.y(x, z);
+      pos.setY(i, y);
+      col.copy(low).lerp(high, Math.max(0, Math.min(1, (y + 18) / 40)));
+      colors.set([col.r, col.g, col.b], i * 3);
+    }
+    // Worn dirt shoulders: tint the vertices close to the road.
+    const nx = Math.ceil(w / GROUND_STEP) + 1;
+    const cw = w / (nx - 1);
+    const cd = d / Math.ceil(d / GROUND_STEP);
+    for (const p of this.route.road) {
+      const i0 = Math.round((p.x - min.x) / cw);
+      const j0 = Math.round((p.z - min.z) / cd);
+      for (let dj = -2; dj <= 2; dj++)
+        for (let di = -2; di <= 2; di++) {
+          if (i0 + di < 0 || i0 + di >= nx) continue;
+          const k = (j0 + dj) * nx + (i0 + di);
+          if (k < 0 || k >= pos.count) continue;
+          const dist = Math.hypot(pos.getX(k) - p.x, pos.getZ(k) - p.z);
+          if (dist > 11) continue;
+          const t = 0.7 * (1 - dist / 11);
+          col.setRGB(colors[k * 3], colors[k * 3 + 1], colors[k * 3 + 2]).lerp(dirt, t);
+          colors.set([col.r, col.g, col.b], k * 3);
+        }
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+    const ground = new THREE.Mesh(geo, toon('#ffffff', { map: tex, vertexColors: true }));
+    ground.receiveShadow = true;
     this.group.add(ground);
     this.disposables.push(tex);
   }
@@ -132,7 +193,7 @@ export class World {
     const idx: number[] = [];
     pts.forEach((p, i) => {
       const r = { x: Math.cos(p.h), z: -Math.sin(p.h) };
-      pos.push(p.x - r.x * ROAD.half, 0.03, p.z - r.z * ROAD.half, p.x + r.x * ROAD.half, 0.03, p.z + r.z * ROAD.half);
+      pos.push(p.x - r.x * ROAD.half, p.y + ROAD_LIFT, p.z - r.z * ROAD.half, p.x + r.x * ROAD.half, p.y + ROAD_LIFT, p.z + r.z * ROAD.half);
       uv.push(0, p.s / 12, 1, p.s / 12);
       if (i > 0) {
         const a = (i - 1) * 2;
@@ -171,14 +232,16 @@ export class World {
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 8;
-    this.group.add(new THREE.Mesh(geo, toon('#ffffff', { map: tex })));
+    const road = new THREE.Mesh(geo, toon('#ffffff', { map: tex, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    road.receiveShadow = true;
+    this.group.add(road);
     this.disposables.push(tex);
   }
 
   /** Each stop: a building in its own colours, a big sign, and a few props saying what it is. */
   private stop(s: Stop) {
     const g = new THREE.Group();
-    g.position.set(s.bx, 0, s.bz);
+    g.position.set(s.bx, s.y, s.bz);
     g.rotation.y = s.bh;
     const look: Record<Stop['kind'], { wall: string; roof: string; sign: [string, string] }> = {
       arena: { wall: '#3d5a3d', roof: '#26372a', sign: ['#111', '#7cff5b'] },
@@ -189,8 +252,10 @@ export class World {
     };
     const L = look[s.kind];
     const h = s.kind === 'casino' ? 9 : s.kind === 'home' ? 7 : 6;
-    const body = new THREE.Mesh(new THREE.BoxGeometry(s.w, h, s.d), toon(L.wall));
-    body.position.y = h / 2;
+    // The walls run on down into the hillside (the ground round a stop isn't quite flat).
+    const body = new THREE.Mesh(new THREE.BoxGeometry(s.w, h + FOOTING, s.d), toon(L.wall));
+    body.position.y = (h - FOOTING) / 2;
+    body.castShadow = body.receiveShadow = true;
     g.add(body);
     const roof = new THREE.Mesh(new THREE.BoxGeometry(s.w + 0.6, 0.5, s.d + 0.6), toon(L.roof));
     roof.position.y = h + 0.25;
@@ -217,17 +282,14 @@ export class World {
       w.rotation.y = Math.PI;
       g.add(w);
     }
-    for (const x of [-2.4, 2.4]) {
-      const pk = jackOLantern();
-      pk.position.set(x, 0, -s.d / 2 - 1.2);
-      g.add(pk);
-    }
+    g.updateMatrix();
+    for (const x of [-2.4, 2.4]) this.pumpkins.push(new THREE.Matrix4().makeTranslation(x, 0, -s.d / 2 - 1.2).premultiply(g.matrix));
     this.dressStop(s, g, h);
     this.group.add(g);
     // The parking spot: a glowing ring on the road (shown for the stop you're heading to).
     const ring = new THREE.Mesh(new THREE.RingGeometry(5.5, 6.6, 40), new THREE.MeshBasicMaterial({ color: '#ffe14a', transparent: true, opacity: 0.85, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(s.x, 0.06, s.z);
+    ring.position.set(s.x, s.y + ROAD_LIFT + 0.05, s.z);
     ring.visible = false;
     this.markers.push(ring);
     this.group.add(ring);
@@ -289,7 +351,7 @@ export class World {
       add(new THREE.BoxGeometry(2.4, 0.9, 0.3), '#7a2a2a', -4, 0.75, -s.d / 2 - 7.6);
       const flag = add(new THREE.PlaneGeometry(2.6, 1.6), '#b40a2a', s.w / 2 - 1.5, h - 1, -s.d / 2 - 0.1, { side: THREE.DoubleSide });
       flag.rotation.y = Math.PI;
-      const tower = add(new THREE.BoxGeometry(8, 22, 8), '#d8cfb8', 0, 11, s.d / 2 + 30);
+      const tower = add(new THREE.BoxGeometry(8, 22 + FOOTING * 2, 8), '#d8cfb8', 0, 11 - FOOTING, s.d / 2 + 30);
       tower.name = 'queens';
       add(new THREE.ConeGeometry(6, 6, 4), '#3f6b5a', 0, 25, s.d / 2 + 30).rotation.y = Math.PI / 4;
       // A big bong on the porch. It's the whole point.
@@ -307,14 +369,20 @@ export class World {
     }
     const d = new THREE.Object3D();
     const col = new THREE.Color();
-    /** One InstancedMesh per part of a kind: `place` sets the part's transform for prop p. */
-    const parts = (list: Prop[], geo: THREE.BufferGeometry, color: string | ((p: Prop) => string), place: (p: Prop, o: THREE.Object3D) => void) => {
+    // Each prop stands on the ground (a little sunk in, so nothing floats on a slope).
+    const base = new Map<Prop, number>();
+    for (const p of this.route.props) base.set(p, this.y(p.x, p.z) - 0.15);
+    const at = (p: Prop) => base.get(p)!;
+    /** One InstancedMesh per part of a kind: `place` sets the part's transform for prop p (y up from its ground). */
+    const parts = (list: Prop[], geo: THREE.BufferGeometry, color: string | ((p: Prop) => string), place: (p: Prop, o: THREE.Object3D) => void, shadow = true) => {
       const im = new THREE.InstancedMesh(geo, toon('#ffffff'), list.length);
+      im.castShadow = shadow;
       list.forEach((p, i) => {
         d.position.set(p.x, 0, p.z);
         d.rotation.set(0, p.h, 0);
         d.scale.setScalar(1);
         place(p, d);
+        d.position.y += at(p);
         d.updateMatrix();
         im.setMatrixAt(i, d.matrix);
         im.setColorAt(i, col.set(typeof color === 'string' ? color : color(p)));
@@ -339,7 +407,7 @@ export class World {
       o.scale.setScalar(0.9 + p.s * 0.5);
     });
     const houses = by.get('house') ?? [];
-    parts(houses, new THREE.BoxGeometry(9, 5, 7), (p) => pick(['#d8cfb8', '#b85c4a', '#e8dcc0', '#8fa6b5', '#c9a77a'], p.c), (_, o) => (o.position.y = 2.5));
+    parts(houses, new THREE.BoxGeometry(9, 5 + FOOTING, 7), (p) => pick(['#d8cfb8', '#b85c4a', '#e8dcc0', '#8fa6b5', '#c9a77a'], p.c), (_, o) => (o.position.y = (5 - FOOTING) / 2));
     const roofGeo = new THREE.CylinderGeometry(0.01, 5.6, 3, 4, 1);
     roofGeo.rotateY(Math.PI / 4);
     roofGeo.scale(1.1, 1, 0.85);
@@ -349,7 +417,7 @@ export class World {
     houses.forEach((p, i) => {
       [-2.3, 2.3].forEach((lx, k) => {
         const lz = -3.52;
-        d.position.set(p.x + lx * Math.cos(p.h) + lz * Math.sin(p.h), 2.8, p.z - lx * Math.sin(p.h) + lz * Math.cos(p.h));
+        d.position.set(p.x + lx * Math.cos(p.h) + lz * Math.sin(p.h), at(p) + 2.8, p.z - lx * Math.sin(p.h) + lz * Math.cos(p.h));
         d.rotation.set(0, p.h + Math.PI, 0);
         d.scale.setScalar(1);
         d.updateMatrix();
@@ -371,7 +439,7 @@ export class World {
     parts(barrels, new THREE.CylinderGeometry(0.4, 0.4, 1.1, 10), '#4a5a6a', (_, o) => (o.position.y = 0.55));
     const flame = new THREE.InstancedMesh(new THREE.ConeGeometry(0.35, 1, 7), toon('#ff8a2a', { emissive: '#ff6a00', emissiveIntensity: 1.2 }), barrels.length);
     barrels.forEach((p, i) => {
-      d.position.set(p.x, 1.55, p.z);
+      d.position.set(p.x, at(p) + 1.55, p.z);
       d.rotation.set(0, 0, 0);
       d.scale.setScalar(1);
       d.updateMatrix();
@@ -383,7 +451,7 @@ export class World {
     parts(lamps, new THREE.CylinderGeometry(0.08, 0.1, 6, 6), '#3a3d44', (_, o) => (o.position.y = 3));
     const lampHead = new THREE.InstancedMesh(new THREE.BoxGeometry(0.4, 0.2, 1.4), new THREE.MeshBasicMaterial({ color: '#ffe9a0' }), lamps.length);
     lamps.forEach((p, i) => {
-      d.position.set(p.x, 6, p.z);
+      d.position.set(p.x, at(p) + 6, p.z);
       d.rotation.set(0, p.h, 0);
       d.scale.setScalar(1);
       d.updateMatrix();
@@ -393,7 +461,7 @@ export class World {
     // A pool of warm light under each lamp (painted on the ground, not a real light: cheap, and no recompiles).
     const pool = new THREE.InstancedMesh(new THREE.CircleGeometry(3.2, 20), new THREE.MeshBasicMaterial({ color: '#ffd27a', transparent: true, opacity: 0.16, depthWrite: false }), lamps.length);
     lamps.forEach((p, i) => {
-      d.position.set(p.x, 0.05, p.z);
+      d.position.set(p.x, at(p) + 0.25, p.z);
       d.rotation.set(-Math.PI / 2, 0, 0);
       d.scale.setScalar(1);
       d.updateMatrix();
@@ -424,11 +492,11 @@ export class World {
     parts(graves, stone, (p) => pick(['#8a8a96', '#757582', '#9a9aa6'], p.c), (p, o) => (o.rotation.z = (p.s - 0.5) * 0.25));
     // Jack-o'-lanterns.
     for (const p of by.get('pumpkin') ?? []) {
-      const pk = jackOLantern();
-      pk.position.set(p.x, 0, p.z);
-      pk.rotation.y = p.h;
-      pk.scale.setScalar(0.8 + p.s * 0.6);
-      this.group.add(pk);
+      d.position.set(p.x, at(p) + 0.1, p.z);
+      d.rotation.set(0, p.h, 0);
+      d.scale.setScalar(0.8 + p.s * 0.6);
+      d.updateMatrix();
+      this.pumpkins.push(d.matrix.clone());
     }
     const hay = by.get('hay') ?? [];
     const hayGeo = new THREE.CylinderGeometry(1, 1, 1.4, 14);
@@ -439,13 +507,108 @@ export class World {
     parts(fences, new THREE.BoxGeometry(0.1, 0.12, 12), '#a07a50', (_, o) => (o.position.y = 0.45));
   }
 
+  /** The mess on the road: fallen trees and boulders (solid: steer round), potholes (a jolt) and mud (slow, slippery). */
+  private hazards() {
+    const bark = toon('#5a3c26');
+    const ringsMat = toon('#c9a26a');
+    const rock = toon('#7a7a86');
+    const hole = new THREE.MeshBasicMaterial({ color: '#141418', polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
+    const rim = toon('#55555e', { polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5 });
+    const mud = toon('#4a3522', { transparent: true, opacity: 0.92, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5 });
+    const wet = new THREE.MeshBasicMaterial({ color: '#8a7a9a', transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -7, polygonOffsetUnits: -7 });
+    /** A decal on the road: a disc squashed to (sx, sz), turned to the hazard's heading, each vertex draped on the
+     *  ground (the road can be on a slope). */
+    const flat = (r: number, segs: number, mat: THREE.Material, h: Hazard, lift: number, sx = 1, sz = 1, dx = 0, dz = 0) => {
+      const geo = new THREE.CircleGeometry(r, segs).rotateX(-Math.PI / 2).scale(sx, 1, sz).rotateY(h.h).translate(h.x + dx, 0, h.z + dz);
+      const pos = geo.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) pos.setY(i, this.y(pos.getX(i), pos.getZ(i)) + ROAD_LIFT + lift);
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat);
+      m.receiveShadow = true;
+      this.group.add(m);
+    };
+    for (const h of this.route.hazards) {
+      const y = this.y(h.x, h.z) + ROAD_LIFT;
+      if (h.kind === 'log') {
+        const g = new THREE.Group();
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, h.r, 9).rotateX(Math.PI / 2), bark);
+        trunk.castShadow = true;
+        const end = new THREE.Mesh(new THREE.CircleGeometry(0.42, 9), ringsMat);
+        end.position.z = h.r / 2 + 0.01;
+        const stub = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, 1.3, 5), bark);
+        stub.position.set(0.2, 0.7, -h.r * 0.2);
+        stub.rotation.z = -0.5;
+        const stub2 = stub.clone();
+        stub2.position.set(-0.25, 0.6, h.r * 0.25);
+        stub2.rotation.z = 0.6;
+        g.add(trunk, end, stub, stub2);
+        g.position.set(h.x, y + 0.4, h.z);
+        g.rotation.y = h.h;
+        this.group.add(g);
+      } else if (h.kind === 'rocks') {
+        for (let k = 0; k < 3; k++) {
+          const a = (k / 3) * Math.PI * 2;
+          const b = new THREE.Mesh(new THREE.DodecahedronGeometry(1, 0), rock);
+          b.scale.set(1 + (k % 2) * 0.2, 0.75, 0.95);
+          b.rotation.set(k, a, k * 0.5);
+          b.position.set(h.x + Math.cos(a) * 1.1, y + 0.45, h.z + Math.sin(a) * 1.1);
+          b.castShadow = b.receiveShadow = true;
+          this.group.add(b);
+        }
+      } else if (h.kind === 'pothole') {
+        flat(h.r + 0.25, 12, rim, h, 0.02, 1, 0.8);
+        flat(h.r, 12, hole, h, 0.04, 1, 0.8);
+      } else {
+        // Mud: a long brown wallow across the road, with a sheen of puddles.
+        flat(h.r, 22, mud, h, 0.02, 0.75, 1.15);
+        for (let k = 0; k < 3; k++) flat(h.r * 0.22, 12, wet, h, 0.05, 1, 1, Math.cos(k * 2.1 + h.h) * h.r * 0.35, Math.sin(k * 2.1 + h.h) * h.r * 0.35);
+      }
+    }
+  }
+
+  /** Every jack-o'-lantern at once: three instanced parts (body, stem, glowing face). */
+  private lanterns() {
+    const n = this.pumpkins.length;
+    if (!n) return;
+    const body = new THREE.SphereGeometry(0.42, 12, 8).scale(1.15, 0.85, 1.1).translate(0, 0.36, 0);
+    const stem = new THREE.CylinderGeometry(0.05, 0.07, 0.18, 5).translate(0, 0.76, 0);
+    const face = new THREE.PlaneGeometry(0.62, 0.62).rotateY(Math.PI).translate(0, 0.38, -0.47);
+    const parts: [THREE.BufferGeometry, THREE.Material][] = [
+      [body, toon('#e8761c', { emissive: '#a03a00', emissiveIntensity: 0.35 })],
+      [stem, toon('#3f6b2a')],
+      [face, new THREE.MeshBasicMaterial({ map: pumpkinFace(), transparent: true, color: new THREE.Color(1.6, 1.4, 1.1) })],
+    ];
+    for (const [geo, mat] of parts) {
+      const im = new THREE.InstancedMesh(geo, mat, n);
+      this.pumpkins.forEach((m, i) => im.setMatrixAt(i, m));
+      im.castShadow = mat !== parts[2][1];
+      this.group.add(im);
+    }
+  }
+
   private pickups() {
     const cash = toon('#3fae4a');
     const cross = toon('#ffffff');
     const kit = toon('#e03a3a');
+    const can = toon('#d8261c', { emissive: '#601000', emissiveIntensity: 0.4 });
+    const metal = toon('#c9c9c9');
     for (const p of this.route.pickups) {
       const g = new THREE.Group();
-      if (p.kind === 'cash') {
+      if (p.kind === 'gas') {
+        // A jerry can: a red block with a handle and a spout, and a ⛽ tag.
+        g.add(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.78, 0.34), can));
+        const handle = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.04, 6, 12, Math.PI), metal);
+        handle.position.set(-0.08, 0.39, 0);
+        g.add(handle);
+        const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.3, 8), metal);
+        spout.position.set(0.22, 0.5, 0);
+        spout.rotation.z = -0.6;
+        g.add(spout);
+        const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('GAS', 'rgba(0,0,0,0)', '#fff6a0', 128, 64, 'bold 44px system-ui, sans-serif') }));
+        label.scale.set(0.9, 0.45, 1);
+        label.position.set(0, 0.75, 0);
+        g.add(label);
+      } else if (p.kind === 'cash') {
         const bag = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10), cash);
         bag.scale.set(1, 1.1, 1);
         g.add(bag);
@@ -462,8 +625,10 @@ export class World {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.42, 0.52), cross);
         g.add(a, b);
       }
-      g.position.set(p.x, 1.2, p.z);
+      const y = this.y(p.x, p.z) + ROAD_LIFT + 1.2;
+      g.position.set(p.x, y, p.z);
       g.userData.base = p.id * 1.7;
+      g.userData.y = y;
       this.pickupMeshes.set(p.id, g);
       this.group.add(g);
     }
@@ -475,7 +640,7 @@ export class World {
       g.visible = !taken.has(id);
       if (!g.visible) continue;
       g.rotation.y = t * 2 + g.userData.base;
-      g.position.y = 1.2 + Math.sin(t * 3 + g.userData.base) * 0.15;
+      g.position.y = g.userData.y + Math.sin(t * 3 + g.userData.base) * 0.15;
     }
     this.markers.forEach((m, i) => {
       m.visible = i === nextStop;
@@ -485,8 +650,8 @@ export class World {
 
   dispose() {
     for (const d of this.disposables) d.dispose();
-    pumpkinFace?.dispose();
-    pumpkinFace = null;
+    faceTex?.dispose();
+    faceTex = null;
     this.group.traverse((o) => {
       if ((o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.InstancedMesh).dispose();
       const s = o as THREE.Sprite;
@@ -495,41 +660,30 @@ export class World {
   }
 }
 
-let pumpkinFace: THREE.CanvasTexture | null = null;
+let faceTex: THREE.CanvasTexture | null = null;
 
-/** A jack-o'-lantern: an orange pumpkin with a glowing carved face (the face glows; no real light). */
-function jackOLantern(): THREE.Group {
-  if (!pumpkinFace) {
-    const c = document.createElement('canvas');
-    c.width = c.height = 64;
-    const g = c.getContext('2d')!;
-    g.fillStyle = '#ffd24a';
-    g.beginPath();
-    g.moveTo(14, 26);
-    g.lineTo(24, 14);
-    g.lineTo(28, 28);
-    g.moveTo(50, 26);
-    g.lineTo(40, 14);
-    g.lineTo(36, 28);
-    g.fill();
-    g.beginPath();
-    g.moveTo(12, 38);
-    for (let k = 0; k <= 6; k++) g.lineTo(12 + k * 6.7, k % 2 ? 46 : 38);
-    g.lineTo(52, 50);
-    g.quadraticCurveTo(32, 60, 12, 50);
-    g.fill();
-    pumpkinFace = new THREE.CanvasTexture(c);
-    pumpkinFace.colorSpace = THREE.SRGBColorSpace;
-  }
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 8), toon('#e8761c', { emissive: '#a03a00', emissiveIntensity: 0.35 }));
-  body.scale.set(1.15, 0.85, 1.1);
-  body.position.y = 0.36;
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.18, 5), toon('#3f6b2a'));
-  stem.position.y = 0.76;
-  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.62), new THREE.MeshBasicMaterial({ map: pumpkinFace, transparent: true }));
-  face.position.set(0, 0.38, -0.47);
-  face.rotation.y = Math.PI;
-  g.add(body, stem, face);
-  return g;
+/** A jack-o'-lantern's carved face (painted once, shared). */
+function pumpkinFace() {
+  if (faceTex) return faceTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ffd24a';
+  g.beginPath();
+  g.moveTo(14, 26);
+  g.lineTo(24, 14);
+  g.lineTo(28, 28);
+  g.moveTo(50, 26);
+  g.lineTo(40, 14);
+  g.lineTo(36, 28);
+  g.fill();
+  g.beginPath();
+  g.moveTo(12, 38);
+  for (let k = 0; k <= 6; k++) g.lineTo(12 + k * 6.7, k % 2 ? 46 : 38);
+  g.lineTo(52, 50);
+  g.quadraticCurveTo(32, 60, 12, 50);
+  g.fill();
+  faceTex = new THREE.CanvasTexture(c);
+  faceTex.colorSpace = THREE.SRGBColorSpace;
+  return faceTex;
 }
