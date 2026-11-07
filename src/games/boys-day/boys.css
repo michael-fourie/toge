@@ -1,0 +1,482 @@
+/* BOYS DAY: everything scoped under .boys-day. Cartoon: chunky outlines, sunset colours, big bouncy type. */
+
+.boys-day {
+  --bd-ink: #1b1530;
+  --bd-sun: #ffd23f;
+  --bd-pink: #ff3d7f;
+  --bd-cream: #fff4e0;
+  --bd-panel: rgba(27, 21, 48, 0.82);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #2a2045;
+  color: var(--bd-cream);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  user-select: none;
+}
+
+/* ---------- Menus */
+.boys-day .bd-menu {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 16px;
+  background: linear-gradient(#3b5fa8, #c97bb0 55%, #ffb36b);
+  overflow-y: auto;
+}
+/* Centred when it fits, scrolls from the top when it doesn't (justify-content: center would clip the top). */
+.boys-day .bd-menu > :first-child {
+  margin-top: auto;
+}
+.boys-day .bd-menu > :last-child {
+  margin-bottom: auto;
+}
+.boys-day .bd-menu-art {
+  width: min(760px, 100%, 80vh);
+  border-radius: 18px;
+  border: 4px solid var(--bd-ink);
+  box-shadow: 0 8px 0 var(--bd-ink);
+  flex: none;
+}
+.boys-day .bd-card {
+  width: min(560px, 100%);
+  background: var(--bd-panel);
+  border: 4px solid var(--bd-ink);
+  border-radius: 18px;
+  box-shadow: 0 8px 0 var(--bd-ink);
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.boys-day .bd-title {
+  margin: 0;
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--bd-sun);
+  text-shadow: 3px 3px 0 var(--bd-ink);
+}
+.boys-day .bd-title.small {
+  font-size: 32px;
+}
+.boys-day .bd-blurb {
+  margin: 0;
+  line-height: 1.45;
+  opacity: 0.9;
+}
+.boys-day .bd-note {
+  margin: 0;
+  color: #ffb0c8;
+}
+.boys-day .bd-btn {
+  font: inherit;
+  font-weight: 800;
+  font-size: 16px;
+  padding: 11px 16px;
+  border-radius: 12px;
+  border: 3px solid var(--bd-ink);
+  background: var(--bd-sun);
+  color: var(--bd-ink);
+  cursor: pointer;
+  box-shadow: 0 4px 0 var(--bd-ink);
+  transition: transform 80ms;
+}
+.boys-day .bd-btn.big {
+  font-size: 19px;
+  padding: 14px 18px;
+}
+.boys-day .bd-btn.ghost {
+  background: transparent;
+  color: var(--bd-cream);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: none;
+}
+.boys-day .bd-btn.room {
+  background: #2fd3ff;
+}
+.boys-day .bd-btn:hover,
+.boys-day .bd-btn:focus-visible {
+  transform: translateY(-2px);
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+.boys-day .bd-join {
+  display: flex;
+  gap: 8px;
+}
+.boys-day .bd-code {
+  flex: 1;
+  font: inherit;
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 3px solid var(--bd-ink);
+  background: var(--bd-cream);
+  color: var(--bd-ink);
+  min-width: 0;
+}
+.boys-day .bd-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.boys-day .bd-roomcode {
+  margin: 0;
+  font-size: 18px;
+}
+.boys-day .bd-roomcode b {
+  font-size: 26px;
+  letter-spacing: 6px;
+  color: var(--bd-sun);
+}
+.boys-day .bd-crewlist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.boys-day .bd-crewrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+.boys-day .dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--bd-ink);
+  flex: none;
+}
+
+/* ---------- In the run */
+.boys-day .bd-stage {
+  position: absolute;
+  inset: 0;
+}
+.boys-day .bd-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.boys-day .bd-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  text-shadow: 2px 2px 0 var(--bd-ink);
+}
+.boys-day .bd-top {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.boys-day .bd-busbox {
+  background: var(--bd-panel);
+  border: 3px solid var(--bd-ink);
+  border-radius: 14px;
+  padding: 8px 12px;
+  width: 230px;
+}
+.boys-day .bd-label {
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+.boys-day .bd-bar {
+  position: relative;
+  height: 18px;
+  border-radius: 9px;
+  background: #3a2f50;
+  border: 2px solid var(--bd-ink);
+  overflow: hidden;
+  margin: 4px 0 6px;
+}
+.boys-day .bd-bar-fill {
+  height: 100%;
+  transition: width 200ms;
+}
+.boys-day .bd-bar-text {
+  position: absolute;
+  inset: 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 14px;
+}
+.boys-day .bd-row {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 900;
+}
+.boys-day .bd-money {
+  color: #7cff5b;
+}
+.boys-day .bd-goal {
+  flex: 1;
+  max-width: 560px;
+  text-align: center;
+  background: var(--bd-panel);
+  border: 3px solid var(--bd-ink);
+  border-radius: 14px;
+  padding: 8px 14px;
+}
+.boys-day .bd-goal-text {
+  font-weight: 900;
+  font-size: 17px;
+  color: var(--bd-sun);
+}
+.boys-day .bd-where {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  min-height: 22px;
+}
+.boys-day .bd-arrow {
+  font-size: 20px;
+  color: var(--bd-sun);
+  transition: transform 100ms;
+}
+.boys-day .bd-map {
+  width: 170px;
+  height: 170px;
+  flex: none;
+}
+.boys-day .bd-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--bd-ink);
+}
+.boys-day .bd-cross::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  background: var(--bd-pink);
+  border-radius: 50%;
+}
+.boys-day .bd-ammo,
+.boys-day .bd-speed {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  font-size: 26px;
+  font-weight: 900;
+}
+.boys-day .bd-hints {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+.boys-day .bd-crew {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+.boys-day .bd-crewrow.me {
+  color: var(--bd-sun);
+}
+.boys-day .bd-banner {
+  position: absolute;
+  left: 50%;
+  top: 26%;
+  transform: translate(-50%, -50%) scale(0.6);
+  font-size: 34px;
+  font-weight: 900;
+  color: var(--bd-sun);
+  text-align: center;
+  max-width: 80%;
+  opacity: 0;
+  transition: opacity 250ms, transform 250ms cubic-bezier(0.3, 1.6, 0.6, 1);
+  text-shadow: 3px 3px 0 var(--bd-ink), -2px -2px 0 var(--bd-ink);
+}
+.boys-day .bd-banner.show {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+.boys-day .bd-lockhint {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  transform: translateX(-50%);
+  font-weight: 900;
+  font-size: 18px;
+  background: var(--bd-panel);
+  padding: 6px 14px;
+  border-radius: 10px;
+}
+.boys-day .bd-pop {
+  position: absolute;
+  font-weight: 900;
+  font-size: 22px;
+  white-space: nowrap;
+  text-shadow: 3px 3px 0 var(--bd-ink);
+}
+.boys-day .bd-pop.big {
+  font-size: 36px;
+}
+
+/* ---------- Minigames, pause and the end */
+.boys-day .bd-mini,
+.boys-day .bd-pause,
+.boys-day .bd-end {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bd-panel);
+  border: 4px solid var(--bd-ink);
+  border-radius: 20px;
+  box-shadow: 0 10px 0 var(--bd-ink);
+  padding: 18px 22px;
+  text-align: center;
+  max-width: calc(100% - 32px);
+}
+.boys-day .bd-mini h2,
+.boys-day .bd-pause h2 {
+  margin: 0 0 4px;
+  font-size: 30px;
+  font-weight: 900;
+  color: var(--bd-sun);
+  text-shadow: 3px 3px 0 var(--bd-ink);
+}
+.boys-day .bd-mini canvas {
+  width: min(640px, 100%);
+  border-radius: 12px;
+  border: 3px solid var(--bd-ink);
+  display: block;
+  margin: 8px auto;
+}
+.boys-day .bd-mini-how,
+.boys-day .bd-mini-out {
+  margin: 4px 0;
+  font-size: 14px;
+  opacity: 0.85;
+}
+.boys-day .bd-mini-note {
+  margin: 6px 0;
+  font-size: 22px;
+  font-weight: 900;
+  color: #7cff5b;
+  min-height: 28px;
+}
+.boys-day .bd-reels {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin: 14px 0;
+}
+.boys-day .bd-reel {
+  width: 110px;
+  height: 130px;
+  display: grid;
+  place-items: center;
+  font-size: 66px;
+  font-weight: 900;
+  color: #e0242c;
+  background: var(--bd-cream);
+  border: 4px solid var(--bd-ink);
+  border-radius: 14px;
+  box-shadow: inset 0 -10px 0 rgba(0, 0, 0, 0.12);
+}
+.boys-day .bd-pause {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 420px;
+}
+.boys-day .bd-pause button,
+.boys-day .bd-end button {
+  font: inherit;
+  font-weight: 800;
+  font-size: 17px;
+  padding: 11px 16px;
+  border-radius: 12px;
+  border: 3px solid var(--bd-ink);
+  background: var(--bd-sun);
+  color: var(--bd-ink);
+  cursor: pointer;
+  box-shadow: 0 4px 0 var(--bd-ink);
+}
+.boys-day .bd-pause button:focus-visible,
+.boys-day .bd-end button:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+.boys-day .bd-pause p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.8;
+}
+.boys-day .bd-end {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 560px;
+}
+.boys-day .bd-end h1 {
+  margin: 0;
+  font-size: 42px;
+  font-weight: 900;
+  line-height: 1.05;
+  text-shadow: 4px 4px 0 var(--bd-ink);
+}
+.boys-day .bd-end.won h1 {
+  color: #7cff5b;
+}
+.boys-day .bd-end.lost h1 {
+  color: #ff5a5a;
+}
+.boys-day .bd-end-sub {
+  margin: 0;
+  font-size: 18px;
+}
+.boys-day .bd-end-stats {
+  margin: 0;
+  font-weight: 800;
+  color: var(--bd-sun);
+}
+
+@media (max-width: 720px) {
+  .boys-day .bd-map {
+    width: 110px;
+    height: 110px;
+  }
+  .boys-day .bd-busbox {
+    width: 160px;
+  }
+  .boys-day .bd-hints {
+    display: none;
+  }
+}
