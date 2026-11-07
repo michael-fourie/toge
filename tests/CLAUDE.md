@@ -4,7 +4,7 @@
 where npm scripts don't expand globs). A new test file does nothing until you add it to that list by name.
 
 Layout: `tests/gambol/` for Gambol, `tests/toge/` for TŌGE, and `tests/` itself for the site and plug-ins (accounts,
-security, pad, party, snap, royal-degeneracy-*, and `boundaries`, which fails if Gambol and TŌGE import each other or
+security, pad, party, snap, boys-day, royal-degeneracy-*, and `boundaries`, which fails if Gambol and TŌGE import each other or
 `src/shared` imports a game).
 `tests/lobby.smoke.ts` is not in the list: `npm run smoke` runs it against a live server (`BASE=https://…`).
 
@@ -33,6 +33,6 @@ Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs
 | accounts, security, loot, casino, levels, skin | accounts, server-side economy, input validation, stash rules |
 | racephysics, garage, raceroom, standings, raceinput, pad, headcam, cosmetics, records | TŌGE: every car down every track with the AI, economy, cosmetics and cases, race server, cockpit camera head, best times and friend profiles |
 | friends | friend lists (one-way adds, "added you", caps, bad names) |
-| party, snap, royal-degeneracy-* | plug-in game rooms and the plug-in games |
+| party, snap, boys-day, royal-degeneracy-* | plug-in game rooms and the plug-in games |
 | boundaries | the folder split: Gambol and TŌGE never import each other; `src/shared` imports no game |
 | achievements, killcam, speedfx, postgame, input, loadout | client-side pure logic (feats, replay timing, HUD maths, key handling, ammo) |
