@@ -1,7 +1,7 @@
 // Every sound is synthesised (no audio files): paintball pops, splats, the bus horn, the engine's drone, zombie
 // groans, YEET whooshes, the slot machine and the golf swing.
 
-export type Sound = 'pop' | 'splat' | 'horn' | 'yeet' | 'fore' | 'groan' | 'cash' | 'fix' | 'reels' | 'win' | 'swing' | 'thunk' | 'bump' | 'jingle' | 'reload' | 'lose';
+export type Sound = 'pop' | 'splat' | 'horn' | 'yeet' | 'fore' | 'groan' | 'cash' | 'fix' | 'reels' | 'win' | 'swing' | 'thunk' | 'bump' | 'jingle' | 'reload' | 'lose' | 'thunder';
 
 export class Audio {
   private ctx: AudioContext | null = null;
@@ -23,6 +23,37 @@ export class Audio {
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.5;
     this.master.connect(this.ctx.destination);
+    this.wind();
+  }
+
+  /** A low, moaning night wind under everything (a looped noise, slowly swept). */
+  private wind() {
+    const c = this.ctx!;
+    const len = c.sampleRate * 4;
+    const buf = c.createBuffer(1, len, c.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+      last = last * 0.985 + (Math.random() * 2 - 1) * 0.015;
+      d[i] = last * 6;
+    }
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const f = c.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 320;
+    f.Q.value = 2;
+    const lfo = c.createOscillator();
+    const lfoGain = c.createGain();
+    lfo.frequency.value = 0.09;
+    lfoGain.gain.value = 180;
+    lfo.connect(lfoGain).connect(f.frequency);
+    const g = c.createGain();
+    g.gain.value = 0.12;
+    src.connect(f).connect(g).connect(this.master!);
+    src.start();
+    lfo.start();
   }
 
   private tone(t: number, dur: number, type: OscillatorType, f0: number, f1: number, vol: number) {
@@ -114,6 +145,11 @@ export class Audio {
       case 'reload':
         this.noise(t, 0.05, 2400, 3, 0.25 * v);
         this.noise(t + 0.25, 0.05, 1800, 3, 0.25 * v);
+        break;
+      case 'thunder':
+        this.noise(t, 2.4, 90, 0.5, 0.9 * v);
+        this.noise(t + 0.15, 1.6, 180, 0.6, 0.45 * v);
+        this.tone(t, 1.8, 'sine', 55, 30, 0.3 * v);
         break;
       case 'horn':
         this.horn(true);

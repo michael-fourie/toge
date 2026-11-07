@@ -1,5 +1,5 @@
-// The channel tile and the menu's art: a cartoon bus barrelling down a road at sunset, the boys on the roof
-// painting zombies, who go flying. 2D canvas; stops when the canvas leaves the page.
+// The channel tile and the menu's art: a cartoon bus barrelling down a road under a full moon, the boys leaning out of
+// the windows painting zombies (eyes glowing), who go flying, while bats flap past. 2D canvas; stops when the canvas leaves the page.
 
 const PAINT = ['#ff3d7f', '#2fd3ff', '#ffd23f', '#7cff5b'];
 
@@ -17,28 +17,59 @@ export function paintBanner(canvas: HTMLCanvasElement) {
     const t = (now - start) / 1000;
     const W = canvas.width;
     const H = canvas.height;
-    // Sunset sky and a big sun.
+    // Night sky, a big moon, and bats.
     const sky = g.createLinearGradient(0, 0, 0, H);
-    sky.addColorStop(0, '#3b5fa8');
-    sky.addColorStop(0.5, '#c97bb0');
-    sky.addColorStop(0.8, '#ffb36b');
+    sky.addColorStop(0, '#07061a');
+    sky.addColorStop(0.5, '#2a1a4a');
+    sky.addColorStop(0.75, '#4b2f5e');
     g.fillStyle = sky;
     g.fillRect(0, 0, W, H);
-    g.fillStyle = '#ffe08a';
+    const halo = g.createRadialGradient(W * 0.78, H * 0.38, H * 0.1, W * 0.78, H * 0.38, H * 0.36);
+    halo.addColorStop(0, 'rgba(220,225,255,0.35)');
+    halo.addColorStop(1, 'rgba(220,225,255,0)');
+    g.fillStyle = halo;
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = '#eef0ff';
     g.beginPath();
-    g.arc(W * 0.78, H * 0.48, H * 0.2, 0, 7);
+    g.arc(W * 0.78, H * 0.38, H * 0.16, 0, 7);
     g.fill();
+    g.fillStyle = 'rgba(160,165,200,0.5)';
+    for (const [dx, dy, r] of [[-0.05, -0.03, 0.035], [0.04, 0.04, 0.025], [0.01, -0.07, 0.018]]) {
+      g.beginPath();
+      g.arc(W * 0.78 + dx * H, H * 0.38 + dy * H, r * H, 0, 7);
+      g.fill();
+    }
+    g.fillStyle = '#0a0812';
+    for (let k = 0; k < 4; k++) {
+      const bx = ((t * 0.06 + k * 0.27) % 1.2) * W - W * 0.1;
+      const by = H * (0.22 + k * 0.07) + Math.sin(t * 3 + k) * 8;
+      const flap = Math.sin(t * 16 + k * 2) * H * 0.02;
+      g.beginPath();
+      g.moveTo(bx, by);
+      g.quadraticCurveTo(bx - H * 0.03, by - H * 0.02 - flap, bx - H * 0.06, by + flap * 0.3);
+      g.quadraticCurveTo(bx - H * 0.03, by - H * 0.005, bx, by + H * 0.012);
+      g.quadraticCurveTo(bx + H * 0.03, by - H * 0.005, bx + H * 0.06, by + flap * 0.3);
+      g.quadraticCurveTo(bx + H * 0.03, by - H * 0.02 - flap, bx, by);
+      g.fill();
+    }
     // Hills and the road.
     const horizon = H * 0.66;
-    g.fillStyle = '#5f8f4a';
+    g.fillStyle = '#2f4a2e';
     g.beginPath();
     g.moveTo(0, horizon);
     for (let x = 0; x <= W; x += 20) g.lineTo(x, horizon - 18 - Math.sin(x * 0.01 + 1) * 14);
     g.lineTo(W, H);
     g.lineTo(0, H);
     g.fill();
-    g.fillStyle = '#4a4a55';
+    g.fillStyle = '#34343f';
     g.fillRect(0, horizon + H * 0.06, W, H * 0.18);
+    // The bus's headlights on the road ahead.
+    const beam = g.createLinearGradient(0, 0, W, 0);
+    beam.addColorStop(0, 'rgba(255,241,200,0)');
+    beam.addColorStop(0.42, 'rgba(255,241,200,0.32)');
+    beam.addColorStop(0.75, 'rgba(255,241,200,0)');
+    g.fillStyle = beam;
+    g.fillRect(0, horizon + H * 0.07, W, H * 0.16);
     g.fillStyle = '#ffcc33';
     const dash = (t * 400) % 80;
     for (let x = -dash; x < W; x += 80) g.fillRect(x, horizon + H * 0.145, 40, 4);
@@ -80,8 +111,11 @@ export function paintBanner(canvas: HTMLCanvasElement) {
     g.lineWidth = H * 0.025;
     g.strokeStyle = '#1b1530';
     g.strokeText('BOYS DAY', W * 0.05, H * 0.27);
+    g.shadowColor = '#7cff5b';
+    g.shadowBlur = H * 0.04;
     g.fillStyle = '#ffd23f';
     g.fillText('BOYS DAY', W * 0.05, H * 0.27);
+    g.shadowBlur = 0;
     requestAnimationFrame(draw);
   };
   requestAnimationFrame(draw);
@@ -99,7 +133,8 @@ function bus(g: CanvasRenderingContext2D, x: number, y: number, s: number, t: nu
   round(g, 0, -0.75, 1.7, 0.62, 0.08);
   g.fill();
   g.stroke();
-  g.fillStyle = '#7fc8e8';
+  // Open windows with the cabin light on.
+  g.fillStyle = '#ffe2a0';
   for (let k = 0; k < 5; k++) g.fillRect(0.1 + k * 0.28, -0.68, 0.2, 0.2);
   g.fillRect(1.5, -0.68, 0.16, 0.3);
   g.fillStyle = '#f4efe6';
@@ -110,20 +145,25 @@ function bus(g: CanvasRenderingContext2D, x: number, y: number, s: number, t: nu
     g.arc(wx, -0.12, 0.13, 0, 7);
     g.fill();
   }
-  // The boys on the roof, firing.
+  // The boys in the windows, in their toques, firing out.
   for (let k = 0; k < 4; k++) {
-    const bx = 0.25 + k * 0.38;
+    const bx = 0.2 + k * 0.28;
     g.fillStyle = PAINT[k];
-    round(g, bx - 0.06, -1.0, 0.12, 0.25, 0.06);
-    g.fill();
+    g.fillRect(bx - 0.06, -0.55, 0.12, 0.07);
     g.fillStyle = '#ffd7b0';
     g.beginPath();
-    g.arc(bx, -1.04, 0.07, 0, 7);
+    g.arc(bx, -0.6, 0.055, 0, 7);
     g.fill();
+    g.fillStyle = PAINT[k];
+    g.beginPath();
+    g.arc(bx, -0.62, 0.056, Math.PI, 0);
+    g.fill();
+    g.fillStyle = '#26272e';
+    g.fillRect(bx + 0.02, -0.56, 0.16, 0.03);
     if (Math.sin(t * 9 + k * 2) > 0.3) {
       g.fillStyle = PAINT[k];
       g.beginPath();
-      g.arc(bx + 0.25 + ((t * 3 + k) % 1) * 0.6, -0.95, 0.025, 0, 7);
+      g.arc(bx + 0.25 + ((t * 3 + k) % 1) * 0.6, -0.55, 0.025, 0, 7);
       g.fill();
     }
   }
@@ -144,15 +184,28 @@ function zombie(g: CanvasRenderingContext2D, x: number, y: number, s: number, sp
   g.arc(0, -0.27, 0.09, 0, 7);
   g.fill();
   g.fillRect(-0.24, -0.15 + Math.sin(t * 6) * 0.02, 0.18, 0.04);
-  g.strokeStyle = '#111';
-  g.lineWidth = 0.018;
-  for (const ex of [-0.05, 0.01]) {
-    g.beginPath();
-    g.moveTo(ex - 0.015, -0.3);
-    g.lineTo(ex + 0.015, -0.27);
-    g.moveTo(ex + 0.015, -0.3);
-    g.lineTo(ex - 0.015, -0.27);
-    g.stroke();
+  if (paint) {
+    g.strokeStyle = '#111';
+    g.lineWidth = 0.018;
+    for (const ex of [-0.05, 0.01]) {
+      g.beginPath();
+      g.moveTo(ex - 0.015, -0.3);
+      g.lineTo(ex + 0.015, -0.27);
+      g.moveTo(ex + 0.015, -0.3);
+      g.lineTo(ex - 0.015, -0.27);
+      g.stroke();
+    }
+  } else {
+    // Still shambling: glowing eyes.
+    g.fillStyle = '#d6ff6a';
+    g.shadowColor = '#d6ff6a';
+    g.shadowBlur = 8;
+    for (const ex of [-0.05, 0.01]) {
+      g.beginPath();
+      g.arc(ex, -0.285, 0.014, 0, 7);
+      g.fill();
+    }
+    g.shadowBlur = 0;
   }
   g.fillStyle = '#3b3b48';
   g.fillRect(-0.06, 0.08, 0.05, 0.14 + Math.sin(t * 6) * 0.02);

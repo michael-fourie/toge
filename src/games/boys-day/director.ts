@@ -51,7 +51,7 @@ export interface Zombie {
   paint: number;
 }
 
-export type FxKind = 'yeet' | 'fore' | 'splat' | 'gordie' | 'grab' | 'hurt' | 'shake';
+export type FxKind = 'yeet' | 'fore' | 'splat' | 'gordie' | 'grab' | 'hurt' | 'shake' | 'heal';
 export interface Fx {
   k: FxKind;
   x: number;
@@ -66,7 +66,7 @@ const BODY_TIME = 4;
 /** Climbers get flung off a bus going faster than this (m/s), a few each second. */
 const SHAKE = { speed: 15, chance: 0.18 };
 /** Never more than this many zombies at once (the snapshot's size and the frame rate). */
-export const Z_CAP = 90;
+export const Z_CAP = 120;
 
 export class Director {
   run: RunState;
@@ -109,6 +109,7 @@ export class Director {
     this.roadHint = near.i;
     this.busS = near.s;
     this.stops(dt, bus);
+    this.driveOver(bus);
     this.spawn(dt, bus);
     this.zombies(dt, bus);
     this.gordie(dt);
@@ -157,7 +158,7 @@ export class Director {
       this.woke.add(h.id);
       for (let k = 0; k < h.n && this.zs.length < Z_CAP; k++) this.add(h.x + (this.r() - 0.5) * 10, h.z + (this.r() - 0.5) * 10);
     }
-    this.spawnAcc = Math.min(5, this.spawnAcc + dt * HORDE.rate);
+    this.spawnAcc = Math.min(5, this.spawnAcc + dt * HORDE.rate * HORDE.crewScale(this.crew));
     let want = this.target() - alive;
     while (want > 0 && this.spawnAcc >= 1 && this.zs.length < Z_CAP) {
       this.spawnAcc -= 1;
@@ -322,7 +323,7 @@ export class Director {
   lastBus: Bus | null = null;
 
   /**
-   * A golf-club swing from the roof: every zombie in `zids` that really is within reach of the bus's side gets
+   * A golf-club swing out of a window: every zombie in `zids` that really is within reach of the bus's side gets
    * teed off. Only with the club.
    */
   swing(zids: readonly number[], by: number, bus: Bus) {
@@ -338,22 +339,36 @@ export class Director {
     return n;
   }
 
-  /** A minigame result: a green at the range, or what a slot pull paid. Only counts at that stop. */
+  /** A minigame result: a zombie teed off at the range, or what a slot pull paid. Only counts at that stop. */
   mini(kind: 'golf' | 'casino', v: number) {
     const run = this.run;
     if (run.phase !== 'stop' || stopOf(run) !== kind) return;
-    if (kind === 'golf') run.greens = Math.min(RUN.golfGreens, run.greens + 1);
+    if (kind === 'golf') run.teed = Math.min(RUN.golfTees, run.teed + 1);
     else run.money += Math.max(0, Math.min(SLOT_MAX, Math.round(v)));
   }
 
-  /** A pickup shot (cash or a repair kit). */
+  /** A pickup, shot from a window or driven over: cash or a repair kit. */
   grab(id: number) {
     const p = this.route.pickups[id];
     if (!p || this.taken.has(id)) return;
     this.taken.add(id);
-    if (p.kind === 'cash') this.run.money += RUN.cash;
-    else this.run.busHp = Math.min(BUS.hp, this.run.busHp + RUN.repair);
     this.fx.push({ k: 'grab', x: p.x, y: 1.2, z: p.z, n: id });
+    if (p.kind === 'cash') {
+      this.run.money += RUN.cash;
+      return;
+    }
+    // Say what it actually fixed (a full bus gets nothing, and the popup says so).
+    const before = this.run.busHp;
+    this.run.busHp = Math.min(BUS.hp, before + RUN.repair);
+    this.fx.push({ k: 'heal', x: p.x, y: 2, z: p.z, n: Math.round(this.run.busHp - before) });
+  }
+
+  /** The bus picks up whatever it drives over (the driver can't shoot). */
+  private driveOver(bus: Bus) {
+    for (const p of this.route.pickups) {
+      if (this.taken.has(p.id) || Math.abs(p.x - bus.x) > 9 || Math.abs(p.z - bus.z) > 9) continue;
+      if (onBus(bus, p.x, p.z, PICKUP_REACH)) this.grab(p.id);
+    }
   }
 
   private gordie(dt: number) {
@@ -378,6 +393,9 @@ export class Director {
     if (this.r() < GORDIE.hit) this.hit(best.id, GORDIE_PAINT, 2);
   }
 }
+
+/** Driving over a pickup collects it within this much of the bus's sides (m). */
+export const PICKUP_REACH = 0.8;
 
 /** Gordie's paint colour (an index past the players'). */
 export const GORDIE_PAINT = 8;

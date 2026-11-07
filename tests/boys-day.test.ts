@@ -6,6 +6,9 @@ import { ROAD, makeRoute, roadNear } from '../src/games/boys-day/route.ts';
 import {
   BUS,
   GOLF,
+  REEL_SPEED,
+  SLOTS,
+  HORDE,
   NO_DRIVE,
   RUN,
   SEED_MAX,
@@ -14,7 +17,8 @@ import {
   fwdOf,
   newRun,
   newSeed,
-  onGreen,
+  teesOff,
+  reelAt,
   slotPay,
   stepBus,
   stopDone,
@@ -146,15 +150,15 @@ function parkedAt(seed: number, n: number) {
   return { d, b: bus(s.x, s.z, d.route.road[s.i].h, 0) };
 }
 
-test('boys day run: park at the range, sink 3 greens, win the club; nothing counts while driving or elsewhere', () => {
+test('boys day run: park at the range, tee off 4 zombies, win the club; nothing counts while driving or elsewhere', () => {
   const { d, b } = parkedAt(5, 1);
   d.mini('golf', 1);
-  assert.equal(d.run.greens, 0, 'not parked yet');
+  assert.equal(d.run.teed, 0, 'not parked yet');
   d.step(DT, b);
   assert.equal(d.run.phase, 'stop');
   d.mini('casino', 400);
   assert.equal(d.run.money, RUN.startMoney, 'no slots at the range');
-  for (let k = 0; k < RUN.golfGreens; k++) d.mini('golf', 1);
+  for (let k = 0; k < RUN.golfTees; k++) d.mini('golf', 1);
   d.step(DT, b);
   assert.equal(d.run.club, true);
   assert.equal(d.run.stage, 2);
@@ -191,7 +195,7 @@ test('boys day run: leaving a stop early keeps the progress; driving off puts yo
   b.x += 60;
   d.step(DT, b);
   assert.equal(d.run.phase, 'drive');
-  assert.equal(d.run.greens, 1);
+  assert.equal(d.run.teed, 1);
 });
 
 test('boys day zombies: the bus at speed yeets them; slow, they climb on and hurt it until shot off', () => {
@@ -259,12 +263,21 @@ test('boys day: zombies round-trip through the wire format', () => {
   assert.ok(Math.abs(back[0].x - 12.3) < 0.06 && Math.abs(back[0].z + 56.8) < 0.06 && back[0].y === 1.5);
 });
 
-test('boys day minigames: golf greens need aim and power; slots pay what the table says', () => {
-  assert.ok(onGreen(0, 0.6, 0.6));
-  assert.ok(!onGreen(GOLF.aimTol + 0.01, 0.6, 0.6));
-  assert.ok(!onGreen(0, 0.6 + GOLF.powerTol + 0.01, 0.6));
+test('boys day minigames: a ball tees off the zombie it lands on; reels stop where they are; slots pay the table', () => {
+  const z = { x: 0.3, d: 0.6 };
+  assert.ok(teesOff(0.3, 0.6, z));
+  assert.ok(teesOff(0.3 + GOLF.hitX * 0.9, 0.6 - GOLF.hitD * 0.9, z));
+  assert.ok(!teesOff(0.3 + GOLF.hitX + 0.01, 0.6, z), 'wide');
+  assert.ok(!teesOff(0.3, 0.6 + GOLF.hitD + 0.01, z), 'long');
   assert.equal(sweep(0, 1), 0);
   assert.equal(sweep(0.5, 1), 1);
+  // Each reel cycles every symbol, at its own pace (the third is the hardest to stop on time).
+  for (let reel = 0; reel < 3; reel++) {
+    const seen = new Set<number>();
+    for (let t = 0; t < 2; t += 0.01) seen.add(reelAt(t, reel));
+    assert.equal(seen.size, SLOTS.length);
+  }
+  assert.ok(REEL_SPEED[2] > REEL_SPEED[0]);
   assert.equal(slotPay([5, 5, 5]), 400);
   assert.equal(slotPay([4, 4, 4]), 250);
   assert.equal(slotPay([0, 0, 0]), 120);
@@ -309,4 +322,40 @@ test('boys day net: junk is dropped; seats swap only into free spots', () => {
   const s2 = takeSeat(seats, 1, -1);
   assert.equal(s2[0], -1, 'the driver hops on the roof');
   assert.equal(takeSeat(s2, 3, 0)[0], 3, 'and someone else takes the wheel');
+});
+
+test('boys day: the horde grows with the crew: half for solo, the lot for four, more for a full bus', () => {
+  assert.equal(HORDE.crewScale(1), 0.5);
+  assert.ok(Math.abs(HORDE.crewScale(4) - 0.95) < 1e-9);
+  assert.ok(HORDE.crewScale(8) > 1.5);
+  for (let n = 2; n <= 8; n++) assert.ok(HORDE.crewScale(n) > HORDE.crewScale(n - 1));
+  const count = (crew: number) => {
+    const d = new Director(makeRoute(11), 11, crew);
+    const b = bus(0, -60, 0, 0);
+    for (let t = 0; t < 25; t += 0.1) d.step(0.1, b);
+    return d.zs.filter((z) => z.st === 'run' || z.st === 'climb').length;
+  };
+  const solo = count(1);
+  const eight = count(8);
+  assert.ok(eight > solo * 2, `solo ${solo}, eight ${eight}`);
+});
+
+test('boys day: driving over a pickup collects it; a repair kit says what it fixed', () => {
+  const d = new Director(makeRoute(12));
+  const kit = d.route.pickups.find((p) => p.kind === 'repair')!;
+  d.run.busHp = 600;
+  d.step(DT, bus(kit.x, kit.z, 0, 10));
+  assert.ok(d.taken.has(kit.id), 'collected by driving over it');
+  assert.equal(d.run.busHp, 600 + RUN.repair);
+  assert.ok(d.fx.some((f) => f.k === 'heal' && f.n === RUN.repair));
+  const cash = d.route.pickups.find((p) => p.kind === 'cash')!;
+  const money = d.run.money;
+  d.step(DT, bus(cash.x + BUS.width / 2 + 1.5, cash.z, 0, 10));
+  assert.ok(!d.taken.has(cash.id), 'a couple of metres off to the side misses it');
+  d.step(DT, bus(cash.x, cash.z, 0, 10));
+  assert.equal(d.run.money, money + RUN.cash);
+  // A kit picked up on a full bus fixes nothing, and the popup says so.
+  const d2 = new Director(makeRoute(12));
+  d2.grab(kit.id);
+  assert.ok(d2.fx.some((f) => f.k === 'heal' && f.n === 0));
 });

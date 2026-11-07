@@ -32,7 +32,7 @@ export interface Act {
 
 export const ACT_MAX = { shots: 20, hits: 20, grabs: 6, swing: 8 } as const;
 
-const FX: FxKind[] = ['yeet', 'fore', 'splat', 'gordie', 'grab', 'hurt', 'shake'];
+const FX: FxKind[] = ['yeet', 'fore', 'splat', 'gordie', 'grab', 'hurt', 'shake', 'heal'];
 const PHASES: Phase[] = ['drive', 'stop', 'won', 'lost'];
 
 const num = (v: unknown, max = 1e6): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max;
@@ -45,7 +45,7 @@ function readRun(r: unknown): RunState | null {
   if (!r || typeof r !== 'object') return null;
   const o = r as Record<string, unknown>;
   if (!seed(o.seed) || !int(o.stage, 10) || !PHASES.includes(o.phase as Phase)) return null;
-  if (!num(o.busHp) || !int(o.money) || !int(o.greens, 10) || !num(o.hold, 999) || !num(o.time)) return null;
+  if (!num(o.busHp) || !int(o.money) || !int(o.teed, 10) || !num(o.hold, 999) || !num(o.time)) return null;
   if (!bool(o.bailPaid) || !bool(o.club) || !bool(o.gordie) || !int(o.kills) || !int(o.yeets)) return null;
   return {
     seed: o.seed,
@@ -53,7 +53,7 @@ function readRun(r: unknown): RunState | null {
     phase: o.phase as Phase,
     busHp: o.busHp,
     money: o.money,
-    greens: o.greens,
+    teed: o.teed,
     hold: o.hold,
     bailPaid: o.bailPaid,
     club: o.club,
@@ -111,7 +111,7 @@ export function readMsg(d: unknown): Msg | null {
 
 /**
  * Who sits where: `seats[i]` is the player in seat i (0 is the driver), -1 if it's empty. A player asking for a seat
- * gets it if it's free (leaving their old one); asking for -1 means any free roof spot.
+ * gets it if it's free (leaving their old one); asking for -1 means any free window.
  */
 export function takeSeat(seats: readonly number[], who: number, want: number): number[] {
   const out = seats.slice();
@@ -123,7 +123,7 @@ export function takeSeat(seats: readonly number[], who: number, want: number): n
   return out;
 }
 
-/** The opening seats: the host drives, everyone else takes the roof in join order. */
+/** The opening seats: the host drives, everyone else takes a window in join order. */
 export function firstSeats(ids: readonly number[], driver: number): number[] {
   const seats = Array<number>(MAX_PLAYERS).fill(-1);
   seats[0] = driver;
