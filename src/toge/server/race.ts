@@ -1,8 +1,7 @@
 import { decodeCar, encodeCar, newOwnedCar, raceCars, rivalCar } from '../shared/cars.ts';
-import { ITEM_MAX_USES, clampDrift } from '../shared/drift.ts';
+import { clampDrift } from '../shared/drift.ts';
 import { payout, raceBonus } from '../shared/garage.ts';
 import { raceXp } from '../shared/pass.ts';
-import type { Item } from '../shared/powerups.ts';
 import { cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
 import { CUPS, ROUNDS, addRound, isCup, type CupId } from '../shared/cups.ts';
 import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, modeTracks, type CarRule, type GpState, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
@@ -13,12 +12,8 @@ import { guarded, type Socket } from '../../server/rooms.ts';
 const OPEN = 1;
 /** How often a live room re-announces itself to the directory. */
 const HEARTBEAT_MS = 30_000;
-/** One attack item per racer per this many ms at most. */
-const ITEM_GAP_MS = 700;
 /** No real descent is quicker than this; a faster "finish" is ignored. */
 const MIN_RACE_SECONDS = 40;
-/** A turbo or shield use is counted at most this often (a triple turbo's three come quickly). */
-const USE_GAP_MS = 250;
 /** A car can't blow up more often than this (ms). */
 const WRECK_GAP_MS = 1000;
 
@@ -49,8 +44,6 @@ interface Member {
   raceCar: string;
   /** Drift points reported this race, capped by the race clock. */
   drift: number;
-  /** Items used this race, per kind (attack items as relayed, self items from `used`), for the bonus. */
-  uses: Partial<Record<Item, number>>;
   /** This race's run, from the poses they send (ghost.ts): kept as the record ghost if it sets the record. */
   rec: GhostRecorder;
   /** In the lobby's garage, editing their car (shown to the others; cleared when a race starts). */
@@ -99,10 +92,6 @@ export class Race {
   private firstFinish = 0;
   private lastBeat = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
-  /** When each racer last used an attack item (a cheap guard against spam). */
-  private itemAt = new Map<number, number>();
-  /** When each racer last reported a turbo or shield. */
-  private usedAt = new Map<number, number>();
   /** When each racer's car last blew up. */
   private wreckAt = new Map<number, number>();
   /** The next CPU racer's id (they count down from -1, so they never clash with a socket's). */
@@ -152,7 +141,7 @@ export class Race {
     // A driver of its own (one the host isn't using), like a solo race's rivals.
     const rider = encodeRider(rivalRider(decodeRider(host.rider) ?? defaultRider(), i));
     const client: RaceClient = { id, ws: NO_SOCKET, name: CPU.names[i], car, rider, user: false };
-    this.members.set(id, { client, cpu: true, state: null, racing: false, ready: false, time: null, best: null, raceCar: car, drift: 0, uses: {}, rec: new GhostRecorder(), pit: false });
+    this.members.set(id, { client, cpu: true, state: null, racing: false, ready: false, time: null, best: null, raceCar: car, drift: 0, rec: new GhostRecorder(), pit: false });
   }
 
   /** Too many on the grid (someone joined, or it's time to start): the newest CPU racers make room. */
@@ -169,7 +158,7 @@ export class Race {
   add(c: RaceClient) {
     if (!decodeCar(c.car)) c.car = 'pebble.0.1.0.0.0.0.1.00000000';
     c.rider = cleanRiderCode(c.rider);
-    this.members.set(c.id, { client: c, cpu: false, state: null, racing: false, ready: false, time: null, best: null, raceCar: c.car, drift: 0, uses: {}, rec: new GhostRecorder(), pit: false });
+    this.members.set(c.id, { client: c, cpu: false, state: null, racing: false, ready: false, time: null, best: null, raceCar: c.car, drift: 0, rec: new GhostRecorder(), pit: false });
     if (!this.hostId) this.hostId = c.id;
     // A full grid with CPU racers on it: one gives up its seat (in a race, they make room at the next start).
     if (this.phase === 'lobby' || this.phase === 'results') this.trimCpus();
@@ -202,12 +191,6 @@ export class Race {
     const m = this.members.get(c.id);
     if (!m || m.cpu || !msg || typeof msg !== 'object') return;
     const host = c.id === this.hostId;
-    // The host speaks for its CPU racers: `cpu` on an item names which one.
-    if (msg.t === 'item' && msg.cpu !== undefined) {
-      const bot = host ? this.members.get(msg.cpu) : undefined;
-      if (bot?.cpu) this.handleItem(bot, msg, c.id);
-      return;
-    }
     switch (msg.t) {
       case 'cpu':
         // Free roam has no CPU racers (there's nothing to race).
@@ -352,19 +335,6 @@ export class Race {
         if (st) this.relay({ t: 'snap', cars: [st] }, c.id);
         break;
       }
-      case 'item':
-        this.handleItem(m, msg, c.id);
-        break;
-      case 'used': {
-        // Turbos and shields stay on the racer's own screen; they only count toward the item bonus.
-        if (this.phase !== 'racing' || cleanMode(this.mode) || this.mode === 'roam' || !m.racing || m.time !== null) return;
-        if (msg.kind !== 'turbo' && msg.kind !== 'triple' && msg.kind !== 'shield') return;
-        const now = this.now();
-        if (now - (this.usedAt.get(c.id) ?? 0) < USE_GAP_MS) return;
-        this.usedAt.set(c.id, now);
-        this.countUse(m, msg.kind);
-        break;
-      }
       case 'drift': {
         // Client-scored, so the most it can be is what the fastest possible drifting would score since GO.
         if (this.phase !== 'racing' || !m.racing || m.time !== null) return;
@@ -390,19 +360,6 @@ export class Race {
     return m.state;
   }
 
-  /** Racer `m` used an attack item: relayed to everyone but the sender, whose client works out who was hit. */
-  private handleItem(m: Member, msg: Extract<RaceClientMsg, { t: 'item' }>, from: number) {
-    // A time trial or hill climb has no items at all.
-    if (this.phase !== 'racing' || cleanMode(this.mode) || this.mode === 'roam' || !m.racing || (msg.kind !== 'oil' && msg.kind !== 'shock' && msg.kind !== 'comet')) return;
-    if (msg.kind === 'oil' && !(Array.isArray(msg.p) && msg.p.length === 3 && msg.p.every((x) => finite(x, 1e5)))) return;
-    if (msg.kind === 'comet' && !(finite(msg.target, 1e6) && finite(msg.s, 1e5))) return;
-    const id = m.client.id;
-    const now = this.now();
-    if (now - (this.itemAt.get(id) ?? 0) < ITEM_GAP_MS) return;
-    this.itemAt.set(id, now);
-    this.countUse(m, msg.kind);
-    this.relay({ t: 'item', by: id, kind: msg.kind, p: msg.kind === 'oil' ? msg.p : undefined, target: msg.kind === 'comet' ? msg.target : undefined, s: msg.kind === 'comet' ? msg.s : undefined }, from);
-  }
 
   /** Racer `m`'s car blew up at `p`: relayed so everyone sees the fireball (at most once a second per car). */
   private wrecked(m: Member, p: unknown, from: number) {
@@ -451,7 +408,6 @@ export class Race {
       m.best = null;
       m.state = null;
       m.drift = 0;
-      m.uses = {};
       m.rec = new GhostRecorder();
       m.pit = false;
       grid[m.client.id] = slot++;
@@ -517,11 +473,11 @@ export class Race {
     const peopleDone = done.filter((m) => !m.cpu);
     const rows: ResultRow[] = [...done, ...dnf].map((m, i) => {
       const place = m.time === null && !placed.includes(m) ? 0 : i + 1;
-      if (m.cpu) return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize: 0, drift: 0, bonus: { drift: 0, items: 0 }, cpu: true, xp: 0 };
-      const bonus = raceBonus(m.drift, m.uses, this.track, false);
+      if (m.cpu) return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize: 0, drift: 0, bonus: { drift: 0 }, cpu: true, xp: 0 };
+      const bonus = raceBonus(m.drift, this.track, false);
       const among = m.time === null ? 0 : peopleDone.indexOf(m) + 1;
       const base = cpus ? Math.max(payout(among, people, this.track, false), payout(place, field.length, this.track, true)) : payout(place, field.length, this.track, false);
-      const prize = base + bonus.drift + bonus.items;
+      const prize = base + bonus.drift;
       return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize, drift: m.drift, bonus, xp: raceXp(place, field.length, m.drift, false) };
     });
     this.phase = 'results';
@@ -542,11 +498,6 @@ export class Race {
     this.onChange(this);
   }
 
-  private countUse(m: Member, kind: Item) {
-    if (m.time !== null) return;
-    const total = Object.values(m.uses).reduce((a, n) => a + n, 0);
-    if (total < ITEM_MAX_USES) m.uses[kind] = (m.uses[kind] ?? 0) + 1;
-  }
 
   tick() {
     const now = this.now();

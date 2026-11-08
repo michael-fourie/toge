@@ -93,8 +93,8 @@ export class RaceRoom extends DurableObject<Env> {
           if (!users.has(row.id) || paid.has(row.name.toLowerCase())) continue;
           paid.add(row.name.toLowerCase());
           this.ctx.waitUntil(accounts.raceReward(row.name, row.prize, row.place === 1 && people > 1, row.xp));
-          // The room timed this finish itself, so it can count as a best time, but only in an item-free mode (a race's
-          // items make its times unbeatable in a time trial).
+          // The room timed this finish itself, so it can count as a best time, but only in a record mode (a race's
+          // drafting and bumping make its times unfair against a time trial).
           const time = row.time;
           if (time !== null && recordMode(mode)) timed.push(() => accounts.raceTime(row.name, track, time, row.car, tapes.get(row.id)).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev, rank: b.rank ?? null, beat: b.beat ?? null } : null)));
         }

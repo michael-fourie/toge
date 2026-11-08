@@ -5,8 +5,7 @@
 
 import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part, type Tune, cleanCar, cleanLook, cleanTune, decodeCar, encodeCar, isCarId, newOwnedCar } from './cars.ts';
 import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, passOnly, rollCosCase } from './cosmetics.ts';
-import { clampDrift, driftPay, itemPay } from './drift.ts';
-import type { Item } from './powerups.ts';
+import { clampDrift, driftPay } from './drift.ts';
 import { decodeLook, encodeLook } from './look.ts';
 import { type BgId, PASS, type PassState, STAGES, TIERS, TITLES, type TitleId, lockedLookParts, ownedLook, owns, raceXp, tierFor, tierOf, unlocked } from './pass.ts';
 import { type Rider, cleanRider, defaultRider } from './rider.ts';
@@ -206,17 +205,16 @@ export function payout(place: number, field: number, track: TrackId, solo: boole
 }
 
 /**
- * The bonus on top of the place prize: drift points (already clamped to the race clock) and item uses. Solo races
- * pay their usual share of it. Paid to finishers and DNFs alike.
+ * The bonus on top of the place prize: drift points (already clamped to the race clock). Solo races pay their usual
+ * share of it. Paid to finishers and DNFs alike.
  */
-export function raceBonus(drift: number, uses: Partial<Record<Item, number>>, track: TrackId, solo: boolean): { drift: number; items: number } {
+export function raceBonus(drift: number, track: TrackId, solo: boolean): { drift: number } {
   const share = solo ? SOLO_SHARE : 1;
-  const r10 = (n: number) => Math.round((n * share) / 10) * 10;
-  return { drift: r10(driftPay(drift, TRACK_LENGTH_KM[track])), items: r10(itemPay(uses)) };
+  return { drift: Math.round((driftPay(drift, TRACK_LENGTH_KM[track]) * share) / 10) * 10 };
 }
 
 /** Rough race distances (km; every lap of a circuit) so payouts don't need the track built; tests check they stay close. */
-export const TRACK_LENGTH_KM: Record<TrackId, number> = { koripass: 5.3, saltwind: 3.6, redmesa: 4.1, tsukiyo: 5.1, momiji: 3.2, sakura: 4.2, monza: 5.6, spa: 5.2, monaco: 5.0, neonbay: 3.2, kodama: 4.4, karasu: 4.1, hachi: 3.7, nagare: 3.16, minato: 5.34, akane: 5.18, kazeoka: 5.52, toge: 37 };
+export const TRACK_LENGTH_KM: Record<TrackId, number> = { koripass: 5.3, saltwind: 3.6, redmesa: 4.1, tsukiyo: 5.1, momiji: 3.2, sakura: 4.2, monza: 5.6, spa: 5.2, monaco: 5.0, neonbay: 3.2, kodama: 4.4, karasu: 4.1, hachi: 3.7, nagare: 3.16, minato: 5.34, akane: 5.18, kazeoka: 5.52, ryusei: 4.72, hayate: 4.8, toge: 37 };
 
 // ---------------------------------------------------------------------------------------------
 // Everything you can do to a garage, as one action type (the server's API and the guest's local store)
@@ -228,11 +226,11 @@ export type GarageAction =
   | { a: 'style'; i: number; look: Look; tune: Tune }
   | { a: 'sell'; i: number }
   /**
-   * `drift`: drift points banked; `uses`: items used, per kind (both client-reported, clamped). `time`: your finish
+   * `drift`: drift points banked (client-reported, clamped). `time`: your finish
    * (s), for best times (records.ts; not part of applyAction, which only pays). `ghost`: the run (ghost.ts), kept as
    * the track's record ghost if the time is the new record.
    */
-  | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number; uses?: Partial<Record<Item, number>> }
+  | { a: 'solo'; track: TrackId; place: number; field: number; drift?: number }
   | { a: 'case'; id: CaseId }
   | { a: 'equip'; i: number; slot: CosSlot; id: string | null }
   | { a: 'plate'; i: number; text: string }
@@ -246,7 +244,7 @@ export type GarageAction =
 
 /** `best`: a solo finish that set a new best time (filled in by the garage's keeper, not applyAction). */
 /** `xp`: season XP the action earned (a solo race). */
-export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number; bonus?: { drift: number; items: number }; xp?: number } | { ok: false; error: string };
+export type ActionResult = { ok: true; g: Garage; crate?: CrateResult; drop?: CaseDrop; paid?: number; bonus?: { drift: number }; xp?: number } | { ok: false; error: string };
 
 /** Selling gives back this share of the car's price. */
 export const SELL_SHARE = 0.5;
@@ -299,8 +297,8 @@ export function applyAction(g: Garage, act: GarageAction, rnd: () => number, now
       const field = Math.max(1, Math.min(8, Math.floor(Number(act.field)) || 1));
       const place = Math.max(0, Math.min(field, Math.floor(Number(act.place)) || 0));
       // Nothing times a solo race on the server, so drift is clamped to the longest race (and driftPay caps it per km).
-      const bonus = raceBonus(clampDrift(act.drift, SOLO_MAX_SECONDS), act.uses ?? {}, act.track, true);
-      const paid = payout(place, field, act.track, true) + bonus.drift + bonus.items;
+      const bonus = raceBonus(clampDrift(act.drift, SOLO_MAX_SECONDS), act.track, true);
+      const paid = payout(place, field, act.track, true) + bonus.drift;
       const xp = raceXp(place, field, clampDrift(act.drift, SOLO_MAX_SECONDS), true);
       return { ok: true, g: { ...award(g, paid, place === 1 && field > 1, xp), lastReward: now }, paid, bonus, xp };
     }

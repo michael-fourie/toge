@@ -8,21 +8,20 @@ import { type Ai, aiDrive, newAi } from '../shared/driver.ts';
 import { DRAFT, type Body, stepDraft, strongestWake } from '../shared/draft.ts';
 import { DAMAGE, type Damage, ZONES, damagedInput, newDamage, packZones, repair, takeHit, unpackZones } from '../shared/damage.ts';
 import { Blasts, CarDents } from './damageview.ts';
-import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
-import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
-import { SOLO_SHARE } from '../shared/garage.ts';
+import { bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { tierOf } from '../shared/pass.ts';
 import { CUPS, ROUNDS, addRound, roundLabel } from '../shared/cups.ts';
 import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, recordMode, type CarRule, type GpState, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
-import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc, pointAt } from '../shared/track.ts';
-import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, placeCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
+import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc } from '../shared/track.ts';
+import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, placeCar, resetCar, speedOf, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
 import { WORLD, respawnAt, trapCrossed } from '../shared/world.ts';
 import { collideWorldTraffic, newNearMisses, roamClock, stepNearMisses } from '../shared/worldtraffic.ts';
 import { WorldTrafficView } from './worldtrafficview.ts';
 import { buildWorldView } from './worldview.ts';
-import { PropView, shieldBubble } from './propview.ts';
+import { PropView } from './propview.ts';
+import { padKick } from '../shared/boost.ts';
 import { type Obstacle, type Traffic, collideTraffic, getTraffic, trafficBetween } from '../shared/traffic.ts';
 import { TrafficView } from './trafficview.ts';
 import { rumble, setMenuNav } from '../../client/pad.ts';
@@ -118,11 +117,6 @@ interface Racing {
   /** Online, a CPU racer this (host's) client drives: its racer id in the room. */
   netId?: number;
   input: DriveInput;
-  /** The item held (and uses left), when an AI uses it, and how long its shield lasts (wall clock). */
-  item: { kind: Item; uses: number } | null;
-  itemAt: number;
-  shieldUntil: number;
-  bubble: THREE.Mesh;
   /** Physics mode: how damaged the car is, and its body's dents. */
   dmg: Damage;
   dents: CarDents;
@@ -144,7 +138,6 @@ interface Remote {
   err: THREE.Vector3;
   /** A stand-in Car (pose only) for bumping into. */
   ghost: Car;
-  bubble: THREE.Mesh;
   s: number;
   finished: number | null;
   spin: number;
@@ -189,11 +182,9 @@ interface CamTarget {
   rough: number;
 }
 
-/** ", incl. $X drifting and $Y items" for a results note (nothing when there's no bonus). */
-function bonusNote(b: { drift: number; items: number } | undefined): string {
-  if (!b || b.drift + b.items <= 0) return '';
-  const parts = [b.drift > 0 ? `${money(b.drift)} drifting` : '', b.items > 0 ? `${money(b.items)} items` : ''].filter(Boolean);
-  return ` (incl. ${parts.join(' and ')})`;
+/** ", incl. $X drifting" for a results note (nothing when there's no bonus). */
+function bonusNote(b: { drift: number } | undefined): string {
+  return b && b.drift > 0 ? ` (incl. ${money(b.drift)} drifting)` : '';
 }
 
 /**
@@ -235,9 +226,6 @@ export class RaceGame {
   private trapBest = new Map<string, number>();
   private trafficTime = 0;
   private obstacles: Obstacle[] = [];
-  /** Your item slot: the roulette spinning until `rouletteUntil`, then the item and its uses. */
-  private rouletteUntil = 0;
-  private pending: Item | null = null;
   private controls = new DriveControls();
   private me: Racing;
   private rivals: Racing[] = [];
@@ -285,7 +273,7 @@ export class RaceGame {
   private topSpeed = 0;
   /** A time trial: the other racers are ghosts (no contact, no slipstream). */
   private readonly trial: boolean;
-  /** A time trial or hill climb: no items, and the results show gaps. */
+  /** A time trial or hill climb: the host's car rule, and the results show gaps. */
   private readonly clean: boolean;
   /** A hill climb (one run up the mountain). */
   private readonly climb: boolean;
@@ -323,9 +311,8 @@ export class RaceGame {
   /** Name tags hidden behind a hill, by tag id, and the frame each was last checked. */
   private tagHidden = new Map<Tag['id'], { hidden: boolean; at: number }>();
 
-  /** Your drift score this race, and the items you've used (both pay a bonus at the end). */
+  /** Your drift score this race (pays a bonus at the end). */
   private driftMeter = newDriftMeter();
-  private uses: Partial<Record<Item, number>> = {};
 
   /** Low graphics (src/client/graphics.ts), and its frame cap. */
   private readonly low = lowGraphics();
@@ -360,14 +347,12 @@ export class RaceGame {
     setup.container.appendChild(this.renderer.domElement);
     this.roam = !!this.track.world;
     this.view = this.roam ? buildWorldView(this.track, this.renderer, this.low) : buildTrackView(this.track, this.renderer, this.low);
-    this.view.scene.add(this.cometLight);
     this.renderer.toneMappingExposure = this.view.exposure;
     this.post = new Post(this.renderer, this.view.scene, this.camera, this.view.grade, this.low);
     this.post.sun = this.view.sunDir;
     this.fx = new Effects(this.view.scene);
     this.contact = new ContactShadows(this.view.scene);
     this.propView = new PropView(this.view.scene, this.track);
-    if (this.clean) this.propView.clearBoxes();
     if (this.physics) this.blasts = new Blasts(this.view.scene, this.track, this.fx);
     this.traffic = getTraffic(this.track);
     if (this.traffic) this.trafficView = new TrafficView(this.view.scene, this.track, this.traffic);
@@ -458,10 +443,6 @@ export class RaceGame {
       color: hexColor(PAINTS[owned.look.paint]),
       finished: null,
       input: { steer: 0, throttle: 0, brake: 0, handbrake: 0 },
-      item: null,
-      itemAt: 0,
-      shieldUntil: 0,
-      bubble: this.bubbleFor(model.root, b.length),
       dmg: newDamage(),
       dents: new CarDents(model.body),
     };
@@ -498,7 +479,6 @@ export class RaceGame {
       rpm: spec.idle,
       dm: 0,
       dents: new CarDents(model.body),
-      bubble: this.bubbleFor(model.root, CARS[owned.model].length),
     });
   }
 
@@ -517,69 +497,16 @@ export class RaceGame {
     root.add(glow);
   }
 
-  // --- items ---------------------------------------------------------------------------------
+  // --- boost pads and cones ----------------------------------------------------------------------
 
-  private bubbleFor(root: THREE.Object3D, length: number): THREE.Mesh {
-    const b = shieldBubble(length);
-    root.add(b);
-    return b;
-  }
-
-  /** Mystery boxes within reach of distance `s` along the road. */
-  private *boxesNear(s: number): Generator<[number, (typeof this.track.props)[number]]> {
-    const props = this.track.props;
-    for (let i = 0; i < props.length; i++) if (props[i].kind === 'box' && Math.abs(props[i].s - s) < 12) yield [i, props[i]];
-  }
-
-  /** Where `r` is in the race (1-based) and how many are racing, for item odds. */
-  private placeOf(r: Racing): [number, number] {
-    const all = [...[this.me, ...this.rivals].map((x) => ({ x, s: x.car.s })), ...[...this.remotes.values()].map((x) => ({ x: null, s: x.s }))];
-    all.sort((a, b) => b.s - a.s);
-    return [all.findIndex((e) => e.x === r) + 1, all.length];
-  }
-
-  /** Boxes, cones and oil for the cars we simulate; AI rivals use what they're holding. */
+  /** Cones knocked flying, and the rainbow boost pads, for the cars we simulate. */
   private pickups() {
-    const now = this.wallClock;
     for (const r of [this.me, ...this.rivals]) {
-      for (const i of r.car.touched) {
-        const p = this.track.props[i];
-        if (p.kind === 'cone') this.propView.knockCone(i, r.car.v.x, r.car.v.z);
-        else if (p.kind === 'box' && this.propView.takeBox(i, now)) {
-          if (r === this.me) {
-            if (!r.item && now >= this.rouletteUntil) {
-              this.rouletteUntil = now + POWER.roulette;
-              this.pending = rollItem(...this.placeOf(r), Math.random);
-              this.audio.tone(990, 0.08, 0.05, 'square');
-            }
-          } else if (!r.item) {
-            const kind = rollItem(...this.placeOf(r), Math.random);
-            r.item = { kind, uses: ITEMS[kind].uses };
-            r.itemAt = now + 1 + Math.random() * 4;
-          }
-        }
+      for (const i of r.car.touched) if (this.track.props[i].kind === 'cone') this.propView.knockCone(i, r.car.v.x, r.car.v.z);
+      if (padKick(r.car, this.track.boosts) && r === this.me) {
+        this.audio.burst(0.35, 0.08, 2400, 'highpass');
+        rumble(0.4, 0.7, 180);
       }
-      for (const sl of this.propView.slicks)
-        if (!sl.hit.has(r) && Math.hypot(sl.x - r.car.p.x, sl.z - r.car.p.z) < POWER.oilRadius + 0.6 && Math.abs(sl.y - r.car.p.y) < 3) {
-          sl.hit.add(r);
-          if (now < r.shieldUntil) continue;
-          spinOut(r.car, POWER.oilSpin);
-          if (r === this.me) {
-            this.hud.banner('Oil!', '', 1200);
-            rumble(0.8, 0.6, 500);
-          }
-        }
-      if (r !== this.me && r.item && now >= r.itemAt && this.phase !== 'countdown') {
-        this.useItem(r);
-        if (r.item) r.itemAt = now + 0.8;
-      }
-      r.bubble.visible = now < r.shieldUntil;
-    }
-    if (this.pending && now >= this.rouletteUntil) {
-      this.me.item = { kind: this.pending, uses: ITEMS[this.pending].uses };
-      this.hud.banner(ITEMS[this.pending].name, this.controls.padSeen ? 'Ⓧ to use' : 'E to use', 1400);
-      this.audio.tone(1320, 0.15, 0.05, 'triangle');
-      this.pending = null;
     }
   }
 
@@ -592,147 +519,6 @@ export class RaceGame {
       this.audio.tone(880, 0.1, 0.05, 'triangle');
       this.setup.online?.net.send({ t: 'drift', pts: this.driftMeter.total });
     } else if (ev.points > 0) this.hud.driftLost(ev.points);
-  }
-
-  /** You used an item: count it for the bonus, show what it's worth, and online tell the server about the ones it doesn't relay. */
-  private paidUse(kind: Item) {
-    this.uses[kind] = (this.uses[kind] ?? 0) + 1;
-    this.hud.paid(Math.round((ITEM_PAY[kind] * (this.setup.online ? 1 : SOLO_SHARE)) / 10) * 10);
-    if (kind === 'turbo' || kind === 'triple' || kind === 'shield') this.setup.online?.net.send({ t: 'used', kind });
-  }
-
-  private useItem(r: Racing) {
-    const it = r.item;
-    if (!it) return;
-    let fired = true;
-    const c = r.car;
-    const now = this.wallClock;
-    switch (it.kind) {
-      case 'turbo':
-      case 'triple':
-        c.boost = Math.max(c.boost, POWER.turboSeconds);
-        c.boostPower = POWER.turboAccel;
-        break;
-      case 'shield':
-        r.shieldUntil = now + POWER.shieldSeconds;
-        break;
-      case 'oil': {
-        const yaw = yawOf(c);
-        const back = c.spec.axleR + 2.6;
-        const x = c.p.x + Math.sin(yaw) * back;
-        const z = c.p.z + Math.cos(yaw) * back;
-        const y = c.p.y - c.spec.cg;
-        this.propView.addSlick(x, y, z, now);
-        if (r === this.me || r.netId !== undefined) this.setup.online?.net.send({ t: 'item', kind: 'oil', p: [x, y, z], cpu: r.netId });
-        break;
-      }
-      case 'shock':
-        this.shockwave(r, r.name);
-        if (r === this.me || r.netId !== undefined) this.setup.online?.net.send({ t: 'item', kind: 'shock', cpu: r.netId });
-        break;
-      case 'comet': {
-        const target = this.leaderFor(r);
-        if (!target) {
-          fired = false;
-          break;
-        }
-        this.launchComet(c.s, target, r.name);
-        // Online, the others hear who it's for by racer id (you, or a CPU racer, if the target is a car we drive).
-        const id = typeof target === 'number' ? target : target === this.me ? this.setup.online?.net.id : target.netId;
-        if ((r === this.me || r.netId !== undefined) && id !== undefined) this.setup.online?.net.send({ t: 'item', kind: 'comet', target: id, s: c.s, cpu: r.netId });
-        break;
-      }
-    }
-    if (r === this.me) this.audio.burst(0.3, 0.06, 1800, 'highpass');
-    if (r === this.me && fired && !this.clean) this.paidUse(it.kind);
-    it.uses--;
-    if (it.uses <= 0) r.item = null;
-  }
-
-  /**
-   * Who a comet fired by `r` goes for: whoever's in front (the next one if `r` leads). A car we simulate,
-   * or a remote racer's id.
-   */
-  private leaderFor(r: Racing): Racing | number | null {
-    const all: { who: Racing | number; s: number; done: boolean }[] = [
-      ...[this.me, ...this.rivals].map((x) => ({ who: x as Racing | number, s: x.car.s, done: x.finished !== null })),
-      ...[...this.remotes.values()].map((x) => ({ who: x.id as Racing | number, s: x.s, done: x.finished !== null })),
-    ].filter((e) => !e.done && e.who !== r);
-    all.sort((a, b) => b.s - a.s);
-    return all[0]?.who ?? null;
-  }
-
-  private comets: { mesh: THREE.Mesh; lit: boolean; from: number; target: Racing | number; at: number; dur: number }[] = [];
-  // Comets share one look, and one light that lives in the scene all race, dark until a comet carries
-  // it: adding or removing a light mid-race makes three.js recompile every lit shader, a long freeze.
-  private cometGeo = new THREE.SphereGeometry(0.7, 16, 12);
-  private cometMat = new THREE.MeshBasicMaterial({ color: 0x8fd8ff });
-  private cometLight = new THREE.PointLight(0x6fc8ff, 0, 30, 2);
-
-  /** A comet leaves distance `from` along the road and homes in on `target`. */
-  private launchComet(from: number, target: Racing | number, by: string) {
-    const ts = typeof target === 'number' ? (this.remotes.get(target)?.s ?? from) : target.car.s;
-    const mesh = new THREE.Mesh(this.cometGeo, this.cometMat);
-    this.view.scene.add(mesh);
-    const lit = !this.comets.some((c) => c.lit);
-    if (lit) this.cometLight.intensity = 40;
-    this.comets.push({ mesh, lit, from, target, at: this.wallClock, dur: Math.max(1.2, (ts - from) / POWER.cometSpeed) });
-    if (target === this.me) {
-      this.hud.banner(`☄️ Comet from ${by}!`, 'Shield up or brace yourself', 1800);
-      this.audio.tone(520, 0.6, 0.05, 'sawtooth');
-    }
-  }
-
-  /** Flies comets down the road (high above it), dives onto the target, and blows it up. */
-  private updateComets() {
-    const now = this.wallClock;
-    for (let k = this.comets.length - 1; k >= 0; k--) {
-      const cm = this.comets[k];
-      const local = typeof cm.target === 'number' ? null : cm.target;
-      const tp = local ? local.model.root.position : this.remotes.get(cm.target as number)?.model.root.position;
-      if (!tp) {
-        this.dropComet(k);
-        continue;
-      }
-      const ts = local ? local.car.s : (this.remotes.get(cm.target as number)?.s ?? cm.from);
-      const u = Math.min(1, (now - cm.at) / cm.dur);
-      const road = pointAt(this.track, cm.from + (ts - cm.from) * u, 0);
-      const dive = Math.max(0, (u - 0.8) / 0.2);
-      cm.mesh.position.set(road.x + (tp.x - road.x) * dive, road.y + 9 * (1 - dive) + (tp.y - road.y) * dive, road.z + (tp.z - road.z) * dive);
-      if (cm.lit) this.cometLight.position.copy(cm.mesh.position);
-      if (this.puffTick % 2 === 0) this.fx.spark(cm.mesh.position.x, cm.mesh.position.y, cm.mesh.position.z, 0, 0.5, 0, [0.5, 0.85, 1], 0.6, 1.6);
-      if (u < 1) continue;
-      this.dropComet(k);
-      for (let i = 0; i < 40; i++) this.fx.spark(tp.x, tp.y + 0.5, tp.z, (Math.random() - 0.5) * 16, Math.random() * 10, (Math.random() - 0.5) * 16, Math.random() < 0.5 ? [0.5, 0.85, 1] : [1, 1, 1], 0.9, 2.2);
-      this.audio.burst(0.9, 0.15, 400, 'lowpass');
-      if (!local || now < local.shieldUntil) continue;
-      spinOut(local.car, POWER.cometSpin);
-      local.car.v.x *= 0.35;
-      local.car.v.z *= 0.35;
-      local.car.v.y += POWER.cometLift;
-      if (local === this.me) rumble(1, 1, 900);
-    }
-  }
-
-  private dropComet(k: number) {
-    const cm = this.comets[k];
-    cm.mesh.removeFromParent();
-    if (cm.lit) this.cometLight.intensity = 0;
-    this.comets.splice(k, 1);
-  }
-
-  /** A shockwave from `by` (null: a remote racer) spins out everyone else who isn't shielded. */
-  private shockwave(by: Racing | null, name: string) {
-    const now = this.wallClock;
-    for (const r of [this.me, ...this.rivals]) {
-      if (r === by || now < r.shieldUntil) continue;
-      spinOut(r.car, POWER.shockSpin);
-    }
-    if (by !== this.me) {
-      this.hud.banner(`⚡ Shockwave from ${name}!`, '', 1600);
-      if (now >= this.me.shieldUntil) rumble(1, 1, 600);
-    }
-    this.audio.burst(0.8, 0.1, 300, 'lowpass');
   }
 
   // --- network ---------------------------------------------------------------------------------
@@ -800,15 +586,7 @@ export class RaceGame {
       if (this.roam) for (const r of m.racers) if (r.roaming && r.id !== this.setup.online!.net.id && !this.remotes.has(r.id)) this.addRemote(r);
       if (m.phase === 'lobby' && (this.phase === 'done' || this.roam)) this.exit('lobby');
       else if (this.phase === 'done') this.resultActs(); // the host may have changed
-    } else if (m.t === 'item') {
-      const from = this.remotes.get(m.by)?.name ?? this.rivals.find((r) => r.netId === m.by)?.name ?? 'Someone';
-      if (m.kind === 'oil' && m.p) this.propView.addSlick(m.p[0], m.p[1], m.p[2], this.wallClock);
-      else if (m.kind === 'shock') this.shockwave(null, from);
-      else if (m.kind === 'comet' && m.target !== undefined && m.s !== undefined) {
-        const target = m.target === this.setup.online!.net.id ? this.me : this.remotes.has(m.target) ? m.target : (this.rivals.find((r) => r.netId === m.target) ?? null);
-        if (target !== null) this.launchComet(m.s, target, from);
-      }
-    } else if (m.t === 'error') this.exit('garage', m.message);
+        } else if (m.t === 'error') this.exit('garage', m.message);
   }
 
   private send() {
@@ -832,8 +610,7 @@ export class RaceGame {
       (c.wheels.some((w) => w.surf === 'grass' || w.surf === 'gravel' || w.surf === 'dirt') ? CarFlag.Offroad : 0) |
       (c.drift ? CarFlag.Drift : 0) |
       (c.boost > 0 ? CarFlag.Boost : 0) |
-      (c.driftLevel << CarFlag.LevelShift) |
-      (this.wallClock < x.shieldUntil ? CarFlag.Shield : 0);
+      (c.driftLevel << CarFlag.LevelShift);
     const r = (n: number) => Math.round(n * 1000) / 1000;
     return {
       p: [r(c.p.x), r(c.p.y), r(c.p.z)],
@@ -874,7 +651,6 @@ export class RaceGame {
       this.fx.update(dt);
       this.blasts?.update(dt);
       this.propView.update(this.wallClock, dt);
-      this.updateComets();
     }
     this.render(dt, Math.min(1, this.acc / TICK_DT));
     this.adaptResolution(dt);
@@ -938,9 +714,8 @@ export class RaceGame {
       this.respawn(this.me.car);
       this.resetAt = this.wallClock + 2;
       this.hud.banner('Back on the road', '', 1200);
-    } else if (a === 'item') {
-      if (this.phase === 'racing') this.useItem(this.me);
-      else if (this.phase === 'finished' && this.setup.online) this.spectateNext();
+    } else if (a === 'spectate') {
+      if (this.phase === 'finished' && this.setup.online) this.spectateNext();
     } else if (a === 'shiftUp' || a === 'shiftDown') {
       if (!this.assists.auto && this.phase !== 'countdown') this.me.input[a] = true;
     }
@@ -1103,17 +878,12 @@ export class RaceGame {
 
   /**
    * Every car we drive (you and the AI) takes its knocks for this tick: dents where it was hit, and a wreck when
-   * it's had too much. A shield soaks hits like it soaks items. Finished cars are left alone.
+   * it's had too much. Finished cars are left alone.
    */
   private crashes() {
-    const now = this.wallClock;
     for (const r of [this.me, ...this.rivals]) {
       if (r.finished !== null) continue;
       const c = r.car;
-      if (now < r.shieldUntil) {
-        r.dmg.grace = Math.max(0, r.dmg.grace - TICK_DT);
-        continue;
-      }
       const hit = takeHit(r.dmg, c.crash, c.crashP, c.land, c.spec.body.hl, c.spec.body.hw, TICK_DT);
       if (!hit) continue;
       // The harder the hit, the deeper and wider the dent.
@@ -1310,7 +1080,7 @@ export class RaceGame {
     const myPlace = done.indexOf(this.me) + 1;
     const drift = this.driftMeter.total;
     const xpBefore = garage.g.xp;
-    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift, uses: this.uses });
+    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift });
     this.myPrize = res.ok ? (res.paid ?? 0) : 0;
     const bonus = res.ok ? res.bonus : undefined;
     const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined }));
@@ -1364,8 +1134,8 @@ export class RaceGame {
     const mine = lines.find((l) => l.me);
     const xpBefore = garage.g.xp;
     if (mine) garage.credit(mine.prize, mine.place === 1 && lines.filter((l) => !l.cpu).length > 1, mine.xp ?? 0);
-    // A guest's best is kept here; an account's comes from the server a moment later (`records`). Only item-free modes
-    // keep best times (recordMode): a race's items would make them unbeatable in a time trial.
+    // A guest's best is kept here; an account's comes from the server a moment later (`records`). Only record modes
+    // keep best times (recordMode): a race's drafting and bumping would make them unfair in a time trial.
     if (mine && mine.time !== null && !garage.onServer && recordMode(this.setup.online!.mode)) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
     const title = gp ? `${CUPS[gp.cup].name} · ${this.track.def.name}` : this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
     this.shownResults = { lines, title };
@@ -1605,9 +1375,6 @@ export class RaceGame {
       (c.c.f & CarFlag.Brake) !== 0,
       c.c.w * Math.hypot(g.v.x, g.v.z),
     );
-    r.bubble.visible = (c.c.f & CarFlag.Shield) !== 0;
-    // Remote cars grab boxes on their own screens; take them here too so they vanish for us.
-    for (const [i, box] of this.boxesNear(c.c.s)) if (Math.hypot(box.x - p.x, box.z - p.z) < box.r + 1) this.propView.takeBox(i, this.wallClock);
     this.driftFx(r.model.root, sp.axleR, sp.bike ? 0 : sp.track, sp.cg, (c.c.f & CarFlag.Drift) !== 0, (c.c.f >> CarFlag.LevelShift) & 3, (c.c.f & CarFlag.Boost) !== 0, g.v.x, g.v.z);
     if (c.c.f & CarFlag.Skid && this.puffTick % 3 === 0) this.fx.puff(p.x, p.y - sp.cg, p.z, g.v.x, g.v.z, 0.6, (c.c.f & CarFlag.Offroad) !== 0);
   }
@@ -1928,7 +1695,6 @@ export class RaceGame {
       drift: c.drift !== 0 ? c.driftLevel : -1,
       combo: this.driftMeter.combo > 0 ? { points: comboPoints(this.driftMeter), mult: this.driftMeter.mult } : null,
       driftTotal: this.driftMeter.total,
-      item: this.wallClock < this.rouletteUntil ? { icon: ITEMS[(['turbo', 'oil', 'shield', 'triple', 'shock', 'comet'] as Item[])[Math.floor(this.wallClock * 12) % 6]].icon, name: '', spinning: true } : me.item ? { icon: ITEMS[me.item.kind].icon, name: ITEMS[me.item.kind].name + (me.item.uses > 1 ? ` ×${me.item.uses}` : ''), spinning: false } : null,
       boost: c.boost > 0,
       draft: me.finished === null ? c.draft : 0,
       charge: c.draftArmed > 0 ? 1 : c.draftCharge / DRAFT.charge,
@@ -2009,8 +1775,6 @@ export class RaceGame {
     this.blasts?.dispose();
     this.trafficView?.dispose();
     this.worldTraffic?.dispose();
-    this.cometGeo.dispose();
-    this.cometMat.dispose();
     this.view.dispose();
     this.post.dispose();
     this.contact.dispose();

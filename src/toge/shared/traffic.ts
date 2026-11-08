@@ -1,4 +1,5 @@
-// City traffic: cars on all four lanes, two each way, that you have to dodge. Every car's place is a pure
+// Traffic: cars on all four lanes that you have to dodge, two each way in town, or all four going your way on a
+// highway (the slow lane on the left, the fast one by the median). Every car's place is a pure
 // function of the race clock (seconds since GO), laid out from the track's seed, so every racer online sees
 // the same traffic at the same moment without a byte on the wire, and the AI and the tests see it too.
 //
@@ -18,13 +19,31 @@ export const TRAFFIC_KINDS: Record<TrafficKind, { len: number; width: number; he
   truck: { len: 6.8, width: 2.1, height: 2.9, mass: 5000 },
 };
 
-/** Lanes: offset across the road (+ = right), which way they drive (1 = with the race) and how fast (m/s). */
-export const LANES: { d: number; dir: 1 | -1; v: number }[] = [
+/** A lane: offset across the road (+ = right), which way it drives (1 = with the race) and how fast (m/s). */
+export interface Lane {
+  d: number;
+  dir: 1 | -1;
+  v: number;
+}
+
+/** A town's four lanes, two each way. */
+export const LANES: Lane[] = [
   { d: -5.6, dir: 1, v: 12 },
   { d: -1.9, dir: 1, v: 17 },
   { d: 1.9, dir: -1, v: 16 },
   { d: 5.6, dir: -1, v: 12 },
 ];
+
+/** A highway's four lanes, all with the race: trucks and dawdlers on the left, quicker by the median (61-101 km/h). */
+export const HIGHWAY_LANES: Lane[] = [
+  { d: -5.8, dir: 1, v: 17 },
+  { d: -1.95, dir: 1, v: 21 },
+  { d: 1.95, dir: 1, v: 24.5 },
+  { d: 5.8, dir: 1, v: 28 },
+];
+
+/** The lanes a track's traffic drives in. */
+export const lanesOf = (t: Track): Lane[] => (t.def.traffic === 'highway' ? HIGHWAY_LANES : LANES);
 
 export interface TrafficCar {
   kind: TrafficKind;
@@ -37,6 +56,7 @@ export interface TrafficCar {
 
 export interface Traffic {
   cars: TrafficCar[];
+  lanes: Lane[];
   /** The stretch of road the traffic loops over. */
   lo: number;
   hi: number;
@@ -77,15 +97,21 @@ export function getTraffic(t: Track): Traffic | null {
     const lo = t.startS + 140;
     const hi = t.finishS - 30;
     const cars: TrafficCar[] = [];
-    LANES.forEach((_, lane) => {
-      // Gaps always longer than the longest car (and its wrap round the loop too).
-      for (let s = lo + rng() * 60; s < hi - 50; s += 55 + rng() * 105) {
+    const lanes = lanesOf(t);
+    const highway = t.def.traffic === 'highway';
+    lanes.forEach((_, lane) => {
+      // Gaps always longer than the longest car (and its wrap round the loop too); wider at highway speeds, and
+      // the trucks keep to the slow lanes there.
+      const [gap, spread] = highway ? [80, 150] : [55, 105];
+      for (let s = lo + rng() * 60; s < hi - 50; s += gap + rng() * spread) {
         const r = rng();
-        const kind: TrafficKind = r < 0.62 ? 'sedan' : r < 0.86 ? 'kei' : 'truck';
+        const truck = highway ? (lane < 2 ? 0.3 : 0.04) : 0.14;
+        const sedan = 0.76 - truck;
+        const kind: TrafficKind = r < sedan ? 'sedan' : r < sedan + 0.24 ? 'kei' : 'truck';
         cars.push({ kind, lane, s0: s, paint: Math.floor(rng() * 1000) });
       }
     });
-    tr = { cars, lo, hi };
+    tr = { cars, lanes, lo, hi };
   }
   cache.set(t, tr);
   return tr;
@@ -94,13 +120,13 @@ export function getTraffic(t: Track): Traffic | null {
 /** How far along the road a traffic car is at `time` (seconds since GO; negative during the countdown). */
 export function trafficS(tr: Traffic, car: TrafficCar, time: number): number {
   const span = tr.hi - tr.lo;
-  const lane = LANES[car.lane];
+  const lane = tr.lanes[car.lane];
   const u = (car.s0 - tr.lo + lane.dir * lane.v * time) % span;
   return tr.lo + (u < 0 ? u + span : u);
 }
 
 export function trafficPose(t: Track, tr: Traffic, car: TrafficCar, time: number, out: TrafficPose): TrafficPose {
-  const lane = LANES[car.lane];
+  const lane = tr.lanes[car.lane];
   const s = trafficS(tr, car, time);
   const p = pointAt(t, s, lane.d);
   out.s = s;
@@ -129,7 +155,7 @@ export function trafficBetween(tr: Traffic, time: number, s0: number, s1: number
   for (const c of tr.cars) {
     const s = trafficS(tr, c, time);
     if (s < s0 || s > s1) continue;
-    const lane = LANES[c.lane];
+    const lane = tr.lanes[c.lane];
     out.push({ s, d: lane.d, v: lane.dir * lane.v, len: TRAFFIC_KINDS[c.kind].len });
   }
   return out;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { carSpec, newOwnedCar } from '../../src/toge/shared/cars.ts';
-import { DRIFT, DRIFT_MAX_RATE, ITEM_MAX_USES, ITEM_PAY, ITEM_PAY_CAP, bankCombo, clampDrift, cleanUses, comboPoints, driftPay, itemPay, newDriftMeter, slideOf, stepDrift } from '../../src/toge/shared/drift.ts';
+import { DRIFT, DRIFT_MAX_RATE, bankCombo, clampDrift, comboPoints, driftPay, newDriftMeter, slideOf, stepDrift } from '../../src/toge/shared/drift.ts';
 import { SOLO_SHARE, TRACK_LENGTH_KM, applyAction, newGarage, payout, raceBonus } from '../../src/toge/shared/garage.ts';
 import { Race, type RaceClient } from '../../src/toge/server/race.ts';
 import { RACE, type RaceServerMsg, type ResultRow } from '../../src/toge/shared/protocol.ts';
@@ -101,34 +101,27 @@ test('clampDrift: junk is 0, reports are capped by the race clock', () => {
   assert.equal(clampDrift(1234.7, 60), 1234);
 });
 
-test('drift and item pay: per point, capped per km; items capped per race', () => {
+test('drift pay: per point, capped per km', () => {
   assert.equal(driftPay(20_000, 5), 1000);
   assert.equal(driftPay(1e9, 5), DRIFT.payPerKm * 5);
-  assert.equal(itemPay({ turbo: 1, oil: 2 }), ITEM_PAY.turbo + 2 * ITEM_PAY.oil);
-  assert.equal(itemPay({ comet: 999 }), ITEM_PAY_CAP);
-  const u = cleanUses({ turbo: 1e6, shield: 3, nonsense: 9, oil: -4 });
-  assert.equal(Object.values(u).reduce((a, n) => a + n, 0), ITEM_MAX_USES);
-  assert.equal(u.oil, undefined);
-  assert.equal(cleanUses(null).turbo, undefined);
   // Bonus money stays well under a win: drifting can't out-earn racing.
-  const maxBonus = raceBonus(1e9, { comet: 99 }, 'koripass', false);
-  assert.ok(maxBonus.drift + maxBonus.items < payout(1, 8, 'koripass', false) / 2);
+  const maxBonus = raceBonus(1e9, 'koripass', false);
+  assert.ok(maxBonus.drift < payout(1, 8, 'koripass', false) / 2);
 });
 
-test('solo: drift and item uses add a (solo-share) bonus to the prize, clamped', () => {
+test('solo: drifting adds a (solo-share) bonus to the prize, clamped', () => {
   const plain = applyAction(newGarage(), { a: 'solo', track: 'saltwind', place: 1, field: 4 }, Math.random, 1_000_000);
-  const bonus = applyAction(newGarage(), { a: 'solo', track: 'saltwind', place: 1, field: 4, drift: 20_000, uses: { turbo: 2, shock: 1 } }, Math.random, 1_000_000);
+  const bonus = applyAction(newGarage(), { a: 'solo', track: 'saltwind', place: 1, field: 4, drift: 20_000 }, Math.random, 1_000_000);
   assert.ok(plain.ok && bonus.ok);
-  const want = raceBonus(20_000, { turbo: 2, shock: 1 }, 'saltwind', true);
+  const want = raceBonus(20_000, 'saltwind', true);
   assert.equal(want.drift, Math.round((driftPay(20_000, TRACK_LENGTH_KM.saltwind) * SOLO_SHARE) / 10) * 10);
   assert.deepEqual(bonus.bonus, want);
-  assert.equal(bonus.paid, plain.paid! + want.drift + want.items);
-  assert.equal(bonus.g.money, plain.g.money + want.drift + want.items);
-  const cheat = applyAction(newGarage(), { a: 'solo', track: 'saltwind', place: 1, field: 4, drift: 1e12, uses: { comet: 1e9 } }, Math.random, 1_000_000);
+  assert.equal(bonus.paid, plain.paid! + want.drift);
+  assert.equal(bonus.g.money, plain.g.money + want.drift);
+  const cheat = applyAction(newGarage(), { a: 'solo', track: 'saltwind', place: 1, field: 4, drift: 1e12 }, Math.random, 1_000_000);
   assert.ok(cheat.ok);
-  assert.deepEqual(cheat.bonus, raceBonus(1e12, { comet: 1e9 }, 'saltwind', true));
+  assert.deepEqual(cheat.bonus, raceBonus(1e12, 'saltwind', true));
   assert.ok(cheat.bonus!.drift <= DRIFT.payPerKm * TRACK_LENGTH_KM.saltwind * SOLO_SHARE + 10);
-  assert.ok(cheat.bonus!.items <= ITEM_PAY_CAP * SOLO_SHARE + 10);
 });
 
 /** A race room with fake sockets and a hand-wound clock (as in raceroom.test.ts). */
@@ -160,31 +153,23 @@ function room(mode: 'race' | 'trial' = 'race') {
   return { race, a, b, advance, paid, inbox };
 }
 
-test('online: the server caps drift by the clock, counts item uses itself and pays the bonus in the prize', () => {
+test('online: the server caps drift by the clock and pays the bonus in the prize', () => {
   const r = room();
   r.advance(60_000);
   r.race.handle(r.a, { t: 'drift', pts: 30_000 });
   r.race.handle(r.a, { t: 'drift', pts: 10_000 }); // a lower total never takes points away
   r.race.handle(r.b, { t: 'drift', pts: 1e9 }); // way past what 60 s allows
-  r.race.handle(r.a, { t: 'used', kind: 'turbo' });
-  r.race.handle(r.a, { t: 'used', kind: 'turbo' }); // too soon after the last: not counted
   r.advance(300);
-  r.race.handle(r.a, { t: 'used', kind: 'shield' });
-  r.race.handle(r.a, { t: 'item', kind: 'shock' });
-  r.race.handle(r.a, { t: 'used', kind: 'comet' as 'turbo' }); // attack items only count when relayed
   r.race.handle(r.a, { t: 'finish', time: 60.4 });
   r.race.handle(r.a, { t: 'drift', pts: 9000 }); // after finishing: ignored
   r.race.handle(r.b, { t: 'finish', time: 61 });
   assert.equal(r.paid.length, 1);
   const [ra, rb] = r.paid[0]!;
   assert.equal(ra!.drift, 30_000);
-  const items = ITEM_PAY.turbo + ITEM_PAY.shield + ITEM_PAY.shock;
-  assert.deepEqual(ra!.bonus, raceBonus(30_000, { turbo: 1, shield: 1, shock: 1 }, 'koripass', false));
-  assert.equal(ra!.bonus.items, Math.round(items / 10) * 10);
-  assert.equal(ra!.prize, payout(1, 2, 'koripass', false) + ra!.bonus.drift + ra!.bonus.items);
+  assert.deepEqual(ra!.bonus, raceBonus(30_000, 'koripass', false));
+  assert.equal(ra!.prize, payout(1, 2, 'koripass', false) + ra!.bonus.drift);
   assert.ok(rb!.drift <= Math.ceil(61 * DRIFT_MAX_RATE) && rb!.drift > 0);
   assert.equal(rb!.bonus.drift, DRIFT.payPerKm * TRACK_LENGTH_KM.koripass, 'capped per km');
-  assert.equal(rb!.bonus.items, 0);
   // A new race starts from zero.
   r.advance(RACE.resultsSeconds * 1000 + 100);
   r.race.handle(r.a, { t: 'start' });
@@ -194,10 +179,10 @@ test('online: the server caps drift by the clock, counts item uses itself and pa
   r.advance(45_000);
   r.race.handle(r.a, { t: 'finish', time: 45 });
   r.race.handle(r.b, { t: 'finish', time: 46 });
-  assert.deepEqual(r.paid[1]![0]!.bonus, { drift: 0, items: 0 });
+  assert.deepEqual(r.paid[1]![0]!.bonus, { drift: 0 });
 });
 
-test('online: a DNF still gets its drift bonus; a time trial pays drift but no item uses', () => {
+test('online: a DNF still gets its drift bonus; a time trial pays drift too', () => {
   const r = room();
   r.advance(50_000);
   r.race.handle(r.b, { t: 'drift', pts: 20_000 });
@@ -211,10 +196,8 @@ test('online: a DNF still gets its drift bonus; a time trial pays drift but no i
   const t = room('trial');
   t.advance(50_000);
   t.race.handle(t.a, { t: 'drift', pts: 20_000 });
-  t.race.handle(t.a, { t: 'used', kind: 'turbo' });
   t.race.handle(t.a, { t: 'finish', time: 50 });
   t.race.handle(t.b, { t: 'finish', time: 51 });
   const ta = t.paid[0]!.find((x) => x.id === 1)!;
-  assert.equal(ta.bonus.items, 0);
   assert.ok(ta.bonus.drift > 0);
 });

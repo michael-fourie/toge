@@ -22,19 +22,19 @@ export interface RecordRow {
 export type RacePhase = 'lobby' | 'loading' | 'countdown' | 'racing' | 'results';
 
 /**
- * What the host is running: a `race` (cars bump, items fly), a `trial` (time trial: everyone laps the same
- * road at once, but the other cars are see-through ghosts you drive straight through, and there are no items)
+ * What the host is running: a `race` (cars bump and draft), a `trial` (time trial: everyone laps the same
+ * road at once, but the other cars are see-through ghosts you drive straight through)
  * or a `climb` (hill climb: one run up a hill-climb road (`climb` on its TrackDef), solid cars you can bump and
- * draft, no items, rockfall on the road; first to the summit wins), a `gp` (Grand Prix: a cup of four tracks
+ * draft, rockfall on the road; first to the summit wins), a `gp` (Grand Prix: a cup of four tracks
  * (cups.ts) raced back to back with race rules, points for every place, a cup table at the end), or `roam` (free
- * roam: the open world (a TrackDef with `world`, world.ts), no start, finish, items or prizes, friends can drive in
+ * roam: the open world (a TrackDef with `world`, world.ts), no start, finish or prizes, friends can drive in
  * while it's on, and it runs until the host ends it).
  */
 export type RaceMode = 'race' | 'trial' | 'climb' | 'gp' | 'roam';
 export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
-  race: { name: 'Race', blurb: 'Bump, block and throw items. First to the line wins.' },
-  trial: { name: 'Time trial', blurb: 'Ghost cars, no contact, no items. Fastest clean time wins.' },
-  climb: { name: 'Hill climb', blurb: 'One run up the mountain past boulders and broken tarmac. No items. First to the summit wins.' },
+  race: { name: 'Race', blurb: 'Bump, block, draft and hit the boost pads. First to the line wins.' },
+  trial: { name: 'Time trial', blurb: 'Ghost cars, no contact. Fastest clean time wins.' },
+  climb: { name: 'Hill climb', blurb: 'One run up the mountain past boulders and broken tarmac. First to the summit wins.' },
   gp: { name: 'Grand Prix', blurb: 'A cup of four tracks back to back. Points for every place; most points takes the trophy.' },
   roam: { name: 'Free roam', blurb: 'The open world: no race, no clock. Cruise, hang out, and thread the highway traffic. Friends can drive in any time.' },
 };
@@ -42,12 +42,12 @@ export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
 /** Modes where the other racers are ghosts you drive straight through (no contact, no slipstream): the time trial. */
 export const ghostMode = (m: RaceMode) => m === 'trial';
 
-/** Modes with no items (boxes, throws or item money), where the host picks a car rule: the time trial and hill climb. */
+/** Modes where the host picks a car rule (and finishes count as best times): the time trial and hill climb. */
 export const cleanMode = (m: RaceMode) => m === 'trial' || m === 'climb';
 
 /**
- * Modes whose finishes count as best times, on the all-time boards and for the record ghost: the item-free ones (a
- * time trial, and a hill climb on its own roads). A race's items make its times unbeatable in a trial, and a solo
+ * Modes whose finishes count as best times, on the all-time boards and for the record ghost: a time trial, and a
+ * hill climb on its own roads. A race's drafting and bumping make its times unfair against a trial, and a solo
  * run is always a race, so neither counts.
  */
 export const recordMode = (m: RaceMode) => cleanMode(m);
@@ -135,7 +135,7 @@ export interface NetCar {
 }
 
 /** Bits of NetCar.f. The drift's spark level (0-3) rides in the top two bits. */
-export const CarFlag = { Brake: 1, Reverse: 2, Skid: 4, Offroad: 8, Drift: 16, Boost: 32, LevelShift: 6, Shield: 256 } as const;
+export const CarFlag = { Brake: 1, Reverse: 2, Skid: 4, Offroad: 8, Drift: 16, Boost: 32, LevelShift: 6 } as const;
 
 export interface ResultRow {
   id: number;
@@ -150,8 +150,8 @@ export interface ResultRow {
   prize: number;
   /** Drift points banked (clamped to the race clock by the server). */
   drift: number;
-  /** The part of `prize` earned by drifting and by using items. */
-  bonus: { drift: number; items: number };
+  /** The part of `prize` earned by drifting. */
+  bonus: { drift: number };
   /** A CPU racer (never paid). */
   cpu?: boolean;
   /** Battle pass XP the race earned (pass.ts `raceXp`; 0 for CPU racers). */
@@ -203,8 +203,7 @@ export type RaceServerMsg =
    */
   | { t: 'records'; rows: RecordRow[] }
   | { t: 'pong'; n: number }
-  /** Someone used an item that reaches other racers: an oil slick dropped at `p`, or a shockwave. */
-  | { t: 'item'; by: number; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number }
+
   /** Physics mode: racer `id` wrecked their car at `p` (it blew up; they're respawning). */
   | { t: 'wreck'; id: number; p: [number, number, number] }
   | { t: 'error'; message: string };
@@ -235,13 +234,11 @@ export type RaceClientMsg =
   | { t: 'finish'; time: number; best?: number }
   /** Your drift total so far (sent as each combo banks, and just before `finish`). The server caps it by the clock. */
   | { t: 'drift'; pts: number }
-  /** You used an item that only affects you (a turbo or a shield); counted for the item bonus, not relayed. */
-  | { t: 'used'; kind: 'turbo' | 'triple' | 'shield' }
+
   | { t: 'ping'; n: number }
   /** Physics mode: your car blew up at `p`. */
   | { t: 'wreck'; p: [number, number, number] }
-  /** `target` and `s` (where it was fired from) for a comet. */
-  | { t: 'item'; kind: 'oil' | 'shock' | 'comet'; p?: [number, number, number]; target?: number; s?: number; cpu?: number }
+
   /** The host adds a CPU racer to the lobby, or takes one (`id`) off the grid. */
   | { t: 'cpu'; op: 'add' }
   | { t: 'cpu'; op: 'remove'; id: number }
@@ -255,7 +252,7 @@ export type RaceClientMsg =
 /**
  * CPU racers in an online lobby. The host adds them; the room keeps them as racers with negative ids (so they never
  * clash with a socket's), and the host's client drives them with the same AI as a solo race (driver.ts), sending
- * their poses in one `cpus` message, their items with `cpu`, and their finishes and wrecks. They leave with the host
+ * their poses in one `cpus` message, and their finishes and wrecks. They leave with the host
  * if the host goes mid-race, give up their seat to a person who joins a full lobby, and are never paid. A race
  * with CPUs in it pays like a solo race against them, but never less than the people alone would earn.
  */

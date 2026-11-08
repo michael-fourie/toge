@@ -1,36 +1,16 @@
-// Draws the road's props: spinning mystery boxes (gone for a few seconds once taken), launch ramps, hay
-// bales, barrels, cones that go flying when hit, a hill climb's boulders and rocks (instanced: a few draw calls
-// for the whole mountain), oil slicks, and shield bubbles.
+// Draws the road's props: launch ramps, hay bales, barrels, cones that go flying when hit, a hill climb's
+// boulders and rocks (instanced: a few draw calls for the whole mountain), and the rainbow boost pads.
 
 import * as THREE from 'three';
-import { POWER } from '../shared/powerups.ts';
 import { type Track, heightAt, newLoc, pointAt, locate, roadY } from '../shared/track.ts';
 import { mulberry, stone } from './tracktextures.ts';
 
-export interface Slick {
-  x: number;
-  y: number;
-  z: number;
-  born: number;
-  /** Cars it has already spun (each car only once). */
-  hit: Set<unknown>;
-  mesh: THREE.Mesh;
-}
-
 export class PropView {
-  readonly slicks: Slick[] = [];
   private group = new THREE.Group();
-  private boxes = new Map<number, THREE.Mesh>();
-  private boxBack = new Map<number, number>();
   private cones = new Map<number, { mesh: THREE.Mesh; v: THREE.Vector3; spin: THREE.Vector3; flying: boolean }>();
-  private boxMat: THREE.MeshStandardMaterial;
-  private slickGeo = new THREE.CircleGeometry(POWER.oilRadius + 0.3, 32);
-  private slickTex = sheenTexture();
-  private slickMat = new THREE.MeshStandardMaterial({ map: this.slickTex, emissive: 0xffffff, emissiveMap: this.slickTex, emissiveIntensity: 0.35, roughness: 0.04, metalness: 0.5, transparent: true, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8 });
-  /** A glowing hazard ring round each slick, so you see it coming (at night too). */
-  private ringGeo = new THREE.RingGeometry(POWER.oilRadius + 0.3, POWER.oilRadius + 0.7, 40);
-  private ringMat = new THREE.MeshBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.85, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8 });
-  private disposables: { dispose(): void }[] = [this.slickGeo, this.slickMat, this.slickTex, this.ringGeo, this.ringMat];
+  /** The boost pads' rainbow, scrolled along the road every frame. */
+  private padTex: THREE.CanvasTexture | null = null;
+  private disposables: { dispose(): void }[] = [];
 
   constructor(
     scene: THREE.Scene,
@@ -38,9 +18,6 @@ export class PropView {
   ) {
     scene.add(this.group);
     const keep = <T extends { dispose(): void }>(x: T) => (this.disposables.push(x), x);
-    const qTex = keep(questionTexture());
-    this.boxMat = keep(new THREE.MeshStandardMaterial({ map: qTex, emissive: 0xffffff, emissiveMap: qTex, emissiveIntensity: 0.6, transparent: true, opacity: 0.9, roughness: 0.2, metalness: 0.1 }));
-    const boxGeo = keep(new THREE.BoxGeometry(1.1, 1.1, 1.1));
     const bale = keep(new THREE.CylinderGeometry(0.8, 0.8, 1.3, 16));
     bale.rotateZ(Math.PI / 2);
     const baleMat = keep(new THREE.MeshStandardMaterial({ color: 0xd9b45a, roughness: 1, map: keep(strawTexture()) }));
@@ -49,13 +26,7 @@ export class PropView {
     const cone = keep(new THREE.ConeGeometry(0.28, 0.75, 14));
     const coneMat = keep(new THREE.MeshStandardMaterial({ map: keep(bandTexture('#ff6a13', '#ffffff')), roughness: 0.5 }));
     track.props.forEach((p, i) => {
-      if (p.kind === 'box') {
-        const m = new THREE.Mesh(boxGeo, this.boxMat);
-        m.position.set(p.x, p.y + 1.1, p.z);
-        m.castShadow = true;
-        this.boxes.set(i, m);
-        this.group.add(m);
-      } else if (p.kind === 'bale' || p.kind === 'barrel') {
+      if (p.kind === 'bale' || p.kind === 'barrel') {
         const m = new THREE.Mesh(p.kind === 'bale' ? bale : barrel, p.kind === 'bale' ? baleMat : barrelMat);
         m.position.set(p.x, p.y + (p.kind === 'bale' ? 0.8 : 0.55), p.z);
         m.rotation.y = p.yaw;
@@ -72,6 +43,14 @@ export class PropView {
     this.rockfall(track, keep);
     const rampMat = keep(new THREE.MeshStandardMaterial({ map: keep(rampTexture()), roughness: 0.7, side: THREE.DoubleSide }));
     for (const r of track.ramps) this.group.add(rampMesh(track, r.s, r.d, r.len, r.w, keep, rampMat));
+    if (track.boosts.length) {
+      this.padTex = keep(rainbowTexture());
+      this.padTex.wrapT = THREE.RepeatWrapping;
+      // Brighter than white so the bloom catches it at night; unlit, so it reads the same in any light.
+      const padMat = keep(new THREE.MeshBasicMaterial({ map: this.padTex, color: new THREE.Color(1.6, 1.6, 1.6), polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 }));
+      const geo = keep(padsGeometry(track));
+      this.group.add(new THREE.Mesh(geo, padMat));
+    }
   }
 
   /**
@@ -107,26 +86,6 @@ export class PropView {
     });
   }
 
-  /** Time trial: no items, so no boxes. */
-  clearBoxes() {
-    for (const m of this.boxes.values()) m.removeFromParent();
-    this.boxes.clear();
-  }
-
-  /** Takes box `i` if it's there (it comes back after a few seconds). */
-  takeBox(i: number, now: number): boolean {
-    const m = this.boxes.get(i);
-    if (!m || !m.visible) return false;
-    m.visible = false;
-    this.boxBack.set(i, now + POWER.boxRespawn);
-    return true;
-  }
-
-  /** Box i is (still) on the road? */
-  hasBox(i: number): boolean {
-    return !!this.boxes.get(i)?.visible;
-  }
-
   /** Sends cone `i` flying off the car's nose. */
   knockCone(i: number, vx: number, vz: number) {
     const c = this.cones.get(i);
@@ -136,26 +95,9 @@ export class PropView {
     c.spin.set(Math.random() * 12 - 6, Math.random() * 8, Math.random() * 12 - 6);
   }
 
-  addSlick(x: number, y: number, z: number, now: number) {
-    const mesh = new THREE.Mesh(this.slickGeo, this.slickMat);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, y + 0.06, z);
-    mesh.add(new THREE.Mesh(this.ringGeo, this.ringMat));
-    this.group.add(mesh);
-    this.slicks.push({ x, y, z, born: now, hit: new Set(), mesh });
-  }
-
   update(now: number, dt: number) {
-    for (const [i, m] of this.boxes) {
-      const back = this.boxBack.get(i);
-      if (back && now >= back) {
-        m.visible = true;
-        this.boxBack.delete(i);
-      }
-      m.rotation.set(now * 0.7 + i, now * 1.3 + i * 2, 0);
-      m.position.y = this.track.props[i].y + 1.1 + Math.sin(now * 2 + i) * 0.12;
-    }
-    this.boxMat.emissive.setHSL((now * 0.15) % 1, 0.9, 0.55);
+    // The chevrons run forward along the pad.
+    if (this.padTex) this.padTex.offset.y = 1 - ((now * 1.6) % 1);
     for (const c of this.cones.values()) {
       if (!c.flying) continue;
       c.v.y -= 9.81 * dt;
@@ -172,18 +114,6 @@ export class PropView {
         if (c.v.lengthSq() < 0.2) c.v.set(0, 0, 0);
       }
     }
-    for (let k = this.slicks.length - 1; k >= 0; k--) {
-      const s = this.slicks[k];
-      const age = now - s.born;
-      if (age > POWER.oilSeconds) {
-        this.group.remove(s.mesh);
-        this.slicks.splice(k, 1);
-      } else {
-        s.mesh.scale.setScalar(Math.min(1, 0.3 + age * 3));
-        s.mesh.rotation.z = age * 0.3;
-      }
-    }
-    this.ringMat.opacity = 0.55 + 0.35 * Math.sin(now * 6);
   }
 
   dispose() {
@@ -192,15 +122,37 @@ export class PropView {
   }
 }
 
-/** A translucent bubble that hugs a car while its shield is up. */
-export function shieldBubble(length: number): THREE.Mesh {
-  const m = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 24, 16),
-    new THREE.MeshBasicMaterial({ color: 0x59d8ff, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending }),
-  );
-  m.scale.set(length * 0.42, length * 0.3, length * 0.62);
-  m.visible = false;
-  return m;
+/** Every boost pad as one flat mesh just above the road, following its bends and banking. */
+function padsGeometry(t: Track): THREE.BufferGeometry {
+  const loc = newLoc();
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const STEPS = 7;
+  for (const pad of t.boosts) {
+    const base = pos.length / 3;
+    for (let k = 0; k <= STEPS; k++) {
+      const u = k / STEPS;
+      for (const side of [-1, 1]) {
+        const p = pointAt(t, pad.s + u * pad.len, pad.d + (side * pad.w) / 2);
+        locate(t, p.x, p.z, p.i, loc);
+        pos.push(p.x, roadY(t, loc) + 0.03, p.z);
+        uv.push(side < 0 ? 0 : 1, u * 2);
+      }
+    }
+    for (let k = 0; k < STEPS; k++) {
+      const a = base + k * 2;
+      // Wound to face up (left to right across the road, then forward).
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  return geo;
 }
 
 /** The wedge of a launch ramp, following the road (its top is the ground the wheels see). */
@@ -244,36 +196,26 @@ function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => 
   return tex;
 }
 
-/** Oil: near-black with rainbow swirls (it's what catches the eye). */
-function sheenTexture() {
-  return canvasTex(128, 128, (g) => {
-    g.fillStyle = '#07080b';
-    g.fillRect(0, 0, 128, 128);
-    for (let i = 0; i < 9; i++) {
-      g.strokeStyle = `hsla(${(i * 40) % 360}, 90%, 55%, 0.55)`;
-      g.lineWidth = 5;
+/** A boost pad: rainbow bands across it under white chevrons pointing up the road (v runs forward). */
+function rainbowTexture() {
+  return canvasTex(64, 128, (g) => {
+    for (let i = 0; i < 128; i++) {
+      g.fillStyle = `hsl(${(i / 128) * 360}, 95%, 58%)`;
+      g.fillRect(0, i, 64, 1);
+    }
+    g.strokeStyle = 'rgba(255,255,255,0.9)';
+    g.lineWidth = 9;
+    g.lineJoin = 'miter';
+    for (const y of [40, 104]) {
       g.beginPath();
-      g.arc(64 + Math.sin(i) * 14, 64 + Math.cos(i * 1.7) * 14, 12 + i * 6, i, i + 2.4);
+      g.moveTo(8, y);
+      g.lineTo(32, y - 22);
+      g.lineTo(56, y);
       g.stroke();
     }
-  });
-}
-
-function questionTexture() {
-  return canvasTex(128, 128, (g) => {
-    const grad = g.createLinearGradient(0, 0, 128, 128);
-    grad.addColorStop(0, '#7fd6ff');
-    grad.addColorStop(1, '#c58bff');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 128, 128);
-    g.strokeStyle = '#fff';
-    g.lineWidth = 8;
-    g.strokeRect(6, 6, 116, 116);
-    g.fillStyle = '#fff';
-    g.font = 'bold 92px system-ui, sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText('?', 64, 70);
+    g.fillStyle = 'rgba(255,255,255,0.85)';
+    g.fillRect(0, 0, 4, 128);
+    g.fillRect(60, 0, 4, 128);
   });
 }
 

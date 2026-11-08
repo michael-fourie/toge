@@ -144,7 +144,7 @@ const LITTER: Record<Theme, { colors: string[]; n: number; sand?: string }> = {
  * has only its edge lines, like a race track.
  */
 export const ROAD_TILE = 24;
-export function asphalt(theme: Theme, seed: number, aniso: number, circuit = false): Surface {
+export function asphalt(theme: Theme, seed: number, aniso: number, circuit = false, highway = false): Surface {
   const W = 1024;
   const H = 2048;
   const L = layers(W, H);
@@ -276,6 +276,9 @@ export function asphalt(theme: Theme, seed: number, aniso: number, circuit = fal
   const yellow = theme !== 'coast' && theme !== 'desert';
   if (circuit) {
     // No centre line or lanes on a race track.
+  } else if (highway) {
+    // A one-way highway: the middle is just another lane line.
+    for (let y = 0; y < H; y += pxPerM * 12) line(W / 2 - lw / 2, y, lw, pxPerM * 5, '#e8e6dc');
   } else if (yellow) line(W / 2 - lw / 2, 0, lw, H, '#e8a321');
   else for (let y = 0; y < H; y += pxPerM * 8) line(W / 2 - lw / 2, y, lw, pxPerM * 3, '#e8e6dc');
   // City streets have four lanes: dashed white lines between each pair.

@@ -10,7 +10,7 @@ test('a controller drives like every other racing game: RT throttle, LT brake, â
   assert.deepEqual(padPedals(pad(1, 0)), { throttle: 0, brake: 1, drift: 0 });
   assert.equal(padPedals(pad(0, 0, [BTN.A])).drift, 1);
   assert.equal(padPedals(pad(0, 0, [BTN.B])).brake, 1, 'â’· brakes too');
-  assert.equal(padPedals(pad(0, 0, [BTN.X])).brake, 0, 'the item button never brakes');
+  assert.equal(padPedals(pad(0, 0, [BTN.X])).brake, 0, 'the spectate button never brakes');
 });
 
 test('triggers are analog pedals with a dead zone at rest and full travel before the stop', () => {

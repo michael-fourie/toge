@@ -1,10 +1,11 @@
 // Grand Prix cups: four fixed tracks raced back to back, points for every place, and a cup standings table at the
 // end. Solo (you against the AI, hub.ts → racegame.ts) and online (the room runs it, toge/server/race.ts).
-// Every race track (not the hill climb) sits in exactly one cup; the cups test checks it.
+// Every race track (not the hill climb) sits in a cup, and only the Velocity Cup borrows tracks from the others;
+// the cups test checks it.
 
 import { TRACK_DEFS, type TrackId } from './track.ts';
 
-export type CupId = 'torii' | 'mirage' | 'lantern' | 'apex';
+export type CupId = 'torii' | 'mirage' | 'lantern' | 'apex' | 'velocity';
 
 export interface CupDef {
   id: CupId;
@@ -23,6 +24,8 @@ export const CUPS: Record<CupId, CupDef> = {
   mirage: { id: 'mirage', name: 'Mirage Cup', tag: 'Sea cliffs, dunes and red desert', color: '#f5a524', tracks: ['saltwind', 'kazeoka', 'redmesa', 'akane'] },
   lantern: { id: 'lantern', name: 'Lantern Cup', tag: 'Harbour streets and roads after dark', color: '#8e6bff', tracks: ['minato', 'monaco', 'neonbay', 'tsukiyo'] },
   apex: { id: 'apex', name: 'Apex Cup', tag: 'Four grand circuits, lap after lap', color: '#22c3e6', tracks: ['kodama', 'hachi', 'spa', 'monza'] },
+  // The fast roads: the two built for speed, with two favourites from the other cups between them.
+  velocity: { id: 'velocity', name: 'Velocity Cup', tag: 'Flat out: salt flats, harbour streets, the expressway', color: '#3ddc84', tracks: ['hayate', 'neonbay', 'monza', 'ryusei'] },
 };
 export const CUP_IDS = Object.keys(CUPS) as CupId[];
 export const ROUNDS = 4;

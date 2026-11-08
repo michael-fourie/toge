@@ -1,4 +1,4 @@
-// Drift scoring and the in-race bonus money (drifting and using items). Pure and shared: the client keeps the
+// Drift scoring and the in-race bonus money for drifting. Pure and shared: the client keeps the
 // drift meter while you drive; the server clamps what a client reports with the same constants and pays it.
 //
 // A slide scores points every tick: faster and more sideways scores more. Slides strung together (the next one
@@ -6,7 +6,6 @@
 // A combo banks into your total once you straighten up for `chainGap`; hit a wall, a car or get spun out
 // first and the whole combo is lost.
 
-import type { Item } from './powerups.ts';
 import { type Car, yawOf } from './vehicle.ts';
 
 export const DRIFT = {
@@ -32,12 +31,6 @@ export const DRIFT = {
 
 /** The fastest anyone could possibly score (points/s): the server caps a report at this × the race clock. */
 export const DRIFT_MAX_RATE = DRIFT.perMetre * DRIFT.maxSpeed * (0.5 + DRIFT.maxAngle) * DRIFT.maxMult;
-
-/** What each use of an item pays (a triple turbo is three uses), and the most items can pay in one race. */
-export const ITEM_PAY: Record<Item, number> = { turbo: 40, triple: 30, shield: 50, oil: 70, shock: 90, comet: 110 };
-export const ITEM_PAY_CAP = 900;
-/** The most item uses a race can count (a box every few seconds is already a lot). */
-export const ITEM_MAX_USES = 24;
 
 export interface DriftMeter {
   /** Banked points this race. */
@@ -115,24 +108,3 @@ export const clampDrift = (points: unknown, seconds: number): number =>
 
 /** What a race's drift points pay, for a race of `km`. */
 export const driftPay = (points: number, km: number): number => Math.min(Math.round((Math.max(0, points) * DRIFT.payPerPoint) / 10) * 10, Math.round(DRIFT.payPerKm * km));
-
-/** Item uses (counts per kind, anything) to a clean count, at most ITEM_MAX_USES in all. */
-export function cleanUses(x: unknown): Partial<Record<Item, number>> {
-  const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
-  const out: Partial<Record<Item, number>> = {};
-  let left = ITEM_MAX_USES;
-  for (const k of Object.keys(ITEM_PAY) as Item[]) {
-    const n = Math.min(left, Math.max(0, Math.floor(Number(o[k])) || 0));
-    if (n) out[k] = n;
-    left -= n;
-  }
-  return out;
-}
-
-/** What a race's item uses pay. */
-export function itemPay(uses: Partial<Record<Item, number>>): number {
-  const clean = cleanUses(uses);
-  let sum = 0;
-  for (const k of Object.keys(clean) as Item[]) sum += ITEM_PAY[k] * clean[k]!;
-  return Math.min(ITEM_PAY_CAP, sum);
-}
