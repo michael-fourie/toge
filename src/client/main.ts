@@ -149,6 +149,7 @@ async function drive(opts: DriveOpts, again = false) {
     rivals: opts.rivals,
     physics: opts.online ? opts.online.physics : opts.physics,
     online: opts.online && { mode: opts.online.mode, racers: opts.online.racers.length },
+    gp: opts.gp && { cup: opts.gp.cup, round: opts.gp.round },
   });
   await nextPaint();
   app.innerHTML = '';
@@ -161,6 +162,7 @@ async function drive(opts: DriveOpts, again = false) {
     rivals: opts.rivals,
     physics: opts.physics,
     online: opts.online,
+    gp: opts.gp,
     onExit: (to, notice) => {
       game = null;
       router.replace(to === 'lobby' ? { name: 'drivelobby' } : { name: 'drive', notice });

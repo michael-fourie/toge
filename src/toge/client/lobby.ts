@@ -14,14 +14,15 @@ import { raceNet, roomRace } from './racenet.ts';
 import { fmtTime } from './hud.ts';
 import { ICON, LOGO } from './brand.ts';
 import { pitGarage } from './hub.ts';
-import { trackClimb, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
+import { cupCard, trackClimb, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
+import { CUP_IDS, CUPS, ROUNDS, type CupId } from '../shared/cups.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { encodeRider } from '../shared/rider.ts';
 import { PORTRAIT, releasePortraits, riderPortrait } from './riderportrait.ts';
 import './race.css';
 import './hub.css';
 
-const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb' };
+const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb', gp: 'Start Grand Prix' };
 
 /** A racer's face for the grid list: their portrait, cropped to the head (`ready`: redraw once it's drawn). */
 const face = (rider: string, ready: () => void) => {
@@ -67,7 +68,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const scroll = view.querySelector('.tg-lobby-body')?.scrollTop ?? 0;
     const isHost = room.hostId === raceNet.id;
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
-    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : null;
+    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : null;
     const max = RACE.maxPlayers;
     const canPick = isHost && room.phase === 'lobby';
     const racers =
@@ -99,6 +100,9 @@ export const driveLobby: Render = (root, ctx, screen) => {
         </figure>`;
       })
       .join('');
+    // A Grand Prix: the host picks a cup (its four tracks, in order) instead of a track.
+    const gp = room.mode === 'gp';
+    const cups = CUP_IDS.map((id) => cupCard(id, `data-cup="${id}" aria-pressed="${id === room.cup}" aria-label="${esc(CUPS[id].name)}" ${canPick ? '' : 'disabled'}`, room.gp && room.gp.cup === id ? room.gp.round : -1)).join('');
     const tracks = modeTracks(room.mode).map((id) => trackTile(id, `data-pick="${id}" aria-pressed="${id === room.track}" aria-label="${esc(TRACK_DEFS[id].name)}" ${canPick ? '' : 'disabled'}`)).join('');
     const modes = (Object.keys(RACE_MODES) as RaceMode[])
       .map((id) => `<button class="tg-mode" data-mode="${id}" aria-pressed="${id === room.mode}" ${canPick ? '' : 'disabled'}><b>${esc(RACE_MODES[id].name)}</b><small>${esc(RACE_MODES[id].blurb)}</small></button>`)
@@ -115,10 +119,10 @@ export const driveLobby: Render = (root, ctx, screen) => {
       .map((k) => `<button class="tg-mode" data-physics="${k}" aria-pressed="${(k === 'on') === room.physics}" ${canPick ? '' : 'disabled'}><b>${esc(PHYSICS[k].name)}</b><small>${esc(PHYSICS[k].blurb)}</small></button>`)
       .join('');
     // The record ghost: the track record's run rides along (the host's pick); say whose it'd be.
-    const ghost = (['off', 'on'] as const)
+    const ghost = gp ? '' : (['off', 'on'] as const)
       .map((k) => `<button class="tg-mode" data-ghost="${k}" aria-pressed="${(k === 'on') === !!room.ghost}" ${canPick ? '' : 'disabled'}><b>${esc(RECORD_GHOST[k].name)}</b><small>${esc(RECORD_GHOST[k].blurb)}</small></button>`)
       .join('');
-    const ghostNote = !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
+    const ghostNote = gp || !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
     // Who's still in the garage (the host can wait for them, or not).
     const tuning = room.racers.filter((r) => r.pit && r.id !== raceNet.id).map((r) => r.name);
     const tuningLine = tuning.length ? ` ${tuning.length === 1 ? `${esc(tuning[0])} is` : `${tuning.length} racers are`} in the garage.` : '';
@@ -127,14 +131,16 @@ export const driveLobby: Render = (root, ctx, screen) => {
         ? isHost
           ? `<button class="tg-go" data-start data-autofocus>${ICON.flag}${START[room.mode]}</button><span class="tg-muted">${room.racers.length < 2 ? 'Share the code, add CPU racers, or start now and race the clock.' : `${room.racers.length} racers on the grid.`}${tuningLine}</span>`
           : `<span class="tg-muted">Waiting for the host to start…</span>`
-        : `<span class="tg-muted">A race is under way. You'll line up for the next one.</span>`;
+        : room.gp
+          ? `<span class="tg-muted">The ${esc(CUPS[room.gp.cup].name)} is under way (round ${room.gp.round + 1} of ${ROUNDS}). You'll line up for the next round.</span>`
+          : `<span class="tg-muted">A race is under way. You'll line up for the next one.</span>`;
     const d = TRACK_DEFS[room.track];
     crewShown = new Set(room.racers.map((r) => r.id));
     view.innerHTML = `
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
-          <div class="tg-lobby-title">${RACE_MODES[room.mode].name} lobby${room.physics ? ' · Physics' : ''}${room.ghost ? ' · Record ghost' : ''}</div>
+          <div class="tg-lobby-title">${gp ? esc(CUPS[room.cup].name) : `${RACE_MODES[room.mode].name} lobby`}${room.physics ? ' · Physics' : ''}${room.ghost && !gp ? ' · Record ghost' : ''}</div>
           <div class="tg-roomcode"><small>Race<br />code</small><b class="tg-bigcode">${esc(room.code)}</b></div>
         </header>
         <section class="tg-lobby-body${isHost ? '' : ' guest'}">
@@ -143,7 +149,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
               <span class="tg-hero-art" aria-hidden="true"></span>
               <div class="tg-hero-map">${trackMap(room.track)}</div>
               <div class="tg-hero-copy">
-                <small class="tg-eyebrow">${esc(trackKind(room.track))}</small>
+                <small class="tg-eyebrow">${gp ? esc(`${CUPS[room.cup].name} · round ${(room.gp?.cup === room.cup ? room.gp.round : 0) + 1} of ${ROUNDS}`) : esc(trackKind(room.track))}</small>
                 <h1 class="tg-display">${esc(d.name)}</h1>
                 <p>${esc(d.tag)}</p>
               </div>
@@ -154,11 +160,16 @@ export const driveLobby: Render = (root, ctx, screen) => {
             ${rules}
             <h2 class="tg-h">${esc(PHYSICS.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${physics}</div>
-            <h2 class="tg-h">${esc(RECORD_GHOST.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
-            <div class="tg-modes">${ghost}</div>
+            ${gp ? '' : `<h2 class="tg-h">${esc(RECORD_GHOST.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
+            <div class="tg-modes">${ghost}</div>`}
             ${ghostNote}
-            <h2 class="tg-h">Track ${canPick ? '<small>you pick</small>' : ''}</h2>
-            <div class="tg-tracks">${tracks}</div>
+            ${
+              gp
+                ? `<h2 class="tg-h">Cup ${canPick ? '<small>you pick</small>' : ''}</h2>
+            <div class="tg-cups">${cups}</div>`
+                : `<h2 class="tg-h">Track ${canPick ? '<small>you pick</small>' : ''}</h2>
+            <div class="tg-tracks">${tracks}</div>`
+            }
           </div>
           <div class="tg-lobby-col">
             <h2 class="tg-h">Your car</h2>
@@ -176,6 +187,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         </section>`;
     view.querySelector('.tg-lobby-body')!.scrollTop = scroll;
     view.querySelectorAll<HTMLElement>('[data-pick]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'track', track: b.dataset.pick as TrackId })));
+    view.querySelectorAll<HTMLElement>('[data-cup]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cup', cup: b.dataset.cup as CupId })));
     view.querySelectorAll<HTMLElement>('[data-mode]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'mode', mode: b.dataset.mode as RaceMode })));
     view.querySelectorAll<HTMLElement>('[data-rule]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cars', cars: b.dataset.rule as CarRule })));
     view.querySelectorAll<HTMLElement>('[data-physics]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'physics', on: b.dataset.physics === 'on' })));

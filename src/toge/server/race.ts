@@ -4,7 +4,8 @@ import { payout, raceBonus } from '../shared/garage.ts';
 import { raceXp } from '../shared/pass.ts';
 import type { Item } from '../shared/powerups.ts';
 import { cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
-import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, type CarRule, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
+import { CUPS, ROUNDS, addRound, isCup, type CupId } from '../shared/cups.ts';
+import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, type CarRule, type GpState, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
 import { GhostRecorder, type GhostRun, type GhostTape } from '../shared/ghost.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { guarded, type Socket } from '../../server/rooms.ts';
@@ -79,8 +80,14 @@ export class Race {
   cars: CarRule = 'own';
   /** Physics mode: crash damage (damage.ts, run by each client for its own car). */
   physics = false;
-  /** The track record's ghost races too (the host's toggle). */
+  /** The track record's ghost races too (the host's toggle; never in a Grand Prix, whose track changes every round). */
   ghost = false;
+  /** A Grand Prix lobby's cup (the host's pick). */
+  cup: CupId = 'torii';
+  /** The Grand Prix under way: its round and cup table (null between cups). */
+  gp: GpState | null = null;
+  /** The last round's results are in. */
+  private gpFinal = false;
   /** The record ghost for `ghostOf` (null: that track has none), fetched when the host wants it. */
   private ghostRun: GhostRun | null = null;
   private ghostOf: TrackId | null = null;
@@ -234,8 +241,8 @@ export class Race {
         break;
       }
       case 'track':
-        // Only a track the mode runs: hill-climb roads in a hill climb, the rest otherwise.
-        if (c.id === this.hostId && this.phase === 'lobby' && Object.hasOwn(TRACK_DEFS, msg.track) && !!TRACK_DEFS[msg.track].climb === (this.mode === 'climb')) {
+        // Only a track the mode runs: hill-climb roads in a hill climb, the rest otherwise. A Grand Prix runs its cup's.
+        if (c.id === this.hostId && this.phase === 'lobby' && this.mode !== 'gp' && Object.hasOwn(TRACK_DEFS, msg.track) && !!TRACK_DEFS[msg.track].climb === (this.mode === 'climb')) {
           this.track = msg.track;
           this.broadcastRoom();
           this.onChange(this);
@@ -245,12 +252,23 @@ export class Race {
       case 'mode':
         if (c.id === this.hostId && this.phase === 'lobby' && Object.hasOwn(RACE_MODES, msg.mode) && msg.mode !== this.mode) {
           this.mode = msg.mode;
+          this.gp = null;
           // A time trial wants a lap to learn: switching to one puts its ring up (the host can still pick another).
-          // A hill climb runs on its mountain; leaving one comes back down to the passes.
-          if (msg.mode !== 'race' || !!TRACK_DEFS[this.track].climb) this.track = MODE_TRACK[msg.mode];
+          // A hill climb runs on its mountain; leaving one comes back down to the passes. A Grand Prix shows its cup's first round.
+          if (msg.mode === 'gp') this.track = CUPS[this.cup].tracks[0];
+          else if (msg.mode !== 'race' || !!TRACK_DEFS[this.track].climb) this.track = MODE_TRACK[msg.mode];
           this.broadcastRoom();
           this.onChange(this);
           this.fetchGhost();
+        }
+        break;
+      case 'cup':
+        if (c.id === this.hostId && this.phase === 'lobby' && this.mode === 'gp' && isCup(msg.cup) && msg.cup !== this.cup) {
+          this.cup = msg.cup;
+          this.track = CUPS[msg.cup].tracks[0];
+          this.gp = null;
+          this.broadcastRoom();
+          this.onChange(this);
         }
         break;
       case 'cars':
@@ -278,8 +296,13 @@ export class Race {
         break;
       case 'start':
         // From the lobby, straight from the results (Race again: the same track and settings, no wait), or mid-race
-        // from the host's pause menu (Restart: the race is dropped unpaid and everyone goes back to the start).
-        if (c.id === this.hostId && this.phase !== 'loading') this.startLoading();
+        // from the host's pause menu (Restart: the race is dropped unpaid and everyone goes back to the start). A Grand
+        // Prix goes on to its next round from the lobby or the results (or the cup again after the last); a restart
+        // reruns the same round.
+        if (c.id === this.hostId && this.phase !== 'loading') {
+          if (this.mode === 'gp' && (this.phase === 'lobby' || this.phase === 'results')) this.nextRound();
+          this.startLoading();
+        }
         break;
       case 'ready': {
         if (!m.racing || m.ready) return;
@@ -427,8 +450,8 @@ export class Race {
     const rule: CarRule = cleanMode(this.mode) ? this.cars : 'own';
     const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })));
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
-    const ghost = this.ghost && this.ghostOf === this.track ? this.ghostRun : null;
-    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics, ghost });
+    const ghost = this.ghost && this.mode !== 'gp' && this.ghostOf === this.track ? this.ghostRun : null;
+    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics, ghost, ...(this.gp ? { gp: this.gp } : {}) });
     this.broadcastRoom();
     this.onChange(this);
   }
@@ -437,8 +460,9 @@ export class Race {
   private loaded() {
     const field = [...this.members.values()].filter((m) => m.racing);
     if (!field.some((m) => !m.cpu)) {
-      // The whole field left before the start: back to the lobby for whoever's here now.
+      // The whole field left before the start: back to the lobby for whoever's here now (any cup is off).
       this.phase = 'lobby';
+      this.gp = null;
       this.broadcastRoom();
       this.onChange(this);
     } else if (field.every((m) => m.ready)) this.startCountdown();
@@ -467,14 +491,18 @@ export class Race {
     if (out.length && !dnfDue && !tooLong) return;
     const field = [...this.members.values()].filter((m) => m.racing);
     const done = field.filter((m) => m.time !== null).sort((a, b) => a.time! - b.time!);
-    const dnf = field.filter((m) => m.time === null);
+    // A Grand Prix: CPU racers still out when the people are home are placed by how far they got (like a solo race's
+    // AI), so they score on the cup table; anyone else still out is a DNF.
+    const still = field.filter((m) => m.time === null);
+    const placed = this.mode === 'gp' ? still.filter((m) => m.cpu).sort((a, b) => (b.state?.s ?? 0) - (a.state?.s ?? 0)) : [];
+    const dnf = [...placed, ...still.filter((m) => !placed.includes(m))];
     // CPU racers pay like a solo race's rivals (a solo share for beating them), but never less than the people
     // in the race would earn among themselves; the CPUs themselves are never paid.
     const people = field.filter((m) => !m.cpu).length;
     const cpus = field.length - people;
     const peopleDone = done.filter((m) => !m.cpu);
     const rows: ResultRow[] = [...done, ...dnf].map((m, i) => {
-      const place = m.time === null ? 0 : i + 1;
+      const place = m.time === null && !placed.includes(m) ? 0 : i + 1;
       if (m.cpu) return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize: 0, drift: 0, bonus: { drift: 0, items: 0 }, cpu: true, xp: 0 };
       const bonus = raceBonus(m.drift, m.uses, this.track, false);
       const among = m.time === null ? 0 : peopleDone.indexOf(m) + 1;
@@ -485,7 +513,16 @@ export class Race {
     this.phase = 'results';
     this.phaseEnds = now + RACE.resultsSeconds * 1000;
     for (const m of field) m.racing = false;
-    this.broadcast({ t: 'results', track: this.track, mode: this.mode, rows });
+    // A Grand Prix round: points onto the cup table, then the next round loads by itself (or the host goes sooner).
+    let gp: Extract<RaceServerMsg, { t: 'results' }>['gp'];
+    if (this.mode === 'gp' && this.gp) {
+      this.gp.table = addRound(this.gp.table, this.gp.round, rows.map((r) => ({ key: String(r.id), name: r.name, place: r.place, cpu: r.cpu })));
+      this.gpFinal = this.gp.round >= ROUNDS - 1;
+      const wait = (this.gpFinal ? RACE.cupResultsSeconds : RACE.gpResultsSeconds) * 1000;
+      this.phaseEnds = now + wait;
+      gp = { ...this.gp, final: this.gpFinal, next: this.gpFinal ? 0 : wait };
+    }
+    this.broadcast({ t: 'results', track: this.track, mode: this.mode, rows, ...(gp ? { gp } : {}) });
     const tapes = new Map<number, GhostTape>(done.map((m) => [m.client.id, { car: m.raceCar, rider: m.client.rider, d: m.rec.d }]));
     this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track, tapes, this.mode);
     this.onChange(this);
@@ -511,6 +548,13 @@ export class Race {
       this.broadcastRoom();
     } else if (this.phase === 'racing') this.maybeFinish();
     else if (this.phase === 'results' && now >= this.phaseEnds) {
+      // A Grand Prix rolls on to its next round with whoever's in the room.
+      if (this.mode === 'gp' && this.gp && !this.gpFinal) {
+        this.nextRound();
+        this.startLoading();
+        return;
+      }
+      this.gp = null;
       this.phase = 'lobby';
       this.broadcastRoom();
       this.onChange(this);
@@ -519,11 +563,19 @@ export class Race {
     }
   }
 
+  /** Grand Prix: the next round of the cup under way, or a fresh cup from round 1 (from the lobby, or after the last round). */
+  private nextRound() {
+    if (this.gp && !this.gpFinal && this.gp.cup === this.cup) this.gp.round++;
+    else this.gp = { cup: this.cup, round: 0, table: [] };
+    this.gpFinal = false;
+    this.track = CUPS[this.cup].tracks[this.gp.round];
+  }
+
   /** The roster as everyone sees it. */
   room(): Extract<RaceServerMsg, { t: 'room' }> {
     const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user, ...(m.cpu ? { cpu: true } : {}), ...(m.pit ? { pit: true } : {}) }));
     const record = this.ghostOf === this.track && this.ghostRun ? { name: this.ghostRun.name, time: this.ghostRun.time } : null;
-    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers };
+    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers, cup: this.cup, gp: this.mode === 'gp' ? this.gp : null };
   }
 
   /** The host wants the record ghost: fetch the current track's (the lobby shows whose it is, or that there's none). */
