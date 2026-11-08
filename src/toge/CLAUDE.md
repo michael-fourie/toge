@@ -85,7 +85,12 @@ a component or a page.
   traffic.ts, 61-101 km/h from the slow lane on the left to the fast one by the median, trucks mostly in the slow two;
   walled, so no runoff; the road paint has a dashed middle) and `hayate` (Hayate Flats: desert, 4.8 km, 22 m wide,
   `clean`, every corner ≤ 30° of heading change, the boost test checks it; the kinks come at 250+ km/h, so the line
-  across the width is the skill).
+  across the width is the skill). Hayate has highway traffic too (Devlin, same day: "add cars to Hayate like there are on
+  the other"): `lanesOf` spreads `HIGHWAY_LANES` across a wider road (±2.7 and ±8 m on its 22 m), and both highways
+  paint four lanes. On a road whose same-way lanes are over `SPLIT_LANES` (4.6 m) apart, the AI also considers the
+  gap between two lanes as a line (`SPLIT_CLEAR`, tighter than `CLEAR`): without it CPUs sat behind traffic and took
+  97-209 s instead of ~76-80 s. At 250 km/h they don't hold the gap's exact middle, so they brush a car now and then;
+  the traffic test (racephysics) drives every car through Neon Bay, Ryūsei and Hayate.
 - **No items** (2026-11-08, Devlin: "remove items from all maps"): mystery boxes, the item slot, the turbo/oil/shield/
   shockwave/comet items, the `item`/`used` messages and the item bonus money are gone. In their place, **boost pads**
   (boost.ts; same request: "a few mini rainbow speed boosters but it doesn't cover the whole lane and is only in

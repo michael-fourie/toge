@@ -72,6 +72,14 @@ export function targetSpeed(car: Car, t: Track, skill: number): number {
 
 /** Two cars this far apart across the road (m) or less are in each other's way. */
 const CLEAR = 2.9;
+/**
+ * Splitting two lanes of traffic going your way (a wide highway, lanes more than SPLIT_LANES apart): the line down
+ * the middle is clear of a car either side when they're this far off it (m). Tighter than CLEAR: you thread the gap.
+ */
+const SPLIT_CLEAR = 2.55;
+const SPLIT_LANES = 4.6;
+/** A car this far across from your nose (m) or less is still in your way while you swerve out round it. */
+const NOSE_CLEAR = 2;
 /** How far ahead (s) the AI looks out for traffic. */
 const TRAFFIC_LOOK = 4;
 /** How quickly (m/s) the AI can move across the road. */
@@ -80,11 +88,11 @@ const SWERVE = 2.5;
 const DODGE_HOLD = 0.8;
 
 /** Seconds until a car on line `d` reaches traffic in the way (Infinity if none), and the slowest car on that line it would be following. */
-function wayAhead(car: Car, d: number, v: number, traffic: Obstacle[]): { at: number; follow: number } {
+function wayAhead(car: Car, d: number, v: number, traffic: Obstacle[], clear = CLEAR): { at: number; follow: number } {
   let at = Infinity;
   let follow = Infinity;
   for (const o of traffic) {
-    if (Math.abs(o.d - d) >= CLEAR) continue;
+    if (Math.abs(o.d - d) >= clear) continue;
     const gap = o.s - car.s;
     const reach = o.len / 2 + 2.5;
     if (gap < -reach) continue;
@@ -107,11 +115,14 @@ function wayAhead(car: Car, d: number, v: number, traffic: Obstacle[]): { at: nu
 function dodge(car: Car, t: Track, ai: Ai, off: number, v: number, dt: number, traffic: Obstacle[]): { off: number; follow: number } {
   ai.dodgeFor = Math.max(0, ai.dodgeFor - dt);
   const want = ai.dodgeFor > 0 ? ai.dodge : off;
-  const here = wayAhead(car, want, v, traffic);
+  const lanes = lanesOf(t);
+  // Between two lanes going the same way and far enough apart, the gap between them is a line of its own.
+  const splits = lanes.slice(1).flatMap((l, i) => (l.dir === lanes[i].dir && l.d - lanes[i].d > SPLIT_LANES ? [(l.d + lanes[i].d) / 2] : []));
+  const clearOf = (d: number) => (splits.includes(d) ? SPLIT_CLEAR : CLEAR);
+  const here = wayAhead(car, want, v, traffic, clearOf(want));
   if (here.at === Infinity) return { off: want, follow: Infinity };
   const limit = t.half - 1.2;
-  const lanes = lanesOf(t);
-  const lines = [off, ...lanes.map((l) => l.d)].filter((d) => Math.abs(d) <= limit);
+  const lines = [off, ...lanes.map((l) => l.d), ...splits].filter((d) => Math.abs(d) <= limit);
   let best = want;
   let bestAt = here.at;
   let bestFollow = here.follow;
@@ -121,7 +132,7 @@ function dodge(car: Car, t: Track, ai: Ai, off: number, v: number, dt: number, t
   const passable = (d: number) => wayAhead(car, d, v, traffic).at > Math.abs(d - car.d) / SWERVE + 0.8;
   for (const d of lines) {
     if (lanes.some((l) => (l.d - car.d) * (l.d - d) < 0 && !passable(l.d))) continue;
-    const w = wayAhead(car, d, v, traffic);
+    const w = wayAhead(car, d, v, traffic, clearOf(d));
     if (score(d, w.at) > score(best, bestAt)) {
       best = d;
       bestAt = w.at;
@@ -131,7 +142,11 @@ function dodge(car: Car, t: Track, ai: Ai, off: number, v: number, dt: number, t
   ai.dodge = best;
   ai.dodgeFor = DODGE_HOLD;
   // Boxed in: sit behind a slower car going our way; with one coming at us, brake to drop back behind whatever's alongside.
-  return { off: best, follow: bestAt >= 1.6 ? Infinity : bestFollow < Infinity ? bestFollow : 0 };
+  let follow = bestAt >= 1.6 ? Infinity : bestFollow < Infinity ? bestFollow : 0;
+  // Still right behind a car while moving out round it: hold back to its speed until the swerve takes us clear.
+  const behind = wayAhead(car, car.d, v, traffic, NOSE_CLEAR);
+  if (behind.at < Math.min(Math.abs(best - car.d), NOSE_CLEAR) / SWERVE && behind.follow < follow) follow = behind.follow;
+  return { off: best, follow };
 }
 
 /**

@@ -281,8 +281,8 @@ export function asphalt(theme: Theme, seed: number, aniso: number, circuit = fal
     for (let y = 0; y < H; y += pxPerM * 12) line(W / 2 - lw / 2, y, lw, pxPerM * 5, '#e8e6dc');
   } else if (yellow) line(W / 2 - lw / 2, 0, lw, H, '#e8a321');
   else for (let y = 0; y < H; y += pxPerM * 8) line(W / 2 - lw / 2, y, lw, pxPerM * 3, '#e8e6dc');
-  // City streets have four lanes: dashed white lines between each pair.
-  if (theme === 'city' && !circuit) for (const lx of [R0 + (R1 - R0) / 4, R0 + ((R1 - R0) * 3) / 4]) for (let y = 0; y < H; y += pxPerM * 12) line(lx - lw / 2, y, lw, pxPerM * 5, '#e8e6dc');
+  // City streets and highways have four lanes: dashed white lines between each pair.
+  if ((theme === 'city' || highway) && !circuit) for (const lx of [R0 + (R1 - R0) / 4, R0 + ((R1 - R0) * 3) / 4]) for (let y = 0; y < H; y += pxPerM * 12) line(lx - lw / 2, y, lw, pxPerM * 5, '#e8e6dc');
   // Worn paint: chips of asphalt showing through every line.
   for (const lx of circuit ? [R0 + 10, R1 - 10 - lw] : [R0 + 10, R1 - 10 - lw, W / 2 - lw / 2])
     for (let i = 0; i < 260; i++) {

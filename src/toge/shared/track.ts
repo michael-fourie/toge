@@ -667,13 +667,14 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
   hayate: {
     id: 'hayate',
     name: 'Hayate Flats',
-    tag: 'Desert speedway · wide open · no turn past 30°',
-    blurb: 'A road as wide as a runway across the salt flats, and nothing on it sharper than 30°. Flat out the whole way if you dare: the kinks come at over 250 km/h, and only the clean line keeps your foot down.',
+    tag: 'Desert speedway · four lanes of traffic · no turn past 30°',
+    blurb: 'A road as wide as a runway across the salt flats, nothing on it sharper than 30°, and four lanes of traffic heading your way. Flat out the whole way if you dare: the kinks come at over 250 km/h, and only the clean line through the gaps keeps your foot down.',
     theme: 'desert',
     seed: 2203,
     width: 22,
     relief: 120,
     clean: true,
+    traffic: 'highway',
     points: [
       [0, 211.7, 0], [0, 211.8, -130], [0, 209.2, -260], [0, 208.3, -390], [0, 209.4, -520], [1, 209.4, -550],
       [4, 209.3, -580], [9, 208.8, -609], [17, 208.2, -638], [26, 207.2, -667], [70, 201.4, -789], [115, 196.7, -911],
