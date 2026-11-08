@@ -5,7 +5,7 @@ import { aiDrive, newAi } from '../../src/toge/shared/driver.ts';
 import { TRACK_LENGTH_KM } from '../../src/toge/shared/garage.ts';
 import { RACE_TRACKS, SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/toge/shared/track.ts';
 import { LANES, type Obstacle, TRAFFIC_KINDS, collideTraffic, getTraffic, newPose, trafficBetween, trafficPose, trafficS } from '../../src/toge/shared/traffic.ts';
-import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, spinOut, stepCar, yawOf } from '../../src/toge/shared/vehicle.ts';
+import { ARCADE, type Car, arcadeMaxYaw, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, spinOut, stepCar, yawOf } from '../../src/toge/shared/vehicle.ts';
 
 // Race tracks only: the open world (world.ts) has its own tests in world.test.ts.
 const TRACKS = RACE_TRACKS;
@@ -607,6 +607,39 @@ test('arcade drift: holding the wheel into a drift tightens it, bit by bit, roun
     // Steering out of it opens the slide back up to an ordinary drift.
     run(car, { steer: -0.5, throttle: 1, brake: 0, handbrake: 0, drift: 1 }, 0.6, open);
     assert.ok(car.tight === 0 && Math.abs(slipOf(car)) < 0.6, `${id}: still ${((Math.abs(slipOf(car)) * 180) / Math.PI).toFixed(0)}° sideways after steering out`);
+  }
+});
+
+test('arcade drift at speed: the path turns with the nose from the start (it used to slide nearly straight), and fast grip turns are a touch tighter', () => {
+  for (const id of CAR_IDS) {
+    // How far the direction of travel has come round after 0.5 s and 1 s on full lock from `v` m/s.
+    const turn = (v: number, drift: number) => {
+      const car = carOn(open, id);
+      while (speedOf(car) < v) stepCar(car, gas, open);
+      let turned = 0;
+      const out: number[] = [];
+      for (let i = 1; i <= TICK_HZ; i++) {
+        const h = Math.atan2(car.v.x, car.v.z);
+        stepCar(car, { steer: 1, throttle: 1, brake: 0, handbrake: 0, drift }, open);
+        const nh = Math.atan2(car.v.x, car.v.z);
+        turned += Math.atan2(Math.sin(nh - h), Math.cos(nh - h));
+        if (i === TICK_HZ / 2 || i === TICK_HZ) out.push(Math.abs(turned));
+      }
+      return { out, slip: Math.abs(slipOf(car)), drifting: car.drift !== 0 };
+    };
+    const deg = (r: number) => ((r * 180) / Math.PI).toFixed(0);
+    for (const v of [40, 50]) {
+      const grip = turn(v, 0);
+      const drift = turn(v, 1);
+      // At 180 km/h it turned 6° in half a second and 23° in one, against 19° and 50° just steering.
+      assert.ok(drift.out[0] > 0.5 * grip.out[0] && drift.out[1] > 0.65 * grip.out[1], `${id} @${v}: drift turned ${drift.out.map(deg)}°, grip ${grip.out.map(deg)}°`);
+      // Still a slide, not a grip turn with sparks.
+      assert.ok(drift.drifting && drift.slip > 0.3, `${id} @${v}: only ${deg(drift.slip)}° of slide`);
+    }
+    // A little more grip promised at speed than the base ARCADE.grip (12% at 50 m/s), none at medium speed.
+    const sp = carSpec(newOwnedCar(id));
+    assert.ok(Math.abs(arcadeMaxYaw(sp, 50) - (ARCADE.grip * 9.81 * 1.12) / 50) < 0.01);
+    assert.ok(Math.abs(arcadeMaxYaw(sp, 20) - Math.min(ARCADE.maxYaw, (ARCADE.grip * 9.81) / 20, arcadeMaxYaw(sp, 20))) < 1e-9);
   }
 });
 

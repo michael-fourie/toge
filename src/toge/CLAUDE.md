@@ -48,6 +48,16 @@ hairpins; steering against the drift is good as it is": holding the wheel into a
 brake (analog, `trigger()` dead zone), Ⓐ held to drift, Ⓧ/RB item (`padPedals` in input.ts, tested in raceinput);
 the keyboard brake ramps in at 14/s, the throttle at 5/s.
 
+Drift bite and fast turning (2026-11-08, Michael: "the drifting is sometimes so weak it's a straight line ... turn a bit
+steeper at high speeds. Just a bit"): a drift's travel only swung onto the nose at `driftAlign` × slip, and the slip
+starts near zero, so at speed the car slid nearly straight for the first second while the nose came round (180 km/h:
+6° of turn in 0.5 s, 23° in 1 s, against 19°/50° just steering). Now the path keeps curving at least
+`ARCADE.driftCarry.share` (0.7) of the nose's yaw rate, building in over the first 0.15 rad of slip (so the tail still
+gets out) and from 20 to 35 m/s (slow hairpin drifts stay as tight as they were; carrying their speed only widened
+them): 13°/43° now, slip still ~35-40°. `ARCADE.fast` adds up to 12% more promised grip from 25 to 50 m/s in
+`arcadeMaxYaw` (grip turn at 180 km/h 50° -> 56° in 1 s). The AI steers through `arcadeMaxYaw` but plans corner
+speeds on `ARCADE.grip`, so CPU times barely moved (all race tracks within 0.3 s, one 2 s quicker).
+
 ## Menus and brand
 
 The home screens (hub.ts: tabs Race, Garage, Performance, Style, Driver, Friends, Settings), the race lobby (lobby.ts) and cosmetics
@@ -207,7 +217,7 @@ src/toge/shared/
                Then the `arcade()` layer (tuned by `ARCADE`, on by default in `DEFAULT_ASSISTS`): yaws the car toward
                the stick (never tighter than full lock's turning circle: `arcadeMaxYaw` takes the spec), swings travel
                onto the nose, drift levels + mini-turbo boosts (a drift starts with an `ARCADE.kick` E-brake: the rear
-               wheels lock, declutched on a rear-driven car; it used to hop; held into, it tightens: `ARCADE.driftIn`), a loose tail after a yank of the wheel at
+               wheels lock, declutched on a rear-driven car; it used to hop; held into, it tightens: `ARCADE.driftIn`; a fast drift's path keeps turning with the nose: `ARCADE.driftCarry`), a loose tail after a yank of the wheel at
                speed (`ARCADE.loose`, `car.loose`), levelling in the air.
   cars.ts      the catalogue (CARS), upgrades (PARTS, levels 0-5), looks, tuning, encode/decodeCar (the wire code), carSpec()
                (everything -> physics numbers), torqueAt, rating (PI + class), stats (garage bars).

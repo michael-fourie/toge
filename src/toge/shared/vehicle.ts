@@ -416,6 +416,11 @@ export function steerLimit(car: Car, assists: Assists): number {
 export const ARCADE = {
   // Generous on purpose: at 1.9 g a touge hairpin needed braking to walking pace and players rode the walls.
   grip: 2.8,
+  /**
+   * A little more of that grip at speed: `extra` more (12%) builds from `from` to `to` m/s, so a fast sweeper
+   * can be turned a touch tighter. The AI still plans its corner speeds on `grip` alone.
+   */
+  fast: { from: 25, to: 50, extra: 0.12 },
   maxYaw: 3.2, // rad/s at low speed
   yawResponse: 10, // 1/s
   /** How fast the travel direction swings round to the nose (1/s): grippy, and while drifting. */
@@ -424,6 +429,16 @@ export const ARCADE = {
   driftGrip: 0.35,
   /** A drift eases into its extra rotation over this many seconds (it used to snap the car sideways at once). */
   driftEase: 0.4,
+  /**
+   * While drifting fast, the direction of travel keeps curving at least `share` of the nose's yaw rate (until it
+   * reaches the nose), so the slide still builds and holds its angle but the car goes round with it. Without it
+   * the path only followed the nose at `driftAlign` times the slip angle, and the slip starts near zero, so for
+   * the first second of a drift at speed the car slid nearly straight while the nose swung round (at 180 km/h
+   * it turned 6° in half a second, against 19° just steering). It builds in over the first `slip` rad of slide,
+   * so the tail still gets out, and from `slow` to `fast` m/s: slow hairpin drifts are tight already, and
+   * carrying their speed round would only widen them.
+   */
+  driftCarry: { share: 0.7, slip: 0.15, slow: 20, fast: 35 },
   /**
    * A slide holds its angle: past `driftAngle` (rad) the travel swings back onto the nose `driftHold` per second
    * faster for every radian over, so a drift settles around 35° (the drift meter scores up to 40°) instead of
@@ -469,7 +484,9 @@ export const ARCADE = {
  * all its speed).
  */
 export function arcadeMaxYaw(sp: CarSpec, speed: number): number {
-  return Math.min(ARCADE.maxYaw, (ARCADE.grip * G) / Math.max(4, speed), (speed * Math.tan(sp.steer)) / (sp.axleF + sp.axleR));
+  const F = ARCADE.fast;
+  const grip = ARCADE.grip * (1 + F.extra * clamp((speed - F.from) / (F.to - F.from), 0, 1));
+  return Math.min(ARCADE.maxYaw, (grip * G) / Math.max(4, speed), (speed * Math.tan(sp.steer)) / (sp.axleF + sp.axleR));
 }
 
 /**
@@ -518,10 +535,10 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
   const into = drifting ? Math.max(0, steer * car.drift) : 0;
   car.tight = into > car.tight ? Math.min(into, car.tight + dt / ARCADE.driftIn.build) : Math.max(into, car.tight - dt / ARCADE.driftIn.ease);
 
+  // Yaw toward what's asked (reversing turns the other way). In the air you get a little say, to line
+  // up a landing.
+  const max = arcadeMaxYaw(car.spec, speed) * (0.55 + 0.45 * surf) * (grounded ? 1 : 0.3);
   {
-    // Yaw toward what's asked (reversing turns the other way). In the air you get a little say, to line
-    // up a landing.
-    const max = arcadeMaxYaw(car.spec, speed) * (0.55 + 0.45 * surf) * (grounded ? 1 : 0.3);
     let want = -steer * max * (1 + ARCADE.trailBrake * (grounded && vf > 0 ? brake : 0));
     if (drifting) {
       // Tightening never spins it faster than ARCADE.maxYaw: slow drifts already turn tight enough.
@@ -548,7 +565,11 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
       const hold = ARCADE.driftAngle + ARCADE.driftIn.angle * car.tight;
       if (drifting || car.loose > 0) grip += ARCADE.driftHold * Math.max(0, Math.abs(beta) - hold);
       const rate = grip * (0.5 + 0.5 * surf);
-      const turn = -beta * (1 - Math.exp(-dt * rate));
+      let turn = -beta * (1 - Math.exp(-dt * rate));
+      // A fast drift's path keeps turning with the nose instead of sliding straight on (never past it).
+      const C = ARCADE.driftCarry;
+      const carry = C.share * clamp((speed - C.slow) / (C.fast - C.slow), 0, 1);
+      if (drifting) turn = Math.sign(turn) * Math.min(Math.abs(beta), Math.max(Math.abs(turn), carry * Math.abs(car.w.y) * Math.min(1, Math.abs(beta) / C.slip) * dt));
       const c = Math.cos(turn);
       const s = Math.sin(turn);
       const nx = v.x * c - v.z * s;
