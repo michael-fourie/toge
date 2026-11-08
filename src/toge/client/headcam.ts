@@ -56,8 +56,8 @@ const LOOK_RATE = 0.16;
 const LOOK_SLIP = 0.45;
 const LOOK_MAX = 0.42;
 /** Seat shake: road texture (m and rad at RUMBLE_SPEED on asphalt), engine buzz, and impact trauma. */
-const RUMBLE_M = 0.0016;
-const RUMBLE_RAD = 0.0035;
+const RUMBLE_M = 0.0013;
+const RUMBLE_RAD = 0.0029;
 const RUMBLE_SPEED = 40;
 const BUZZ_M = 0.00035;
 const TRAUMA_M = 0.035;
