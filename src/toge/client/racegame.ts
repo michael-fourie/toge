@@ -751,8 +751,8 @@ export class RaceGame {
         if (this.phase !== 'done') this.hud.banner(`${r.name} finished`, fmtTime(m.time), 2000);
         if (this.watching === m.id) this.spectateNext();
       }
-    } else if (m.t === 'load' && this.phase === 'done') {
-      // The host raced again from the results: straight to the next start.
+    } else if (m.t === 'load') {
+      // The host raced again from the results, or restarted from the pause menu mid-race: straight to the next start.
       this.dispose();
       this.setup.onNext?.(roomRace(m));
     } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id, cpu: r.cpu, xp: r.xp })));
@@ -1296,15 +1296,41 @@ export class RaceGame {
     (window as unknown as { __race: RaceGame }).__race = next;
   }
 
-  private pause() {
+  /**
+   * Restart from the pause menu. Solo: a fresh race with the same setup. Online only the host can, and it restarts
+   * everyone: the server sends the whole room back to the start with the same track and settings (no prizes paid).
+   */
+  private get canRestart() {
+    const net = this.setup.online?.net;
+    return !net || net.room?.hostId === net.id;
+  }
+
+  private restartFromPause(b: HTMLButtonElement) {
+    const net = this.setup.online?.net;
+    if (!net) return this.restart();
+    b.disabled = true;
+    b.textContent = 'Restarting…';
+    net.send({ t: 'start' });
+  }
+
+  /** The pause menu: Restart first, then Resume, Settings (camera, volume, assists) and Quit. */
+  private pause(view: 'main' | 'settings' = 'main', focus = '') {
     this.paused = true;
     const a = this.assists;
     const onOff = (b: boolean) => (b ? 'On' : 'Off');
-    const p = this.hud.panel(`
+    const p =
+      view === 'main'
+        ? this.hud.panel(`
       <h2>Paused</h2>
       <div class="rh-buttons col">
+        ${this.canRestart ? '<button data-act="restart">Restart</button>' : ''}
         <button data-act="resume" data-autofocus>Resume</button>
-        ${this.setup.online ? '' : '<button data-act="restart">Restart</button>'}
+        <button data-act="settings">Settings</button>
+        <button data-act="leave">${this.setup.online ? 'Leave race' : 'Quit to garage'}</button>
+      </div>${this.setup.online && !this.canRestart ? '<p class="rh-note">Only the host can restart an online race.</p>' : ''}`)
+        : this.hud.panel(`
+      <h2>Settings</h2>
+      <div class="rh-buttons col">
         <button data-act="cam">Camera: ${this.cam}</button>
         <button data-act="volume">Volume: ${Math.round(loadVolume() * 100)}%</button>
         <button data-act="abs">ABS: ${onOff(a.abs)}</button>
@@ -1312,44 +1338,46 @@ export class RaceGame {
         <button data-act="steer">Steering assist: ${onOff(a.steer)}</button>
         <button data-act="arcade">Handling: ${a.arcade ? 'Arcade (drift on Ⓐ / Space)' : 'Simulation'}</button>
         <button data-act="auto">Gearbox: ${a.auto ? 'Automatic' : 'Manual'}</button>
-        <button data-act="leave">${this.setup.online ? 'Leave race' : 'Quit to garage'}</button>
+        <button data-act="back" data-autofocus>Back</button>
       </div>`);
     setMenuNav(true);
-    const save = () => localStorage.setItem(ASSIST_KEY, JSON.stringify(this.assists));
-    const redo = () => {
-      save();
-      this.pause();
-      p.querySelector<HTMLElement>(`[data-act="${last}"]`)?.focus();
+    if (focus) p.querySelector<HTMLElement>(`[data-act="${focus}"]`)?.focus();
+    const redo = (act: string) => {
+      localStorage.setItem(ASSIST_KEY, JSON.stringify(this.assists));
+      this.pause('settings', act);
     };
-    let last = '';
     p.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((b) =>
       b.addEventListener('click', () => {
-        last = b.dataset.act!;
-        switch (last) {
+        const act = b.dataset.act!;
+        switch (act) {
           case 'resume':
             return this.resume();
           case 'restart':
-            return this.restart();
+            return this.restartFromPause(b);
+          case 'settings':
+            return this.pause('settings');
+          case 'back':
+            return this.pause('main', 'settings');
           case 'leave':
             this.setup.online?.net.leave();
             return this.exit('garage');
           case 'volume': {
             const i = VOLUMES.indexOf(loadVolume());
             this.audio.setVolume(VOLUMES[(i + 1) % VOLUMES.length]);
-            return redo();
+            return redo(act);
           }
           case 'cam':
             this.cam = CAMS[(CAMS.indexOf(this.cam) + 1) % CAMS.length];
             localStorage.setItem(CAM_KEY, this.cam);
-            return redo();
+            return redo(act);
           case 'arcade':
           case 'tcs':
           case 'abs':
           case 'steer':
           case 'auto':
-            this.assists[last] = !this.assists[last];
-            if (last === 'auto' && this.me.car.gear === 0 && this.phase !== 'countdown') this.me.car.gear = 1;
-            return redo();
+            this.assists[act] = !this.assists[act];
+            if (act === 'auto' && this.me.car.gear === 0 && this.phase !== 'countdown') this.me.car.gear = 1;
+            return redo(act);
         }
       }),
     );
