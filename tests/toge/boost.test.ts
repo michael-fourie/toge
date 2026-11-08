@@ -96,6 +96,7 @@ test('Ryūsei Expressway: a highway, four lanes all going with the race, traffic
   const t = getTrack('ryusei');
   assert.equal(TRACK_DEFS.ryusei.traffic, 'highway');
   assert.equal(lanesOf(t), HIGHWAY_LANES);
+  for (const c of getTraffic(t)!.cars) assert.ok(c.lane >= 0 && c.lane < 4);
   assert.ok(HIGHWAY_LANES.every((l) => l.dir === 1 && Math.abs(l.d) < t.half - 1));
   // The slow lane on the left, the fast one by the median.
   for (let i = 1; i < HIGHWAY_LANES.length; i++) assert.ok(HIGHWAY_LANES[i].v > HIGHWAY_LANES[i - 1].v);
@@ -125,4 +126,17 @@ test('Hayate Flats: wide, and no corner turns more than 30°', () => {
   }
   assert.ok((most * 180) / Math.PI <= 30.5, `the sharpest corner turns ${((most * 180) / Math.PI).toFixed(1)}°`);
   assert.ok((most * 180) / Math.PI > 25, 'but there are real corners');
+});
+
+test('Hayate Flats has highway traffic too, its four lanes spread across the wide road', () => {
+  const t = getTrack('hayate');
+  assert.equal(TRACK_DEFS.hayate.traffic, 'highway');
+  const lanes = lanesOf(t);
+  assert.equal(lanes.length, 4);
+  assert.ok(lanes.every((l, i) => l.dir === 1 && l.v === HIGHWAY_LANES[i].v), 'same speeds, all going with the race');
+  assert.ok(lanes[3].d > HIGHWAY_LANES[3].d + 1 && lanes[3].d < t.half - 1.5, 'the outer lanes use the extra width, still on the asphalt');
+  for (let i = 1; i < 4; i++) assert.ok(lanes[i].d - lanes[i - 1].d > 3.5, 'lanes wide enough to pass between');
+  const tr = getTraffic(t)!;
+  for (let lane = 0; lane < 4; lane++) assert.ok(tr.cars.filter((c) => c.lane === lane).length > 10, `lane ${lane} has traffic`);
+  assert.equal(t.props.length, 0, 'still no obstacles');
 });

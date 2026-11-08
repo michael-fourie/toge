@@ -499,22 +499,28 @@ test('traffic: hitting a car knocks you off it, and the AI gets every car throug
   for (let time = 1; time < 1.6; time += TICK_DT) collideTraffic(t, tr, car, time);
   assert.ok(car.hit > 5, 'a real knock');
   assert.ok(car.v.x * p.vx + car.v.z * p.vz > 0, 'pushed the way the traffic is going');
-  for (const model of CAR_IDS) {
-    const car = carOn(t, model);
-    const ai = newAi(0.9, 0);
-    const inp = { ...idle };
-    const near: Obstacle[] = [];
-    let time = 0;
-    let crashes = 0;
-    while (car.s < t.finishS && time < 400) {
-      aiDrive(car, t, ai, TICK_DT, inp, trafficBetween(tr, time, car.s - 10, car.s + 300, near));
-      stepCar(car, inp, t);
-      collideTraffic(t, tr, car, time);
-      if (car.hit > 12) crashes++;
-      time += TICK_DT;
+  // The city, and the two highways (all four lanes going your way, at 250+ km/h on Hayate Flats).
+  for (const id of ['neonbay', 'ryusei', 'hayate'] as const) {
+    const t = getTrack(id);
+    const tr = getTraffic(t)!;
+    for (const model of CAR_IDS) {
+      const car = carOn(t, model);
+      const ai = newAi(0.9, 0);
+      const inp = { ...idle };
+      const near: Obstacle[] = [];
+      let time = 0;
+      let crashes = 0;
+      while (car.s < t.finishS && time < 400) {
+        aiDrive(car, t, ai, TICK_DT, inp, trafficBetween(tr, time, car.s - 10, car.s + 300, near));
+        stepCar(car, inp, t);
+        collideTraffic(t, tr, car, time);
+        if (car.hit > 12) crashes++;
+        time += TICK_DT;
+      }
+      assert.ok(car.s >= t.finishS, `${id}: ${model} didn't get through the traffic (stuck at s=${car.s.toFixed(0)})`);
+      assert.ok(crashes <= 6, `${id}: ${model}: ${crashes} big crashes in traffic`);
+      if (id !== 'neonbay') console.log(`# ${id} ${model} ${time.toFixed(1)} s, ${crashes} crashes`);
     }
-    assert.ok(car.s >= t.finishS, `${model} didn't get through the traffic (stuck at s=${car.s.toFixed(0)})`);
-    assert.ok(crashes <= 6, `${model}: ${crashes} big crashes in traffic`);
   }
 });
 

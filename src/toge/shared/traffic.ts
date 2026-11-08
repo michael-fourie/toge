@@ -34,7 +34,10 @@ export const LANES: Lane[] = [
   { d: 5.6, dir: -1, v: 12 },
 ];
 
-/** A highway's four lanes, all with the race: trucks and dawdlers on the left, quicker by the median (61-101 km/h). */
+/**
+ * A highway's four lanes, all with the race: trucks and dawdlers on the left, quicker by the median (61-101 km/h).
+ * Laid out for a 16 m road (Ryūsei); a wider one spreads them across its width (lanesOf).
+ */
 export const HIGHWAY_LANES: Lane[] = [
   { d: -5.8, dir: 1, v: 17 },
   { d: -1.95, dir: 1, v: 21 },
@@ -42,8 +45,17 @@ export const HIGHWAY_LANES: Lane[] = [
   { d: 5.8, dir: 1, v: 28 },
 ];
 
-/** The lanes a track's traffic drives in. */
-export const lanesOf = (t: Track): Lane[] => (t.def.traffic === 'highway' ? HIGHWAY_LANES : LANES);
+const HIGHWAY_HALF = 8;
+const wideLanes = new WeakMap<Track, Lane[]>();
+
+/** The lanes a track's traffic drives in (a highway's spread over its width: Hayate Flats is 22 m). */
+export function lanesOf(t: Track): Lane[] {
+  if (t.def.traffic !== 'highway') return LANES;
+  if (t.half === HIGHWAY_HALF) return HIGHWAY_LANES;
+  let lanes = wideLanes.get(t);
+  if (!lanes) wideLanes.set(t, (lanes = HIGHWAY_LANES.map((l) => ({ ...l, d: (l.d * t.half) / HIGHWAY_HALF }))));
+  return lanes;
+}
 
 export interface TrafficCar {
   kind: TrafficKind;
