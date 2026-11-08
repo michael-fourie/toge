@@ -3,6 +3,7 @@
 
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { TRACK_DEFS, type Theme, type TrackId } from '../shared/track.ts';
+import { CUPS, cupKm, type CupId } from '../shared/cups.ts';
 import { esc } from '../../client/menu/ui.ts';
 
 /** Each theme's menu sky (top, horizon) and accent. Keep the mood in step with LOOKS in trackview.ts. */
@@ -90,4 +91,18 @@ export function trackTile(id: TrackId, attrs: string): string {
   return `<button class="tg-track ${d.theme}" style="${trackStyle(id)}" ${attrs}>
     <span class="tg-track-art" aria-hidden="true"></span>${trackMap(id)}
     <b>${esc(d.name)}</b><small>${d.laps ? `${d.laps} laps · ` : ''}${TRACK_LENGTH_KM[id]} km${d.climb ? ` · ${trackClimb(id)} m up` : ''}</small></button>`;
+}
+
+/**
+ * A Grand Prix cup card (a button): the cup's colour and name, its line, and its four rounds as little track strips
+ * (art, map, name) in order. `at`: the round under way, marked (and the ones before it dimmed as raced).
+ */
+export function cupCard(id: CupId, attrs: string, at = -1): string {
+  const c = CUPS[id];
+  const rounds = c.tracks
+    .map((t, i) => `<li class="${i === at ? 'now' : i < at ? 'done' : ''}" style="${trackStyle(t)}"><span class="tg-track-art" aria-hidden="true"></span><i class="tg-num">${i + 1}</i>${trackMap(t)}<b>${esc(TRACK_DEFS[t].name)}</b></li>`)
+    .join('');
+  return `<button class="tg-cup" style="--cup:${c.color}" ${attrs}>
+    <span class="tg-cup-head"><b>${esc(c.name)}</b><small>${esc(c.tag)} · ${cupKm(id, TRACK_LENGTH_KM)} km</small></span>
+    <ol class="tg-cup-rounds">${rounds}</ol></button>`;
 }

@@ -12,7 +12,8 @@ import { ITEMS, type Item, POWER, rollItem } from '../shared/powerups.ts';
 import { ITEM_PAY, bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { SOLO_SHARE } from '../shared/garage.ts';
 import { tierOf } from '../shared/pass.ts';
-import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, recordMode, type CarRule, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
+import { CUPS, ROUNDS, addRound, roundLabel } from '../shared/cups.ts';
+import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, recordMode, type CarRule, type GpState, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
 import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc, pointAt } from '../shared/track.ts';
@@ -32,7 +33,7 @@ import { type Cockpit, buildCockpit } from './cockpit.ts';
 import { Head, ROUGH } from './headcam.ts';
 import { Effects } from './effects.ts';
 import { garage } from './garageStore.ts';
-import { type Dot, type ResultLine, RaceHud, type Tag, fmtTime, money, ordinal } from './hud.ts';
+import { type Dot, type ResultLine, RaceHud, type Tag, cupHtml, fmtTime, money, ordinal } from './hud.ts';
 import { saveHighs } from './highs.ts';
 import { DriveControls } from './input.ts';
 import { type RaceNet, roomRace } from './racenet.ts';
@@ -59,6 +60,11 @@ export interface RaceSetup {
   rivals?: number;
   /** Solo: Physics mode (crash damage, damage.ts). Online it comes with the race (`online.physics`). */
   physics?: boolean;
+  /**
+   * A Grand Prix round (cups.ts): the cup, the round and the table before it. Solo, the results add this race to the
+   * table and Next race hands `onNext` the next round; online the room keeps the table and sends it with `results`.
+   */
+  gp?: GpState;
   onExit(to: 'garage' | 'lobby', notice?: string): void;
   /** Online: the host raced again while we sat on the results; this race hands over to the next one. */
   onNext?(next: DriveOpts): void;
@@ -292,6 +298,8 @@ export class RaceGame {
   private myPrize: number | null = null;
   /** The online results on screen, kept so `records` (new best times) can mark them. */
   private shownResults: { lines: (ResultLine & { id: number })[]; title: string } | null = null;
+  /** The online Grand Prix round whose results are on screen (null: not a Grand Prix). */
+  private gpShown: (GpState & { final: boolean }) | null = null;
   private puffTick = 0;
   private rumbleAt = 0;
   private lastGear = 1;
@@ -398,6 +406,7 @@ export class RaceGame {
         this.rivals.push(r);
       }
       this.countdown = SOLO_COUNTDOWN;
+      if (setup.gp) this.hud.banner(CUPS[setup.gp.cup].name, roundLabel(setup.gp.cup, setup.gp.round), 3200);
     }
     for (const r of [this.me, ...this.rivals]) r.car.gear = 0; // revving on the line
     this.snapCamera();
@@ -755,7 +764,7 @@ export class RaceGame {
       // The host raced again from the results, or restarted from the pause menu mid-race: straight to the next start.
       this.dispose();
       this.setup.onNext?.(roomRace(m));
-    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id, cpu: r.cpu, xp: r.xp })));
+    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id, cpu: r.cpu, xp: r.xp })), m.gp);
     else if (m.t === 'records') this.records(m.rows);
     else if (m.t === 'room') {
       // Someone left mid-race: drop their car.
@@ -1217,6 +1226,8 @@ export class RaceGame {
     const bonus = res.ok ? res.bonus : undefined;
     const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined }));
     const note = (res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}${xpNote(res.xp ?? 0, xpBefore)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`);
+    const gp = this.setup.gp;
+    if (gp) return this.soloCup(gp, lines, note);
     const p = this.hud.panel(`${this.hud.resultsHtml(this.track.def.name, lines)}
       <p class="rh-note">${esc(note)}</p>
       <div class="rh-buttons"><button data-act="again" data-autofocus>Rerace</button><button data-act="garage">Garage</button></div>`);
@@ -1225,7 +1236,39 @@ export class RaceGame {
     p.querySelector('[data-act="garage"]')!.addEventListener('click', () => this.exit('garage'));
   }
 
-  private onlineResults(lines: (ResultLine & { id: number; xp?: number })[]) {
+  /**
+   * A solo Grand Prix round is over: this race's places go on the cup table (you are `me`, rivals by name, the same
+   * every round), then Next race, or after the last round the final standings and Race the cup again.
+   */
+  private soloCup(gp: GpState, lines: ResultLine[], note: string) {
+    const table = addRound(gp.table, gp.round, lines.map((l) => ({ key: l.me ? 'me' : l.name, name: l.name, place: l.place, me: l.me })));
+    const final = gp.round >= ROUNDS - 1;
+    const cup = CUPS[gp.cup];
+    const title = `${cup.name} · ${this.track.def.name}`;
+    const p = this.hud.panel(`${this.hud.resultsHtml(title, lines)}
+      <p class="rh-note">${esc(note)}</p>
+      ${cupHtml(gp.cup, gp.round, table, final, 'me')}
+      <div class="rh-buttons">${
+        final
+          ? '<button data-act="cup" data-autofocus>Race the cup again</button><button data-act="garage">Garage</button>'
+          : `<button data-act="next" data-autofocus>Next race: ${esc(this.nextTrackName(gp))}</button><button data-act="garage">Quit cup</button>`
+      }</div>`);
+    setMenuNav(true);
+    const go = (next: GpState) => {
+      this.dispose();
+      this.setup.onNext?.({ track: cup.tracks[next.round], rivals: this.setup.rivals, physics: this.setup.physics, gp: next });
+    };
+    p.querySelector('[data-act="next"]')?.addEventListener('click', () => go({ cup: gp.cup, round: gp.round + 1, table }));
+    p.querySelector('[data-act="cup"]')?.addEventListener('click', () => go({ cup: gp.cup, round: 0, table: [] }));
+    p.querySelector('[data-act="garage"]')!.addEventListener('click', () => this.exit('garage'));
+  }
+
+  private nextTrackName(gp: GpState) {
+    const next = CUPS[gp.cup].tracks[gp.round + 1];
+    return next ? getTrack(next).def.name : '';
+  }
+
+  private onlineResults(lines: (ResultLine & { id: number; xp?: number })[], gp?: Extract<RaceServerMsg, { t: 'results' }>['gp']) {
     this.phase = 'done';
     this.watching = null;
     this.hud.watching('', '');
@@ -1235,13 +1278,27 @@ export class RaceGame {
     // A guest's best is kept here; an account's comes from the server a moment later (`records`). Only item-free modes
     // keep best times (recordMode): a race's items would make them unbeatable in a time trial.
     if (mine && mine.time !== null && !garage.onServer && recordMode(this.setup.online!.mode)) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
-    const title = this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
+    const title = gp ? `${CUPS[gp.cup].name} · ${this.track.def.name}` : this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
     this.shownResults = { lines, title };
+    this.gpShown = gp ?? null;
     this.hud.panel(`${this.hud.resultsHtml(title, lines, this.clean)}
       <p class="rh-note">${mine ? `You earned ${money(mine.prize)}${bonusNote(mine.bonus)}${esc(xpNote(mine.xp ?? 0, xpBefore))}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}<span data-best-note>${esc(bestNote(mine?.newBest, this.track.def.name))}</span></p>
+      ${gp ? cupHtml(gp.cup, gp.round, gp.table, gp.final, String(this.setup.online!.net.id)) : ''}
+      ${gp && !gp.final ? `<p class="rh-cup-next" data-cup-next></p>` : ''}
       <div class="rh-buttons" data-result-acts></div>`);
     setMenuNav(true);
+    if (gp && !gp.final) this.cupClock(gp, performance.now() + gp.next);
     this.resultActs();
+  }
+
+  /** Online Grand Prix: "Round 3 of 4 · Neon Bay starts in 12 s" under the cup table, counting down. */
+  private cupClock(gp: GpState, at: number) {
+    const el = this.hud.root.querySelector<HTMLElement>('[data-cup-next]');
+    const next = CUPS[gp.cup].tracks[gp.round + 1];
+    if (!el || !next || this.exited) return;
+    const s = Math.max(0, Math.ceil((at - performance.now()) / 1000));
+    el.textContent = `Round ${gp.round + 2} of ${ROUNDS} · ${getTrack(next).def.name} starts in ${s} s`;
+    if (s > 0) setTimeout(() => this.cupClock(gp, at), 250);
   }
 
   /**
@@ -1255,13 +1312,18 @@ export class RaceGame {
     const host = net.room?.hostId === net.id;
     if (box.dataset.host === String(host)) return;
     box.dataset.host = String(host);
+    // A Grand Prix: the host's Rerace is Next race (or the cup again after the last round); the next round also
+    // starts on its own, and everyone still here goes straight to it.
+    const gp = this.gpShown;
+    const again = !gp ? 'Rerace' : gp.final ? 'Race the cup again' : 'Next race';
+    const wait = !gp ? 'If the host races again, you go straight to the start.' : gp.final ? 'If the host races the cup again, you go straight to the start.' : 'You go straight on to the next round.';
     box.innerHTML = host
-      ? `<button data-act="again" data-autofocus>Rerace</button><button data-act="lobby">Back to lobby</button><button data-act="leave">Leave race</button>`
-      : `<button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button><p class="rh-note">If the host races again, you go straight to the start.</p>`;
-    const again = box.querySelector<HTMLButtonElement>('[data-act="again"]');
-    again?.addEventListener('click', () => {
-      again.disabled = true;
-      again.textContent = 'Starting…';
+      ? `<button data-act="again" data-autofocus>${again}</button><button data-act="lobby">Back to lobby</button><button data-act="leave">Leave race</button>`
+      : `<button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button><p class="rh-note">${wait}</p>`;
+    const againBtn = box.querySelector<HTMLButtonElement>('[data-act="again"]');
+    againBtn?.addEventListener('click', () => {
+      againBtn.disabled = true;
+      againBtn.textContent = 'Starting…';
       net.send({ t: 'start' });
     });
     box.querySelector('[data-act="lobby"]')!.addEventListener('click', () => this.exit('lobby'));

@@ -8,6 +8,7 @@
 
 import { TRACK_DEFS, type TrackId } from './track.ts';
 import type { GhostRun } from './ghost.ts';
+import { CUPS, ROUNDS, type CupId, type CupRow } from './cups.ts';
 
 /** One signed-in racer's new best in `records` (NewBest in records.ts, keyed by racer id). */
 export interface RecordRow {
@@ -24,20 +25,22 @@ export type RacePhase = 'lobby' | 'loading' | 'countdown' | 'racing' | 'results'
  * What the host is running: a `race` (cars bump, items fly), a `trial` (time trial: everyone laps the same
  * road at once, but the other cars are see-through ghosts you drive straight through, and there are no items)
  * or a `climb` (hill climb: one run up a hill-climb road (`climb` on its TrackDef), solid cars you can bump and
- * draft, no items, rockfall on the road; first to the summit wins).
+ * draft, no items, rockfall on the road; first to the summit wins), or a `gp` (Grand Prix: a cup of four tracks
+ * (cups.ts) raced back to back with race rules, points for every place, a cup table at the end).
  */
-export type RaceMode = 'race' | 'trial' | 'climb';
+export type RaceMode = 'race' | 'trial' | 'climb' | 'gp';
 export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
   race: { name: 'Race', blurb: 'Bump, block and throw items. First to the line wins.' },
   trial: { name: 'Time trial', blurb: 'Ghost cars, no contact, no items. Fastest clean time wins.' },
   climb: { name: 'Hill climb', blurb: 'One run up the mountain past boulders and broken tarmac. No items. First to the summit wins.' },
+  gp: { name: 'Grand Prix', blurb: 'A cup of four tracks back to back. Points for every place; most points takes the trophy.' },
 };
 
 /** Modes where the other racers are ghosts you drive straight through (no contact, no slipstream): the time trial. */
 export const ghostMode = (m: RaceMode) => m === 'trial';
 
-/** Modes with no items (boxes, throws or item money), where the host picks a car rule: everything but a race. */
-export const cleanMode = (m: RaceMode) => m !== 'race';
+/** Modes with no items (boxes, throws or item money), where the host picks a car rule: the time trial and hill climb. */
+export const cleanMode = (m: RaceMode) => m === 'trial' || m === 'climb';
 
 /**
  * Modes whose finishes count as best times, on the all-time boards and for the record ghost: the item-free ones (a
@@ -50,7 +53,15 @@ export const recordMode = (m: RaceMode) => cleanMode(m);
 export const modeTracks = (m: RaceMode): TrackId[] => (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => !!TRACK_DEFS[id].climb === (m === 'climb'));
 
 /** The track a mode starts on when the host switches to it (they can still pick another the mode allows). */
-export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu' };
+export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0] };
+
+/** A Grand Prix under way: the round being raced (0-3) and the cup table so far (keyed by racer id). */
+export interface GpState {
+  cup: CupId;
+  round: number;
+  table: CupRow[];
+}
+export { ROUNDS as GP_ROUNDS };
 
 /**
  * What the racers drive in a time trial (the host picks; a race always uses everyone's own car):
@@ -148,6 +159,8 @@ export interface RaceLobbyInfo {
   mode: RaceMode;
   /** Physics mode (crash damage) is on. */
   physics?: boolean;
+  /** A Grand Prix lobby's cup. */
+  cup?: CupId;
   phase: RacePhase;
   players: number;
   max: number;
@@ -159,12 +172,13 @@ export type RaceServerMsg =
    * `ghost`: the host turned the record ghost on. `record`: whose run it would be on this track (null: none kept, or
    * not fetched yet).
    */
-  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; ghost: boolean; record: { name: string; time: number } | null; phase: RacePhase; racers: Racer[] }
+  /** `cup`: the Grand Prix cup the host picked; `gp`: the cup under way (null between cups). */
+  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; ghost: boolean; record: { name: string; time: number } | null; phase: RacePhase; racers: Racer[]; cup: CupId; gp: GpState | null }
   /**
    * The race is on: build the track and say `ready`. Nobody moves until `countdown` then `go`. `rule` and `cars`
    * (each racer's car code for this race) settle what everyone drives; see raceCars().
    */
-  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost: GhostRun | null }
+  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost: GhostRun | null; gp?: GpState }
   /** Who in the field has loaded so far (ids), sent whenever that changes. */
   | { t: 'loading'; ready: number[]; field: number[] }
   /** Everyone's loaded: `go` comes in `ms`. A racer who loads late hears the time that's left. */
@@ -172,7 +186,11 @@ export type RaceServerMsg =
   | { t: 'go' }
   | { t: 'snap'; cars: NetCar[] }
   | { t: 'finished'; id: number; time: number }
-  | { t: 'results'; track: TrackId; mode: RaceMode; rows: ResultRow[] }
+  /**
+   * `gp`: a Grand Prix round: the cup table after it, whether it was the last round, and how long until the next
+   * round loads on its own (`next` ms; 0 after the last).
+   */
+  | { t: 'results'; track: TrackId; mode: RaceMode; rows: ResultRow[]; gp?: GpState & { final: boolean; next: number } }
   /**
    * Shortly after `results`: the signed-in racers whose finish was a new best on this track (`prev`: the old one),
    * with their place on the track's all-time board (`rank` 1: a new track record, beating `beat`).
@@ -188,6 +206,8 @@ export type RaceServerMsg =
 export type RaceClientMsg =
   | { t: 'track'; track: TrackId }
   | { t: 'mode'; mode: RaceMode }
+  /** Host, Grand Prix lobby: which cup. */
+  | { t: 'cup'; cup: CupId }
   | { t: 'cars'; cars: CarRule }
   /** The host turns Physics mode (crash damage) on or off. */
   | { t: 'physics'; on: boolean }
@@ -245,6 +265,10 @@ export const RACE = {
   /** After the first finisher, the rest have this long before they're a DNF. */
   dnfSeconds: 40,
   resultsSeconds: 12,
+  /** A Grand Prix round's results (with the cup table) before the next round loads on its own. */
+  gpResultsSeconds: 15,
+  /** The final cup standings stay up this long before the lobby. */
+  cupResultsSeconds: 25,
   /** A race can't last longer than this (everyone still out is a DNF). */
   maxSeconds: 600,
 };

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { Race, type RaceClient } from '../../src/toge/server/race.ts';
 import { RACE, cleanMode, ghostMode, type RaceServerMsg, type ResultRow } from '../../src/toge/shared/protocol.ts';
 import { payout } from '../../src/toge/shared/garage.ts';
+import { CUPS } from '../../src/toge/shared/cups.ts';
 import { MAX_LEVEL, PARTS, decodeCar, defaultTune, myRaceCar, newOwnedCar, raceCars } from '../../src/toge/shared/cars.ts';
 
 /** A race room with fake sockets and a hand-wound clock. */
@@ -572,4 +573,100 @@ test('restart from the pause menu: the host can send everyone back to the start 
   r.advance(60_000);
   r.race.handle(a, { t: 'finish', time: 60.5 });
   assert.equal(r.race.phase, 'racing');
+});
+
+test('Grand Prix: the host picks a cup, its four rounds run back to back with points, then the cup table and the lobby', () => {
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  r.race.handle(a, { t: 'cup', cup: 'mirage' });
+  assert.equal(r.race.cup, 'torii', 'a cup is only picked in a Grand Prix lobby');
+  r.race.handle(a, { t: 'mode', mode: 'gp' });
+  assert.equal(r.race.track, CUPS.torii.tracks[0]);
+  r.race.handle(b, { t: 'cup', cup: 'mirage' });
+  assert.equal(r.race.cup, 'torii', 'only the host picks');
+  r.race.handle(a, { t: 'cup', cup: 'mirage' });
+  r.race.handle(a, { t: 'cup', cup: 'nope' as never });
+  assert.equal(r.race.cup, 'mirage');
+  assert.equal(r.race.track, CUPS.mirage.tracks[0]);
+  r.race.handle(a, { t: 'track', track: 'monza' });
+  assert.equal(r.race.track, CUPS.mirage.tracks[0], 'no single track in a Grand Prix');
+  r.race.handle(a, { t: 'cpu', op: 'add' });
+  const cpu = [...r.race.members.values()].find((m) => m.cpu)!.client.id;
+  const rm = r.last(2, 'room');
+  assert.ok(rm && rm.t === 'room' && rm.mode === 'gp' && rm.cup === 'mirage' && rm.gp === null);
+
+  r.start(a, b);
+  for (let round = 0; round < 4; round++) {
+    const ld = r.last(2, 'load');
+    assert.ok(ld && ld.t === 'load' && ld.track === CUPS.mirage.tracks[round] && ld.gp?.round === round, `round ${round + 1} loads its track`);
+    assert.equal(ld.mode, 'gp');
+    if (round > 0) for (const c of [a, b]) r.race.handle(c, { t: 'ready' });
+    r.advance(RACE.countdownMs + 100);
+    assert.equal(r.race.phase, 'racing');
+    r.advance(45_000);
+    // b wins the first two, a the last two; the CPU always third.
+    const [first, second] = round < 2 ? [b, a] : [a, b];
+    r.race.handle(first, { t: 'finish', time: 45 });
+    // Round 4: the CPU is still out when the people are home, so it's placed by how far it got.
+    if (round < 3) r.race.handle(a, { t: 'cpufinish', id: cpu, time: 45.6 });
+    r.race.handle(second, { t: 'finish', time: 45.3 });
+    const res = r.last(1, 'results');
+    assert.ok(res && res.t === 'results' && res.gp && res.gp.round === round);
+    assert.equal(res.rows.find((x) => x.id === cpu)!.prize, 0, 'CPUs still earn no money');
+    if (round === 3) {
+      const row = res.rows.find((x) => x.id === cpu)!;
+      assert.equal(row.time, null);
+      assert.equal(row.place, 3, 'a CPU still out scores by where it got to');
+    }
+    if (round < 3) {
+      assert.equal(res.gp.final, false);
+      assert.equal(res.gp.next, RACE.gpResultsSeconds * 1000);
+      // The next round loads on its own once the results have been up long enough.
+      r.advance(RACE.gpResultsSeconds * 1000 + 100);
+      assert.equal(r.race.phase, 'loading');
+    } else {
+      assert.equal(res.gp.final, true);
+      // 12+12+15+15 = 54 each: tied on points and wins, a took the last round.
+      assert.deepEqual(res.gp.table.map((x) => [x.key, x.pts]), [['1', 54], ['2', 54], [String(cpu), 40]]);
+      assert.deepEqual(res.gp.table[0].places, [2, 2, 1, 1]);
+    }
+  }
+  r.advance(RACE.cupResultsSeconds * 1000 + 100);
+  assert.equal(r.race.phase, 'lobby');
+  assert.equal(r.race.gp, null, 'back in the lobby the cup is over');
+  assert.equal(r.paid.length, 4, 'every round pays like a race');
+});
+
+test('Grand Prix: the host can go to the next round early, and races the cup again from round 1 after the last', () => {
+  const r = room();
+  const a = r.join(1);
+  r.race.handle(a, { t: 'mode', mode: 'gp' });
+  r.start(a);
+  const race = () => {
+    r.race.handle(a, { t: 'ready' });
+    r.advance(RACE.countdownMs + 100);
+    r.advance(45_000);
+    r.race.handle(a, { t: 'finish', time: 45 });
+  };
+  race();
+  r.race.handle(a, { t: 'start' });
+  let ld = r.last(1, 'load');
+  assert.ok(ld && ld.t === 'load' && ld.gp?.round === 1 && ld.track === CUPS.torii.tracks[1]);
+  // A restart from the pause menu reruns the same round.
+  r.race.handle(a, { t: 'ready' });
+  r.advance(RACE.countdownMs + 100);
+  r.race.handle(a, { t: 'start' });
+  ld = r.last(1, 'load');
+  assert.ok(ld && ld.t === 'load' && ld.gp?.round === 1 && ld.track === CUPS.torii.tracks[1], 'same round again');
+  race();
+  r.race.handle(a, { t: 'start' });
+  race();
+  r.race.handle(a, { t: 'start' });
+  race();
+  const res = r.last(1, 'results');
+  assert.ok(res && res.t === 'results' && res.gp?.final && res.gp.table[0].pts === 60);
+  r.race.handle(a, { t: 'start' });
+  ld = r.last(1, 'load');
+  assert.ok(ld && ld.t === 'load' && ld.gp?.round === 0 && ld.gp.table.length === 0 && ld.track === CUPS.torii.tracks[0], 'a fresh cup');
 });

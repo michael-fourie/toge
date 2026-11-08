@@ -69,6 +69,22 @@ a component or a page.
   traffic); hill climb `karasu` (Karasu Peak: uphill, 4.1 km and 336 m up, narrow, `climb: true`, only in a Hill climb lobby).
   Track `Feature`s: gravel, canyon, bridge, tunnel, crest, `cut` (a gravel shortcut through gaps in the barrier) and
   `bumps` (heaved tarmac between two control points; the grade test skips them, like crests).
+- **Grand Prix cups** (cups.ts; Michael asked for "4 set maps, each group of 4 a cup like Mario Kart", 2026-11-08): `CUPS`
+  puts every race track in exactly one cup of four, raced in order: Torii (nagare, sakura, momiji, koripass), Mirage
+  (saltwind, kazeoka, redmesa, akane), Lantern (minato, monaco, neonbay, tsukiyo) and Apex (kodama, hachi, spa, monza).
+  Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
+  more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
+  test checks every one is in exactly one); a fifth cup is an append to `CupId` / `CUPS`.
+  Solo: the Race page's cup cards start round 1 (`DriveOpts.gp`, at least 3 rivals); racegame.ts `soloCup` adds the
+  places to the table (you are key `me`, rivals by name: the same every round) and Next race hands `onNext` the next
+  round, so each round is a fresh RaceGame with its own loading screen. Every round pays like a solo race.
+  Online: mode `gp` (race rules, items on; `cleanMode` / `recordMode` false; no record ghost). The host picks a cup
+  (`{t:'cup'}`, lobby only; `track` is ignored); `start` from the lobby begins round 1 (`nextRound()` in race.ts). The room
+  keeps `gp` (cup, round, table keyed by racer id) and puts it on `load` and `results`; CPU racers still out when the
+  people are home are placed by distance (they score, never get paid). After a round's results
+  (`RACE.gpResultsSeconds`) the next round loads by itself, or sooner on the host's Next race; after the last the final
+  table stays `RACE.cupResultsSeconds`, then the lobby (and `gp` clears). The host's `start` from the final results races
+  the cup again. Each round pays like a race.
 - **Cars** (`CarId`): pebble (starter), kitsune, bramble, shiro, tengu (twin-rotor coupe, pop-up lamps), vanta, and one
   bike, raiden (`body: 'bike'`, `isBike`); 8 upgrade `PARTS`, levels 0-5.
 - **Bikes** run the same four-wheel physics on a narrow hidden `track` (1.2 m), with bike-sized wheel and engine inertia
@@ -216,8 +232,9 @@ src/toge/shared/
   cardstats.ts the player card's numbers: Highs (best drift race, top speed; toge/client/highs.ts keeps them in this
                browser as `atrous.highs`, racegame.ts `finish()` writes them, solo and online), noteHighs, bestBuild,
                winRate, cardBests (the newest few of your best times from records.ts).
+  cups.ts      Grand Prix cups (CUPS: four tracks each), GP_POINTS, addRound / rankCup (the cup table).
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
-               climb), ghostMode (time trial only), cleanMode (no items + car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
+               climb / Grand Prix), ghostMode (time trial only), cleanMode (no items + car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`), recordStore.ts (accounts' best times, `b:<user>`, and the all-time boards, `lb:<track>`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.
@@ -340,6 +357,7 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   to steer and lean, `cockpit()` for the driver's or rider's eye).
 - **A track:** a `TrackId` + `TRACK_DEFS` entry + its `TRACK_LENGTH_KM` in garage.ts (the test checks it within 0.15 km,
   plus leg spacing and grades). A new `Theme` also needs `LOOKS` (toge/client/trackview.ts) and `LITTER` (tracktextures.ts).
+- **A track in a Grand Prix:** every race track sits in one cup (cups.ts); a new one goes in a new cup or swaps into one.
 - **A mode:** a `RaceMode` + `RACE_MODES` entry + `MODE_TRACK` (protocol.ts); the server's `mode` / `track` handling in
   race.ts, the lobby's labels (lobby.ts `START`, hub.ts open-lobby list) and `RaceSetup.online.mode` in racegame.ts. The
   Physics switch (`physics` on the room, `PHYSICS` in protocol.ts) is separate and works with every mode.
@@ -354,6 +372,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in toge/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom` (incl. a whole online Grand Prix), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

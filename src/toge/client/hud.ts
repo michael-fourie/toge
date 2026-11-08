@@ -3,7 +3,8 @@
 // the drift combo and score, item payouts, banners, and the pause and results panels (gamepad-navigable: they're nav scopes).
 
 import { PAINTS, decodeCar, CARS } from '../shared/cars.ts';
-import type { Track } from '../shared/track.ts';
+import { TRACK_DEFS, type Track } from '../shared/track.ts';
+import { CUPS, ROUNDS, type CupId, type CupRow } from '../shared/cups.ts';
 import type { Damage, Zone } from '../shared/damage.ts';
 import type { NewBest } from '../shared/records.ts';
 import { esc } from '../../client/menu/ui.ts';
@@ -519,6 +520,47 @@ export class RaceHud {
     clearTimeout(this.helpTimer);
     this.root.remove();
   }
+}
+
+/** A trophy (gold, silver or bronze by `place`) for the cup's podium. */
+export function trophySvg(place: number): string {
+  const c = ['#ffc940', '#d9e1ec', '#d08a4a'][place - 1] ?? '#ffc940';
+  return `<svg class="rh-trophy" viewBox="0 0 48 48" aria-hidden="true"><path fill="${c}" d="M14 6h20v4h8v5c0 6-4 10-9.5 10.6A11 11 0 0 1 26 31v5h6v6H16v-6h6v-5a11 11 0 0 1-6.5-5.4C10 25 6 21 6 15v-5h8zm-4 8v1c0 3 1.6 5.5 4.4 6.4A16 16 0 0 1 14 18v-4zm28 0h-4v4c0 1.2-.1 2.3-.4 3.4C36.4 20.5 38 18 38 15z"/><path fill="rgba(255,255,255,0.35)" d="M18 9h3v13a8 8 0 0 1-3-5z"/></svg>`;
+}
+
+/**
+ * The Grand Prix cup table (cups.ts): place, racer, their place in each round so far, points from this round and in
+ * all. After the last round it's the final standings, with your trophy if you made the podium. `me`: your row's key.
+ */
+export function cupHtml(cup: CupId, round: number, table: CupRow[], final: boolean, me: string): string {
+  const c = CUPS[cup];
+  const mine = table.findIndex((r) => r.key === me);
+  const rows = table
+    .map((r, i) => {
+      const rounds = Array.from({ length: ROUNDS }, (_, k) => {
+        const p = r.places[k];
+        const cls = k > round ? 'todo' : p === 1 ? 'p1' : p === 2 ? 'p2' : p === 3 ? 'p3' : '';
+        return `<i class="${cls}" title="${esc(TRACK_DEFS[c.tracks[k]].name)}">${k > round ? '' : p ? p : '–'}</i>`;
+      }).join('');
+      return `<tr class="${r.key === me ? 'me' : ''}${final && i < 3 ? ' pod' : ''}">
+        <td class="pl">${ordinal(i + 1)}</td>
+        <td>${esc(r.name)}${r.cpu ? ' <small class="rh-cpu">CPU</small>' : ''}</td>
+        <td class="rds">${rounds}</td>
+        <td class="gain">${r.last ? `+${r.last}` : ''}</td>
+        <td class="pts">${r.pts}<small>pts</small></td></tr>`;
+    })
+    .join('');
+  const podium = final && mine >= 0 && mine < 3;
+  const head = final
+    ? podium
+      ? `<div class="rh-cup-win">${trophySvg(mine + 1)}<div><small>${esc(c.name)}</small><b>${mine === 0 ? 'Cup winner' : `${ordinal(mine + 1)} overall`}</b></div></div>`
+      : `<div class="rh-cup-win"><div><small>${esc(c.name)}</small><b>${mine >= 0 ? `${ordinal(mine + 1)} overall` : 'Final standings'}</b></div></div>`
+    : '';
+  return `<section class="rh-cup" data-cup style="--cup:${c.color}">
+    ${head}
+    <h3><span>${esc(c.name)}</span><small>${final ? 'Final standings' : `After round ${round + 1} of ${ROUNDS}`}</small></h3>
+    <table class="rh-results rh-cup-table"><tbody>${rows}</tbody></table>
+  </section>`;
 }
 
 /** The tag before a finish time that was a new best: "Track record" when it tops the all-time board, else "New best". */

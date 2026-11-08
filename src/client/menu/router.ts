@@ -4,7 +4,7 @@
 import type { GameMode, ServerMsg } from '../../gambol/shared/protocol.ts';
 import type { Net } from '../../gambol/client/net.ts';
 import type { BotLevel } from '../../gambol/shared/bot.ts';
-import type { CarRule, RaceMode, Racer } from '../../toge/shared/protocol.ts';
+import type { CarRule, GpState, RaceMode, Racer } from '../../toge/shared/protocol.ts';
 import type { TrackId } from '../../toge/shared/track.ts';
 import type { GhostRun } from '../../toge/shared/ghost.ts';
 import type { RaceNet } from '../../toge/client/racenet.ts';
@@ -48,6 +48,8 @@ export interface DriveOpts {
   /** Solo: Physics mode (crash damage). Online it comes with the race. */
   physics?: boolean;
   online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null };
+  /** A Grand Prix round: the cup, the round and the cup table so far (solo; online it comes with the room's `load`). */
+  gp?: GpState;
 }
 
 /** Renders into `root`; may return a cleanup that runs when the screen is left. */

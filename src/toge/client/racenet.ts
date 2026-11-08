@@ -78,5 +78,5 @@ export const raceNet = new RaceNet();
 /** The race the room just sent everyone off to load, as `drive` takes it (from the lobby, or from the last race's
  * results when the host races again). */
 export function roomRace(m: Extract<RaceServerMsg, { t: 'load' }>): DriveOpts {
-  return { track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, racers: raceNet.room?.racers ?? [], rule: m.rule, cars: m.cars, physics: m.physics, ghost: m.ghost } };
+  return { track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, racers: raceNet.room?.racers ?? [], rule: m.rule, cars: m.cars, physics: m.physics, ghost: m.ghost }, ...(m.gp ? { gp: m.gp } : {}) };
 }
