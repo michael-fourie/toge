@@ -6,7 +6,7 @@
 import { CARS, decodeCar } from '../shared/cars.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { BOARD, type BestTime, type BoardRow } from '../shared/records.ts';
-import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
+import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { fmtTime, ordinal } from './hud.ts';
 import { trackKind, trackMap, trackStyle } from './trackart.ts';
@@ -48,8 +48,8 @@ export const boardApi = {
   },
 };
 
-/** Every track, climbs included, in the catalogue's order. */
-const ALL_TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
+/** Every race track, climbs included, in the catalogue's order (not the open world: it keeps no times). */
+const ALL_TRACKS = RACE_TRACKS;
 const carName = (code: string) => {
   const c = decodeCar(code);
   return c ? CARS[c.model].name : '';

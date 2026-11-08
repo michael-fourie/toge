@@ -991,7 +991,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       if (!root.querySelector('[data-lobbies]')) return;
       list.innerHTML = lobbies.length
         ? lobbies
-            .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s ${l.mode === 'trial' ? 'time trial' : l.mode === 'climb' ? 'hill climb' : l.mode === 'gp' ? `Grand Prix (${esc(CUPS[l.cup ?? 'torii']?.name ?? 'cup')})` : 'race'}${l.physics ? ' · physics' : ''} · ${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${l.phase === 'lobby' ? '' : ' · racing'}</span><button class="tg-pill" data-joincode="${esc(l.code)}" ${l.players >= l.max ? 'disabled' : ''}>${l.players >= l.max ? 'Full' : 'Join'}</button></li>`)
+            .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s ${l.mode === 'trial' ? 'time trial' : l.mode === 'climb' ? 'hill climb' : l.mode === 'roam' ? 'free roam' : l.mode === 'gp' ? `Grand Prix (${esc(CUPS[l.cup ?? 'torii']?.name ?? 'cup')})` : 'race'}${l.physics ? ' · physics' : ''} · ${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${l.phase === 'lobby' ? '' : l.mode === 'roam' ? ' · driving, drop in' : ' · racing'}</span><button class="tg-pill" data-joincode="${esc(l.code)}" ${l.players >= l.max ? 'disabled' : ''}>${l.players >= l.max ? 'Full' : 'Join'}</button></li>`)
             .join('')
         : `<li class="muted">No open races right now. Host one and share the code.</li>`;
       list.querySelectorAll<HTMLElement>('[data-joincode]').forEach((b) => b.addEventListener('click', () => connect(b.dataset.joincode!)));

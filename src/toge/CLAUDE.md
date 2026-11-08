@@ -85,6 +85,32 @@ a component or a page.
   (`RACE.gpResultsSeconds`) the next round loads by itself, or sooner on the host's Next race; after the last the final
   table stays `RACE.cupResultsSeconds`, then the lobby (and `gp` clears). The host's `start` from the final results races
   the cup again. Each round pays like a race.
+- **Toge, the open world** (`toge` in TRACK_DEFS with `world: true`; world.ts; Michael asked for it 2026-11-08: "a free
+  play map of its own... players can just drive around and hang out... great spots to go fast, and cool cutting between
+  cars on the highway"). An island: a 470 m mountain, a harbour city, and 37 km of roads built as data (`layout()`): the
+  Ring Expressway (three lanes each way, a median, the 2 km flat Bayshore straight down the east coast, viaducts over the
+  West Valley and the city's north side), Minato Boulevard and the city grid, Harbour Drive and the harbour meet (where
+  everyone spawns), Tōge Pass (hairpins and bumps up to the summit loop and lookout), the Kita Descent (crests and
+  bumps), a country road, and the Old Airfield (a 1.5 km runway with kickers at its end). It is not a race track:
+  `RACE_TRACKS` (track.ts) leaves it out of every race list, cup, record and solo pick; `modeTracks('roam')` is only it.
+  **Free roam** (`roam` in RaceMode, hosting only): no countdown (`countdown` ms 0), no finish, items, prizes, CPU racers
+  or record ghost; it runs until the host's pause menu sends `end` (everyone back to the lobby). Someone who joins while
+  it's on sends `joinin` from the lobby and gets a `load` with the next slot at the meet; `Racer.roaming` tells the others
+  to put their car on the road. The pause menu teleports to the meet, the summit lookout or the airfield; R (reset) and
+  the sea put you back on the nearest road (`respawnAt`). Speed traps (`trapCrossed`) on the Bayshore and the runway show
+  your km/h; the HUD shows the road you're on and the whole map.
+  How it works: every road's samples are concatenated into one set of world arrays with a spatial hash; the ground is a
+  precomputed terrain field (coast, plain, mountain) pulled onto every nearby road's banked plane (only roads whose plane
+  covers a point count there). Viaducts are deck samples on a second layer picked by the car's hint (like Hachi-no-ji);
+  rails, the median, parapets and buildings are wall segments (`wallsNear`, vehicle.ts `worldWalls`). getTrack('toge')
+  returns a Track whose `world` hooks take over heightAt / groundAt / locate, so racegame.ts and the physics run unchanged.
+  Traffic (worldtraffic.ts): stock Pebbles on fixed-speed lanes (expressway 31/26/21 m/s by the median out, the
+  boulevard, a loop up the pass), each a pure function of `roamClock()` (the wall clock: there's no GO), so every client
+  sees the same cars without a byte on the wire. `stepNearMisses` pops NEAR MISS (chains within 3 s) when you pass one
+  within `NEAR_MISS.close` quickly. worldview.ts draws it all (LOD terrain chunks, per-road meshes, instanced trees per
+  tile near the roads, the city's towers and flats, landmarks); worldtrafficview.ts draws the traffic (the real Pebble
+  model instanced near the camera, boxes further out). Its look is `TRACK_LOOKS.toge` (late afternoon, the sun up so
+  every direction is lit). `/dev/race.html?track=toge` with `rl.place(x, z, yaw)` / `rl.look(...)` frames shots.
 - **Cars** (`CarId`): pebble (starter), kitsune, bramble, shiro, tengu (twin-rotor coupe, pop-up lamps), vanta, and one
   bike, raiden (`body: 'bike'`, `isBike`); 8 upgrade `PARTS`, levels 0-5.
 - **Bikes** run the same four-wheel physics on a narrow hidden `track` (1.2 m), with bike-sized wheel and engine inertia
@@ -197,6 +223,10 @@ src/toge/shared/
   traffic.ts   city traffic (tracks with `traffic: true`): four lanes, two each way, every car's place a pure function
                of the race clock (seconds since GO), so it's identical for every racer with nothing on the wire.
                collideTraffic bumps a car off it; trafficview.ts draws it (instanced, lamps that bloom).
+  world.ts     the open world (Toge, free roam): terrain, the road layout, the ground (worldHeight / worldGround /
+               worldLocate, two layers at viaducts), walls, buildings, spawns, speed traps, traffic routes, worldTrack()
+               (the world as a Track) and respawnAt. See Content above.
+  worldtraffic.ts  the open world's traffic: routePose on the wall clock (roamClock), collideWorldTraffic, near misses.
   drift.ts     drift scoring (the meter: slides score by speed × slip angle, linked slides build a ×4 combo that banks
                after DRIFT.chainGap, a crash or spin loses it) and the bonus money for drifting and item use (`driftPay`,
                `itemPay`, caps). garage.ts `raceBonus` adds it to every prize, solo and online; the server clamps it.
@@ -271,7 +301,9 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   styled by hub.css), lobby.ts (`drivelobby`; its Your car card switches cars, and Edit car mounts the garage over the lobby with `pitGarage(root, ctx, { close })`: hub.ts with a `Pit`, only the car and driver tabs, a lobby strip in the top bar; the room shows `Racer.pit` as a Garage tag, and the lobby re-sends your car and driver whenever the room's copy is stale), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
-  garageStore.ts, racenet.ts, race.css, propview.ts (props, oil slicks, shield bubble), trafficview.ts (instanced city traffic).
+  garageStore.ts, racenet.ts, race.css, propview.ts (props, oil slicks, shield bubble), trafficview.ts (instanced city traffic),
+  worldview.ts (the open world's scene; shares trackview.ts `atmosphere()` for sky, sun and fog), worldtrafficview.ts
+  (its traffic: the Pebble model baked into one instanced mesh per material, painted per car).
 src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/B/LB/RB) and for driving (readPad, padAxis, rumble).
 ```
 
@@ -356,7 +388,9 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   `/dev/cars.html` (`window.lab`: `show(id|'all')`, `view(yaw, pitch, dist)`, `look({...})`, `spin(on)`, `pose(steer, lat)`
   to steer and lean, `cockpit()` for the driver's or rider's eye).
 - **A track:** a `TrackId` + `TRACK_DEFS` entry + its `TRACK_LENGTH_KM` in garage.ts (the test checks it within 0.15 km,
-  plus leg spacing and grades). A new `Theme` also needs `LOOKS` (toge/client/trackview.ts) and `LITTER` (tracktextures.ts).
+  plus leg spacing and grades). Race lists use `RACE_TRACKS` (every track but an open world).
+- **A road in the open world:** a `RoadDef` in world.ts `layout()` (order matters: a `'snap'` point reads the roads before
+  it); keep `tests/toge/world.test.ts` green (grades, ground under every road, traffic on its lanes, top speed). A new `Theme` also needs `LOOKS` (toge/client/trackview.ts) and `LITTER` (tracktextures.ts).
 - **A track in a Grand Prix:** every race track sits in one cup (cups.ts); a new one goes in a new cup or swaps into one.
 - **A mode:** a `RaceMode` + `RACE_MODES` entry + `MODE_TRACK` (protocol.ts); the server's `mode` / `track` handling in
   race.ts, the lobby's labels (lobby.ts `START`, hub.ts open-lobby list) and `RaceSetup.online.mode` in racegame.ts. The
@@ -372,6 +406,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in toge/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom` (incl. a whole online Grand Prix), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

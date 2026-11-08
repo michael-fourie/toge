@@ -216,7 +216,7 @@ export function raceBonus(drift: number, uses: Partial<Record<Item, number>>, tr
 }
 
 /** Rough race distances (km; every lap of a circuit) so payouts don't need the track built; tests check they stay close. */
-export const TRACK_LENGTH_KM: Record<TrackId, number> = { koripass: 5.3, saltwind: 3.6, redmesa: 4.1, tsukiyo: 5.1, momiji: 3.2, sakura: 4.2, monza: 5.6, spa: 5.2, monaco: 5.0, neonbay: 3.2, kodama: 4.4, karasu: 4.1, hachi: 3.7, nagare: 3.16, minato: 5.34, akane: 5.18, kazeoka: 5.52 };
+export const TRACK_LENGTH_KM: Record<TrackId, number> = { koripass: 5.3, saltwind: 3.6, redmesa: 4.1, tsukiyo: 5.1, momiji: 3.2, sakura: 4.2, monza: 5.6, spa: 5.2, monaco: 5.0, neonbay: 3.2, kodama: 4.4, karasu: 4.1, hachi: 3.7, nagare: 3.16, minato: 5.34, akane: 5.18, kazeoka: 5.52, toge: 37 };
 
 // ---------------------------------------------------------------------------------------------
 // Everything you can do to a garage, as one action type (the server's API and the guest's local store)
@@ -294,7 +294,7 @@ export function applyAction(g: Garage, act: GarageAction, rnd: () => number, now
       return { ok: true, g: next, paid };
     }
     case 'solo': {
-      if (!(act.track in TRACK_DEFS)) return { ok: false, error: 'No such track.' };
+      if (!(act.track in TRACK_DEFS) || TRACK_DEFS[act.track].world) return { ok: false, error: 'No such track.' };
       if (now - g.lastReward < SOLO_GAP_MS) return { ok: false, error: 'Too soon.' };
       const field = Math.max(1, Math.min(8, Math.floor(Number(act.field)) || 1));
       const place = Math.max(0, Math.min(field, Math.floor(Number(act.place)) || 0));

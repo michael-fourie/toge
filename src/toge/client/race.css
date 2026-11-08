@@ -407,6 +407,51 @@
     transform: translateX(-50%) scale(1);
   }
 }
+/* Free roam (the Toge map): the road you're on in the top bar, no place, clock, board or strip, and a near-miss pop
+   over the combo when you thread past traffic quickly. */
+.rh-where {
+  display: none;
+  font: 700 22px/1 'Barlow Condensed', system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rh.roam .rh-where {
+  display: block;
+}
+.rh.roam .rh-pos,
+.rh.roam .rh-time,
+.rh.roam .rh-board,
+.rh.roam .rh-strip,
+.rh.roam .rh-item {
+  display: none;
+}
+.rh-near {
+  position: absolute;
+  left: 50%;
+  bottom: 160px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: 800 30px/1 'Barlow Condensed', system-ui, sans-serif;
+  font-style: italic;
+  color: #eef2f8;
+  text-transform: uppercase;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.rh-near span {
+  color: #38c9ff;
+  letter-spacing: 0.06em;
+}
+.rh-near.on {
+  opacity: 1;
+}
+.rh-near.pop {
+  animation: rh-combo-pop 0.3s ease-out;
+}
 .rh-score {
   display: grid;
   justify-items: center;

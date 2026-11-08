@@ -13,6 +13,7 @@ Race your lobby down the mountain. Two passes: **Kōri Pass** (alpine, 5.3 km, s
 - **Cosmetic cases**: paint jobs, decals, tints, lamps, rims, underglow, plates, exhaust tips and, from the **Aero Case**, bolt-on body parts: rear wings (up to a towering Bōsōzoku), hood scoops and superchargers, roof racks, light bars, surfboards and a lucky duck, front splitters and bull bars, side skirts and flares, mudflaps. Looks only, never handling.
 - **Your garage follows your account** when you're signed in (it's stored on the server). Guests keep theirs in the browser.
 - **Online**: Host a race (4-letter code, up to 8 racers, invite link `/?race=CODE`) or Join one from the list. The host picks the pass, Race or Time trial (ghost cars, no items) and starts it. In a time trial the host also picks the **cars**: everyone's own, a **spec car** (one racer's car drawn at random, same model and upgrades for all, your own paint) or **maxed out** (your own car with every part at level 5).
+- **Free roam on Toge** (host a lobby and pick Free roam): an open-world island with a mountain, a harbour city and an expressway round it. No race and no clock: cruise, hang out at the harbour meet or the summit lookout, hit 300 km/h down the Bayshore straight or the old runway (speed traps time you), and thread the highway traffic for NEAR MISS chains. Friends can drop in while it's on; the pause menu jumps you to the meet, the lookout or the airfield.
 
 | Controller | Keyboard | |
 | --- | --- | --- |

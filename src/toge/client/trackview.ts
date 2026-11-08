@@ -14,7 +14,7 @@ import { FACADE_H, FACADE_W, NEON_SIGNS, ROAD_TILE, TOWER_H, TOWER_W, asphalt, b
 /** The barrier's distance from the centreline at sample i on one side (-1 left, +1 right), runoff included. */
 const railOf = (t: Track, i: number, side: number) => t.rail + (side < 0 ? t.runL[i] : t.runR[i]);
 
-interface Look {
+export interface Look {
   sun: [number, number]; // elevation, azimuth (degrees)
   turbidity: number;
   rayleigh: number;
@@ -45,7 +45,7 @@ interface Look {
 }
 
 /** The film look: a hard, slightly cool image with warm highlights, lights that bloom. */
-const grade = (g: Partial<Grade> = {}): Grade => ({
+export const grade = (g: Partial<Grade> = {}): Grade => ({
   // The day sky alone reaches ~10 after exposure near the sun: only lamps and glints may bloom.
   bloom: 0.3,
   threshold: 12,
@@ -58,7 +58,7 @@ const grade = (g: Partial<Grade> = {}): Grade => ({
   ...g,
 });
 
-const LOOKS: Record<Theme, Look> = {
+export const LOOKS: Record<Theme, Look> = {
   alpine: { skyGain: 0.5, clouds: [0.45, 0.45], backdrop: 'alpine', sun: [22, 215], turbidity: 4, rayleigh: 1.4, fog: 0xa9bfd6, fogDensity: 0.00038, exposure: 0.42, grass: [0.16, 0.28, 0.09], grassDry: [0.34, 0.36, 0.16], rock: [0.36, 0.35, 0.34], verge: [0.28, 0.31, 0.17], snowline: 470, treeline: 440, grade: grade() },
   coast: { skyGain: 0.5, clouds: [0.35, 0.4], backdrop: 'coast', sun: [14, 250], turbidity: 6, rayleigh: 2.2, fog: 0xd8c8b4, fogDensity: 0.00034, exposure: 0.42, grass: [0.42, 0.45, 0.2], grassDry: [0.62, 0.55, 0.32], rock: [0.72, 0.66, 0.55], verge: [0.55, 0.5, 0.3], snowline: 1e9, treeline: 1e9, grade: grade({ highlights: [1.1, 1.0, 0.86] }) },
   desert: { skyGain: 0.48, clouds: [0.15, 0.3], backdrop: 'desert', sun: [30, 140], turbidity: 8, rayleigh: 1.2, fog: 0xe0b48a, fogDensity: 0.0003, exposure: 0.4, grass: [0.66, 0.42, 0.24], grassDry: [0.78, 0.55, 0.32], rock: [0.62, 0.3, 0.18], verge: [0.7, 0.5, 0.32], snowline: 1e9, treeline: 1e9, forest: -0.35, grade: grade({ contrast: 1.16, shadows: [0.86, 0.98, 1.14], highlights: [1.08, 0.99, 0.88] }) },
@@ -72,13 +72,16 @@ const LOOKS: Record<Theme, Look> = {
  * A track's own look, over its theme's. Keep fog as the theme's, since the painted backdrop's haze is the theme's
  * fog colour.
  */
-const TRACK_LOOKS: Partial<Record<TrackId, Partial<Look>>> = {
+export const TRACK_LOOKS: Partial<Record<TrackId, Partial<Look>>> = {
   // Minato Street is floodlit: a brighter, whiter fill than Neon Bay's streets.
   minato: { light: 0xe4ebff, lightPower: 0.85, hemi: 0.6, exposure: 1.0 },
   // Kazeoka Dunes: sand-coloured dune grass and a thin scatter of pines.
   kazeoka: { grass: [0.7, 0.6, 0.32], grassDry: [0.9, 0.76, 0.5], verge: [0.66, 0.58, 0.36], forest: -0.32 },
   // Akane Sands races in the late sun: low in the west, its light gone gold.
   akane: { sun: [11, 250], turbidity: 12, rayleigh: 1.3, light: 0xffb26a, lightPower: 2.3, hemi: 0.5, skyGain: 0.6, clouds: [0.3, 0.35], exposure: 0.5, grade: grade({ contrast: 1.16, saturation: 1.05, shadows: [0.86, 0.92, 1.12], highlights: [1.14, 0.99, 0.84] }) },
+  // Toge (the open world) in the late afternoon: the sun warm but well up in the west-south-west, so every way you
+  // drive is lit (a golden-hour sun left half the island in shade), and greener grass for the long views.
+  toge: { sun: [24, 235], turbidity: 6, rayleigh: 1.8, light: 0xffd6a8, lightPower: 2.4, hemi: 0.85, skyGain: 0.58, clouds: [0.32, 0.38], exposure: 0.48, fogDensity: 0.00018, grass: [0.25, 0.42, 0.14], grassDry: [0.46, 0.5, 0.22], rock: [0.52, 0.48, 0.42], verge: [0.44, 0.42, 0.27], grade: grade({ contrast: 1.12, saturation: 1.06, shadows: [0.9, 0.95, 1.08], highlights: [1.1, 1.0, 0.88] }) },
 };
 
 export interface TrackView {
@@ -95,9 +98,9 @@ export interface TrackView {
 
 /** `low`: Low graphics (src/client/graphics.ts): no shadow casting, no clouds, half the forest, brighter fill light. */
 /** How much brighter the fill light is on Low, standing in for the environment light Lambert doesn't get. */
-const LOW_FILL = 2.4;
+export const LOW_FILL = 2.4;
 /** The terrain fades fully into the fog between these view depths (m), well before the far ring's edge (4.2 km past the track). */
-const HORIZON_FADE = [3200, 5200];
+export const HORIZON_FADE = [3200, 5200];
 
 export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low = false): TrackView {
   const t = lapView(road); // a circuit is drawn once round
@@ -107,78 +110,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   const keep = <T extends { dispose(): void }>(x: T) => (disposables.push(x), x);
 
   // --- Sky, sun, environment
-  const sky = new Sky();
-  sky.scale.setScalar(20000);
-  const u = sky.material.uniforms;
-  u.turbidity.value = look.turbidity;
-  u.rayleigh.value = look.rayleigh;
-  u.mieCoefficient.value = look.moon ? 0.004 : 0.0025; // less glare round the sun
-  if (look.clouds) [u.cloudCoverage.value, u.cloudDensity.value] = look.clouds;
-  if (low) u.cloudCoverage.value = 0; // the clouds are a per-pixel noise loop over half the screen
-  u.mieDirectionalG.value = 0.8;
-  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - look.sun[0]), THREE.MathUtils.degToRad(look.sun[1]));
-  u.sunPosition.value.copy(sunDir);
-  scene.add(sky);
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const envScene = new THREE.Scene();
-  const envSky = new Sky();
-  envSky.scale.setScalar(1000);
-  Object.assign(envSky.material.uniforms, THREE.UniformsUtils.clone(u));
-  envSky.material.uniforms.sunPosition.value.copy(sunDir);
-  envScene.add(envSky);
-  // The sun disc is brighter than a half float holds; unclamped it turns to Inf in the HDR targets and
-  // the bloom (and the environment's blur) smear it over the whole screen.
-  // skyGain tones the sky down (the sun disc included) without touching its colours. The sky the cars and
-  // the ground see (the environment) is toned down less, so the shade under the trees doesn't go murky.
-  const skyGain = look.skyGain ?? 1;
-  for (const [s, gain] of [[sky, skyGain], [envSky, Math.max(skyGain, 0.8)]] as const) {
-    s.material.fragmentShader = s.material.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', `gl_FragColor = vec4( min( texColor * ${gain.toFixed(3)}, vec3( 20.0 ) ), 1.0 );`);
-  }
-  // A ground below the horizon (the sky shader alone reflects as sky all round, which flattens paint),
-  // and at night the glow of a distant town and a few lamps overhead, so the cars still catch light.
-  const envKeep: { dispose(): void }[] = [];
-  const envMesh = (geo: THREE.BufferGeometry, color: THREE.Color, at?: THREE.Vector3) => {
-    const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
-    const m = new THREE.Mesh(geo, mat);
-    if (at) {
-      m.position.copy(at);
-      m.lookAt(0, 0, 0);
-    }
-    envScene.add(m);
-    envKeep.push(geo, mat);
-  };
-  envMesh(new THREE.SphereGeometry(500, 32, 8, 0, Math.PI * 2, Math.PI / 2 + 0.03, Math.PI / 2 - 0.03), new THREE.Color(...look.grass).multiplyScalar(look.moon ? 0.03 : 1.4));
-  if (look.moon) {
-    envMesh(new THREE.CylinderGeometry(490, 490, 60, 48, 1, true), new THREE.Color(0.5, 0.22, 0.08));
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * Math.PI * 2;
-      envMesh(new THREE.PlaneGeometry(120, 18), new THREE.Color(6, 4.2, 2.4), new THREE.Vector3(Math.cos(a) * 300, 300, Math.sin(a) * 300));
-    }
-  }
-  const env = keep(pmrem.fromScene(envScene, 0.02)).texture;
-  for (const d of envKeep) d.dispose();
-  scene.environment = env;
-  scene.environmentIntensity = 0.55;
-  pmrem.dispose();
-  scene.fog = new THREE.FogExp2(look.fog, look.fogDensity);
-
-  const sun = new THREE.DirectionalLight(look.light ?? 0xffe6c4, look.lightPower ?? 1.75);
-  // At night the light comes from the moon, not the sun the sky is shaded with.
-  const lightDir = look.moon ? new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - look.moon[0]), THREE.MathUtils.degToRad(look.moon[1])) : sunDir;
-  sun.castShadow = !low;
-  sun.shadow.mapSize.set(2048, 2048);
-  const sc = sun.shadow.camera;
-  sc.left = sc.bottom = -45;
-  sc.right = sc.top = 45;
-  sc.near = 1;
-  sc.far = 400;
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.03;
-  scene.add(sun, sun.target);
-  // Low's simple materials don't see the sky environment (scene.environment), so more fill light stands in for it.
-  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x4a4030, (look.hemi ?? 0.35) * (low ? LOW_FILL : 1)));
-  if (look.moon) scene.add(stars(lightDir, keep));
-  scene.add(backdrop(look.backdrop, keep));
+  const { sky, envSky, sun, sunDir, lightDir } = atmosphere(scene, look, renderer, low, keep);
 
   const rng = mulberry(t.def.seed * 7919);
 
@@ -1228,6 +1160,87 @@ function overpass(
 }
 
 /** The painted strip's shape: tan(elevation) at its top and bottom edges (as painted by dev/backdrops.py), and its radius. */
+/**
+ * The sky (and the environment map baked from it), the sun (or moon) light with its shadow, the fill light, fog, stars
+ * at night and the painted backdrop: everything round a scene that comes from its Look. Shared by the race tracks and
+ * the open world (worldview.ts).
+ */
+export function atmosphere(scene: THREE.Scene, look: Look, renderer: THREE.WebGLRenderer, low: boolean, keep: <T extends { dispose(): void }>(x: T) => T) {
+  const sky = new Sky();
+  sky.scale.setScalar(20000);
+  const u = sky.material.uniforms;
+  u.turbidity.value = look.turbidity;
+  u.rayleigh.value = look.rayleigh;
+  u.mieCoefficient.value = look.moon ? 0.004 : 0.0025; // less glare round the sun
+  if (look.clouds) [u.cloudCoverage.value, u.cloudDensity.value] = look.clouds;
+  if (low) u.cloudCoverage.value = 0; // the clouds are a per-pixel noise loop over half the screen
+  u.mieDirectionalG.value = 0.8;
+  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - look.sun[0]), THREE.MathUtils.degToRad(look.sun[1]));
+  u.sunPosition.value.copy(sunDir);
+  scene.add(sky);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envScene = new THREE.Scene();
+  const envSky = new Sky();
+  envSky.scale.setScalar(1000);
+  Object.assign(envSky.material.uniforms, THREE.UniformsUtils.clone(u));
+  envSky.material.uniforms.sunPosition.value.copy(sunDir);
+  envScene.add(envSky);
+  // The sun disc is brighter than a half float holds; unclamped it turns to Inf in the HDR targets and
+  // the bloom (and the environment's blur) smear it over the whole screen.
+  // skyGain tones the sky down (the sun disc included) without touching its colours. The sky the cars and
+  // the ground see (the environment) is toned down less, so the shade under the trees doesn't go murky.
+  const skyGain = look.skyGain ?? 1;
+  for (const [s, gain] of [[sky, skyGain], [envSky, Math.max(skyGain, 0.8)]] as const) {
+    s.material.fragmentShader = s.material.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', `gl_FragColor = vec4( min( texColor * ${gain.toFixed(3)}, vec3( 20.0 ) ), 1.0 );`);
+  }
+  // A ground below the horizon (the sky shader alone reflects as sky all round, which flattens paint),
+  // and at night the glow of a distant town and a few lamps overhead, so the cars still catch light.
+  const envKeep: { dispose(): void }[] = [];
+  const envMesh = (geo: THREE.BufferGeometry, color: THREE.Color, at?: THREE.Vector3) => {
+    const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
+    const m = new THREE.Mesh(geo, mat);
+    if (at) {
+      m.position.copy(at);
+      m.lookAt(0, 0, 0);
+    }
+    envScene.add(m);
+    envKeep.push(geo, mat);
+  };
+  envMesh(new THREE.SphereGeometry(500, 32, 8, 0, Math.PI * 2, Math.PI / 2 + 0.03, Math.PI / 2 - 0.03), new THREE.Color(...look.grass).multiplyScalar(look.moon ? 0.03 : 1.4));
+  if (look.moon) {
+    envMesh(new THREE.CylinderGeometry(490, 490, 60, 48, 1, true), new THREE.Color(0.5, 0.22, 0.08));
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      envMesh(new THREE.PlaneGeometry(120, 18), new THREE.Color(6, 4.2, 2.4), new THREE.Vector3(Math.cos(a) * 300, 300, Math.sin(a) * 300));
+    }
+  }
+  const env = keep(pmrem.fromScene(envScene, 0.02)).texture;
+  for (const d of envKeep) d.dispose();
+  scene.environment = env;
+  scene.environmentIntensity = 0.55;
+  pmrem.dispose();
+  scene.fog = new THREE.FogExp2(look.fog, look.fogDensity);
+
+  const sun = new THREE.DirectionalLight(look.light ?? 0xffe6c4, look.lightPower ?? 1.75);
+  // At night the light comes from the moon, not the sun the sky is shaded with.
+  const lightDir = look.moon ? new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - look.moon[0]), THREE.MathUtils.degToRad(look.moon[1])) : sunDir;
+  sun.castShadow = !low;
+  sun.shadow.mapSize.set(2048, 2048);
+  const sc = sun.shadow.camera;
+  sc.left = sc.bottom = -45;
+  sc.right = sc.top = 45;
+  sc.near = 1;
+  sc.far = 400;
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.03;
+  scene.add(sun, sun.target);
+  // Low's simple materials don't see the sky environment (scene.environment), so more fill light stands in for it.
+  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x4a4030, (look.hemi ?? 0.35) * (low ? LOW_FILL : 1)));
+  if (look.moon) scene.add(stars(lightDir, keep));
+  scene.add(backdrop(look.backdrop, keep));
+  return { sky, envSky, sun, sunDir, lightDir };
+}
+
 const BACKDROP = { top: 0.26, bottom: -0.06, r: 6000 };
 
 /**
@@ -1237,7 +1250,7 @@ const BACKDROP = { top: 0.26, bottom: -0.06, r: 6000 };
  * behind it. The image (~100-200 kB WebP) loads after the race starts; until then the map is a clear
  * placeholder, so the shader is compiled with the track and nothing recompiles when the picture arrives.
  */
-function backdrop(image: string, keep: <T extends { dispose(): void }>(x: T) => T): THREE.Mesh {
+export function backdrop(image: string, keep: <T extends { dispose(): void }>(x: T) => T): THREE.Mesh {
   const { top, bottom, r } = BACKDROP;
   const blank = keep(new THREE.DataTexture(new Uint8Array(4), 1, 1));
   blank.colorSpace = THREE.SRGBColorSpace;
@@ -1289,7 +1302,7 @@ function stars(moonDir: THREE.Vector3, keep: <T extends { dispose(): void }>(x: 
 
 // --- Procedural geometry and textures --------------------------------------------------------
 
-function rockGeometry() {
+export function rockGeometry() {
   const g = new THREE.IcosahedronGeometry(1, 0);
   const p = g.getAttribute('position');
   for (let i = 0; i < p.count; i++) {
@@ -1300,7 +1313,7 @@ function rockGeometry() {
   return g;
 }
 
-function noiseNormal(size: number) {
+export function noiseNormal(size: number) {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d')!;

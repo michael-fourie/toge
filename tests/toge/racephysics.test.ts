@@ -3,11 +3,12 @@ import { test } from 'node:test';
 import { CAR_IDS, carSpec, newOwnedCar, rating, topSpeed } from '../../src/toge/shared/cars.ts';
 import { aiDrive, newAi } from '../../src/toge/shared/driver.ts';
 import { TRACK_LENGTH_KM } from '../../src/toge/shared/garage.ts';
-import { SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/toge/shared/track.ts';
+import { RACE_TRACKS, SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/toge/shared/track.ts';
 import { LANES, type Obstacle, TRAFFIC_KINDS, collideTraffic, getTraffic, newPose, trafficBetween, trafficPose, trafficS } from '../../src/toge/shared/traffic.ts';
 import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, spinOut, stepCar, yawOf } from '../../src/toge/shared/vehicle.ts';
 
-const TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
+// Race tracks only: the open world (world.ts) has its own tests in world.test.ts.
+const TRACKS = RACE_TRACKS;
 
 /** A dead-straight, dead-flat test strip. */
 const flat = buildTrack({ id: 'koripass', name: 'flat', tag: '', blurb: '', theme: 'alpine', seed: 1, width: 12, relief: 0, points: Array.from({ length: 21 }, (_, i) => [0, 100, -i * 200] as [number, number, number]) });

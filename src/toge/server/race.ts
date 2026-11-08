@@ -5,7 +5,7 @@ import { raceXp } from '../shared/pass.ts';
 import type { Item } from '../shared/powerups.ts';
 import { cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
 import { CUPS, ROUNDS, addRound, isCup, type CupId } from '../shared/cups.ts';
-import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, type CarRule, type GpState, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
+import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, modeTracks, type CarRule, type GpState, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow } from '../shared/protocol.ts';
 import { GhostRecorder, type GhostRun, type GhostTape } from '../shared/ghost.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { guarded, type Socket } from '../../server/rooms.ts';
@@ -210,7 +210,8 @@ export class Race {
     }
     switch (msg.t) {
       case 'cpu':
-        if (!host || this.phase !== 'lobby') return;
+        // Free roam has no CPU racers (there's nothing to race).
+        if (!host || this.phase !== 'lobby' || this.mode === 'roam') return;
         if (msg.op === 'add') this.addCpu();
         else if (msg.op === 'remove' && this.members.get(msg.id)?.cpu) this.members.delete(msg.id);
         else return;
@@ -241,8 +242,9 @@ export class Race {
         break;
       }
       case 'track':
-        // Only a track the mode runs: hill-climb roads in a hill climb, the rest otherwise. A Grand Prix runs its cup's.
-        if (c.id === this.hostId && this.phase === 'lobby' && this.mode !== 'gp' && Object.hasOwn(TRACK_DEFS, msg.track) && !!TRACK_DEFS[msg.track].climb === (this.mode === 'climb')) {
+        // Only a track the mode runs: hill-climb roads in a hill climb, the open world in free roam, the rest otherwise.
+        // A Grand Prix runs its cup's.
+        if (c.id === this.hostId && this.phase === 'lobby' && this.mode !== 'gp' && Object.hasOwn(TRACK_DEFS, msg.track) && modeTracks(this.mode).includes(msg.track)) {
           this.track = msg.track;
           this.broadcastRoom();
           this.onChange(this);
@@ -255,8 +257,10 @@ export class Race {
           this.gp = null;
           // A time trial wants a lap to learn: switching to one puts its ring up (the host can still pick another).
           // A hill climb runs on its mountain; leaving one comes back down to the passes. A Grand Prix shows its cup's first round.
+          // Free roam drives the open world, and leaving it comes back to the passes.
           if (msg.mode === 'gp') this.track = CUPS[this.cup].tracks[0];
-          else if (msg.mode !== 'race' || !!TRACK_DEFS[this.track].climb) this.track = MODE_TRACK[msg.mode];
+          else if (msg.mode !== 'race' || !modeTracks('race').includes(this.track)) this.track = MODE_TRACK[msg.mode];
+          if (msg.mode === 'roam') for (const bot of this.cpus) this.members.delete(bot.client.id);
           this.broadcastRoom();
           this.onChange(this);
           this.fetchGhost();
@@ -304,6 +308,12 @@ export class Race {
           this.startLoading();
         }
         break;
+      case 'end':
+        if (c.id === this.hostId && this.mode === 'roam' && this.phase !== 'lobby' && this.phase !== 'results') this.endRoam();
+        break;
+      case 'joinin':
+        if (this.mode === 'roam' && (this.phase === 'racing' || this.phase === 'countdown') && !m.racing) this.driveIn(m);
+        break;
       case 'ready': {
         if (!m.racing || m.ready) return;
         m.ready = true;
@@ -347,7 +357,7 @@ export class Race {
         break;
       case 'used': {
         // Turbos and shields stay on the racer's own screen; they only count toward the item bonus.
-        if (this.phase !== 'racing' || cleanMode(this.mode) || !m.racing || m.time !== null) return;
+        if (this.phase !== 'racing' || cleanMode(this.mode) || this.mode === 'roam' || !m.racing || m.time !== null) return;
         if (msg.kind !== 'turbo' && msg.kind !== 'triple' && msg.kind !== 'shield') return;
         const now = this.now();
         if (now - (this.usedAt.get(c.id) ?? 0) < USE_GAP_MS) return;
@@ -383,7 +393,7 @@ export class Race {
   /** Racer `m` used an attack item: relayed to everyone but the sender, whose client works out who was hit. */
   private handleItem(m: Member, msg: Extract<RaceClientMsg, { t: 'item' }>, from: number) {
     // A time trial or hill climb has no items at all.
-    if (this.phase !== 'racing' || cleanMode(this.mode) || !m.racing || (msg.kind !== 'oil' && msg.kind !== 'shock' && msg.kind !== 'comet')) return;
+    if (this.phase !== 'racing' || cleanMode(this.mode) || this.mode === 'roam' || !m.racing || (msg.kind !== 'oil' && msg.kind !== 'shock' && msg.kind !== 'comet')) return;
     if (msg.kind === 'oil' && !(Array.isArray(msg.p) && msg.p.length === 3 && msg.p.every((x) => finite(x, 1e5)))) return;
     if (msg.kind === 'comet' && !(finite(msg.target, 1e6) && finite(msg.s, 1e5))) return;
     const id = m.client.id;
@@ -450,7 +460,7 @@ export class Race {
     const rule: CarRule = cleanMode(this.mode) ? this.cars : 'own';
     const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })));
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
-    const ghost = this.ghost && this.mode !== 'gp' && this.ghostOf === this.track ? this.ghostRun : null;
+    const ghost = this.ghost && this.mode !== 'gp' && this.mode !== 'roam' && this.ghostOf === this.track ? this.ghostRun : null;
     this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics, ghost, ...(this.gp ? { gp: this.gp } : {}) });
     this.broadcastRoom();
     this.onChange(this);
@@ -469,10 +479,12 @@ export class Race {
   }
 
   private startCountdown() {
+    // Free roam has nothing to count down to: everyone's away at the next tick.
+    const ms = this.mode === 'roam' ? 0 : RACE.countdownMs;
     this.phase = 'countdown';
-    this.phaseEnds = this.now() + RACE.countdownMs;
+    this.phaseEnds = this.now() + ms;
     // Stragglers still loading hear this too (their client holds it until it's built) and say `ready` when they are.
-    this.broadcast({ t: 'countdown', ms: RACE.countdownMs });
+    this.broadcast({ t: 'countdown', ms });
     this.broadcastRoom();
   }
 
@@ -483,6 +495,8 @@ export class Race {
 
   /** Everyone still racing has finished (or left), or the DNF clock ran out: rank and pay. */
   private maybeFinish() {
+    // Free roam never finishes by itself: it runs until the host ends it (or everyone's gone).
+    if (this.mode === 'roam') return;
     // The race is over when every person is home: CPU racers still out are a DNF, like a solo race's stragglers.
     const out = [...this.members.values()].filter((m) => m.racing && !m.cpu && m.time === null);
     const now = this.now();
@@ -563,6 +577,36 @@ export class Race {
     }
   }
 
+  /** Free roam: someone who joined while it's on (or came back from the lobby) drives in from the meet's next slot. */
+  private driveIn(m: Member) {
+    const field = [...this.members.values()].filter((o) => o.racing);
+    const grid: Record<number, number> = {};
+    const cars: Record<number, string> = {};
+    field.forEach((o, k) => {
+      grid[o.client.id] = k;
+      cars[o.client.id] = o.raceCar;
+    });
+    m.racing = true;
+    m.ready = false;
+    m.time = null;
+    m.state = null;
+    m.pit = false;
+    m.raceCar = m.client.car;
+    grid[m.client.id] = field.length;
+    cars[m.client.id] = m.raceCar;
+    sendTo(m.client, { t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule: 'own', cars, physics: this.physics, ghost: null });
+    // The others add their car from the roster.
+    this.broadcastRoom();
+  }
+
+  /** The host ends free roam: everyone back to the lobby. */
+  private endRoam() {
+    for (const m of this.members.values()) m.racing = false;
+    this.phase = 'lobby';
+    this.broadcastRoom();
+    this.onChange(this);
+  }
+
   /** Grand Prix: the next round of the cup under way, or a fresh cup from round 1 (from the lobby, or after the last round). */
   private nextRound() {
     if (this.gp && !this.gpFinal && this.gp.cup === this.cup) this.gp.round++;
@@ -573,7 +617,7 @@ export class Race {
 
   /** The roster as everyone sees it. */
   room(): Extract<RaceServerMsg, { t: 'room' }> {
-    const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user, ...(m.cpu ? { cpu: true } : {}), ...(m.pit ? { pit: true } : {}) }));
+    const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user, ...(m.cpu ? { cpu: true } : {}), ...(m.pit ? { pit: true } : {}), ...(m.racing && this.mode === 'roam' ? { roaming: true } : {}) }));
     const record = this.ghostOf === this.track && this.ghostRun ? { name: this.ghostRun.name, time: this.ghostRun.time } : null;
     return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers, cup: this.cup, gp: this.mode === 'gp' ? this.gp : null };
   }

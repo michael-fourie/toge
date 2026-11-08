@@ -15,6 +15,7 @@ import { type CarSpec, torqueAt } from './cars.ts';
 import { type Ground, type Loc, type Surface, type Track, groundAt, heightAt, locate, newGround, newLoc, onCut, pointAt, railAt } from './track.ts';
 import { DRAFT } from './draft.ts';
 import { firstPropFrom, isSolid } from './props.ts';
+import { type World, wallsNear } from './world.ts';
 
 export const TICK_HZ = 120;
 export const TICK_DT = 1 / TICK_HZ;
@@ -255,11 +256,16 @@ export function newCar(spec: CarSpec, x: number, y: number, z: number, yaw: numb
 /** Puts the car back on the road at distance `s` (default: where it is), facing downhill, stopped. */
 export function resetCar(car: Car, t: Track, s = car.s, d = 0) {
   const l = pointAt(t, Math.max(4, Math.min(t.length - 4, s)), d);
-  car.p = { x: l.x, y: l.y + car.spec.cg + 0.05, z: l.z };
+  placeCar(car, l.x, l.y, l.z, Math.atan2(-l.tx, -l.tz), l.i);
+}
+
+/** Puts the car down at rest on the road at (x, y, z) facing `yaw` (`hint`: the road sample there). */
+export function placeCar(car: Car, x: number, y: number, z: number, yaw: number, hint: number) {
+  car.p = { x, y: y + car.spec.cg + 0.05, z };
   car.v = { x: 0, y: 0, z: 0 };
   car.w = { x: 0, y: 0, z: 0 };
-  car.q = yawQuat(Math.atan2(-l.tx, -l.tz));
-  car.hint = l.i;
+  car.q = yawQuat(yaw);
+  car.hint = hint;
   car.steer = 0;
   car.gear = 1;
   car.shift = 0;
@@ -947,7 +953,8 @@ function substep(car: Car, t: Track, throttleIn: number, brake: number, handbrak
   car.hint = loc.i;
   car.s = loc.s;
   car.d = loc.d;
-  barrier(car, t);
+  if (t.world) worldWalls(car, t.world.world);
+  else barrier(car, t);
 }
 
 function integrateQuat(q: Quat, w: V3, h: number) {
@@ -1043,6 +1050,63 @@ function barrier(car: Car, t: Track) {
     }
   }
   if (worst <= 0) return;
+  pushOff(car, worst, wx, wz, nx, nz);
+}
+
+/** The open world's walls (world.ts: rails, the median, parapets, buildings): the corner that went through is pushed back. */
+const WALL_HALF = 0.15;
+function worldWalls(car: Car, w: World) {
+  const list = wallsNear(w, car.p.x, car.p.z);
+  if (!list) return;
+  const sp = car.spec;
+  const W = w.walls;
+  let worst = 0;
+  let wx = 0;
+  let wz = 0;
+  let nx = 0;
+  let nz = 0;
+  for (const k of list) {
+    const o = k * 6;
+    // Only walls at the car's height: a car under a bridge drives beneath its parapets.
+    if (car.p.y < W[o + 4] || car.p.y > W[o + 5] + 0.8) continue;
+    const ax = W[o];
+    const az = W[o + 1];
+    const sx = W[o + 2] - ax;
+    const sz = W[o + 3] - az;
+    const len = Math.hypot(sx, sz);
+    if (len < 1e-3) continue;
+    const ux = sx / len;
+    const uz = sz / len;
+    // Normal (left of the segment) and which side of it the car is on.
+    const lx = -uz;
+    const lz = ux;
+    const dc = (car.p.x - ax) * lx + (car.p.z - az) * lz;
+    if (Math.abs(dc) < 0.02) continue;
+    const side = Math.sign(dc);
+    for (let c = 0; c < 4; c++) {
+      rot(car.q, c & 1 ? sp.body.hw : -sp.body.hw, 0, c & 2 ? sp.body.hl : -sp.body.hl, tmp);
+      const px = car.p.x + tmp.x - ax;
+      const pz = car.p.z + tmp.z - az;
+      const along = px * ux + pz * uz;
+      if (along < -0.3 || along > len + 0.3) continue;
+      const dp = (px * lx + pz * lz) * side; // + on the car's side
+      const pen = WALL_HALF - dp;
+      // A corner more than a car's width through is on the far side of something else (or came round its end).
+      if (pen <= 0 || pen > sp.body.hw * 2 + 0.5) continue;
+      if (pen > worst) {
+        worst = pen;
+        wx = tmp.x;
+        wz = tmp.z;
+        nx = lx * side;
+        nz = lz * side;
+      }
+    }
+  }
+  if (worst > 0) pushOff(car, worst, wx, wz, nx, nz);
+}
+
+/** A corner at offset (wx, wz) is `worst` metres into a wall whose normal is (nx, nz): out it goes, with the knock and the scrape. */
+function pushOff(car: Car, worst: number, wx: number, wz: number, nx: number, nz: number) {
   car.p.x += nx * worst;
   car.p.z += nz * worst;
   const v = Math.hypot(car.v.x, car.v.z);

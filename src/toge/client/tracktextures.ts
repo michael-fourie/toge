@@ -336,6 +336,92 @@ export function asphalt(theme: Theme, seed: number, aniso: number, circuit = fal
   return finish(L, 1.5, false, aniso);
 }
 
+/**
+ * Plain paving that tiles both ways (the open world's roads: their lines are drawn separately, so any width works):
+ * asphalt with patches, cracks and aggregate, or `concrete` slabs with joints (the runway). One tile is `TARMAC_TILE` m.
+ */
+export const TARMAC_TILE = 8;
+export function tarmac(seed: number, aniso: number, concrete = false): Surface {
+  const S = 512;
+  const L = layers(S, S);
+  const rnd = mulberry(seed + 51);
+  const base = concrete ? '#8a877f' : '#45464a';
+  L.c.fillStyle = base;
+  L.c.fillRect(0, 0, S, S);
+  L.r.fillStyle = concrete ? 'rgb(215,215,215)' : 'rgb(228,228,228)';
+  L.r.fillRect(0, 0, S, S);
+  L.h2.fillStyle = 'rgb(128,128,128)';
+  L.h2.fillRect(0, 0, S, S);
+  const wrap = (draw: (dx: number, dy: number) => void) => {
+    for (const dx of [0, -S, S]) for (const dy of [0, -S, S]) draw(dx, dy);
+  };
+  if (concrete) {
+    // Slab joints every half tile, and the odd stain.
+    for (const k of [0, S / 2]) {
+      paint3(L, (g) => g.rect(k - 1, 0, 3, S), 'rgba(30,30,28,0.7)', 'rgb(250,250,250)', 'rgb(90,90,90)');
+      paint3(L, (g) => g.rect(0, k - 1, S, 3), 'rgba(30,30,28,0.7)', 'rgb(250,250,250)', 'rgb(90,90,90)');
+    }
+    for (let i = 0; i < 10; i++) {
+      const x = rnd() * S;
+      const y = rnd() * S;
+      const r = 10 + rnd() * 50;
+      wrap((dx, dy) => paint3(L, (g) => g.ellipse(x + dx, y + dy, r, r * (0.4 + rnd() * 0.6), rnd() * 3, 0, Math.PI * 2), `rgba(20,18,16,${0.05 + rnd() * 0.12})`, 'rgba(200,200,200,0.3)', 'rgba(128,128,128,0)'));
+    }
+  } else
+    for (let i = 0; i < 3; i++) {
+      // Patches of newer, blacker asphalt.
+      const x = rnd() * S;
+      const y = rnd() * S;
+      const w = 60 + rnd() * 160;
+      const h = 60 + rnd() * 200;
+      wrap((dx, dy) => paint3(L, (g) => g.rect(x + dx, y + dy, w, h), rnd() < 0.6 ? 'rgba(12,12,14,0.2)' : 'rgba(90,90,92,0.14)', 'rgba(200,200,200,0.5)', 'rgba(132,132,132,1)'));
+    }
+  // Cracks.
+  for (let i = 0; i < (concrete ? 8 : 14); i++) {
+    let x = rnd() * S;
+    let y = rnd() * S;
+    let a = rnd() * Math.PI * 2;
+    const pts: [number, number][] = [[x, y]];
+    for (let k = 0; k < 10 + rnd() * 25; k++) {
+      a += (rnd() - 0.5) * 1.1;
+      pts.push([(x += Math.cos(a) * 8), (y += Math.sin(a) * 8)]);
+    }
+    wrap((dx, dy) =>
+      paint3(
+        L,
+        (g) => {
+          g.beginPath();
+          pts.forEach(([px, py], k) => (k ? g.lineTo(px + dx, py + dy) : g.moveTo(px + dx, py + dy)));
+        },
+        'rgba(8,8,8,0.55)',
+        'rgb(245,245,245)',
+        'rgba(110,110,110,1)',
+        false,
+        1.2,
+      ),
+    );
+  }
+  const noise = tileNoise(seed + 2);
+  const ci = L.c.getImageData(0, 0, S, S);
+  const ri = L.r.getImageData(0, 0, S, S);
+  const hi = L.h2.getImageData(0, 0, S, S);
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      const i = (y * S + x) * 4;
+      const n = rnd();
+      const blot = noise(x / 64, y / 64, 8) * 0.6 + noise(x / 16, y / 16, 32) * 0.4;
+      const stone = n > 0.93 ? (n - 0.93) * 14 : 0;
+      const k = 0.86 + blot * 0.26 + stone * (concrete ? 0.1 : 0.3) + (rnd() - 0.5) * 0.12;
+      for (let j = 0; j < 3; j++) ci.data[i + j] = Math.min(255, ci.data[i + j] * k + stone * 9);
+      hi.data[i] = hi.data[i + 1] = hi.data[i + 2] = Math.max(0, Math.min(255, hi.data[i] + stone * 60 + (blot - 0.5) * 18));
+      ri.data[i] = ri.data[i + 1] = ri.data[i + 2] = Math.max(0, Math.min(255, ri.data[i] - stone * 40 + (blot - 0.5) * 30));
+    }
+  L.c.putImageData(ci, 0, 0);
+  L.r.putImageData(ri, 0, 0);
+  L.h2.putImageData(hi, 0, 0);
+  return finish(L, 1.5, true, aniso);
+}
+
 /** Loose gravel: stones with shadows, packed ruts where the cars go. Same columns as the road. */
 export function gravel(theme: Theme, seed: number, aniso: number): Surface {
   const W = 512;
