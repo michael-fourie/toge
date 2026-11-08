@@ -277,8 +277,9 @@ export class Race {
         this.wrecked(m, msg.p, c.id);
         break;
       case 'start':
-        // From the lobby, or straight from the results (Race again: the same track and settings, no wait).
-        if (c.id === this.hostId && (this.phase === 'lobby' || this.phase === 'results')) this.startLoading();
+        // From the lobby, straight from the results (Race again: the same track and settings, no wait), or mid-race
+        // from the host's pause menu (Restart: the race is dropped unpaid and everyone goes back to the start).
+        if (c.id === this.hostId && this.phase !== 'loading') this.startLoading();
         break;
       case 'ready': {
         if (!m.racing || m.ready) return;

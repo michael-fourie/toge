@@ -547,3 +547,29 @@ test('race again: the host can start the next race straight from the results; no
   r.advance(RACE.countdownMs + 100);
   assert.equal(r.race.phase, 'racing');
 });
+
+test('restart from the pause menu: the host can send everyone back to the start mid-race, unpaid; nobody else can', () => {
+  const r = room();
+  const a = r.join(1);
+  const b = r.join(2);
+  r.start(a, b);
+  r.advance(RACE.countdownMs + 100);
+  assert.equal(r.race.phase, 'racing');
+  r.advance(60_000);
+  r.race.handle(a, { t: 'finish', time: 60.2 });
+  r.race.handle(b, { t: 'start' });
+  assert.equal(r.race.phase, 'racing', 'only the host restarts');
+  r.race.handle(a, { t: 'start' });
+  assert.equal(r.race.phase, 'loading');
+  assert.equal(r.paid.length, 0, 'the dropped race pays nothing');
+  r.race.handle(a, { t: 'start' });
+  assert.equal(r.inbox.get(2)!.filter((m) => m.t === 'load').length, 2, 'a second press while loading is ignored');
+  r.race.handle(a, { t: 'ready' });
+  r.race.handle(b, { t: 'ready' });
+  r.advance(RACE.countdownMs + 100);
+  assert.equal(r.race.phase, 'racing');
+  // A fresh race: the earlier finish doesn't carry over, so one finish isn't the end of it.
+  r.advance(60_000);
+  r.race.handle(a, { t: 'finish', time: 60.5 });
+  assert.equal(r.race.phase, 'racing');
+});
