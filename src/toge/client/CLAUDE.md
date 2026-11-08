@@ -25,6 +25,11 @@ The rules that bite most often in this folder:
 - The HUD runs every frame, so keep it cheap: no `innerHTML` rebuilds per frame (the strip reuses its dots), cache what
   doesn't move (the tach face, the minimap's road outline as a Path2D), and never read layout (`clientWidth`) after
   writing the DOM (the view size is kept from `resize`). City traffic further than `TRAFFIC_DRAW` isn't drawn.
+- The open world (worldview.ts, worldtrafficview.ts; free roam on `toge`) is one scene for a 7 km island: terrain in
+  LOD chunks (`LODS_HIGH` / `LODS_LOW`), trees only near the roads in 400 m tiles shown within `TREE_DRAW`, the
+  traffic's full Pebble model only within `DRAW_HIGH[0]` / `DRAW_LOW[0]` (at most `MAX_NEAR`), boxes beyond. Road
+  meshes face up (their triangles are wound left to right across the road): a downward winding made the roads invisible
+  from above. The HUD's roam mode (`.rh.roam`) hides place, clock, board, strip and item slot.
 - Driving physics is shared (`src/toge/shared/vehicle.ts`); don't put handling logic in this folder.
 - Menus (hub.ts, lobby.ts, cosmeticsui.ts) follow `src/toge/DESIGN.md`; tokens and components are in hub.css. race.css is
   only the in-race HUD. Page ids (`dtab`) are restored on reload: keep them stable.

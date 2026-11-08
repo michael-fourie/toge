@@ -72,6 +72,8 @@ export interface HudState {
   damage: Damage | null;
   dots: Dot[];
   board: BoardLine[];
+  /** Free roam: the road you're on (the top bar shows it in place of the place and clock). */
+  where?: string;
 }
 
 export interface ResultLine {
@@ -126,6 +128,7 @@ export class RaceHud {
         <div class="rh-time" data-el="time">0:00.000</div>
         <div class="rh-lap" data-el="lap" hidden></div>
         <div class="rh-score" data-el="score" hidden><small>Drift</small><b data-el="scoreNum">0</b></div>
+        <div class="rh-where" data-el="where"></div>
       </div>
       <ol class="rh-board" data-el="board" aria-label="Standings"></ol>
       <div class="rh-tags" data-el="tags" aria-hidden="true"></div>
@@ -149,6 +152,7 @@ export class RaceHud {
         </div>
       </div>
       <div class="rh-wind" data-el="wind" aria-hidden="true"></div>
+      <div class="rh-near" data-el="near" aria-live="off"><span>Near miss</span><b data-el="nearNum"></b></div>
       <div class="rh-combo" data-el="combo" aria-live="off"><b data-el="comboNum"></b><span data-el="comboMult"></span></div>
       <div class="rh-drift" data-el="drift"></div>
       <div class="rh-item" data-el="item"><span class="rh-item-icon" data-el="itemIcon"></span><small data-el="itemName"></small></div>
@@ -162,6 +166,21 @@ export class RaceHud {
     this.root.querySelectorAll<HTMLElement>('[data-el]').forEach((e) => (this.el[e.dataset.el!] = e));
     this.tach = this.root.querySelector('.rh-tach')!;
     this.map = this.root.querySelector('.rh-map')!;
+    // Free roam: no place, clock, board or progress strip; the road you're on instead, and the whole map.
+    this.root.classList.toggle('roam', !!track.world);
+  }
+
+  private nearTimer = 0;
+
+  /** Threading through traffic: "NEAR MISS", with the chain count from the second one on. */
+  nearMiss(chain: number) {
+    const e = this.el.near;
+    this.el.nearNum.textContent = chain > 1 ? `×${chain}` : '';
+    e.classList.remove('pop');
+    void e.offsetWidth;
+    e.classList.add('pop', 'on');
+    clearTimeout(this.nearTimer);
+    this.nearTimer = window.setTimeout(() => e.classList.remove('on', 'pop'), 1100);
   }
 
   showHelp(pad: boolean) {
@@ -262,9 +281,70 @@ export class RaceHud {
     this.updateCombo(h);
     this.drawDamage(h.damage);
     this.drawTach(h);
+    if (this.track.world) {
+      const where = h.where ?? '';
+      if (this.el.where.textContent !== where) this.el.where.textContent = where;
+      this.drawWorldMap(h);
+      return;
+    }
     this.drawMap(h);
     this.drawStrip(h.dots);
     this.drawBoard(h.board);
+  }
+
+  private worldPaths: { path: Path2D; width: number; color: string }[] | null = null;
+
+  /** Free roam's map: every road, heading up, around you (the expressway wide and gold, the rest by size). */
+  private drawWorldMap(h: HudState) {
+    const w = this.track.world!.world;
+    const g = this.map.getContext('2d')!;
+    const W = 220;
+    const me = h.dots.find((d) => d.me);
+    if (!this.worldPaths) {
+      this.worldPaths = [];
+      for (const rd of w.roads) {
+        const path = new Path2D();
+        for (let i = rd.i0; i < rd.i1; i += 3) (i === rd.i0 ? path.moveTo(w.x[i], w.z[i]) : path.lineTo(w.x[i], w.z[i]));
+        if (rd.closed) path.closePath();
+        else path.lineTo(w.x[rd.i1 - 1], w.z[rd.i1 - 1]);
+        const kind = rd.def.kind;
+        const color = kind === 'highway' ? 'rgba(255,201,64,0.9)' : kind === 'pass' || kind === 'country' ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.55)';
+        this.worldPaths.push({ path, width: Math.max(14, rd.half * 2.2), color });
+      }
+      // Wide roads on top, so the expressway reads over the streets it crosses.
+      this.worldPaths.sort((a, b) => a.width - b.width);
+    }
+    g.clearRect(0, 0, W, W);
+    g.save();
+    g.beginPath();
+    g.arc(W / 2, W / 2, W / 2 - 2, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(10,14,20,0.55)';
+    g.fill();
+    g.clip();
+    if (me) {
+      g.translate(W / 2, W / 2 + 24);
+      g.rotate(h.heading);
+      const scale = W / 2 / 650;
+      g.scale(scale, scale);
+      g.translate(-me.x, -me.z);
+      g.lineJoin = 'round';
+      g.lineCap = 'round';
+      for (const p of this.worldPaths) {
+        g.strokeStyle = p.color;
+        g.lineWidth = p.width;
+        g.stroke(p.path);
+      }
+      for (const d of h.dots) {
+        g.fillStyle = d.me ? '#fff' : d.color;
+        g.strokeStyle = '#000';
+        g.lineWidth = 10;
+        g.beginPath();
+        g.arc(d.x, d.z, d.me ? 40 : 32, 0, Math.PI * 2);
+        g.fill();
+        g.stroke();
+      }
+    }
+    g.restore();
   }
 
   private updateCombo(h: HudState) {

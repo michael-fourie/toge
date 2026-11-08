@@ -7,7 +7,7 @@ import { CARS, PAINTS, type OwnedCar, decodeCar } from '../shared/cars.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { type FriendAction, type FriendList, type FriendResult } from '../../shared/friends.ts';
 import { type Bests, type TogeProfile } from '../shared/records.ts';
-import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
+import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { fmtTime } from './hud.ts';
 import { trackKind } from './trackart.ts';
@@ -48,8 +48,8 @@ export const friendsApi = {
   },
 };
 
-/** Every track, climbs included, in the catalogue's order. */
-const ALL_TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
+/** Every race track, climbs included, in the catalogue's order (not the open world: it keeps no times). */
+const ALL_TRACKS = RACE_TRACKS;
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 const carName = (code: string) => {
   const c = decodeCar(code);

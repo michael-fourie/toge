@@ -1,13 +1,13 @@
 // Dev-only lab for the TŌGE race renderer: a solo race on any track, driven by the AI and stepped by hand, so the
 // same shot can be taken before and after a visual change and its frame cost measured.
-// /dev/race.html?track=koripass&car=vanta&rivals=5 (Low graphics follows the Settings tab: localStorage atrous.graphics).
-// window.rl: drive(seconds) (the AI drives your car; the sim is stepped, nothing waits on frames), cam(name),
+// /dev/race.html?track=koripass&car=vanta&rivals=5 (track=toge: the open world; place() and look() frame shots of it) (Low graphics follows the Settings tab: localStorage atrous.graphics).
+// window.rl: drive(seconds) (the AI drives your car; the sim is stepped, nothing waits on frames), cam(name), place(x, z, yaw), look(...),
 // draw() (one frame), cost(frames) ({ ms per frame with the GPU drained, draw calls, triangles }).
 
 import { CAR_IDS, type CarId, newOwnedCar } from '../src/toge/shared/cars.ts';
 import { defaultRider } from '../src/toge/shared/rider.ts';
-import { type TrackId } from '../src/toge/shared/track.ts';
-import { TICK_DT } from '../src/toge/shared/vehicle.ts';
+import { type TrackId, heightAt, locate, newLoc } from '../src/toge/shared/track.ts';
+import { TICK_DT, placeCar } from '../src/toge/shared/vehicle.ts';
 import { aiDrive, newAi } from '../src/toge/shared/driver.ts';
 import { DataUtils } from 'three';
 import { RaceGame } from '../src/toge/client/racegame.ts';
@@ -38,19 +38,28 @@ type Inner = {
   camera: import('three').PerspectiveCamera;
   view: { sunDir: import('three').Vector3 | null };
   updateCamera(dt: number, view: unknown): void;
+  snapCamera(): void;
 };
 const r = race as unknown as Inner;
 cancelAnimationFrame(r.raf);
 const ai = newAi(0.9, 0);
 let sunAt: number | null = null;
+/** A fixed camera (position, then the point it looks at) for overview shots, or null for the game's own. */
+let fixed: number[] | null = null;
 const updateCamera = r.updateCamera.bind(r);
 r.updateCamera = (dt, view) => {
   updateCamera(dt, view);
+  if (fixed) {
+    r.camera.position.set(fixed[0], fixed[1], fixed[2]);
+    r.camera.lookAt(fixed[3], fixed[4], fixed[5]);
+    return;
+  }
   const d = r.view.sunDir;
   if (sunAt === null || !d) return;
   const c = r.camera.position;
   r.camera.lookAt(c.x + d.x * 100, c.y + d.y * 100 * sunAt, c.z + d.z * 100);
 };
+const loc = newLoc();
 const out = { steer: 0, throttle: 0, brake: 0, handbrake: 0, drift: 0 };
 
 (window as unknown as { rl: unknown }).rl = {
@@ -67,6 +76,20 @@ const out = { steer: 0, throttle: 0, brake: 0, handbrake: 0, drift: 0 };
   },
   cam(name: string) {
     r.cam = name;
+  },
+  /** Puts your car down at (x, z) facing `yaw`, on whatever's there (free roam: the open world's roads). */
+  place(x: number, z: number, yaw = 0) {
+    const c = r.me.car;
+    const y = heightAt(r.track, x, z, undefined, -1);
+    placeCar(c, x, y, z, yaw, -1);
+    locate(r.track, x, z, -1, loc);
+    c.hint = loc.i;
+    for (let i = 0; i < 64; i++) r.tick();
+    r.snapCamera();
+  },
+  /** A fixed camera at (x, y, z) looking at (tx, ty, tz) for the next draws; no arguments: back to the game's. */
+  look(...at: number[]) {
+    fixed = at.length === 6 ? at : null;
   },
   /** Turns the camera towards the sun (`at` = 0: level with the horizon, 1: straight at it), or back (null). */
   sun(at: number | null) {

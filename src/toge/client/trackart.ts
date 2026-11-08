@@ -2,7 +2,7 @@
 // and the road drawn from above as a map. Pure DOM strings, no WebGL. See src/toge/DESIGN.md (track tile).
 
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
-import { TRACK_DEFS, type Theme, type TrackId } from '../shared/track.ts';
+import { RACE_TRACKS, TRACK_DEFS, type Theme, type TrackId } from '../shared/track.ts';
 import { CUPS, cupKm, type CupId } from '../shared/cups.ts';
 import { esc } from '../../client/menu/ui.ts';
 
@@ -18,7 +18,7 @@ export const THEME_ART: Record<Theme, { sky: [string, string]; accent: string }>
 };
 
 /** The tracks you race solo or in a race / time trial lobby (hill-climb roads only run in a lobby's Hill climb). */
-export const TRACK_IDS = (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => !TRACK_DEFS[id].climb);
+export const TRACK_IDS = RACE_TRACKS.filter((id) => !TRACK_DEFS[id].climb);
 
 /** How far a road climbs from start to finish (m; negative = a descent). */
 export const trackClimb = (id: TrackId) => {
@@ -29,6 +29,7 @@ export const trackClimb = (id: TrackId) => {
 /** What kind of road it is, for the eyebrow over the name. */
 export function trackKind(id: TrackId): string {
   const d = TRACK_DEFS[id];
+  if (d.world) return 'Open world · free roam';
   if (d.traffic) return 'City · live traffic';
   if (d.laps) return `Circuit · ${d.laps} laps`;
   if (d.climb) return `Hill climb · ${trackClimb(id)} m up`;
@@ -64,7 +65,7 @@ export function trackMap(id: TrackId): string {
   const ox = (W - (x1 - x0) * k) / 2;
   const oz = (H - (z1 - z0) * k) / 2;
   const p = pts.map(([x, z]) => [ox + (x - x0) * k, oz + (z - z0) * k] as [number, number]);
-  const closed = !!d.laps;
+  const closed = !!d.laps || !!d.world;
   const at = (i: number) => (closed ? p[(i + p.length) % p.length] : p[Math.max(0, Math.min(p.length - 1, i))]);
   const f = (n: number) => n.toFixed(1);
   let path = `M${f(p[0][0])} ${f(p[0][1])}`;

@@ -17,7 +17,11 @@ import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, record
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
 import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc, pointAt } from '../shared/track.ts';
-import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
+import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, placeCar, resetCar, speedOf, spinOut, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
+import { WORLD, respawnAt, trapCrossed } from '../shared/world.ts';
+import { collideWorldTraffic, newNearMisses, roamClock, stepNearMisses } from '../shared/worldtraffic.ts';
+import { WorldTrafficView } from './worldtrafficview.ts';
+import { buildWorldView } from './worldview.ts';
 import { PropView, shieldBubble } from './propview.ts';
 import { type Obstacle, type Traffic, collideTraffic, getTraffic, trafficBetween } from '../shared/traffic.ts';
 import { TrafficView } from './trafficview.ts';
@@ -223,6 +227,12 @@ export class RaceGame {
   /** City traffic, and the race clock it runs on (seconds since GO; counts up to 0 during the countdown). */
   private traffic: Traffic | null;
   private trafficView: TrafficView | null = null;
+  /** Free roam (a world track, world.ts): no finish, no rivals, open-world traffic on the wall clock, speed traps. */
+  private roam: boolean;
+  private worldTraffic: WorldTrafficView | null = null;
+  private nearMisses = newNearMisses();
+  /** Free roam: your best speed through each trap this session (km/h), by trap name. */
+  private trapBest = new Map<string, number>();
   private trafficTime = 0;
   private obstacles: Obstacle[] = [];
   /** Your item slot: the roulette spinning until `rouletteUntil`, then the item and its uses. */
@@ -348,7 +358,8 @@ export class RaceGame {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.className = 'race-canvas';
     setup.container.appendChild(this.renderer.domElement);
-    this.view = buildTrackView(this.track, this.renderer, this.low);
+    this.roam = !!this.track.world;
+    this.view = this.roam ? buildWorldView(this.track, this.renderer, this.low) : buildTrackView(this.track, this.renderer, this.low);
     this.view.scene.add(this.cometLight);
     this.renderer.toneMappingExposure = this.view.exposure;
     this.post = new Post(this.renderer, this.view.scene, this.camera, this.view.grade, this.low);
@@ -360,11 +371,15 @@ export class RaceGame {
     if (this.physics) this.blasts = new Blasts(this.view.scene, this.track, this.fx);
     this.traffic = getTraffic(this.track);
     if (this.traffic) this.trafficView = new TrafficView(this.view.scene, this.track, this.traffic);
+    if (this.track.world) {
+      this.worldTraffic = new WorldTrafficView(this.view.scene, this.track.world.world, this.low);
+      this.trafficTime = roamClock();
+    }
     this.hud = new RaceHud(setup.container, this.track);
     this.audio = new RaceAudio();
 
     const online = setup.online;
-    const rivals = online ? 0 : Math.max(0, Math.min(7, setup.rivals ?? 5));
+    const rivals = online || this.roam ? 0 : Math.max(0, Math.min(7, setup.rivals ?? 5));
     // Solo, you start mid-pack.
     const mySlot = online ? (online.grid[online.net.id] ?? 0) : Math.floor(rivals / 2);
     // Online, the server says what you drive (a maxed Vanta, or your car maxed out, in a time trial).
@@ -405,7 +420,8 @@ export class RaceGame {
         r.ai = newAi(0.84 + ((i * 37) % 11) / 100, ((i % 3) - 1) * 1.6);
         this.rivals.push(r);
       }
-      this.countdown = SOLO_COUNTDOWN;
+      // Free roam has nothing to count down to: you're away on the first tick.
+      this.countdown = this.roam ? 0 : SOLO_COUNTDOWN;
       if (setup.gp) this.hud.banner(CUPS[setup.gp.cup].name, roundLabel(setup.gp.cup, setup.gp.round), 3200);
     }
     for (const r of [this.me, ...this.rivals]) r.car.gear = 0; // revving on the line
@@ -780,7 +796,9 @@ export class RaceGame {
           this.remotes.delete(id);
           if (this.watching === id) this.spectateNext();
         }
-      if (m.phase === 'lobby' && this.phase === 'done') this.exit('lobby');
+      // Free roam: whoever drove in since is put on the road; the host ending it sends everyone back to the lobby.
+      if (this.roam) for (const r of m.racers) if (r.roaming && r.id !== this.setup.online!.net.id && !this.remotes.has(r.id)) this.addRemote(r);
+      if (m.phase === 'lobby' && (this.phase === 'done' || this.roam)) this.exit('lobby');
       else if (this.phase === 'done') this.resultActs(); // the host may have changed
     } else if (m.t === 'item') {
       const from = this.remotes.get(m.by)?.name ?? this.rivals.find((r) => r.netId === m.by)?.name ?? 'Someone';
@@ -917,7 +935,7 @@ export class RaceGame {
       localStorage.setItem(CAM_KEY, this.cam);
       this.snapCamera();
     } else if (a === 'reset' && this.phase === 'racing' && this.wallClock > this.resetAt) {
-      resetCar(this.me.car, this.track);
+      this.respawn(this.me.car);
       this.resetAt = this.wallClock + 2;
       this.hud.banner('Back on the road', '', 1200);
     } else if (a === 'item') {
@@ -989,8 +1007,9 @@ export class RaceGame {
       myInput.handbrake = c.handbrake;
       myInput.drift = c.drift;
     }
-    // Traffic runs on the race clock, the same for everyone online.
-    this.trafficTime = this.phase === 'countdown' ? -Math.max(0, this.countdown) : this.trafficTime + TICK_DT;
+    // Traffic runs on the race clock, the same for everyone online (free roam's on the wall clock: there's no GO).
+    if (this.roam) this.trafficTime = roamClock();
+    else this.trafficTime = this.phase === 'countdown' ? -Math.max(0, this.countdown) : this.trafficTime + TICK_DT;
     const traffic = this.traffic;
     for (const r of this.rivals) {
       if (this.phase === 'countdown') Object.assign(r.input, { steer: 0, throttle: Math.random() < 0.02 ? 1 : r.input.throttle * 0.95, brake: 1, handbrake: 1 });
@@ -1014,6 +1033,10 @@ export class RaceGame {
       for (const r of this.remotes.values()) for (const x of all) if (x === me || x.finished === null) collideCars(x.car, r.ghost, false);
     }
     if (traffic) for (const r of all) collideTraffic(t, traffic, r.car, this.trafficTime);
+    if (t.world) {
+      for (const r of all) collideWorldTraffic(t.world.world, r.car, this.trafficTime);
+      if (live) this.roamTick(t.world.world);
+    }
     if (live && me.finished === null) this.scoreDrift();
     if (live && this.physics) this.crashes();
     if (me.car.hit > 2.5) {
@@ -1117,9 +1140,12 @@ export class RaceGame {
       rumble(1, 1, 900);
       this.hud.banner('Wrecked!', 'Back on the road', 1600);
     }
-    const back = Math.max(4, c.s - DAMAGE.respawnBack);
-    const d = Math.max(-t.half + 1.5, Math.min(t.half - 1.5, c.d));
-    resetCar(c, t, back, d);
+    if (this.roam) this.respawn(c);
+    else {
+      const back = Math.max(4, c.s - DAMAGE.respawnBack);
+      const d = Math.max(-t.half + 1.5, Math.min(t.half - 1.5, c.d));
+      resetCar(c, t, back, d);
+    }
     if (r.ai) r.ai = newAi(r.ai.skill, r.ai.lane);
     r.prevP.set(c.p.x, c.p.y, c.p.z);
     r.prevQ.set(c.q.x, c.q.y, c.q.z, c.q.w);
@@ -1159,9 +1185,72 @@ export class RaceGame {
     }
   }
 
+  /** Back on the road: on a race track where the car is along it, in free roam on the nearest road, facing the way it was. */
+  private respawn(c: Car) {
+    const w = this.track.world?.world;
+    if (!w) return resetCar(c, this.track);
+    const at = respawnAt(w, c.p.x, c.p.z, yawOf(c));
+    placeCar(c, at.x, at.y, at.z, at.yaw, at.i);
+  }
+
+  /** Free roam: the places the pause menu can take you (the first of each named spawn). */
+  private spots() {
+    const w = this.track.world?.world;
+    if (!w) return [];
+    return w.spawns.filter((sp, k) => w.spawns.findIndex((o) => o.name === sp.name) === k);
+  }
+
+  /** Free roam: straight to a spot from the pause menu, a little to one side so friends going there don't stack. */
+  private teleport(sp: { x: number; z: number; yaw: number }) {
+    const c = this.me.car;
+    const side = (Math.random() - 0.5) * 8;
+    const x = sp.x + Math.cos(sp.yaw) * side;
+    const z = sp.z - Math.sin(sp.yaw) * side;
+    const loc = newLoc();
+    locate(this.track, x, z, -1, loc);
+    placeCar(c, x, heightAt(this.track, x, z, undefined, loc.i), z, sp.yaw, loc.i);
+    this.me.prevP.set(c.p.x, c.p.y, c.p.z);
+    this.me.prevQ.set(c.q.x, c.q.y, c.q.z, c.q.w);
+    this.nearMisses = newNearMisses();
+    this.snapCamera();
+  }
+
+  /** Free roam, each tick: near misses through traffic, the speed traps, and fishing you out of the sea. */
+  private roamTick(w: NonNullable<Track['world']>['world']) {
+    const me = this.me;
+    const c = me.car;
+    const chain = stepNearMisses(this.nearMisses, w, c, this.trafficTime, this.wallClock);
+    if (chain) {
+      this.hud.nearMiss(chain);
+      this.audio.tone(880 + Math.min(chain, 8) * 90, 0.09, 0.05, 'triangle');
+      rumble(0.2, 0.3, 70);
+    }
+    const trap = trapCrossed(w, me.prevP.x, me.prevP.z, c.p.x, c.p.z);
+    if (trap) {
+      const kmh = Math.round(speedOf(c) * 3.6);
+      const best = this.trapBest.get(trap.name) ?? 0;
+      if (kmh > best) this.trapBest.set(trap.name, kmh);
+      this.hud.banner(`${kmh} km/h`, `${trap.name} speed trap${kmh > best && best ? ' · new best' : best ? ` · best ${best}` : ''}`, 2200);
+      this.audio.tone(1320, 0.12, 0.05, 'square');
+    }
+    // In the sea: back to the nearest road (the car's no boat).
+    if (c.p.y - c.spec.cg < w.water - WORLD.drown && this.wallClock > this.resetAt) {
+      this.respawn(c);
+      this.resetAt = this.wallClock + 1;
+      this.hud.banner('Splash!', 'Back on the road', 1400);
+      if (this.watching === null) this.snapCamera();
+    }
+  }
+
   private go() {
     if (this.phase !== 'countdown') return;
     this.phase = 'racing';
+    if (this.roam) {
+      this.held = false;
+      this.hud.banner(this.track.def.name, 'Free roam · drive anywhere · R: back on the road', 3200);
+      for (const r of [this.me, ...this.rivals]) r.car.gear = 1;
+      return;
+    }
     // Loaded after the room gave up waiting: the others are already away.
     if (this.held && !this.trial) this.hud.banner('Late start', 'The race began while you were loading', 2600);
     this.held = false;
@@ -1385,11 +1474,13 @@ export class RaceGame {
         ? this.hud.panel(`
       <h2>Paused</h2>
       <div class="rh-buttons col">
-        ${this.canRestart ? '<button data-act="restart">Restart</button>' : ''}
+        ${this.roam ? '' : this.canRestart ? '<button data-act="restart">Restart</button>' : ''}
         <button data-act="resume" data-autofocus>Resume</button>
+        ${this.roam ? this.spots().map((sp, k) => `<button data-act="spot" data-spot="${k}">Go to ${esc(sp.name)}</button>`).join('') : ''}
+        ${this.roam && this.setup.online && this.canRestart ? '<button data-act="end">End free roam</button>' : ''}
         <button data-act="settings">Settings</button>
         <button data-act="leave">${this.setup.online ? 'Leave race' : 'Quit to garage'}</button>
-      </div>${this.setup.online && !this.canRestart ? '<p class="rh-note">Only the host can restart an online race.</p>' : ''}`)
+      </div>${this.setup.online && !this.canRestart && !this.roam ? '<p class="rh-note">Only the host can restart an online race.</p>' : ''}`)
         : this.hud.panel(`
       <h2>Settings</h2>
       <div class="rh-buttons col">
@@ -1416,6 +1507,15 @@ export class RaceGame {
             return this.resume();
           case 'restart':
             return this.restartFromPause(b);
+          case 'spot': {
+            const sp = this.spots()[Number(b.dataset.spot)];
+            if (sp && this.phase === 'racing') this.teleport(sp);
+            return this.resume();
+          }
+          case 'end':
+            b.disabled = true;
+            b.textContent = 'Ending…';
+            return void this.setup.online?.net.send({ t: 'end' });
           case 'settings':
             return this.pause('settings');
           case 'back':
@@ -1531,6 +1631,7 @@ export class RaceGame {
       rg.s = locate(this.track, rg.position.x, rg.position.z, this.ghostLoc.i, this.ghostLoc).s;
     }
     this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera.position.x, this.camera.position.z);
+    this.worldTraffic?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera.position.x, this.camera.position.z);
     const view = this.camTarget();
     this.updateCamera(dt, view);
     this.driversVisible();
@@ -1806,7 +1907,7 @@ export class RaceGame {
       ...[...this.remotes.values()].map((r) => ({ who: { name: r.name, color: r.color, me: false, tag: r.id, root: r.model.root, height: CARS[r.spec.id].height - r.spec.cg }, finished: r.finished, progress: r.s })),
     ]);
     const followed = this.watching !== null && this.remotes.get(this.watching)?.last ? this.watching : 'me';
-    const tags: Tag[] = order.filter((e) => e.who.tag !== followed).map((e) => ({ id: e.who.tag, name: e.who.name, color: e.who.color, place: order.indexOf(e) + 1, at: this.tagAt(e.who.tag, e.who.root, e.who.height) }));
+    const tags: Tag[] = order.filter((e) => e.who.tag !== followed).map((e) => ({ id: e.who.tag, name: e.who.name, color: e.who.color, place: this.roam ? '' : order.indexOf(e) + 1, at: this.tagAt(e.who.tag, e.who.root, e.who.height) }));
     if (rg) tags.push({ id: 'record', name: `${rg.run.name} · ${fmtTime(rg.run.time)}`, color: rg.color, place: 'TR', at: this.tagAt('record', rg.model.root, rg.height) });
     this.hud.tags(tags);
     this.hud.update({
@@ -1822,7 +1923,7 @@ export class RaceGame {
       laps: this.track.def.laps ?? 0,
       abs: c.absOn,
       tcs: c.tcsOn,
-      wrongWay: this.phase === 'racing' && tangentDot < -0.3 && speedOf(c) > 3,
+      wrongWay: !this.roam && this.phase === 'racing' && tangentDot < -0.3 && speedOf(c) > 3,
       manual: !this.assists.auto,
       drift: c.drift !== 0 ? c.driftLevel : -1,
       combo: this.driftMeter.combo > 0 ? { points: comboPoints(this.driftMeter), mult: this.driftMeter.mult } : null,
@@ -1836,6 +1937,7 @@ export class RaceGame {
       damage: this.physics ? me.dmg : null,
       dots,
       board: order.map((e) => ({ name: e.who.name, color: e.who.color, me: e.who.me, finished: e.finished })),
+      where: this.track.world ? this.track.world.world.roads[this.track.world.world.road[c.hint]]?.def.name : undefined,
     });
   }
 
@@ -1906,6 +2008,7 @@ export class RaceGame {
     this.fx.dispose();
     this.blasts?.dispose();
     this.trafficView?.dispose();
+    this.worldTraffic?.dispose();
     this.cometGeo.dispose();
     this.cometMat.dispose();
     this.view.dispose();

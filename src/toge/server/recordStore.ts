@@ -1,9 +1,10 @@
 import { type Bests, type BoardRow, type NewBest, cleanBests, cleanBoard, placeOnBoard, recordTime } from '../shared/records.ts';
 import { type GhostRun, type GhostTape, cleanRun, cleanTape } from '../shared/ghost.ts';
-import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
+import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { KV } from '../../server/accountStore.ts';
 
-const TRACKS = Object.keys(TRACK_DEFS) as TrackId[];
+/** The tracks that keep records (not the open world). */
+const TRACKS = RACE_TRACKS;
 
 /** What `RecordStore.clear` wiped (or, not `applied`, would wipe). */
 export interface ClearReport {

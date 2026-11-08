@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CUPS, CUP_IDS, GP_POINTS, ROUNDS, addRound, pointsFor } from '../../src/toge/shared/cups.ts';
-import { TRACK_DEFS, type TrackId } from '../../src/toge/shared/track.ts';
+import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../../src/toge/shared/track.ts';
 import { MODE_TRACK, cleanMode, recordMode } from '../../src/toge/shared/protocol.ts';
 
 test('every race track is in exactly one cup of four; the hill climb is in none', () => {
@@ -17,7 +17,7 @@ test('every race track is in exactly one cup of four; the hill climb is in none'
       seen.set(t, id);
     }
   }
-  const races = (Object.keys(TRACK_DEFS) as TrackId[]).filter((t) => !TRACK_DEFS[t].climb);
+  const races = RACE_TRACKS.filter((t) => !TRACK_DEFS[t].climb);
   assert.deepEqual(races.filter((t) => !seen.has(t)), [], 'a new race track needs a cup');
 });
 

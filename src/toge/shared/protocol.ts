@@ -6,7 +6,7 @@
 // `countdown` (the same 3-2-1 on every screen) → `go` → clients drive (client-authoritative, like the shooter) and send `state` at 20 Hz → each sends `finish`
 // with its time (and `drift` / `used` along the way for the bonus) → `results` (places, prize money) → back to the lobby.
 
-import { TRACK_DEFS, type TrackId } from './track.ts';
+import { RACE_TRACKS, TRACK_DEFS, type TrackId } from './track.ts';
 import type { GhostRun } from './ghost.ts';
 import { CUPS, ROUNDS, type CupId, type CupRow } from './cups.ts';
 
@@ -25,15 +25,18 @@ export type RacePhase = 'lobby' | 'loading' | 'countdown' | 'racing' | 'results'
  * What the host is running: a `race` (cars bump, items fly), a `trial` (time trial: everyone laps the same
  * road at once, but the other cars are see-through ghosts you drive straight through, and there are no items)
  * or a `climb` (hill climb: one run up a hill-climb road (`climb` on its TrackDef), solid cars you can bump and
- * draft, no items, rockfall on the road; first to the summit wins), or a `gp` (Grand Prix: a cup of four tracks
- * (cups.ts) raced back to back with race rules, points for every place, a cup table at the end).
+ * draft, no items, rockfall on the road; first to the summit wins), a `gp` (Grand Prix: a cup of four tracks
+ * (cups.ts) raced back to back with race rules, points for every place, a cup table at the end), or `roam` (free
+ * roam: the open world (a TrackDef with `world`, world.ts), no start, finish, items or prizes, friends can drive in
+ * while it's on, and it runs until the host ends it).
  */
-export type RaceMode = 'race' | 'trial' | 'climb' | 'gp';
+export type RaceMode = 'race' | 'trial' | 'climb' | 'gp' | 'roam';
 export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
   race: { name: 'Race', blurb: 'Bump, block and throw items. First to the line wins.' },
   trial: { name: 'Time trial', blurb: 'Ghost cars, no contact, no items. Fastest clean time wins.' },
   climb: { name: 'Hill climb', blurb: 'One run up the mountain past boulders and broken tarmac. No items. First to the summit wins.' },
   gp: { name: 'Grand Prix', blurb: 'A cup of four tracks back to back. Points for every place; most points takes the trophy.' },
+  roam: { name: 'Free roam', blurb: 'The open world: no race, no clock. Cruise, hang out, and thread the highway traffic. Friends can drive in any time.' },
 };
 
 /** Modes where the other racers are ghosts you drive straight through (no contact, no slipstream): the time trial. */
@@ -49,11 +52,12 @@ export const cleanMode = (m: RaceMode) => m === 'trial' || m === 'climb';
  */
 export const recordMode = (m: RaceMode) => cleanMode(m);
 
-/** The tracks a mode can run: a hill climb only on hill-climb roads, everything else only off them. */
-export const modeTracks = (m: RaceMode): TrackId[] => (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => !!TRACK_DEFS[id].climb === (m === 'climb'));
+/** The tracks a mode can run: free roam only the open worlds, a hill climb only hill-climb roads, the rest only the others. */
+export const modeTracks = (m: RaceMode): TrackId[] =>
+  m === 'roam' ? (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => TRACK_DEFS[id].world) : RACE_TRACKS.filter((id) => !!TRACK_DEFS[id].climb === (m === 'climb'));
 
 /** The track a mode starts on when the host switches to it (they can still pick another the mode allows). */
-export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0] };
+export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0], roam: 'toge' };
 
 /** A Grand Prix under way: the round being raced (0-3) and the cup table so far (keyed by racer id). */
 export interface GpState {
@@ -106,6 +110,8 @@ export interface Racer {
   cpu?: boolean;
   /** In the lobby's garage, editing their car (sent only while true). */
   pit?: boolean;
+  /** Free roam: out driving now (sent only while true), so the others put their car on the road. */
+  roaming?: boolean;
 }
 
 /** A car's pose as relayed between clients. */
@@ -214,6 +220,10 @@ export type RaceClientMsg =
   /** Host: race the track record's ghost too. */
   | { t: 'ghost'; on: boolean }
   | { t: 'start' }
+  /** Free roam: the host ends it (everyone back to the lobby). */
+  | { t: 'end' }
+  /** Free roam is on and you're in the lobby (you just joined): drive in. */
+  | { t: 'joinin' }
   /** The track is built and on screen: this racer can take the countdown. */
   | { t: 'ready' }
   | { t: 'car'; car: string }

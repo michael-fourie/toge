@@ -1,4 +1,5 @@
 import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
+import { type World, worldSlot, worldTrack } from './world.ts';
 
 // Race tracks: a point-to-point road down a mountain (or a closed circuit raced for laps), built from a
 // handful of control points, plus the ground under it. Shared and deterministic: the car physics, the AI, the
@@ -13,7 +14,7 @@ import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'toge';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -96,7 +97,23 @@ export interface TrackDef {
    * then has two layers there, so ask heightAt / groundAt with the car's `hint` (see Crossing).
    */
   overpass?: number;
+  /**
+   * The open world (world.ts): not a race track but an island of roads to drive round freely (the lobby's Free
+   * roam mode). `points` only frame its menu map; the roads are world.ts's.
+   */
+  world?: true;
   features?: Feature[];
+}
+
+/**
+ * The open world's ground, for a Track built from it (world.ts `worldTrack`): heightAt, groundAt and locate hand
+ * over to these, and vehicle.ts asks `world` for walls.
+ */
+export interface WorldHooks {
+  world: World;
+  height(x: number, z: number, hint: number, onRoad?: Loc): number;
+  ground(x: number, z: number, out: Ground, hint: number): Ground;
+  locate(x: number, z: number, hint: number, out: Loc): Loc;
 }
 
 /** A figure 8's crossing: how long the bridge deck is and how the road rises to it (m). */
@@ -193,6 +210,8 @@ export interface Track {
   /** A figure 8's crossing, or null. */
   cross: Crossing | null;
   bounds: { x0: number; x1: number; z0: number; z1: number };
+  /** The open world (free roam): its ground replaces this track's. */
+  world?: WorldHooks;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -610,6 +629,35 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
     ],
     features: [{ kind: 'crest', at: 9, size: 1.6, len: 44 }],
   },
+  toge: {
+    id: 'toge',
+    name: 'Toge',
+    tag: 'Open world: a mountain, a harbour city and an expressway round the island',
+    blurb: 'No start, no finish. Cruise the Ring Expressway, carve the hairpins up Tōge Pass, fly the crests of the Kita Descent and the old airfield, and meet up at the harbour.',
+    theme: 'coast',
+    seed: 4127,
+    world: true,
+    // The menu map's outline: the expressway ring.
+    points: [
+      [2330, 9, 520],
+      [2340, 9, -900],
+      [2330, 12, -1500],
+      [1600, 0, -2120],
+      [200, 0, -2280],
+      [-1150, 0, -2120],
+      [-2250, 0, -1350],
+      [-2700, 0, 0],
+      [-2050, 0, 1300],
+      [-650, 0, 1480],
+      [180, 22, 980],
+      [520, 22, 640],
+      [1250, 12, 540],
+      [2150, 9, 620],
+    ],
+    width: 24.8,
+    relief: 0,
+    water: 0,
+  },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -677,7 +725,7 @@ export const smoothstep = (a: number, b: number, x: number) => {
 type P3 = [number, number, number];
 
 /** Centripetal Catmull-Rom through the points, densely sampled (`closed`: round and back to the first). */
-function spline(pts: P3[], closed = false): P3[] {
+export function spline(pts: P3[], closed = false): P3[] {
   const out: P3[] = [];
   const knot = (a: P3, b: P3) => Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])) || 1e-4;
   const N = pts.length;
@@ -735,7 +783,7 @@ function retile(a: Float64Array, lap: number, pre: number) {
   for (let i = 0; i < a.length; i++) a[i] = a[pre + lap + ((((i - pre) % lap) + lap) % lap)];
 }
 
-function smooth(a: Float64Array, radius: number, passes: number) {
+export function smooth(a: Float64Array, radius: number, passes: number) {
   const n = a.length;
   const tmp = new Float64Array(n);
   for (let pass = 0; pass < passes; pass++) {
@@ -758,9 +806,12 @@ const cache = new Map<TrackId, Track>();
 /** Builds (once per id) the sampled road, its spatial hash and the far-terrain field. */
 export function getTrack(id: TrackId): Track {
   let t = cache.get(id);
-  if (!t) cache.set(id, (t = buildTrack(TRACK_DEFS[id])));
+  if (!t) cache.set(id, (t = TRACK_DEFS[id].world ? worldTrack(TRACK_DEFS[id]) : buildTrack(TRACK_DEFS[id])));
   return t;
 }
+
+/** Every race track: all but the open world (free roam's island, which has no start or finish). */
+export const RACE_TRACKS = (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => !TRACK_DEFS[id].world);
 
 export function buildTrack(def: TrackDef): Track {
   const pts = def.points;
@@ -1228,6 +1279,7 @@ export const newLoc = (): Loc => ({ i: 0, s: 0, d: 0, cx: 0, cy: 0, cz: 0, tx: 0
  * searched, so a car never jumps to a parallel leg of a switchback; without one the spatial hash is used.
  */
 export function locate(t: Track, x: number, z: number, hint: number, out: Loc): Loc {
+  if (t.world) return t.world.locate(x, z, hint, out);
   let bi = -1;
   let bd = Infinity;
   if (hint >= 0) {
@@ -1364,6 +1416,7 @@ const SOFTMIN = 3;
  * road location when the point is on the road plane.
  */
 export function heightAt(t: Track, x: number, z: number, onRoad?: Loc, hint = -1): number {
+  if (t.world) return t.world.height(x, z, hint, onRoad);
   roadHit = false;
   const h = roadHeight(t, x, z, onRoad, hint);
   if (roadHit || !t.cuts.length) return h;
@@ -1471,6 +1524,7 @@ export const newGround = (): Ground => ({ h: 0, nx: 0, ny: 1, nz: 0, surf: 'asph
 
 /** Height, normal and surface at (x, z). On the road the normal is exact; off it, from finite differences. */
 export function groundAt(t: Track, x: number, z: number, out: Ground, hint = -1): Ground {
+  if (t.world) return t.world.ground(x, z, out, hint);
   tmpLoc.i = -1;
   const h = heightAt(t, x, z, tmpLoc, hint);
   out.h = h;
@@ -1590,6 +1644,7 @@ export const lapView = (t: Track): Track => (t.lap ? { ...t, n: t.lap + 1, lengt
 
 /** Where grid slot `k` sits: two columns, staggered back from the start line. */
 export function gridSlot(t: Track, k: number): { x: number; y: number; z: number; yaw: number; s: number } {
+  if (t.world) return worldSlot(t.world.world, k);
   const row = Math.floor(k / 2);
   const side = k % 2 === 0 ? -2.4 : 2.4;
   const s = t.startS - 7 - row * 8 - (k % 2) * 3;

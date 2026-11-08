@@ -22,7 +22,7 @@ import { PORTRAIT, releasePortraits, riderPortrait } from './riderportrait.ts';
 import './race.css';
 import './hub.css';
 
-const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb', gp: 'Start Grand Prix' };
+const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb', gp: 'Start Grand Prix', roam: 'Start free roam' };
 
 /** A racer's face for the grid list: their portrait, cropped to the head (`ready`: redraw once it's drawn). */
 const face = (rider: string, ready: () => void) => {
@@ -70,6 +70,8 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
     const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : null;
     const max = RACE.maxPlayers;
+    // Free roam: the open world, no CPU racers, no record ghost, and friends can drive in while it's on.
+    const roam = room.mode === 'roam';
     const canPick = isHost && room.phase === 'lobby';
     const racers =
       room.racers
@@ -87,7 +89,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
       Array.from(
         { length: Math.max(0, max - room.racers.length) },
         // The host can fill the first open seat with a CPU racer (a person who joins later takes a CPU's seat).
-        (_, i) => `<li class="open"><span class="tg-slot">${room.racers.length + i + 1}</span><span>Open slot</span>${i === 0 && canPick ? `<button class="tg-pill tg-addcpu" data-addcpu>+ Add CPU</button>` : ''}</li>`,
+        (_, i) => `<li class="open"><span class="tg-slot">${room.racers.length + i + 1}</span><span>Open slot</span>${i === 0 && canPick && !roam ? `<button class="tg-pill tg-addcpu" data-addcpu>+ Add CPU</button>` : ''}</li>`,
       ).join('');
     // The crew: everyone's driver side by side, you in the middle of the light.
     const crew = room.racers
@@ -119,19 +121,21 @@ export const driveLobby: Render = (root, ctx, screen) => {
       .map((k) => `<button class="tg-mode" data-physics="${k}" aria-pressed="${(k === 'on') === room.physics}" ${canPick ? '' : 'disabled'}><b>${esc(PHYSICS[k].name)}</b><small>${esc(PHYSICS[k].blurb)}</small></button>`)
       .join('');
     // The record ghost: the track record's run rides along (the host's pick); say whose it'd be.
-    const ghost = gp ? '' : (['off', 'on'] as const)
+    const ghost = gp || roam ? '' : (['off', 'on'] as const)
       .map((k) => `<button class="tg-mode" data-ghost="${k}" aria-pressed="${(k === 'on') === !!room.ghost}" ${canPick ? '' : 'disabled'}><b>${esc(RECORD_GHOST[k].name)}</b><small>${esc(RECORD_GHOST[k].blurb)}</small></button>`)
       .join('');
-    const ghostNote = gp || !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
+    const ghostNote = gp || roam || !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
     // Who's still in the garage (the host can wait for them, or not).
     const tuning = room.racers.filter((r) => r.pit && r.id !== raceNet.id).map((r) => r.name);
     const tuningLine = tuning.length ? ` ${tuning.length === 1 ? `${esc(tuning[0])} is` : `${tuning.length} racers are`} in the garage.` : '';
     const state =
       room.phase === 'lobby'
         ? isHost
-          ? `<button class="tg-go" data-start data-autofocus>${ICON.flag}${START[room.mode]}</button><span class="tg-muted">${room.racers.length < 2 ? 'Share the code, add CPU racers, or start now and race the clock.' : `${room.racers.length} racers on the grid.`}${tuningLine}</span>`
+          ? `<button class="tg-go" data-start data-autofocus>${ICON.flag}${START[room.mode]}</button><span class="tg-muted">${roam ? 'Share the code: friends can drive in any time while it’s on.' : room.racers.length < 2 ? 'Share the code, add CPU racers, or start now and race the clock.' : `${room.racers.length} racers on the grid.`}${tuningLine}</span>`
           : `<span class="tg-muted">Waiting for the host to start…</span>`
-        : room.gp
+        : roam
+          ? `<span class="tg-muted">Free roam is on. Driving in…</span>`
+          : room.gp
           ? `<span class="tg-muted">The ${esc(CUPS[room.gp.cup].name)} is under way (round ${room.gp.round + 1} of ${ROUNDS}). You'll line up for the next round.</span>`
           : `<span class="tg-muted">A race is under way. You'll line up for the next one.</span>`;
     const d = TRACK_DEFS[room.track];
@@ -140,7 +144,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
-          <div class="tg-lobby-title">${gp ? esc(CUPS[room.cup].name) : `${RACE_MODES[room.mode].name} lobby`}${room.physics ? ' · Physics' : ''}${room.ghost && !gp ? ' · Record ghost' : ''}</div>
+          <div class="tg-lobby-title">${gp ? esc(CUPS[room.cup].name) : `${RACE_MODES[room.mode].name} lobby`}${room.physics ? ' · Physics' : ''}${room.ghost && !gp && !roam ? ' · Record ghost' : ''}</div>
           <div class="tg-roomcode"><small>Race<br />code</small><b class="tg-bigcode">${esc(room.code)}</b></div>
         </header>
         <section class="tg-lobby-body${isHost ? '' : ' guest'}">
@@ -153,14 +157,14 @@ export const driveLobby: Render = (root, ctx, screen) => {
                 <h1 class="tg-display">${esc(d.name)}</h1>
                 <p>${esc(d.tag)}</p>
               </div>
-              <dl class="tg-hero-facts"><div><dt>Distance</dt><dd class="tg-num">${TRACK_LENGTH_KM[room.track]}<small>km</small></dd></div>${d.climb ? `<div><dt>Climb</dt><dd class="tg-num">${trackClimb(room.track)}<small>m</small></dd></div>` : ''}</dl>
+              <dl class="tg-hero-facts"><div><dt>${d.world ? 'Roads' : 'Distance'}</dt><dd class="tg-num">${TRACK_LENGTH_KM[room.track]}<small>km</small></dd></div>${d.climb ? `<div><dt>Climb</dt><dd class="tg-num">${trackClimb(room.track)}<small>m</small></dd></div>` : ''}</dl>
             </section>
             <h2 class="tg-h">Mode ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${modes}</div>
             ${rules}
             <h2 class="tg-h">${esc(PHYSICS.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${physics}</div>
-            ${gp ? '' : `<h2 class="tg-h">${esc(RECORD_GHOST.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
+            ${gp || roam ? '' : `<h2 class="tg-h">${esc(RECORD_GHOST.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${ghost}</div>`}
             ${ghostNote}
             ${
@@ -287,10 +291,20 @@ export const driveLobby: Render = (root, ctx, screen) => {
     view.querySelector<HTMLElement>('[data-edit]')?.focus({ preventScroll: true });
   };
 
+  /** Free roam is on and we're not out in it (we just joined): ask to drive in, once per session. */
+  let droveIn = false;
+  const driveIn = () => {
+    const room = raceNet.room;
+    if (!room || room.mode !== 'roam' || room.phase === 'lobby') return void (droveIn = false);
+    if (droveIn || (room.phase !== 'racing' && room.phase !== 'countdown') || room.racers.some((r) => r.id === raceNet.id && r.roaming)) return;
+    droveIn = true;
+    raceNet.send({ t: 'joinin' });
+  };
   const off = raceNet.on((m: RaceServerMsg) => {
     if (m.t === 'room') {
       sync();
       draw();
+      driveIn();
     }
     else if (m.t === 'load') {
       starting = true;
@@ -318,6 +332,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
   const quick = () => view.querySelector<HTMLButtonElement>('[data-start]')?.click();
   addEventListener('padstart', quick);
   draw();
+  driveIn();
   return () => {
     pitOff?.();
     pitOff = null;
