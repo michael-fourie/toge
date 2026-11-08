@@ -360,7 +360,7 @@
   }
 }
 /* Drift scoring: the live combo over the spark readout (white, not gold: points aren't money), the banked total
-   in the top bar, and a gold "+$40" off the item slot when an item pays. */
+   in the top bar. */
 .rh-combo {
   position: absolute;
   left: 50%;
@@ -421,8 +421,7 @@
 .rh.roam .rh-pos,
 .rh.roam .rh-time,
 .rh.roam .rh-board,
-.rh.roam .rh-strip,
-.rh.roam .rh-item {
+.rh.roam .rh-strip {
   display: none;
 }
 .rh-near {
@@ -469,70 +468,6 @@
 .rh-score b {
   font: 700 22px 'Barlow Condensed', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
-}
-.rh-paid {
-  position: absolute;
-  left: 366px;
-  top: 46px;
-  white-space: nowrap;
-  font: 800 22px 'Barlow Condensed', system-ui, sans-serif;
-  color: #ffc940;
-  opacity: 0;
-  pointer-events: none;
-}
-.rh-paid.rise {
-  animation: rh-paid-rise 1.2s ease-out;
-}
-@keyframes rh-paid-rise {
-  0% {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  15% {
-    opacity: 1;
-  }
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-22px);
-  }
-}
-.rh-item {
-  position: absolute;
-  /* Beside the leaderboard (top left), not over it. */
-  left: 262px;
-  top: 14px;
-  width: 92px;
-  height: 92px;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  border-radius: 18px;
-  background: rgba(8, 12, 18, 0.45);
-  border: 3px solid rgba(255, 255, 255, 0.25);
-  opacity: 0.45;
-  transition:
-    opacity 0.2s,
-    border-color 0.2s;
-}
-.rh-item.on {
-  opacity: 1;
-  border-color: #ffc940;
-  box-shadow: 0 0 18px rgba(255, 201, 64, 0.5);
-}
-.rh-item.spinning {
-  border-color: #fff;
-}
-.rh-item-icon {
-  font-size: 38px;
-  line-height: 1;
-}
-.rh-item small {
-  margin-top: 4px;
-  font: 700 11px 'Barlow', sans-serif;
-  text-align: center;
 }
 .rh-center {
   position: absolute;

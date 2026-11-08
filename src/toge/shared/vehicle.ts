@@ -154,7 +154,7 @@ export interface Car {
   drift: number;
   driftTime: number;
   driftLevel: number;
-  /** Seconds of boost left (mini-turbos, items) and how hard it pushes (m/s^2). */
+  /** Seconds of boost left (mini-turbos, boost pads, the slipstream) and how hard it pushes (m/s^2). */
   boost: number;
   boostPower: number;
   /** Slipstream (draft.ts): how strongly the car sits in another's wake (0-1, eased), seconds tucked in
@@ -175,7 +175,7 @@ export interface Car {
   /** Spinning out (hit by oil or a shockwave): seconds left, and which way. */
   spin: number;
   spinDir: number;
-  /** Props (indexes into track.props) the car went through this tick: boxes and cones. */
+  /** Props (indexes into track.props) the car went through this tick: cones. */
   touched: number[];
 }
 

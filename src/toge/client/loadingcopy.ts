@@ -12,6 +12,7 @@ export const LOADING_TIPS = [
   'Tuning is in Performance. A softer setup soaks up a bumpy road.',
   'Set a best time and your friends can see it on their Friends tab.',
   'Late on the brakes wins a corner. Early on the throttle wins the run.',
+  'Rainbow pads sit wide on a few corner exits. Run out over one to fire off it.',
 ];
 
 /** What kind of run this is, for the line beside the logo. */

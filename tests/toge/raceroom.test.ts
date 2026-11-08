@@ -72,12 +72,6 @@ test('countdown, go, relayed poses, finishes ranked by time, prizes, then back t
   // Junk poses are dropped.
   r.race.handle(c, { ...pose(1), p: [NaN, 0, 0] });
   assert.ok(!r.inbox.get(1)!.some((m) => m.t === 'snap' && m.cars.some((x) => x.id === 3)));
-  // Attack items are relayed to the others, not back to the user.
-  r.race.handle(a, { t: 'item', kind: 'oil', p: [1, 2, 3] });
-  assert.deepEqual(r.last(2, 'item'), { t: 'item', by: 1, kind: 'oil', p: [1, 2, 3] });
-  assert.ok(!r.last(1, 'item'));
-  r.race.handle(b, { t: 'item', kind: 'oil', p: [NaN, 0, 0] });
-  assert.ok(!r.inbox.get(1)!.some((m) => m.t === 'item'), 'junk is dropped');
   // Ping is answered.
   r.race.handle(a, { t: 'ping', n: 7 });
   assert.deepEqual(r.last(1, 'pong'), { t: 'pong', n: 7 });
@@ -147,7 +141,7 @@ test('late joiners wait for the next race', () => {
   assert.ok(roomMsg && roomMsg.t === 'room' && roomMsg.phase === 'racing');
 });
 
-test('time trial: only the host switches to it, it brings up the ring, has no items, and ranks every time with best laps', () => {
+test('time trial: only the host switches to it, it brings up the ring, and ranks every time with best laps', () => {
   const r = room();
   const a = r.join(1);
   const b = r.join(2);
@@ -166,9 +160,6 @@ test('time trial: only the host switches to it, it brings up the ring, has no it
   assert.ok(ld && ld.t === 'load' && ld.mode === 'trial' && ld.track === 'kodama');
   assert.equal(r.race.phase, 'countdown', 'a time trial waits for everyone to load too');
   r.advance(RACE.countdownMs + 100);
-  // Ghosts don't throw things.
-  r.race.handle(a, { t: 'item', kind: 'shock' });
-  assert.ok(!r.last(2, 'item'));
   r.advance(100_000);
   r.race.handle(c, { t: 'finish', time: 100.2, best: 32.5 });
   r.race.handle(a, { t: 'finish', time: 99.8, best: 31.9 });
@@ -207,8 +198,6 @@ test('hill climb: it runs only on the mountain, cars are solid but throw nothing
   assert.ok(ld && ld.t === 'load' && ld.mode === 'climb' && ld.track === 'karasu' && ld.rule === 'maxed');
   for (const p of PARTS) assert.equal(decodeCar(ld.cars[1])!.up[p], MAX_LEVEL, 'the car rule works like a time trial');
   r.advance(RACE.countdownMs + 100);
-  r.race.handle(a, { t: 'item', kind: 'oil', p: [0, 0, 0] });
-  assert.ok(!r.last(2, 'item'), 'no items on the hill');
   r.advance(100_000);
   r.race.handle(b, { t: 'finish', time: 140.4 });
   r.race.handle(a, { t: 'finish', time: 139.9 });
@@ -422,7 +411,7 @@ test('CPU racers: only the host adds and removes them, in the lobby; they start 
   assert.equal(r.race.members.size, RACE.maxPlayers, 'not mid-race');
 });
 
-test('CPU racers: the host drives them; poses, items and finishes are relayed and ranked, never paid', () => {
+test('CPU racers: the host drives them; poses and finishes are relayed and ranked, never paid', () => {
   const r = room();
   const a = r.join(1, true);
   const b = r.join(2, true);
@@ -442,10 +431,6 @@ test('CPU racers: the host drives them; poses, items and finishes are relayed an
   r.race.handle(a, { t: 'cpus', cars: [{ id: 2, ...pose(70) }] });
   assert.ok(!r.inbox.get(2)!.some((m) => m.t === 'snap' && m.cars.some((c) => c.s === 70)));
   assert.ok(!r.inbox.get(1)!.some((m) => m.t === 'snap' && m.cars.some((c) => c.s === 70)));
-  r.race.handle(a, { t: 'item', kind: 'shock', cpu: bot });
-  assert.deepEqual(r.last(2, 'item'), { t: 'item', by: bot, kind: 'shock' });
-  r.race.handle(b, { t: 'item', kind: 'oil', p: [0, 0, 0], cpu: bot });
-  assert.equal(r.inbox.get(1)!.filter((m) => m.t === 'item').length, 0, "a guest can't use a CPU's items");
   r.advance(60_000);
   // The CPU wins, the people follow.
   r.race.handle(b, { t: 'cpufinish', id: bot, time: 60 });

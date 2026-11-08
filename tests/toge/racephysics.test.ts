@@ -148,7 +148,10 @@ test('runoff: dirt before the barrier on the outside of fast bends and after eve
     const t = getTrack(id);
     // Some, but not so much that the rail stops mattering (a figure 8 is nearly all fast loop, built to slide wide).
     const covered = Array.from(t.runL, (l, i) => Math.max(l, t.runR[i]) > 1).filter(Boolean).length / t.n;
-    assert.ok(covered > 0.12 && covered < (t.cross ? 0.5 : 0.4), `${id}: runoff on ${(covered * 100).toFixed(0)}% of the road`);
+    // An expressway runs between its walls: its sweepers are too gentle to need any.
+    if (t.def.traffic === 'highway') continue;
+    // A road as wide as a runway (Hayate Flats) is its own runoff: only its quickest kinks get more.
+    assert.ok(covered > (t.def.width >= 20 ? 0.05 : 0.12) && covered < (t.cross ? 0.5 : 0.4), `${id}: runoff on ${(covered * 100).toFixed(0)}% of the road`);
     // Where it's wide, it's dirt you can drive on: flat road plane out to a barrier that stands back.
     let wide = 0;
     for (let i = 0; i < t.n; i++)

@@ -4,24 +4,26 @@ import { CUPS, CUP_IDS, GP_POINTS, ROUNDS, addRound, pointsFor } from '../../src
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../../src/toge/shared/track.ts';
 import { MODE_TRACK, cleanMode, recordMode } from '../../src/toge/shared/protocol.ts';
 
-test('every race track is in exactly one cup of four; the hill climb is in none', () => {
+test('every race track is in a cup of four, only the Velocity Cup borrows; the hill climb is in none', () => {
   const seen = new Map<TrackId, string>();
   for (const id of CUP_IDS) {
     const c = CUPS[id];
     assert.equal(c.id, id);
     assert.equal(c.tracks.length, ROUNDS);
+    assert.equal(new Set(c.tracks).size, ROUNDS, `${id} races four different tracks`);
     for (const t of c.tracks) {
       assert.ok(Object.hasOwn(TRACK_DEFS, t), `${id}: ${t} is a track`);
       assert.ok(!TRACK_DEFS[t].climb, `${id}: ${t} is not a hill climb`);
-      assert.ok(!seen.has(t), `${t} is in ${seen.get(t)} and ${id}`);
-      seen.set(t, id);
+      if (id !== 'velocity') assert.ok(!seen.has(t), `${t} is in ${seen.get(t)} and ${id}`);
+      if (!seen.has(t)) seen.set(t, id);
     }
   }
+  assert.deepEqual(CUPS.velocity.tracks.filter((t) => seen.get(t) === 'velocity'), ['hayate', 'ryusei'], 'the new fast roads live in Velocity');
   const races = RACE_TRACKS.filter((t) => !TRACK_DEFS[t].climb);
   assert.deepEqual(races.filter((t) => !seen.has(t)), [], 'a new race track needs a cup');
 });
 
-test('Grand Prix plays with items and keeps no best times; it opens on its first cup', () => {
+test('Grand Prix plays race rules and keeps no best times; it opens on its first cup', () => {
   assert.equal(cleanMode('gp'), false);
   assert.equal(recordMode('gp'), false);
   assert.equal(MODE_TRACK.gp, CUPS.torii.tracks[0]);

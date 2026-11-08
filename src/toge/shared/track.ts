@@ -1,3 +1,4 @@
+import { type BoostPad, placeBoosts } from './boost.ts';
 import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
 import { type World, worldSlot, worldTrack } from './world.ts';
 
@@ -14,7 +15,7 @@ import { type World, worldSlot, worldTrack } from './world.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'toge';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'toge';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -79,15 +80,15 @@ export interface TrackDef {
   tilt?: [number, number];
   /** Height of the sea or lake, if there is one (ground below it is under water). */
   water?: number;
-  /** Four lanes of two-way traffic to dodge (traffic.ts). */
-  traffic?: boolean;
+  /** Four lanes of traffic to dodge (traffic.ts): two each way in town, or all four going your way on a `highway`. */
+  traffic?: boolean | 'highway';
   /**
-   * A hill climb (the lobby's Hill climb mode): an uphill run with no item boxes, ramps or cones; boulders and
+   * A hill climb (the lobby's Hill climb mode): an uphill run with no ramps or cones; boulders and
    * rocks lie on the road's edges instead (props.ts), and the forest crowds right up to the barrier.
    */
   climb?: boolean;
   /**
-   * Clean road for time trials: no item boxes, obstacles or ramps (like a circuit), so a run is only you, the
+   * Clean road for time trials: no obstacles or ramps (like a circuit), so a run is only you, the
    * line and the clock.
    */
   clean?: boolean;
@@ -204,9 +205,11 @@ export interface Track {
   /** 1 where the road is gravel. */
   gravel: Uint8Array;
   cuts: Cut[];
-  /** Mystery boxes and obstacles (sorted by s), and launch ramps (part of the ground). */
+  /** Obstacles (sorted by s), and launch ramps (part of the ground). */
   props: Prop[];
   ramps: Ramp[];
+  /** Rainbow boost pads (boost.ts), sorted by s. */
+  boosts: BoostPad[];
   /** A figure 8's crossing, or null. */
   cross: Crossing | null;
   bounds: { x0: number; x1: number; z0: number; z1: number };
@@ -629,6 +632,65 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
     ],
     features: [{ kind: 'crest', at: 9, size: 1.6, len: 44 }],
   },
+  ryusei: {
+    id: 'ryusei',
+    name: 'Ryūsei Expressway',
+    tag: 'Night highway · four lanes of traffic · street racing',
+    blurb: 'Midnight on the bayshore expressway: four lanes all going your way, and the city is still on them. Weave the slow trucks, split the gaps at full song and hold your nerve through the long sweepers.',
+    theme: 'city',
+    seed: 977,
+    width: 16,
+    relief: 60,
+    water: 22,
+    traffic: 'highway',
+    points: [
+      [0, 42.0, 0], [0, 42.6, -105], [0, 43.2, -210], [0, 43.8, -315], [0, 44.3, -420], [1, 44.4, -450],
+      [3, 44.6, -480], [7, 44.7, -510], [12, 44.8, -539], [19, 44.9, -568], [27, 45.0, -597], [37, 45.1, -626],
+      [48, 45.2, -653], [61, 45.3, -681], [75, 45.4, -707], [90, 45.5, -733], [107, 45.5, -758], [175, 45.7, -856],
+      [244, 45.7, -955], [313, 45.6, -1053], [382, 45.3, -1151], [399, 45.2, -1177], [414, 45.1, -1203],
+      [428, 45.0, -1231], [440, 44.8, -1259], [450, 44.7, -1288], [459, 44.5, -1317], [466, 44.4, -1347],
+      [472, 44.2, -1377], [475, 44.0, -1408], [477, 43.9, -1438], [477, 43.7, -1469], [475, 43.5, -1500],
+      [472, 43.3, -1530], [466, 43.0, -1560], [459, 42.8, -1590], [432, 42.0, -1693], [404, 41.1, -1796],
+      [376, 40.1, -1899], [369, 39.8, -1930], [364, 39.5, -1961], [361, 39.2, -1992], [360, 38.9, -2023],
+      [361, 38.5, -2055], [364, 38.2, -2086], [369, 37.9, -2117], [374, 37.6, -2148], [377, 37.3, -2180],
+      [378, 37.0, -2211], [377, 36.6, -2242], [374, 36.3, -2274], [368, 36.0, -2305], [361, 35.7, -2335],
+      [328, 34.4, -2459], [295, 33.2, -2583], [262, 32.1, -2706], [229, 31.1, -2830], [196, 30.2, -2953],
+      [189, 30.0, -2983], [183, 29.9, -3012], [179, 29.7, -3042], [177, 29.5, -3072], [176, 29.4, -3102],
+      [177, 29.2, -3132], [179, 29.1, -3162], [183, 29.0, -3191], [189, 28.9, -3221], [196, 28.8, -3250],
+      [204, 28.7, -3279], [214, 28.6, -3307], [226, 28.5, -3335], [239, 28.5, -3362], [307, 28.3, -3496],
+      [375, 28.4, -3629], [387, 28.4, -3655], [399, 28.4, -3682], [409, 28.5, -3710], [417, 28.6, -3737],
+      [425, 28.6, -3765], [431, 28.7, -3794], [436, 28.8, -3823], [439, 28.9, -3851], [441, 29.0, -3880],
+      [441, 29.1, -3910], [441, 29.2, -3939], [435, 29.7, -4051], [429, 30.2, -4162], [423, 30.8, -4274],
+      [417, 31.5, -4386], [411, 32.1, -4498],
+    ],
+  },
+  hayate: {
+    id: 'hayate',
+    name: 'Hayate Flats',
+    tag: 'Desert speedway · wide open · no turn past 30°',
+    blurb: 'A road as wide as a runway across the salt flats, and nothing on it sharper than 30°. Flat out the whole way if you dare: the kinks come at over 250 km/h, and only the clean line keeps your foot down.',
+    theme: 'desert',
+    seed: 2203,
+    width: 22,
+    relief: 120,
+    clean: true,
+    points: [
+      [0, 211.7, 0], [0, 211.8, -130], [0, 209.2, -260], [0, 208.3, -390], [0, 209.4, -520], [1, 209.4, -550],
+      [4, 209.3, -580], [9, 208.8, -609], [17, 208.2, -638], [26, 207.2, -667], [70, 201.4, -789], [115, 196.7, -911],
+      [123, 196.2, -938], [128, 195.8, -966], [131, 195.6, -993], [130, 195.4, -1021], [127, 195.2, -1049],
+      [101, 192.6, -1197], [97, 191.6, -1225], [97, 190.6, -1253], [99, 189.5, -1281], [105, 188.4, -1308],
+      [113, 187.3, -1335], [155, 184.6, -1451], [198, 185.9, -1568], [240, 187.9, -1684], [283, 187.0, -1801],
+      [325, 185.1, -1918], [334, 185.0, -1945], [341, 185.0, -1972], [347, 185.2, -2000], [350, 185.5, -2029],
+      [352, 186.0, -2057], [352, 186.5, -2086], [351, 187.1, -2114], [338, 187.8, -2264], [325, 183.0, -2413],
+      [321, 181.8, -2443], [313, 180.7, -2472], [303, 179.7, -2500], [290, 178.9, -2527], [274, 178.3, -2553],
+      [208, 177.2, -2647], [142, 175.7, -2741], [76, 171.4, -2835], [10, 166.1, -2929], [-8, 165.0, -2957],
+      [-23, 164.1, -2987], [-36, 163.5, -3018], [-49, 163.3, -3049], [-64, 163.4, -3078], [-82, 163.6, -3106],
+      [-142, 164.5, -3192], [-202, 164.0, -3278], [-263, 161.9, -3364], [-323, 160.7, -3450], [-340, 160.8, -3478],
+      [-353, 161.2, -3508], [-362, 161.8, -3539], [-367, 162.5, -3571], [-376, 165.0, -3681], [-386, 165.1, -3790],
+      [-390, 164.5, -3820], [-396, 163.8, -3849], [-405, 162.9, -3878], [-417, 162.0, -3906], [-469, 159.1, -4018],
+      [-522, 158.6, -4131], [-574, 157.6, -4243], [-627, 153.0, -4355], [-679, 147.0, -4468],
+    ],
+  },
   toge: {
     id: 'toge',
     name: 'Toge',
@@ -1027,11 +1089,18 @@ export function buildTrack(def: TrackDef): Track {
     gravel,
     props: [],
     ramps: [],
+    boosts: [],
     cuts: [],
     cross,
   };
   for (const f of def.features ?? []) if (f.kind === 'cut') t.cuts.push(makeCut(t, f.s0, f.s1));
-  if (lap || def.clean) return t; // circuits and clean passes: no item boxes, obstacles or ramps
+  // Boost pads keep off jumps, tunnels and the mouths of shortcuts (props then keep off the pads).
+  t.boosts = placeBoosts(t, (s0, s1) =>
+    t.crests.some((c) => s1 > c.s - c.len - 20 && s0 < c.s + c.len + 30) ||
+    t.spans.some((sp) => sp.kind === 'tunnel' && s1 > sp.s0 - 20 && s0 < sp.s1 + 20) ||
+    t.cuts.some((c) => [c.s0, c.s1].some((e) => s1 > e - 30 && s0 < e + 30)),
+  );
+  if (lap || def.clean) return t; // circuits and clean passes: no obstacles or ramps
   const placed = placeProps(t);
   t.props = placed.props;
   t.ramps = placed.ramps;

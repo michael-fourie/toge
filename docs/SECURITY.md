@@ -69,12 +69,11 @@ player sees is decided or checked by the server; anything the server can't check
   hit checks.
 - **TŌGE solo races** are paid from what the client reports (at most once per `SOLO_GAP_MS`); online finish times are
   checked against the server's clock within a window.
-- **TŌGE drift and item bonuses** (`src/toge/shared/drift.ts`) are scored on the client, since driving is. The server
-  bounds them: online, a racer's drift total is capped at `DRIFT_MAX_RATE` × seconds since GO (only while racing,
-  never after finishing), and item uses are counted by the room itself (attack items as it relays them, turbos and
-  shields from rate-limited `used` messages, none in a time trial). Either way drifting pays at most `DRIFT.payPerKm`
-  per km of race and items at most `ITEM_PAY_CAP`, both well under a win; solo pays its usual share and is still
-  limited to one payout per `SOLO_GAP_MS`. A cheat client can max both caps, not exceed them.
+- **TŌGE drift bonus** (`src/toge/shared/drift.ts`) is scored on the client, since driving is. The server bounds it:
+  online, a racer's drift total is capped at `DRIFT_MAX_RATE` × seconds since GO (only while racing, never after
+  finishing). Either way drifting pays at most `DRIFT.payPerKm` per km of race, well under a win; solo pays its usual
+  share and is still limited to one payout per `SOLO_GAP_MS`. A cheat client can max the cap, not exceed it. (There
+  are no items any more, so nothing else in a race pays.)
 - **TŌGE best times** (`src/toge/shared/records.ts`, kept per account as `b:<user>`) never pay anything. They only
   come from online time trials and hill climbs (`recordMode`), timed by the room (within the window above, at least
   `MIN_RACE_SECONDS`), and bounded: nothing quicker than the track's length at `RECORDS.maxAvgSpeed` (90 m/s

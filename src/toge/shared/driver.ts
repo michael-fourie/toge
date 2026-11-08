@@ -8,7 +8,7 @@
 import { ARCADE, type Car, DEFAULT_ASSISTS, type DriveInput, arcadeMaxYaw, forwardSpeed, resetCar, speedOf, steerLimit } from './vehicle.ts';
 import { SAMPLE, type Track, pointAt } from './track.ts';
 import { firstPropFrom, isSolid } from './props.ts';
-import { LANES, type Obstacle } from './traffic.ts';
+import { type Obstacle, lanesOf } from './traffic.ts';
 
 const G = 9.81;
 /** Share of the tyres' peak grip that's usable mid-corner once load transfer is counted. */
@@ -110,7 +110,8 @@ function dodge(car: Car, t: Track, ai: Ai, off: number, v: number, dt: number, t
   const here = wayAhead(car, want, v, traffic);
   if (here.at === Infinity) return { off: want, follow: Infinity };
   const limit = t.half - 1.2;
-  const lines = [off, ...LANES.map((l) => l.d)].filter((d) => Math.abs(d) <= limit);
+  const lanes = lanesOf(t);
+  const lines = [off, ...lanes.map((l) => l.d)].filter((d) => Math.abs(d) <= limit);
   let best = want;
   let bestAt = here.at;
   let bestFollow = here.follow;
@@ -119,7 +120,7 @@ function dodge(car: Car, t: Track, ai: Ai, off: number, v: number, dt: number, t
   // A line past a car alongside (or about to be) can't be reached: you'd have to drive through it.
   const passable = (d: number) => wayAhead(car, d, v, traffic).at > Math.abs(d - car.d) / SWERVE + 0.8;
   for (const d of lines) {
-    if (LANES.some((l) => (l.d - car.d) * (l.d - d) < 0 && !passable(l.d))) continue;
+    if (lanes.some((l) => (l.d - car.d) * (l.d - d) < 0 && !passable(l.d))) continue;
     const w = wayAhead(car, d, v, traffic);
     if (score(d, w.at) > score(best, bestAt)) {
       best = d;

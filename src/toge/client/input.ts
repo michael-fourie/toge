@@ -4,14 +4,13 @@
 import type { DriveInput } from '../shared/vehicle.ts';
 import { BTN, type Pad, readPad } from '../../client/pad.ts';
 
-export type Action = 'camera' | 'reset' | 'pause' | 'shiftUp' | 'shiftDown' | 'item';
+export type Action = 'camera' | 'reset' | 'pause' | 'shiftUp' | 'shiftDown' | 'spectate';
 
 export const KEY_HELP: [string, string][] = [
   ['W / ↑', 'Accelerate'],
   ['S / ↓', 'Brake / reverse'],
   ['A D / ← →', 'Steer'],
   ['Space (hold)', 'Drift (let go for a boost)'],
-  ['E', 'Use item'],
   ['C', 'Camera'],
   ['V (hold)', 'Look back'],
   ['R', 'Reset to road'],
@@ -24,7 +23,6 @@ export const PAD_HELP: [string, string][] = [
   ['LT', 'Brake / reverse'],
   ['Left stick', 'Steer'],
   ['Ⓐ (hold)', 'Drift (let go for a boost)'],
-  ['Ⓧ / RB', 'Use item'],
   ['Ⓨ', 'Camera'],
   ['LB (hold)', 'Look back'],
   ['View', 'Reset to road'],
@@ -69,7 +67,7 @@ export class DriveControls {
   private down = (e: KeyboardEvent) => {
     if (e.repeat) return;
     this.keys.add(e.code);
-    const map: Record<string, Action> = { KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyE: 'item', ShiftLeft: 'shiftUp', ControlLeft: 'shiftDown' };
+    const map: Record<string, Action> = { KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyE: 'spectate', ShiftLeft: 'shiftUp', ControlLeft: 'shiftDown' };
     if (map[e.code]) this.queued.push(map[e.code]);
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   };
@@ -116,8 +114,8 @@ export class DriveControls {
         [BTN.Y, 'camera'],
         [BTN.View, 'reset'],
         [BTN.Menu, 'pause'],
-        [BTN.X, 'item'],
-        [BTN.RB, 'item'],
+        [BTN.X, 'spectate'],
+        [BTN.RB, 'spectate'],
         [BTN.Up, 'shiftUp'],
         [BTN.Down, 'shiftDown'],
       ];

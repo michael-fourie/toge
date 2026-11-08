@@ -45,7 +45,7 @@ hairpins; steering against the drift is good as it is": holding the wheel into a
 `car.tight`), building over 0.8 s to 1× more rotation and a slide held ~10° wider (about 45°), never past
 `ARCADE.maxYaw`; easing off undoes it over 0.3 s. From 80 km/h a drift comes round a hairpin in ~15 m instead of
 21 m; below ~50 km/h nothing changes (those drifts were already tight). Controller layout is the usual one: RT throttle, LT
-brake (analog, `trigger()` dead zone), Ⓐ held to drift, Ⓧ/RB item (`padPedals` in input.ts, tested in raceinput);
+brake (analog, `trigger()` dead zone), Ⓐ held to drift, Ⓧ/RB next car when spectating (`padPedals` in input.ts, tested in raceinput);
 the keyboard brake ramps in at 14/s, the throttle at 5/s.
 
 Drift bite and fast turning (2026-11-08, Michael: "the drifting is sometimes so weak it's a straight line ... turn a bit
@@ -70,7 +70,7 @@ a component or a page.
 
 - **Tracks** (`TrackId` in track.ts): passes `koripass` (alpine), `saltwind` (coast), `redmesa` (desert rally:
   gravel, crests, canyon), `tsukiyo` (night: bridge, tunnel), `momiji` (autumn), `sakura` (spring), `nagare` (Nagare Pass: alpine, 3.2 km, gentle
-  (< 6%), 8 corners, a ~1 minute run built for grinding time trials; `clean: true` = no item boxes, obstacles or ramps);
+  (< 6%), 8 corners, a ~1 minute run built for grinding time trials; `clean: true` = no obstacles or ramps);
   circuits `monza` (3 laps), `spa`, `monaco` (2 laps), `kodama` (the time trial's ring), `hachi` (Hachi-no-ji: a 1.2 km figure 8 for drifting, 3 laps,
   the first pass over the crossing on a bridge), and three original grand prix layouts (2026-11-06): `minato` (Minato
   Street: a night street circuit in the city theme round a harbour, open waterfront, big wheel), `akane` (Akane Sands:
@@ -79,16 +79,34 @@ a component or a page.
   traffic); hill climb `karasu` (Karasu Peak: uphill, 4.1 km and 336 m up, narrow, `climb: true`, only in a Hill climb lobby).
   Track `Feature`s: gravel, canyon, bridge, tunnel, crest, `cut` (a gravel shortcut through gaps in the barrier) and
   `bumps` (heaved tarmac between two control points; the grade test skips them, like crests).
+  Two speed roads (2026-11-08, Devlin: "a highway map ... like street racing" and "a wide map, where the turns are
+  like 30 degree turns maximum, a high speed map"): `ryusei` (Ryūsei Expressway: city at night, 4.7 km, 16 m wide,
+  sweepers no tighter than ~250 m, `traffic: 'highway'`: four lanes all going with the race, `HIGHWAY_LANES` in
+  traffic.ts, 61-101 km/h from the slow lane on the left to the fast one by the median, trucks mostly in the slow two;
+  walled, so no runoff; the road paint has a dashed middle) and `hayate` (Hayate Flats: desert, 4.8 km, 22 m wide,
+  `clean`, every corner ≤ 30° of heading change, the boost test checks it; the kinks come at 250+ km/h, so the line
+  across the width is the skill).
+- **No items** (2026-11-08, Devlin: "remove items from all maps"): mystery boxes, the item slot, the turbo/oil/shield/
+  shockwave/comet items, the `item`/`used` messages and the item bonus money are gone. In their place, **boost pads**
+  (boost.ts; same request: "a few mini rainbow speed boosters but it doesn't cover the whole lane and is only in
+  strategic locations"): `placeBoosts` puts 2-3 per pass or per lap (`BOOST.most`) on the outside of corner exits that
+  open onto a straight, `BOOST.w` (2.6 m) wide, at least `BOOST.gap` apart, scored by the straight after them; it
+  loosens its idea of a corner and a straight (`BOOST.tiers`) until a track has `BOOST.fewest`. A circuit's pads repeat
+  every lap. They keep off jumps, tunnels and shortcut mouths, and props keep off them. `padKick` (run in racegame.ts
+  `pickups()` for you and the AI, wheels on the road) gives `BOOST.seconds` of boost at `BOOST.accel`, never weakening
+  a stronger boost already running. Nothing on the wire: every client places the same pads. Free roam has none (`boosts: []` in world.ts). propview.ts draws them
+  as one unlit rainbow mesh with chevrons that scroll forward (brighter than white, so they bloom at night).
 - **Grand Prix cups** (cups.ts; Michael asked for "4 set maps, each group of 4 a cup like Mario Kart", 2026-11-08): `CUPS`
-  puts every race track in exactly one cup of four, raced in order: Torii (nagare, sakura, momiji, koripass), Mirage
-  (saltwind, kazeoka, redmesa, akane), Lantern (minato, monaco, neonbay, tsukiyo) and Apex (kodama, hachi, spa, monza).
+  puts every race track in a cup of four, raced in order: Torii (nagare, sakura, momiji, koripass), Mirage
+  (saltwind, kazeoka, redmesa, akane), Lantern (minato, monaco, neonbay, tsukiyo), Apex (kodama, hachi, spa, monza) and
+  Velocity (hayate, neonbay, monza, ryusei: the two speed roads plus two fast favourites; the only cup that borrows).
   Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
   more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
-  test checks every one is in exactly one); a fifth cup is an append to `CupId` / `CUPS`.
+  test checks every one is in one, and only Velocity repeats a track); a new cup is an append to `CupId` / `CUPS`.
   Solo: the Race page's cup cards start round 1 (`DriveOpts.gp`, at least 3 rivals); racegame.ts `soloCup` adds the
   places to the table (you are key `me`, rivals by name: the same every round) and Next race hands `onNext` the next
   round, so each round is a fresh RaceGame with its own loading screen. Every round pays like a solo race.
-  Online: mode `gp` (race rules, items on; `cleanMode` / `recordMode` false; no record ghost). The host picks a cup
+  Online: mode `gp` (race rules; `cleanMode` / `recordMode` false; no record ghost). The host picks a cup
   (`{t:'cup'}`, lobby only; `track` is ignored); `start` from the lobby begins round 1 (`nextRound()` in race.ts). The room
   keeps `gp` (cup, round, table keyed by racer id) and puts it on `load` and `results`; CPU racers still out when the
   people are home are placed by distance (they score, never get paid). After a round's results
@@ -103,7 +121,7 @@ a component or a page.
   everyone spawns), Tōge Pass (hairpins and bumps up to the summit loop and lookout), the Kita Descent (crests and
   bumps), a country road, and the Old Airfield (a 1.5 km runway with kickers at its end). It is not a race track:
   `RACE_TRACKS` (track.ts) leaves it out of every race list, cup, record and solo pick; `modeTracks('roam')` is only it.
-  **Free roam** (`roam` in RaceMode, hosting only): no countdown (`countdown` ms 0), no finish, items, prizes, CPU racers
+  **Free roam** (`roam` in RaceMode, hosting only): no countdown (`countdown` ms 0), no finish, prizes, CPU racers
   or record ghost; it runs until the host's pause menu sends `end` (everyone back to the lobby). Someone who joins while
   it's on sends `joinin` from the lobby and gets a `load` with the next slot at the meet; `Racer.roaming` tells the others
   to put their car on the road. The pause menu teleports to the meet, the summit lookout or the airfield; R (reset) and
@@ -169,8 +187,8 @@ a component or a page.
   items on, puts the stage up, dresses your own driver); the creator shows pass pieces locked with their tier.
   New season: new items (append only, `PASS` in their cases list), new `TIERS`; keep `tests/toge/pass.test.ts` green.
 - **Best times** (records.ts): every racer's quickest finish per track (`Bests`), whatever the car, but only from
-  item-free modes: `recordMode()` in protocol.ts (time trial, hill climb). Races, online or solo, never count, since
-  items make their times unbeatable in a trial (Michael, 2026-11-06). Accounts' live on the server (`b:<user>`,
+  record modes: `recordMode()` in protocol.ts (time trial, hill climb). Races, online or solo, never count (Michael,
+  2026-11-06, when races still had items; they still have drafting and bumping). Accounts' live on the server (`b:<user>`,
   toge/server/recordStore.ts): finishes go in from the room's results (`Accounts.raceTime`, only when `onResults`'
   `mode` is a record mode; then the room sends `records` so every client marks the new bests). Solo runs keep no
   time. Bests set before this rule on Kōri Pass, Saltwind and Red Mesa are wiped with `POST /api/admin/clear-race-records` (Accounts.clearRaceRecords,
@@ -197,7 +215,7 @@ a component or a page.
   to yours with the gap. Guests see a sign-in prompt and their own times.
 - **Solo**: 0/3/5/7 AI rivals (hub.ts, saved as `atrous.rivals`) picked near your PI with your upgrades; you start mid-pack.
 - **Online**: Directory instance `"race"`, sockets `/ws?game=race`, up to `RACE.maxPlayers` (8).
-- **CPU racers online** (`CPU` in protocol.ts): the host adds them in the lobby's first open slot (`cpu` add/remove, lobby only). The room keeps them as members with negative ids and a dead socket, ready from the start; the host's racegame.ts drives them as `rivals` (`netId`, the solo AI; the room picks `rivalCar` / `rivalRider` against the host's), sends their poses in one `cpus` message (relayed as one `snap`), their items with `cpu`, and `cpufinish` / `cpuwreck` on its own `clock`. Everyone else sees them as remotes. They give up a seat to a person who joins a full lobby, leave with a host who quits mid-race, are DNF if the people are all home first, and are never paid: people get max(the prize among the people alone, the solo-share prize for the whole field). A win only counts against another person.
+- **CPU racers online** (`CPU` in protocol.ts): the host adds them in the lobby's first open slot (`cpu` add/remove, lobby only). The room keeps them as members with negative ids and a dead socket, ready from the start; the host's racegame.ts drives them as `rivals` (`netId`, the solo AI; the room picks `rivalCar` / `rivalRider` against the host's), sends their poses in one `cpus` message (relayed as one `snap`), and `cpufinish` / `cpuwreck` on its own `clock`. Everyone else sees them as remotes. They give up a seat to a person who joins a full lobby, leave with a host who quits mid-race, are DNF if the people are all home first, and are never paid: people get max(the prize among the people alone, the solo-share prize for the whole field). A win only counts against another person.
 
 ## Files
 
@@ -230,7 +248,8 @@ src/toge/shared/
                Lap races pass laps × lap length + distance into the lap as `progress`.
   driver.ts    AI: pure pursuit on a corner-cutting line; target speed from the tightest bend in braking range; picks a
                clear lane round city traffic.
-  traffic.ts   city traffic (tracks with `traffic: true`): four lanes, two each way, every car's place a pure function
+  traffic.ts   traffic (tracks with `traffic`): four lanes, two each way (`LANES`), or on a `'highway'` all four with the
+               race (`HIGHWAY_LANES`; `lanesOf`, which the AI's dodging reads too), every car's place a pure function
                of the race clock (seconds since GO), so it's identical for every racer with nothing on the wire.
                collideTraffic bumps a car off it; trafficview.ts draws it (instanced, lamps that bloom).
   world.ts     the open world (Toge, free roam): terrain, the road layout, the ground (worldHeight / worldGround /
@@ -238,10 +257,9 @@ src/toge/shared/
                (the world as a Track) and respawnAt. See Content above.
   worldtraffic.ts  the open world's traffic: routePose on the wall clock (roamClock), collideWorldTraffic, near misses.
   drift.ts     drift scoring (the meter: slides score by speed × slip angle, linked slides build a ×4 combo that banks
-               after DRIFT.chainGap, a crash or spin loses it) and the bonus money for drifting and item use (`driftPay`,
-               `itemPay`, caps). garage.ts `raceBonus` adds it to every prize, solo and online; the server clamps it.
-  powerups.ts  items from mystery boxes (`Item`: turbo/triple/oil/shield/shock/comet), `POWER` tuning, `rollItem` with
-               catch-up odds; oil/shock/comet are relayed as the `item` message.
+               after DRIFT.chainGap, a crash or spin loses it) and the bonus money for drifting (`driftPay`, capped
+               per km). garage.ts `raceBonus` adds it to every prize, solo and online; the server clamps it.
+  boost.ts     rainbow boost pads: BOOST tuning, placeBoosts (corner exits onto straights, see Content), onBoostPad, padKick.
   draft.ts     slipstreaming: `wakeOf` (a cone up to `DRAFT.range` behind any car going your way at speed), `stepDraft`
                (eases `car.draft`, which cuts aero drag and pulls you on the gas in vehicle.ts; tucked in for `DRAFT.charge`
                s arms a slingshot that fires as a short boost when you pull out). Run per tick in racegame.ts `slipstream()`
@@ -254,10 +272,10 @@ src/toge/shared/
                toge/client/damageview.ts draws it: CarDents (moves the body's own vertices, flat normals in the creases),
                Blasts (fireball, black cloud, instanced debris, a flash light that only exists with the mode on).
                A damaged car doesn't smoke: the engine plume hid the road.
-  props.ts     seeded track props (`placeProps`): mystery boxes, ramps, bales, barrels, cones. Not on circuits; Neon Bay
-               gets boxes only. A `climb` track gets rockfall instead (`placeRockfall`): boulders and rocks, each its own
+  props.ts     seeded track props (`placeProps`): ramps, bales, barrels, cones. Not on circuits, clean passes or traffic
+               tracks. A `climb` track gets rockfall instead (`placeRockfall`): boulders and rocks, each its own
                radius, bitten into the road's edges, always leaving `ROCKFALL_GAP` of clear tarmac; solid, and the AI
-               steers round them by their radius. toge/client/propview.ts draws props, oil slicks, the shield bubble.
+               steers round them by their radius. toge/client/propview.ts draws props and the boost pads.
   ghost.ts     record ghosts: GhostRecorder, the tape encoding, cleanTape / cleanRun, unpack + poseAt (playback).
   records.ts   best times: Bests per track, recordTime (keeps a time only if it beats the old one and is plausible: cleanTime,
                minTime), cleanBests, the all-time boards (BoardRow, BOARD, cleanBoard, placeOnBoard), and
@@ -274,7 +292,7 @@ src/toge/shared/
                winRate, cardBests (the newest few of your best times from records.ts).
   cups.ts      Grand Prix cups (CUPS: four tracks each), GP_POINTS, addRound / rankCup (the cup table).
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
-               climb / Grand Prix), ghostMode (time trial only), cleanMode (no items + car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
+               climb / Grand Prix), ghostMode (time trial only), cleanMode (the host's car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`), recordStore.ts (accounts' best times, `b:<user>`, and the all-time boards, `lb:<track>`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.
@@ -311,7 +329,7 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   styled by hub.css), lobby.ts (`drivelobby`; its Your car card switches cars, and Edit car mounts the garage over the lobby with `pitGarage(root, ctx, { close })`: hub.ts with a `Pit`, only the car and driver tabs, a lobby strip in the top bar; the room shows `Racer.pit` as a Garage tag, and the lobby re-sends your car and driver whenever the room's copy is stale), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
-  garageStore.ts, racenet.ts, race.css, propview.ts (props, oil slicks, shield bubble), trafficview.ts (instanced city traffic),
+  garageStore.ts, racenet.ts, race.css, propview.ts (props, boost pads), trafficview.ts (instanced city traffic),
   worldview.ts (the open world's scene; shares trackview.ts `atmosphere()` for sky, sun and fog), worldtrafficview.ts
   (its traffic: the Pebble model baked into one instanced mesh per material, painted per car).
 src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/B/LB/RB) and for driving (readPad, padAxis, rumble).
@@ -358,12 +376,12 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   brighter hemisphere fill (`LOW_FILL`) for the lost environment light, and a 60 fps cap (30 in the showroom). Measured on
   Kori Pass at 1440×900 @2x: 834 → 540 draw calls, 1.7 M → 1.0 M triangles, ~9× less GPU time per frame. Switching
   rebuilds the showroom on a fresh canvas.
-- Never add or remove a light mid-race: three.js recompiles every lit shader when the light count changes (a multi-second freeze). Keep the light in the scene from the start and change its intensity (see the comet light in racegame.ts).
+- Never add or remove a light mid-race: three.js recompiles every lit shader when the light count changes (a multi-second freeze). Keep the light in the scene from the start and change its intensity (see the brake glow and headlights in racegame.ts `headlights()`).
 - Online start: `start` sends `load`; each client builds the track, draws its first frames (shader compiles) and says `ready`. The room counts down (`countdown`, RACE.countdownMs) once every racer is ready, or after RACE.loadTimeoutMs without the stragglers; a straggler who loads later is sent the time left, or `go` at once. Until the countdown, cars sit `held` on the grid (racegame.ts) with a "Waiting for racers" banner. Race and Time trial both work this way.
 - Driving is client-authoritative like the shooter; the server times the race, sanity-checks finish times and pays signed-in racers (guests credit themselves from `results`).
 - Rerace (Race again): solo results restart the race in place (`restart()`); online, the host's results have Rerace, which sends `start` straight from the `results` phase (the room allows it there as well as in the lobby). Racers still on their results get `load` in racegame.ts and hand over to the next race (`onNext` → `drive(roomRace(m), true)`, no extra history entry); `roomRace()` (racenet.ts) is the one place a `load` becomes drive options, for the lobby too. Without it, results go back to the lobby after `RACE.resultsSeconds`.
 - Pause menu (`pause()` in racegame.ts): Restart at the top, then Resume, Settings and Quit/Leave. Settings is a second page of the same panel (camera, volume, ABS, TCS, steering assist, handling, gearbox, Back); put new in-race options there, not on the main page. Restart is solo `restart()`; online only the host sees it, and it sends `start` mid-race (the room accepts the host's `start` in every phase but `loading`), which drops the race unpaid and sends everyone a `load`. racegame.ts hands over on `load` in any phase, not only on the results.
-- **Drift and item bonus:** racegame.ts runs your `DriftMeter` each tick (the HUD shows the live combo over the spark readout and the banked total in the top bar) and counts your item uses (a gold `+$` pops by the item slot). Online it sends `drift` (the total) as each combo banks and before `finish`, and `used` for turbos and shields; the room counts relayed attack items itself, caps drift by its own clock, and puts `drift` + `bonus` on each `ResultRow` (`prize` includes the bonus). Solo sends `drift` + `uses` with the `solo` action. Time trials pay drift but not items. Limits are in docs/SECURITY.md.
+- **Drift bonus:** racegame.ts runs your `DriftMeter` each tick (the HUD shows the live combo over the spark readout and the banked total in the top bar). Online it sends `drift` (the total) as each combo banks and before `finish`; the room caps it by its own clock and puts `drift` + `bonus` on each `ResultRow` (`prize` includes the bonus). Solo sends `drift` with the `solo` action. Limits are in docs/SECURITY.md.
 - A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts. A time-trial pass gets `clean: true` (no props; the `clean passes` test also holds it under 7%).
 - Circuits (`laps` on the TrackDef: Monza, Spa, Monaco, Minato, Akane, Kazeoka, Kodama, Hachi) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
 - **Figure 8** (`overpass: <rise m>` on a circuit's TrackDef, Hachi-no-ji): `crossing()` in track.ts finds where the lap
@@ -375,9 +393,9 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   there, `groundBelow(t, x, z, y)` is for things with no hint (wreck debris). trackview.ts `overpass()` draws the deck and
   its piers (kept clear of the lower road). Cars on the two levels never collide (collideCars checks height). The leg
   spacing test skips the crossing; `figure 8` in racephysics tests the bridge. Put the start line well clear of the bridge.
-- Time trial (`mode: 'trial'` on the room, picked by the host in the lobby; switching to it puts up Kodama Ring, the short circuit built for it): the other racers' cars are see-through ghosts (`ghostly()` in carmodel.ts) and never collide, there are no item boxes and the server drops `item` messages. Clients send their best lap with `finish` (shown only, never paid on); the results add each racer's gap to the winner and best lap.
+- Time trial (`mode: 'trial'` on the room, picked by the host in the lobby; switching to it puts up Kodama Ring, the short circuit built for it): the other racers' cars are see-through ghosts (`ghostly()` in carmodel.ts) and never collide. Clients send their best lap with `finish` (shown only, never paid on); the results add each racer's gap to the winner and best lap.
 - Hill climb (`mode: 'climb'`): solid cars (you bump and draft each other, and take damage with Physics on), but like the
-  time trial no items and the host's car rule (`cleanMode()`), run only on `climb` tracks (`modeTracks`; the server ignores any other pick, and leaving the mode puts Kōri
+  time trial the host's car rule (`cleanMode()`), run only on `climb` tracks (`modeTracks`; the server ignores any other pick, and leaving the mode puts Kōri
   Pass back up). One map so far, Karasu Peak: bumpy forest climb, a hairpin ladder up the face, a crest, a gravel shelf,
   rockfall, a twisty last kilometre to the summit. Its forest grows right up to the barrier (`climb` in trackview.ts
   `scatter`). Not in the solo list (`TRACK_IDS` in trackart.ts leaves climb tracks out). A second hill climb = another
@@ -416,6 +434,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in toge/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `garage` (incl. item odds), `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

@@ -1,5 +1,5 @@
 // The Leaderboard page (Race tab; hub.ts hosts it): every track's all-time board, one time per racer (their best
-// there), from `/api/leaderboard`. Only accounts are on it, and only times the server timed in an item-free mode (a time
+// there), from `/api/leaderboard`. Only accounts are on it, and only times the server timed in a record mode (a time
 // trial, or a hill climb on its roads: recordMode; never a race or a solo run). records.ts, toge/server/recordStore.ts;
 // guests' times stay in their browser. See src/toge/DESIGN.md.
 

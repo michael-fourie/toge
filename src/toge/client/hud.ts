@@ -1,6 +1,6 @@
 // The race HUD (DOM + two small canvases): position and timer, the live leaderboard (top left), name tags
 // over the other cars, a vertical "descent" strip with every racer's progress, a heading-up minimap, the tachometer with gear and speed, assist lights, the countdown,
-// the drift combo and score, item payouts, banners, and the pause and results panels (gamepad-navigable: they're nav scopes).
+// the drift combo and score, banners, and the pause and results panels (gamepad-navigable: they're nav scopes).
 
 import { PAINTS, decodeCar, CARS } from '../shared/cars.ts';
 import { TRACK_DEFS, type Track } from '../shared/track.ts';
@@ -65,8 +65,6 @@ export interface HudState {
   draft: number;
   charge: number;
   sling: boolean;
-  /** The item slot: what you hold (or the roulette spinning), or null. */
-  item: { icon: string; name: string; spinning: boolean } | null;
   heading: number; // yaw
   /** Physics mode: your car's damage (null when the mode is off). */
   damage: Damage | null;
@@ -87,9 +85,9 @@ export interface ResultLine {
   me: boolean;
   /** A CPU racer in an online lobby. */
   cpu?: boolean;
-  /** Drift points, and the money drifting and items added to `prize`, when known. */
+  /** Drift points, and the money drifting added to `prize`, when known. */
   drift?: number;
-  bonus?: { drift: number; items: number };
+  bonus?: { drift: number };
   /** This finish was the racer's new best on the track (known for you, and for signed-in rivals online). */
   newBest?: NewBest | null;
 }
@@ -155,8 +153,6 @@ export class RaceHud {
       <div class="rh-near" data-el="near" aria-live="off"><span>Near miss</span><b data-el="nearNum"></b></div>
       <div class="rh-combo" data-el="combo" aria-live="off"><b data-el="comboNum"></b><span data-el="comboMult"></span></div>
       <div class="rh-drift" data-el="drift"></div>
-      <div class="rh-item" data-el="item"><span class="rh-item-icon" data-el="itemIcon"></span><small data-el="itemName"></small></div>
-      <div class="rh-paid" data-el="paid" aria-hidden="true"></div>
       <div class="rh-center" data-el="center"></div>
       <div class="rh-banner" data-el="banner"></div>
       <div class="rh-watch" data-el="watch"></div>
@@ -236,16 +232,6 @@ export class RaceHud {
     }, 1300);
   }
 
-  /** Money just earned (an item use): a gold "+$40" rising off the item slot. */
-  paid(amount: number) {
-    if (amount <= 0) return;
-    const e = this.el.paid;
-    e.textContent = `+${money(amount)}`;
-    e.classList.remove('rise');
-    void e.offsetWidth;
-    e.classList.add('rise');
-  }
-
   /** The spectating line after you finish online: who's being followed and the key for the next. Empty hides it. */
   watching(who: string, hint: string) {
     this.el.watch.innerHTML = `${who ? `<b>${esc(who)}</b>` : ''}${hint ? `<small>${esc(hint)}</small>` : ''}`;
@@ -272,12 +258,6 @@ export class RaceHud {
     d.dataset.level = h.boost ? 'boost' : drafting ? (h.charge >= 1 ? 'ready' : 'draft') : String(h.drift);
     d.style.setProperty('--charge', drafting ? h.charge.toFixed(2) : '0');
     this.el.wind.style.opacity = h.draft > 0.05 ? Math.min(1, h.draft * 1.2).toFixed(2) : '0';
-    this.el.item.classList.toggle('on', !!h.item);
-    this.el.item.classList.toggle('spinning', !!h.item?.spinning);
-    const icon = h.item?.icon ?? '';
-    if (this.el.itemIcon.textContent !== icon) this.el.itemIcon.textContent = icon;
-    const name = h.item?.name ?? '';
-    if (this.el.itemName.textContent !== name) this.el.itemName.textContent = name;
     this.updateCombo(h);
     this.drawDamage(h.damage);
     this.drawTach(h);
