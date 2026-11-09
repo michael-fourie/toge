@@ -24,8 +24,8 @@ export const CUPS: Record<CupId, CupDef> = {
   mirage: { id: 'mirage', name: 'Mirage Cup', tag: 'Sea cliffs, dunes and red desert', color: '#f5a524', tracks: ['saltwind', 'kazeoka', 'redmesa', 'akane'] },
   lantern: { id: 'lantern', name: 'Lantern Cup', tag: 'Harbour streets and roads after dark', color: '#8e6bff', tracks: ['minato', 'monaco', 'neonbay', 'tsukiyo'] },
   apex: { id: 'apex', name: 'Apex Cup', tag: 'Four grand circuits, lap after lap', color: '#22c3e6', tracks: ['kodama', 'hachi', 'spa', 'monza'] },
-  // The fast roads: the two built for speed, with two favourites from the other cups between them.
-  velocity: { id: 'velocity', name: 'Velocity Cup', tag: 'Flat out: salt flats, harbour streets, the expressway', color: '#3ddc84', tracks: ['hayate', 'neonbay', 'monza', 'ryusei'] },
+  // The fast roads: the three built for speed, with Monza (from the Apex Cup) between them.
+  velocity: { id: 'velocity', name: 'Velocity Cup', tag: 'Flat out: salt flats, the Sea-to-Sky, the expressway', color: '#3ddc84', tracks: ['hayate', 'seatosky', 'monza', 'ryusei'] },
 };
 export const CUP_IDS = Object.keys(CUPS) as CupId[];
 export const ROUNDS = 4;

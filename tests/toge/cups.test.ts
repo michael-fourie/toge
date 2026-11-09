@@ -18,7 +18,7 @@ test('every race track is in a cup of four, only the Velocity Cup borrows; the h
       if (!seen.has(t)) seen.set(t, id);
     }
   }
-  assert.deepEqual(CUPS.velocity.tracks.filter((t) => seen.get(t) === 'velocity'), ['hayate', 'ryusei'], 'the new fast roads live in Velocity');
+  assert.deepEqual(CUPS.velocity.tracks.filter((t) => seen.get(t) === 'velocity'), ['hayate', 'seatosky', 'ryusei'], 'the new fast roads live in Velocity');
   const races = RACE_TRACKS.filter((t) => !TRACK_DEFS[t].climb);
   assert.deepEqual(races.filter((t) => !seen.has(t)), [], 'a new race track needs a cup');
 });

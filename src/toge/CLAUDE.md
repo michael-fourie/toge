@@ -91,6 +91,13 @@ a component or a page.
   gap between two lanes as a line (`SPLIT_CLEAR`, tighter than `CLEAR`): without it CPUs sat behind traffic and took
   97-209 s instead of ~76-80 s. At 250 km/h they don't hold the gap's exact middle, so they brush a car now and then;
   the traffic test (racephysics) drives every car through Neon Bay, Ryūsei and Hayate.
+  A third, `seatosky` (Sea-to-Sky, 2026-11-08, Andrew: "a map modeled after HWY99 in British Columbia, going from end of
+  West Van towards Whistler ... high average speed ... wider corners, but stronger turns where necessary"): alpine,
+  5.7 km, 15 m wide, `clean`, no traffic, Howe Sound on the left (`water` 4, `tilt` leaning the land down into it).
+  Horseshoe Bay, the cliff sweepers, Lions Bay's bluff, the run down past Britannia to the Squamish flats, the
+  Cheakamus canyon climb, Daisy Lake, Whistler. Every corner is a 210-430 m sweeper except three you brake for
+  (Lions Bay, the canyon pair: 54-71°, ~155-175 m); the boost test holds it to that. It was laid out as straights
+  and arcs with a small generator (radius + angle per corner, elevation keys by distance) rather than by hand.
 - **No items** (2026-11-08, Devlin: "remove items from all maps"): mystery boxes, the item slot, the turbo/oil/shield/
   shockwave/comet items, the `item`/`used` messages and the item bonus money are gone. In their place, **boost pads**
   (boost.ts; same request: "a few mini rainbow speed boosters but it doesn't cover the whole lane and is only in
@@ -104,7 +111,7 @@ a component or a page.
 - **Grand Prix cups** (cups.ts; Michael asked for "4 set maps, each group of 4 a cup like Mario Kart", 2026-11-08): `CUPS`
   puts every race track in a cup of four, raced in order: Torii (nagare, sakura, momiji, koripass), Mirage
   (saltwind, kazeoka, redmesa, akane), Lantern (minato, monaco, neonbay, tsukiyo), Apex (kodama, hachi, spa, monza) and
-  Velocity (hayate, neonbay, monza, ryusei: the two speed roads plus two fast favourites; the only cup that borrows).
+  Velocity (hayate, seatosky, monza, ryusei: the three speed roads plus Monza; the only cup that borrows).
   Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
   more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
   test checks every one is in one, and only Velocity repeats a track); a new cup is an append to `CupId` / `CUPS`.
