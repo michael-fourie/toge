@@ -140,3 +140,33 @@ test('Hayate Flats has highway traffic too, its four lanes spread across the wid
   for (let lane = 0; lane < 4; lane++) assert.ok(tr.cars.filter((c) => c.lane === lane).length > 10, `lane ${lane} has traffic`);
   assert.equal(t.props.length, 0, 'still no obstacles');
 });
+
+test('Sea-to-Sky: wide sweepers, and only three corners tight enough to brake for', () => {
+  const t = getTrack('seatosky');
+  assert.ok(t.def.width >= 14 && t.def.clean);
+  // Every corner: how far it turns and its tightest radius.
+  const corners: { deg: number; r: number }[] = [];
+  let run = 0;
+  let sign = 0;
+  let peak = 0;
+  for (let i = Math.floor(t.startS / SAMPLE); i < t.finishS / SAMPLE; i++) {
+    const c = t.curv[i];
+    if (Math.abs(c) > 1 / 1500 && (run === 0 || Math.sign(c) === sign)) {
+      run += c * SAMPLE;
+      sign = Math.sign(c);
+      peak = Math.max(peak, Math.abs(c));
+    } else if (run) {
+      corners.push({ deg: Math.abs((run * 180) / Math.PI), r: 1 / peak });
+      run = 0;
+      sign = 0;
+      peak = 0;
+    }
+  }
+  const real = corners.filter((c) => c.deg > 8);
+  assert.ok(real.length >= 12, `a road of bends (${real.length})`);
+  assert.ok(real.every((c) => c.r > 140), 'nothing tighter than 140 m');
+  const tight = real.filter((c) => c.r < 200);
+  assert.equal(tight.length, 3, 'Lions Bay and the two canyon corners');
+  assert.ok(tight.every((c) => c.deg > 50), 'the tight ones are the big turns');
+  assert.ok(real.filter((c) => c.r >= 200).every((c) => c.deg < 50), 'everything else is a sweeper');
+});

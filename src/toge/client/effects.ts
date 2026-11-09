@@ -147,8 +147,11 @@ export class Effects {
     this.sFade[i] = 0.6;
   }
 
-  /** A short-lived glowing particle: drift sparks, boost flames. */
-  spark(x: number, y: number, z: number, vx: number, vy: number, vz: number, color: number[], life: number, size: number) {
+  /**
+   * A short-lived glowing particle: drift sparks, boost flames. `glow` 1 is a white-hot core six times brighter
+   * than white (it blooms hard); lower keeps more of the particle's own colour and less of the flare.
+   */
+  spark(x: number, y: number, z: number, vx: number, vy: number, vz: number, color: number[], life: number, size: number, glow = 1) {
     const i = this.next;
     this.next = (this.next + 1) % SMOKE_MAX;
     this.sp.set([x, y, z], i * 3);
@@ -157,7 +160,7 @@ export class Effects {
     this.sLife[i] = life;
     this.sCol.set(color, i * 3);
     this.sAlpha[i] = 1;
-    this.sGlow[i] = 1;
+    this.sGlow[i] = glow;
     this.sBase[i] = size;
     this.sGrow[i] = -size * 0.8;
     this.sFade[i] = 2;

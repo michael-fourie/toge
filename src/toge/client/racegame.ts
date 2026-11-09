@@ -91,6 +91,27 @@ const SPARK_COLORS = [
   [1, 0.55, 0.15],
   [0.8, 0.4, 1],
 ];
+/**
+ * The exhaust flame while boosting (2026-11-08, Andrew: the boosting cars' "really bright rear lights"). It used to be
+ * 3 full-glow sparks a frame (~100 alive at once at 144 fps), which bloomed into one white blob behind every car.
+ * Now a steady trickle per second whatever the frame rate, small, short and mostly its own colour: a blue jet at
+ * the pipe with an orange lick, which still glows a little at night.
+ */
+const FLAME = {
+  /** Particles per second per car. */
+  rate: 70,
+  life: 0.12,
+  size: 0.3,
+  /** Share of the car's velocity the flame keeps, so it trails close behind the pipe as one jet. */
+  carry: 0.88,
+  /** Share of the white-hot spark core (effects.ts `spark`). */
+  glow: 0.22,
+  colors: [
+    [0.3, 0.5, 1],
+    [0.45, 0.62, 1],
+    [0.95, 0.45, 0.12],
+  ],
+};
 const SOLO_COUNTDOWN = 3.5;
 /** Past this (m) a driver isn't drawn: they're ~30k triangles, and through tinted glass gone after a few car lengths. */
 const DRIVER_RANGE = 70;
@@ -1375,7 +1396,7 @@ export class RaceGame {
       (c.c.f & CarFlag.Brake) !== 0,
       c.c.w * Math.hypot(g.v.x, g.v.z),
     );
-    this.driftFx(r.model.root, sp.axleR, sp.bike ? 0 : sp.track, sp.cg, (c.c.f & CarFlag.Drift) !== 0, (c.c.f >> CarFlag.LevelShift) & 3, (c.c.f & CarFlag.Boost) !== 0, g.v.x, g.v.z);
+    this.driftFx(r.model.root, sp.axleR, sp.bike ? 0 : sp.track, sp.cg, (c.c.f & CarFlag.Drift) !== 0, (c.c.f >> CarFlag.LevelShift) & 3, (c.c.f & CarFlag.Boost) !== 0, g.v.x, g.v.z, dt);
     if (c.c.f & CarFlag.Skid && this.puffTick % 3 === 0) this.fx.puff(p.x, p.y - sp.cg, p.z, g.v.x, g.v.z, 0.6, (c.c.f & CarFlag.Offroad) !== 0);
   }
 
@@ -1385,7 +1406,7 @@ export class RaceGame {
     this.puffTick++;
     for (const r of [me, ...this.rivals]) {
       this.poseLocal(r, alpha);
-      this.tyreEffects(r, r === me ? 0 : 1 + this.rivals.indexOf(r));
+      this.tyreEffects(r, r === me ? 0 : 1 + this.rivals.indexOf(r), dt);
     }
     if (this.watching === null) this.windFx(me.car, me.model.root);
     for (const r of this.remotes.values()) {
@@ -1409,7 +1430,7 @@ export class RaceGame {
     this.post.render(now);
   }
 
-  private tyreEffects(r: Racing, idx: number) {
+  private tyreEffects(r: Racing, idx: number, dt: number) {
     const c = r.car;
     const sp = speedOf(c);
     const root = r.model.root;
@@ -1428,7 +1449,7 @@ export class RaceGame {
       this.fx.mark(idx * 4 + i, wp.x, wp.y, wp.z, rx, rz, 0.22, marking ? Math.min(1, (w.slip - 1.2) * 1.2) : 0);
       if ((smoking && this.puffTick % 3 === 0) || (dirt && this.puffTick % 4 === 0)) this.fx.puff(wp.x, wp.y, wp.z, c.v.x, c.v.z, Math.min(1.5, w.slip - 1.5), dirt);
     });
-    this.driftFx(root, c.spec.axleR, bike ? 0 : c.spec.track, c.spec.cg, c.drift !== 0, c.driftLevel, c.boost > 0, c.v.x, c.v.z);
+    this.driftFx(root, c.spec.axleR, bike ? 0 : c.spec.track, c.spec.cg, c.drift !== 0, c.driftLevel, c.boost > 0, c.v.x, c.v.z, dt);
   }
 
   /** In a slipstream: faint air streaming past your car, thicker the deeper you're tucked in. */
@@ -1448,7 +1469,7 @@ export class RaceGame {
   }
 
   /** Sparks off the rear wheels while drifting (coloured by the level earned), flames from the exhaust while boosting. */
-  private driftFx(root: THREE.Object3D, axleR: number, track: number, cg: number, drifting: boolean, level: number, boosting: boolean, vx: number, vz: number) {
+  private driftFx(root: THREE.Object3D, axleR: number, track: number, cg: number, drifting: boolean, level: number, boosting: boolean, vx: number, vz: number, dt: number) {
     if (drifting && this.puffTick % 2 === 0) {
       const color = SPARK_COLORS[level];
       for (const side of [-0.5, 0.5]) {
@@ -1458,7 +1479,11 @@ export class RaceGame {
     }
     if (boosting) {
       const p = new THREE.Vector3(0, 0.35 - cg, axleR + 1.2).applyMatrix4(root.matrixWorld);
-      for (let k = 0; k < 3; k++) this.fx.spark(p.x, p.y, p.z, vx * 0.6 + (Math.random() - 0.5), (Math.random() - 0.3) * 1.2, vz * 0.6 + (Math.random() - 0.5), Math.random() < 0.5 ? [1, 0.55, 0.15] : [0.4, 0.75, 1], 0.25, 0.9);
+      const n = Math.floor(dt * FLAME.rate + Math.random());
+      for (let k = 0; k < n; k++) {
+        const color = FLAME.colors[Math.floor(Math.random() * FLAME.colors.length)];
+        this.fx.spark(p.x, p.y, p.z, vx * FLAME.carry + (Math.random() - 0.5) * 0.6, (Math.random() - 0.3) * 0.5, vz * FLAME.carry + (Math.random() - 0.5) * 0.6, color, FLAME.life, FLAME.size, FLAME.glow);
+      }
     }
   }
 
