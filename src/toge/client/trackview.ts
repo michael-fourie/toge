@@ -239,7 +239,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
 
   // --- Road ribbon (chunks of ~200 m)
   // At night the road is damp: the same textures, glossier, so the lamps and headlights streak on it.
-  const roadTex = asphalt(t.def.theme, t.def.seed, aniso, !!t.lap, t.def.traffic === 'highway' ? (t.def.lanes ?? 4) : 0);
+  const roadTex = asphalt(t.def.theme, t.def.seed, aniso, !!t.lap, t.def.lanes ?? (t.def.traffic === 'highway' ? 4 : 0));
   for (const tex of Object.values(roadTex)) keep(tex);
   const roadMat = keep(new THREE.MeshStandardMaterial({ ...roadTex, normalScale: new THREE.Vector2(0.9, 0.9), roughness: look.moon ? 0.62 : 1, metalness: 0, envMapIntensity: look.moon ? 2.5 : 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   const gravelTex = gravel(t.def.theme, t.def.seed, aniso);

@@ -82,7 +82,10 @@ export interface TrackDef {
   water?: number;
   /** Four lanes of traffic to dodge (traffic.ts): two each way in town, or all four going your way on a `highway`. */
   traffic?: boolean | 'highway';
-  /** A highway's lane count (default 4). Six spread evenly across the whole asphalt, edge to edge (traffic.ts `lanesOf`). */
+  /**
+   * One-way lanes painted on the road, with a dashed line between each: a `'highway'` has 4 unless it says otherwise.
+   * Six spread evenly across the whole asphalt.
+   */
   lanes?: 4 | 6;
   /**
    * Walls right at the asphalt's edge, like a street circuit: no shoulder, no verge, no runoff, so the outer lanes
@@ -748,21 +751,23 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
   },
   // Two grand prix highways (Andrew, 2026-11-09: "straight aways with high speed, as well as important breaking
   // points/turns ... make the whole road full of traffic with 6 lanes going in the same direction ... two different
-  // maps with the same vibe, but different layouts"). Both 21 m: six 3.5 m lanes of traffic edge to edge (`lanes: 6`),
-  // walls at the white lines (`walled`), and long flat-out straights that end in hard braking: 90° corners of
-  // 40-60 m, a hairpin, a chicane. Laid out as straights and arcs like Sea-to-Sky.
+  // maps with the same vibe, but different layouts"). Both 21 m, six lanes painted (`lanes: 6`), walls at the white
+  // lines (`walled`), and long flat-out straights that end in hard braking: 90° corners of 40-60 m, a hairpin, a
+  // chicane. Laid out as straights and arcs like Sea-to-Sky. They had six lanes of traffic until Andrew asked the
+  // same day to "remove traffic/cars from Shiden Boulevard and Isonami Corniche": now `clean`, nothing on the road
+  // but the racers.
   shiden: {
     id: 'shiden',
     name: 'Shiden Boulevard',
-    tag: 'Night grand prix · six lanes of traffic · hard braking',
-    blurb: 'A grand prix down the city\'s widest boulevards after dark, six lanes of traffic wall to wall. A kilometre flat out into a square left, a chicane, a hairpin at the end of the longest straight: brake late, pick your gap, and get on the power first.',
+    tag: 'Night grand prix · six lanes wall to wall · hard braking',
+    blurb: 'A grand prix down the city\'s widest boulevards after dark, closed off wall to wall. A kilometre flat out into a square left, a chicane, a hairpin at the end of the longest straight: brake late, hit the apex, and get on the power first.',
     theme: 'city',
     seed: 5113,
     width: 21,
     relief: 50,
-    traffic: 'highway',
     lanes: 6,
     walled: true,
+    clean: true,
     points: [
       [0, 40.0, 0], [0, 40.3, -125], [0, 40.7, -250], [0, 41.0, -375], [0, 41.3, -500], [0, 41.7, -625],
       [0, 42.0, -750], [0, 42.3, -875], [0, 42.7, -1000], [0, 42.7, -1006], [-2, 42.7, -1012], [-4, 42.7, -1018],
@@ -790,17 +795,17 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
   isonami: {
     id: 'isonami',
     name: 'Isonami Corniche',
-    tag: 'Seafront grand prix · six lanes of traffic · hard braking',
-    blurb: 'The coast road closed for a grand prix, and nobody told the traffic: six lanes of it, wall to wall. Flat-out kinks along the sea, then a 95° left, a hairpin by the lighthouse and a chicane, each at the end of a straight you will want to brake too late for.',
+    tag: 'Seafront grand prix · six lanes wall to wall · hard braking',
+    blurb: 'The coast road closed for a grand prix, six lanes wide between the walls. Flat-out kinks along the sea, then a 95° left, a hairpin by the lighthouse and a chicane, each at the end of a straight you will want to brake too late for.',
     theme: 'coast',
     seed: 6211,
     width: 21,
     relief: 70,
     tilt: [0.25, 0],
     water: 0,
-    traffic: 'highway',
     lanes: 6,
     walled: true,
+    clean: true,
     points: [
       [0, 9.0, 0], [0, 9.3, -117], [0, 9.6, -233], [0, 9.9, -350], [0, 10.2, -467], [0, 10.5, -583],
       [0, 10.8, -700], [1, 10.8, -727], [6, 10.9, -754], [13, 11.0, -780], [22, 11.0, -806], [75, 11.3, -925],

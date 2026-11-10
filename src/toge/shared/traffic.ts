@@ -45,29 +45,15 @@ export const HIGHWAY_LANES: Lane[] = [
   { d: 5.8, dir: 1, v: 28 },
 ];
 
-/**
- * Six lanes all with the race (`lanes: 6`, 2026-11-09, Andrew: "make the whole road full of traffic with 6 lanes
- * going in the same direction"): the same slow-left, fast-right order, 54-112 km/h. Their offsets are worked out
- * from the road's width, so they fill it edge to edge (lanesOf).
- */
-export const SIX_LANE_SPEEDS = [15, 18, 21, 24, 27.5, 31];
-
 const HIGHWAY_HALF = 8;
 const wideLanes = new WeakMap<Track, Lane[]>();
 
-/**
- * The lanes a track's traffic drives in: a four-lane highway's spread over its width (Hayate Flats is 22 m), six
- * lanes each a sixth of the asphalt, centred in it, so the outer ones run along the edge lines.
- */
+/** The lanes a track's traffic drives in (a highway's spread over its width: Hayate Flats is 22 m). */
 export function lanesOf(t: Track): Lane[] {
   if (t.def.traffic !== 'highway') return LANES;
-  if (t.half === HIGHWAY_HALF && t.def.lanes !== 6) return HIGHWAY_LANES;
+  if (t.half === HIGHWAY_HALF) return HIGHWAY_LANES;
   let lanes = wideLanes.get(t);
-  if (!lanes) {
-    const w = (2 * t.half) / 6;
-    lanes = t.def.lanes === 6 ? SIX_LANE_SPEEDS.map((v, i) => ({ d: -t.half + w * (i + 0.5), dir: 1 as const, v })) : HIGHWAY_LANES.map((l) => ({ ...l, d: (l.d * t.half) / HIGHWAY_HALF }));
-    wideLanes.set(t, lanes);
-  }
+  if (!lanes) wideLanes.set(t, (lanes = HIGHWAY_LANES.map((l) => ({ ...l, d: (l.d * t.half) / HIGHWAY_HALF }))));
   return lanes;
 }
 
@@ -131,7 +117,6 @@ export function getTraffic(t: Track): Traffic | null {
       const [gap, spread] = highway ? [80, 150] : [55, 105];
       for (let s = lo + rng() * 60; s < hi - 50; s += gap + rng() * spread) {
         const r = rng();
-        // Trucks keep to the two slowest lanes.
         const truck = highway ? (lane < 2 ? 0.3 : 0.04) : 0.14;
         const sedan = 0.76 - truck;
         const kind: TrafficKind = r < sedan ? 'sedan' : r < sedan + 0.24 ? 'kei' : 'truck';
