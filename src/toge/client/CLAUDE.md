@@ -7,7 +7,10 @@ The whole TŌGE guide (physics, tracks, cars, server, rendering rules, how to ad
 The rules that bite most often in this folder:
 
 - Plain `THREE.WebGLRenderer` through `Post` (post.ts: bloom, then one last pass for the film grade per theme, the sun's lens
-  flare, the speed blur and ACES + sRGB; keep it one pass). No WebGPU. The flare (`Grade.flare`, 0 on night themes) checks whether the sun is
+  flare, the speed blur and ACES + sRGB; keep it one pass). No WebGPU. The bloom (`Bloom`) leaves its result in a half-size texture that
+  the grade adds (`tBloom`), and its bright pass and the grade clip the scene themselves (`SAFE`), so after the scene
+  there are only two full-size passes (the MSAA resolve and the grade); don't add a full-screen pass for something a
+  shader already reading the image can do. The flare (`Grade.flare`, 0 on night themes) checks whether the sun is
   hidden by sampling the image at the sun in the vertex shader, so it costs nothing per pixel. The speed blur (`Post.rush`,
   set in racegame.ts from `RUSH`) streaks only the frame's edges, only above ~150 km/h or on a boost: four taps there, none elsewhere.
 - `envMapIntensity` only works in a scene marked with `envLevel()` (envlevel.ts; trackview.ts `atmosphere()` does it for
@@ -24,6 +27,21 @@ The rules that bite most often in this folder:
 - Never add or remove a light mid-race (every lit shader recompiles: a multi-second freeze). Add it at load and change its intensity.
 - At night bloom only catches values above 1: lamps, reflectors and signs must be brighter than white.
 - Watch triangle counts with `__race.renderer.info`; forests dominate, a car is ~30k triangles in ~40 draw calls.
+- Levels of detail (lod.ts `LodTiles`, swap distances in `LOD`): past `LOD.trees` (300 m to the nearest edge of a
+  400 m tile) a tile's trees are drawn with `farTree` stand-ins (trees.ts: a five-sided lathe of the crown's outline
+  and averaged colours, ~20 triangles instead of 50-100) sharing the tile's instance matrices and colours (`farTwin`);
+  bushes aren't drawn past `LOD.bushes`; a fine terrain chunk past `LOD.terrain` is drawn with every other vertex
+  (`coarse` in trackview.ts: each vertex the lowest of the fine ones round it, so it never pokes through the road, and a
+  skirt so the seams don't gap). A new tree species gets a stand-in for free; set `noFar` on one a lathe can't stand
+  in for (the saguaro's arms). trackview.ts / worldview.ts `follow()` runs `lods.update`.
+- Tree and rock shadows come from shadow-only copies cut into 100 m squares (lod.ts `shadowCasters` + `ShadowOnly`:
+  hidden while three.js lists what the camera draws, shown when the shadow map starts), so the 90 m shadow box draws
+  only the trees round the camera, not every tree of each 400 m tile it touches. The tiles themselves don't cast.
+- Shaders: racegame.ts `warmShaders()` compiles every material in the scene behind the loading screen, hidden ones
+  included (far stand-ins, effects). Anything shown later with a new material (or new defines) compiles mid-race, a
+  stall of 50-300 ms on Windows: build it hidden at load instead of creating it when it's first needed. It compiles
+  into the post chain's HDR target (`post.sceneTarget`: tone mapping and colour space differ from the screen's), and
+  shadows use `PCFShadowMap` (three r186 swaps PCFSoft for PCF at the first shadow render, recompiling everything).
 - Adaptive resolution (`adaptResolution` + `RES` in racegame.ts): when frames average slower than `RES.slowMs` for
   `RES.slowFor` s, the render scale drops a step (to `RES.min` of the pixel ratio at worst); with headroom it climbs back.
   `__race.resScale` shows it. A machine that keeps up never leaves full resolution.
@@ -31,8 +49,11 @@ The rules that bite most often in this folder:
   doesn't move (the tach face, the minimap's road outline as a Path2D), and never read layout (`clientWidth`) after
   writing the DOM (the view size is kept from `resize`). City traffic further than `TRAFFIC_DRAW` isn't drawn.
 - The open world (worldview.ts, worldtrafficview.ts; free roam on `toge`) is one scene for a 7 km island: terrain in
-  LOD chunks (`LODS_HIGH` / `LODS_LOW`), trees only near the roads in 400 m tiles shown within `TREE_DRAW`, the
-  traffic's full Pebble model only within `DRAW_HIGH[0]` / `DRAW_LOW[0]` (at most `MAX_NEAR`), boxes beyond. Road
+  LOD chunks (`LODS_HIGH` / `LODS_LOW`), trees only near the roads in 400 m tiles shown within `TREE_DRAW` (stand-ins
+  past `LOD.trees`), the island's lines, rails, walls and posts split into `CELL` squares so the view and the shadow map
+  cull them, the traffic's full Pebble model only within `DRAW_HIGH[0]` / `DRAW_LOW[0]` (at most `MAX_NEAR`), boxes
+  beyond. A Pebble is ~30k triangles, so full ones out of view aren't drawn and only those within `SHADOW_NEAR` (two
+  instanced sets per material) cast shadows: the traffic was ~1.5 M of the island's 2.65 M triangles a frame. Road
   meshes face up (their triangles are wound left to right across the road): a downward winding made the roads invisible
   from above. The HUD's roam mode (`.rh.roam`) hides place, clock, board and strip.
 - Driving physics is shared (`src/toge/shared/vehicle.ts`); don't put handling logic in this folder.

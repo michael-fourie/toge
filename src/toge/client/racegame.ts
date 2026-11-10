@@ -42,6 +42,7 @@ import { DriveControls } from './input.ts';
 import { type RaceNet, roomRace } from './racenet.ts';
 import type { DriveOpts } from '../../client/menu/router.ts';
 import { Post } from './post.ts';
+import { drawLow } from './lowgfx.ts';
 import { ContactShadows } from './contactshadow.ts';
 import { frameGate, lowGraphics, LOW_PIXEL_RATIO, releaseRenderer } from '../../client/graphics.ts';
 import { buildTrackView, type TrackView } from './trackview.ts';
@@ -383,7 +384,9 @@ export class RaceGame {
     this.basePixelRatio = Math.min(devicePixelRatio, this.low ? LOW_PIXEL_RATIO : 1.75);
     this.renderer.setPixelRatio(this.basePixelRatio * this.resScale);
     this.renderer.shadowMap.enabled = !this.low;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCF: three.js removed PCFSoftShadowMap and swaps it for PCF at the first shadow draw, after the shaders were
+    // compiled for the old type (so every lit shader compiled twice).
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.className = 'race-canvas';
@@ -454,6 +457,7 @@ export class RaceGame {
     }
     for (const r of [this.me, ...this.rivals]) r.car.gear = 0; // revving on the line
     this.snapCamera();
+    this.warmShaders();
     addEventListener('resize', this.resize);
     this.resize();
     setMenuNav(false);
@@ -463,6 +467,31 @@ export class RaceGame {
   }
 
   // --- setup ---------------------------------------------------------------------------------
+
+  /**
+   * Compiles every material in the scene now, behind the loading screen, hidden things included (far scenery, the
+   * other cars' parts, effects): otherwise each one compiled the first time it came into view mid-race, a stall of
+   * 50-300 ms each on Windows (ANGLE), six of them in Kōri Pass's first 12 seconds. Low compiles its stand-ins.
+   */
+  private warmShaders() {
+    const scene = this.view.scene;
+    const hidden: THREE.Object3D[] = [];
+    scene.traverse((o) => {
+      if (o.visible) return;
+      hidden.push(o);
+      o.visible = true;
+    });
+    // Into the target the scene is really drawn to: a program compiled for the screen (tone mapped, sRGB) isn't the
+    // one the post chain's HDR target uses, and was compiled again mid-race.
+    const compile = () => {
+      this.renderer.setRenderTarget(this.post.sceneTarget);
+      this.renderer.compile(scene, this.camera);
+      this.renderer.setRenderTarget(null);
+    };
+    if (this.low) drawLow(scene, compile);
+    else compile();
+    for (const o of hidden) o.visible = false;
+  }
 
   private spawn(owned: OwnedCar, slot: number, name: string, mine: boolean, rider: Rider): Racing {
     const g = gridSlot(this.track, slot);
@@ -1441,7 +1470,7 @@ export class RaceGame {
       rg.s = locate(this.track, rg.position.x, rg.position.z, this.ghostLoc.i, this.ghostLoc).s;
     }
     this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera.position.x, this.camera.position.z);
-    this.worldTraffic?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera.position.x, this.camera.position.z);
+    this.worldTraffic?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera);
     const view = this.camTarget();
     this.updateCamera(dt, view);
     this.driversVisible();

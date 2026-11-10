@@ -286,6 +286,8 @@ export interface Species {
   geo: THREE.BufferGeometry;
   /** Instance colours to choose from (white crowns painted per tree); none = the tree's own colours, slightly varied. */
   palette: number[] | null;
+  /** No far stand-in (trees.ts farTree): a shape a lathe can't stand in for, like a saguaro's arms. */
+  noFar?: true;
 }
 
 /** The theme's two trees and the share of the second. */
@@ -299,7 +301,7 @@ export function speciesFor(theme: Theme): { a: Species; b: Species; share: numbe
     case 'coast':
       return { a: own(stonePine()), b: own(cypress(4)), share: 0.42 };
     case 'desert':
-      return { a: own(saguaro()), b: own(scrubTree()), share: 0.45 };
+      return { a: { ...own(saguaro()), noFar: true }, b: own(scrubTree()), share: 0.45 };
     case 'autumn':
       // Maples each in their own autumn colour, among dark cedars.
       return { a: { geo: broadleaf(1), palette: [0xd8431f, 0xe8742a, 0xf2b233, 0xb8261e, 0xc9a23a, 0x6f8a32] }, b: own(cedar(7)), share: 0.28 };
@@ -358,4 +360,112 @@ export function sway(mat: THREE.Material, amount: number, from = 1.2) {
       transformed.xz += vec2( 0.8, 0.55 ) * swayW * swayH * swayH * uSway;`,
     );
   };
+}
+
+/**
+ * A far-off stand-in for a tree, for the forest past `LOD.trees` (lod.ts): the crown's outline as one lathe of `sides`
+ * faces (the widest the crown reaches at its foot, at half height and a point at the top), its colours averaged from
+ * the tree's own at those heights, normals tipped out and up like the boughs', a three-sided trunk under a crown that
+ * stands high, and a cap underneath. ~20 triangles instead of 50-100; at 300 m a tree is a few dozen pixels tall.
+ */
+export function farTree(geo: THREE.BufferGeometry, sides = 5): THREE.BufferGeometry {
+  const p = geo.getAttribute('position');
+  const c = geo.getAttribute('color');
+  // The crown: everything standing out from the trunk.
+  const crown: number[] = [];
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  for (let i = 0; i < p.count; i++) {
+    // The top is the tree's highest point (a spire's tip is on the axis); the crown's foot, its lowest leafy one.
+    y1 = Math.max(y1, p.getY(i));
+    if (Math.hypot(p.getX(i), p.getZ(i)) < 0.45) continue;
+    crown.push(i);
+    y0 = Math.min(y0, p.getY(i));
+  }
+  const h = y1 - y0;
+  /** The crown's widest reach and average colour within a band around height y. */
+  const ring = (y: number, w: number) => {
+    let r = 0;
+    const col = [0, 0, 0];
+    let n = 0;
+    for (const i of crown) {
+      if (Math.abs(p.getY(i) - y) > w) continue;
+      r = Math.max(r, Math.hypot(p.getX(i), p.getZ(i)));
+      col[0] += c.getX(i);
+      col[1] += c.getY(i);
+      col[2] += c.getZ(i);
+      n++;
+    }
+    return { r: r * 0.92, col: n ? col.map((v) => v / n) : [0.2, 0.3, 0.2] };
+  };
+  const rings = [ring(y0 + h * 0.08, h * 0.18), ring(y0 + h * 0.5, h * 0.2)];
+  const tip = ring(y1 - h * 0.05, h * 0.12);
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const col: number[] = [];
+  const idx: number[] = [];
+  const vert = (x: number, y: number, z: number, n: [number, number, number], k: number[]) => {
+    pos.push(x, y, z);
+    nor.push(...n);
+    col.push(k[0], k[1], k[2]);
+    return pos.length / 3 - 1;
+  };
+  const out = (a: number): [number, number, number] => {
+    const v = new THREE.Vector3(Math.cos(a) * 0.8, 0.62, Math.sin(a) * 0.8).normalize();
+    return [v.x, v.y, v.z];
+  };
+  const heights = [y0, y0 + h * 0.5];
+  const firsts = rings.map((rg, j) => {
+    const first = pos.length / 3;
+    for (let s = 0; s < sides; s++) {
+      const a = (s / sides) * Math.PI * 2;
+      vert(Math.cos(a) * rg.r, heights[j], Math.sin(a) * rg.r, out(a), rg.col);
+    }
+    return first;
+  });
+  const top = vert(0, y1, 0, [0, 1, 0], tip.col);
+  // Wound like three.js's own cones, so the faces point out.
+  for (let s = 0; s < sides; s++) {
+    const s1 = (s + 1) % sides;
+    const [a, b] = [firsts[0] + s, firsts[0] + s1];
+    const [d, e] = [firsts[1] + s, firsts[1] + s1];
+    idx.push(a, d, b, b, d, e);
+    idx.push(d, top, e);
+  }
+  const under = vert(0, y0, 0, [0, -1, 0], rings[0].col.map((v) => v * 0.55));
+  for (let s = 0; s < sides; s++) idx.push(firsts[0] + s, firsts[0] + ((s + 1) % sides), under);
+  // A trunk only where the crown stands well clear of the ground (pines): three faces, its colour the tree's lowest.
+  if (y0 > 2) {
+    let low = 0;
+    for (let i = 1; i < p.count; i++) if (p.getY(i) < p.getY(low)) low = i;
+    const bark = [c.getX(low), c.getY(low), c.getZ(low)];
+    const base: number[] = [];
+    const head: number[] = [];
+    for (let s = 0; s < 3; s++) {
+      const a = (s / 3) * Math.PI * 2;
+      const n: [number, number, number] = [Math.cos(a), 0, Math.sin(a)];
+      base.push(vert(Math.cos(a) * 0.28, 0, Math.sin(a) * 0.28, n, bark));
+      head.push(vert(Math.cos(a) * 0.18, y0 + 0.3, Math.sin(a) * 0.18, n, bark));
+    }
+    for (let s = 0; s < 3; s++) idx.push(base[s], head[s], base[(s + 1) % 3], base[(s + 1) % 3], head[s], head[(s + 1) % 3]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** A tile's far stand-in: `geo` (farTree) drawn at the same instances as `im`, sharing its matrices and colours. */
+export function farTwin(im: THREE.InstancedMesh, geo: THREE.BufferGeometry): THREE.InstancedMesh {
+  const lo = new THREE.InstancedMesh(geo, im.material, 0);
+  lo.instanceMatrix = im.instanceMatrix;
+  lo.instanceColor = im.instanceColor;
+  lo.count = im.count;
+  lo.castShadow = im.castShadow;
+  lo.receiveShadow = im.receiveShadow;
+  lo.computeBoundingSphere();
+  return lo;
 }

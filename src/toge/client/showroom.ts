@@ -167,7 +167,9 @@ export class Showroom {
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = !this.low;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCF: three.js removed PCFSoftShadowMap and swaps it for PCF at the first shadow draw, after the shaders were
+    // compiled for the old type (so every lit shader compiled twice).
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     const keep = <T extends { dispose(): void }>(x: T) => (this.own.push(x), x);
     this.env = garageEnvironment(this.renderer);
     this.scene.environment = this.env;

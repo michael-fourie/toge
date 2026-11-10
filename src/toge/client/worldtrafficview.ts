@@ -1,6 +1,8 @@
 // The open world's traffic on screen (toge/shared/worldtraffic.ts): every car is a stock Pebble, the default car.
 // Near the camera they're the real Pebble model, baked once into one instanced mesh per material and painted per
-// car; further out a cheap painted box stands in, and past that they're not drawn at all.
+// car; further out a cheap painted box stands in, and past that they're not drawn at all. A Pebble is ~30k triangles,
+// so the full models skip cars out of view, and only those close enough to throw a shadow the shadow map can hold
+// cast one (SHADOW_NEAR): that took the traffic from ~1.5M triangles a frame to a few hundred thousand.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -18,6 +20,14 @@ const DRAW_HIGH: [number, number] = [260, 1100];
 const DRAW_LOW: [number, number] = [140, 700];
 /** At most this many full Pebbles at once (the nearest win: the list is filled in route order, so it's rough). */
 const MAX_NEAR = 90;
+/**
+ * Full Pebbles this close cast shadows (the sun's shadow box reaches ~45 m round the camera; further out a car's
+ * shadow falls outside it), and are drawn even when just out of view (the camera can swing onto them before the next
+ * frame's cull, which reads last frame's camera). Past it, cars outside the view aren't drawn.
+ */
+const SHADOW_NEAR = 75;
+/** A car's bounding sphere for the view test (m), with room for a frame of camera swing. */
+const CULL_R = 5;
 
 /** The Pebble's meshes in root space, merged by material (only position, normal and uv kept). */
 function bakePebble(): { geo: THREE.BufferGeometry; mat: THREE.Material; paint: boolean; own: boolean }[] {
@@ -69,8 +79,14 @@ function bakePebble(): { geo: THREE.BufferGeometry; mat: THREE.Material; paint: 
 }
 
 export class WorldTrafficView {
+  /** The full Pebble, per material: `close` cars cast shadows, `near` ones don't. */
+  private close: THREE.InstancedMesh[] = [];
   private near: THREE.InstancedMesh[] = [];
   private paint: THREE.InstancedMesh | null = null;
+  private closePaint: THREE.InstancedMesh | null = null;
+  private frustum = new THREE.Frustum();
+  private viewProj = new THREE.Matrix4();
+  private sphere = new THREE.Sphere(new THREE.Vector3(), CULL_R);
   private far: THREE.InstancedMesh;
   private colors: THREE.Color[][] = [];
   private disposables: { dispose(): void }[] = [];
@@ -97,19 +113,22 @@ export class WorldTrafficView {
     }
     // The model's own materials stay in use here (its geometry was copied, so the model itself is dropped).
     for (const { geo, mat, paint, own } of bakePebble()) {
-      const mesh = new THREE.InstancedMesh(geo, mat, MAX_NEAR);
-      mesh.castShadow = !low;
-      mesh.receiveShadow = !low;
-      mesh.frustumCulled = false;
-      mesh.count = 0;
-      if (paint) {
-        mesh.setColorAt(0, new THREE.Color());
-        this.paint = mesh;
+      for (const shadow of [true, false]) {
+        const mesh = new THREE.InstancedMesh(geo, mat, MAX_NEAR);
+        mesh.castShadow = shadow && !low;
+        mesh.receiveShadow = !low;
+        mesh.frustumCulled = false;
+        mesh.count = 0;
+        if (paint) {
+          mesh.setColorAt(0, new THREE.Color());
+          if (shadow) this.closePaint = mesh;
+          else this.paint = mesh;
+        }
+        scene.add(mesh);
+        (shadow ? this.close : this.near).push(mesh);
       }
       if (own) this.disposables.push(mat);
       this.disposables.push(geo);
-      scene.add(mesh);
-      this.near.push(mesh);
     }
     // The far stand-in: a rounded-off box the Pebble's size, with a darker glasshouse on top.
     const body = new THREE.BoxGeometry(1.7, 0.75, 3.9).toNonIndexed();
@@ -134,12 +153,18 @@ export class WorldTrafficView {
     scene.add(this.far);
   }
 
-  /** Poses the traffic at `time` on the roam clock around the camera at (cx, cz). */
-  update(time: number, cx: number, cz: number) {
+  /** Poses the traffic at `time` on the roam clock around the camera (as of its last frame: its view culls the full models). */
+  update(time: number, camera: THREE.Camera) {
     const { pose, m4, q, v, one, up, world } = this;
     const [nearD, farD] = this.draw;
     const near2 = nearD * nearD;
     const far2 = farD * farD;
+    const shadow2 = SHADOW_NEAR * SHADOW_NEAR;
+    const cx = camera.position.x;
+    const cz = camera.position.z;
+    camera.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(this.viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    let nc = 0;
     let nn = 0;
     let nf = 0;
     for (let ri = 0; ri < world.routes.length; ri++) {
@@ -150,11 +175,20 @@ export class WorldTrafficView {
         if (d2 > far2) continue;
         q.setFromAxisAngle(up, pose.yaw);
         const color = this.colors[ri][k];
-        if (d2 < near2 && nn < MAX_NEAR) {
-          m4.compose(v.set(pose.x, pose.y + this.cg, pose.z), q, one);
-          for (const m of this.near) m.setMatrixAt(nn, m4);
-          this.paint?.setColorAt(nn, color);
-          nn++;
+        if (d2 < near2 && nc + nn < MAX_NEAR) {
+          v.set(pose.x, pose.y + this.cg, pose.z);
+          const close = d2 < shadow2;
+          if (!close && !this.frustum.intersectsSphere(this.sphere.set(v, CULL_R))) continue;
+          m4.compose(v, q, one);
+          if (close) {
+            for (const m of this.close) m.setMatrixAt(nc, m4);
+            this.closePaint?.setColorAt(nc, color);
+            nc++;
+          } else {
+            for (const m of this.near) m.setMatrixAt(nn, m4);
+            this.paint?.setColorAt(nn, color);
+            nn++;
+          }
         } else {
           m4.compose(v.set(pose.x, pose.y, pose.z), q, one);
           this.far.setMatrixAt(nf, m4);
@@ -163,18 +197,19 @@ export class WorldTrafficView {
         }
       }
     }
-    for (const m of this.near) {
-      m.count = nn;
-      m.instanceMatrix.needsUpdate = true;
-    }
-    if (this.paint?.instanceColor) this.paint.instanceColor.needsUpdate = true;
+    for (const [set, n] of [[this.close, nc], [this.near, nn]] as const)
+      for (const m of set) {
+        m.count = n;
+        m.instanceMatrix.needsUpdate = true;
+      }
+    for (const m of [this.paint, this.closePaint]) if (m?.instanceColor) m.instanceColor.needsUpdate = true;
     this.far.count = nf;
     this.far.instanceMatrix.needsUpdate = true;
     if (this.far.instanceColor) this.far.instanceColor.needsUpdate = true;
   }
 
   dispose() {
-    for (const m of this.near) {
+    for (const m of [...this.close, ...this.near]) {
       this.scene.remove(m);
       m.dispose();
     }

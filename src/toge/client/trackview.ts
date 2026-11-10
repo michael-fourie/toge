@@ -9,7 +9,8 @@ import { CUT_HALF, type Crossing, SAMPLE, type Theme, type Track, type TrackId, 
 import type { Grade } from './post.ts';
 import { envLevel } from './envlevel.ts';
 import { decor, type Site } from './scenery.ts';
-import { BUSH_COLOURS, WIND, bushGeometry, speciesFor, sway } from './trees.ts';
+import { BUSH_COLOURS, WIND, bushGeometry, farTree, farTwin, speciesFor, sway } from './trees.ts';
+import { LOD, LodTiles, ShadowOnly, shadowCasters } from './lod.ts';
 import { FACADE_H, FACADE_W, NEON_SIGNS, ROAD_TILE, TOWER_H, TOWER_W, asphalt, banner, facade, gravel, ground, mulberry, neonSigns, roofTiles, stone, towerFacade, vendingFront } from './tracktextures.ts';
 
 /** The barrier's distance from the centreline at sample i on one side (-1 left, +1 right), runoff included. */
@@ -124,6 +125,8 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   const scene = new THREE.Scene();
   const disposables: { dispose(): void }[] = [];
   const keep = <T extends { dispose(): void }>(x: T) => (disposables.push(x), x);
+  /** Terrain and forest tiles that swap to a cheaper version (or none) far from the camera. */
+  const lods = new LodTiles();
 
   // --- Sky, sun, environment
   const { sky, envSky, sun, sunDir, lightDir } = atmosphere(scene, look, renderer, low, keep);
@@ -227,6 +230,82 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     const mesh = new THREE.Mesh(keep(geo), terrainMat);
     mesh.receiveShadow = !far;
     scene.add(mesh);
+    if (!far && (nx - 1) % 2 === 0 && (nz - 1) % 2 === 0) lods.add(mesh, coarse(geo, nx, nz), cx0, cz0, cx1, cz1, LOD.terrain);
+  };
+  /**
+   * A fine chunk's stand-in past LOD.terrain: every other vertex (a quarter of the triangles), each at the lowest of the
+   * fine vertices round it so it never rises through a road the fine grid dipped under, and a skirt hanging from its
+   * edges so the seam against a fine neighbour shows no gap.
+   */
+  const coarse = (fine: THREE.BufferGeometry, nx: number, nz: number) => {
+    const fp = fine.getAttribute('position');
+    const fc = fine.getAttribute('color');
+    const fu = fine.getAttribute('uv');
+    const fn = fine.getAttribute('normal');
+    const cx = (nx - 1) / 2 + 1;
+    const cz = (nz - 1) / 2 + 1;
+    const ring = 2 * (cx - 1) + 2 * (cz - 1);
+    const count = cx * cz + ring;
+    const pos = new Float32Array(count * 3);
+    const col = new Float32Array(count * 3);
+    const uv = new Float32Array(count * 2);
+    const nor = new Float32Array(count * 3);
+    const copy = (to: number, from: number, y: number) => {
+      pos.set([fp.getX(from), y, fp.getZ(from)], to * 3);
+      col.set([fc.getX(from), fc.getY(from), fc.getZ(from)], to * 3);
+      uv.set([fu.getX(from), fu.getY(from)], to * 2);
+      nor.set([fn.getX(from), fn.getY(from), fn.getZ(from)], to * 3);
+    };
+    for (let r = 0; r < cz; r++)
+      for (let c = 0; c < cx; c++) {
+        const fr = r * 2;
+        const fcI = c * 2;
+        let y = Infinity;
+        for (let dr = -1; dr <= 1; dr++)
+          for (let dc = -1; dc <= 1; dc++) {
+            const rr = fr + dr;
+            const cc = fcI + dc;
+            if (rr >= 0 && rr < nz && cc >= 0 && cc < nx) y = Math.min(y, fp.getY(rr * nx + cc));
+          }
+        copy(r * cx + c, fr * nx + fcI, y);
+      }
+    const idx: number[] = [];
+    for (let r = 0; r < cz - 1; r++)
+      for (let c = 0; c < cx - 1; c++) {
+        const a = r * cx + c;
+        idx.push(a, a + cx, a + 1, a + 1, a + cx, a + cx + 1);
+      }
+    // The skirt: the border's vertices again, 4 m lower, walled to the border round the whole chunk.
+    const border: number[] = [];
+    for (let c = 0; c < cx - 1; c++) border.push(c);
+    for (let r = 0; r < cz - 1; r++) border.push(r * cx + cx - 1);
+    for (let c = cx - 1; c > 0; c--) border.push((cz - 1) * cx + c);
+    for (let r = cz - 1; r > 0; r--) border.push(r * cx);
+    border.forEach((b, k) => {
+      const to = cx * cz + k;
+      pos.set([pos[b * 3], pos[b * 3 + 1] - 4, pos[b * 3 + 2]], to * 3);
+      col.set(col.subarray(b * 3, b * 3 + 3), to * 3);
+      uv.set(uv.subarray(b * 2, b * 2 + 2), to * 2);
+      nor.set(nor.subarray(b * 3, b * 3 + 3), to * 3);
+    });
+    for (let k = 0; k < ring; k++) {
+      const a = border[k];
+      const b = border[(k + 1) % ring];
+      const a2 = cx * cz + k;
+      const b2 = cx * cz + ((k + 1) % ring);
+      // Both windings: the skirt is seen from whichever side the gap is on.
+      idx.push(a, a2, b, b, a2, b2, a, b, a2, b, b2, a2);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setIndex(idx);
+    const mesh = new THREE.Mesh(keep(geo), terrainMat);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    return mesh;
   };
   // Under the road ribbon the terrain dips a little so it never pokes through.
   const under = newLoc();
@@ -503,7 +582,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   const props = decor(scene, t, keep, { night: !!look.moon, low, forestAt, area: inner });
   if (t.def.theme === 'city') city(scene, t, rng, inner, keep, props.sites);
   else {
-    scatter(scene, t, look, rng, inner, keep, low, forestAt, props.sites);
+    scatter(scene, t, look, rng, inner, keep, low, forestAt, props.sites, lods);
     village(scene, t, rng, keep, !!look.moon);
   }
   props.build();
@@ -529,6 +608,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     sunDir: look.moon ? null : sunDir,
     follow(x, y, z, time) {
       WIND.value = time / 1000;
+      lods.update(x, z);
       // Move the shadow box with the camera, in whole texels so the edges don't crawl.
       const texel = 90 / 2048;
       const sx = Math.round(x / texel) * texel;
@@ -601,12 +681,17 @@ function gantry(scene: THREE.Scene, t: Track, s: number, text: string, chequer: 
  */
 function scatter(
   scene: THREE.Scene, t: Track, look: Look, rng: () => number, area: { x0: number; x1: number; z0: number; z1: number }, keep: <T extends { dispose(): void }>(x: T) => T, low: boolean,
-  forestAt: (x: number, z: number) => number, sites: Site[],
+  forestAt: (x: number, z: number) => number, sites: Site[], lods: LodTiles,
 ) {
   const theme = t.def.theme;
   const species = speciesFor(theme);
+  // Low draws no shadows; on High each tree's shadow comes from small shadow-only tiles (lod.ts shadowCasters).
+  const shadowOnly = low ? null : new ShadowOnly(scene);
   keep(species.a.geo);
   keep(species.b.geo);
+  // Past LOD.trees the forest is drawn with stand-ins a third to a fifth the triangles (lod.ts, trees.ts farTree).
+  const farA = species.a.noFar ? null : keep(farTree(species.a.geo));
+  const farB = species.b.noFar ? null : keep(farTree(species.b.geo));
   const paletteA = species.a.palette?.map((c) => new THREE.Color(c)) ?? null;
   const paletteB = species.b.palette?.map((c) => new THREE.Color(c)) ?? null;
   const rolls = paletteA || paletteB ? 3 : 2;
@@ -645,6 +730,15 @@ function scatter(
     im.castShadow = shadow;
     im.receiveShadow = true;
     return im;
+  };
+  /** A tile's trees go far with a stand-in sharing their instances (`far` null: they stay as they are). */
+  const tile = (im: THREE.InstancedMesh, far: THREE.BufferGeometry | null, key: string) => {
+    shadowCasters(scene, im, shadowOnly); // before the twin, which copies castShadow
+    if (!far) return;
+    const [tx, tz] = key.split(':').map(Number);
+    const lo = farTwin(im, far);
+    scene.add(lo);
+    lods.add(im, lo, tx, tz, tx + TILE, tz + TILE, LOD.trees);
   };
   type Bin = Map<string, { m: THREE.Matrix4; c: THREE.Color }[]>;
   const seconds: Bin = new Map();
@@ -707,12 +801,14 @@ function scatter(
         mains.forEach((e, i) => (im.setMatrixAt(i, e.m), im.setColorAt(i, e.c)));
         im.computeBoundingSphere();
         scene.add(im);
+        tile(im, farA, tileKey);
       }
       if (rocks.length) {
         const im = instanced(rock, rockMat, rocks.length, true);
         rocks.forEach((m, i) => im.setMatrixAt(i, m));
         im.computeBoundingSphere();
         scene.add(im);
+        shadowCasters(scene, im, shadowOnly);
       }
       // Undergrowth along the road: bushes thick by the barrier and at the forest's edge, thinning away from it.
       // Low: no undergrowth (a draw call per tile it can do without).
@@ -747,11 +843,17 @@ function scatter(
     [seconds, species.b.geo, treeMat, true],
     [bushBins, bush, bushMat, false],
   ] as const)
-    for (const list of bins.values()) {
+    for (const [key, list] of bins) {
       const im = instanced(geo, mat, list.length, shadow);
       list.forEach((e, i) => (im.setMatrixAt(i, e.m), im.setColorAt(i, e.c)));
       im.computeBoundingSphere();
       scene.add(im);
+      if (bins === seconds) tile(im, farB, key);
+      else {
+        // Undergrowth is a metre high: past LOD.bushes it's a pixel or two, so it isn't drawn at all.
+        const [tx, tz] = key.split(':').map(Number);
+        lods.add(im, null, tx, tz, tx + TILE, tz + TILE, LOD.bushes);
+      }
     }
 }
 
