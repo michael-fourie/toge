@@ -7,8 +7,13 @@ The whole TŌGE guide (physics, tracks, cars, server, rendering rules, how to ad
 The rules that bite most often in this folder:
 
 - Plain `THREE.WebGLRenderer` through `Post` (post.ts: bloom, then one last pass for the film grade per theme, the sun's lens
-  flare and ACES + sRGB; keep it one pass). No WebGPU. The flare (`Grade.flare`, 0 on night themes) checks whether the sun is
-  hidden by sampling the image at the sun in the vertex shader, so it costs nothing per pixel.
+  flare, the speed blur and ACES + sRGB; keep it one pass). No WebGPU. The flare (`Grade.flare`, 0 on night themes) checks whether the sun is
+  hidden by sampling the image at the sun in the vertex shader, so it costs nothing per pixel. The speed blur (`Post.rush`,
+  set in racegame.ts from `RUSH`) streaks only the frame's edges, only above ~150 km/h or on a boost: four taps there, none elsewhere.
+- `envMapIntensity` only works in a scene marked with `envLevel()` (envlevel.ts; trackview.ts `atmosphere()` does it for
+  every race and the open world). three.js otherwise hands every material the scene's `environmentIntensity` and ignores
+  its own, which left clear coat, glass, chrome and the wet night road at a flat 0.55 until 2026-11-10. Ground materials
+  call `matteGround()` (trackview.ts) so slopes don't wash out to a pale sheen against the sun.
 - Contact shadows (contactshadow.ts): one instanced quad darkens the road under every car, on High and Low. Add a car
   with `contact.add(root, ...)` and take it out with `contact.remove(root)` when its model goes.
 - Low graphics (Settings tab; `lowGraphics()` from src/client/graphics.ts) must stay cheap: no shadows, no post chain,

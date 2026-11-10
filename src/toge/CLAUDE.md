@@ -380,6 +380,12 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 ## Rendering, authority, circuits, dev hooks
 
 - Rendering is plain WebGL (`THREE.WebGLRenderer`) through `Post` (post.ts), ACES tone mapping, one sun shadow map that follows the camera, instanced and tiled scenery. Bloom thresholds are high by day (the sky itself is bright) and low at night, so lamps and emissives must be brighter than white to glow: keep car lamps, reflectors and signs well above 1. Watch triangle counts (`__race.renderer.info`): forests dominate. A car is ~30k triangles in ~40 draw calls.
+- Reflections and surfaces (2026-11-10, a visuals pass): each material's `envMapIntensity` is honoured (envlevel.ts
+  `envLevel(scene, 0.55)`: three.js was ignoring it, so cars' clear coat, glass and chrome and the damp night road reflected
+  no more than the grass); the terrain's specular is cut to a third (`matteGround`), which took the grey sheen off the
+  desert and the plastic look off far mountains; day asphalt is a sun-faded mid grey (`tar` in tracktextures.ts
+  `asphalt()`; night and city stay dark for the wet look); city towers' windows are let floor by floor in a few light
+  colours with a ceiling-to-desk falloff; the flare's ghosts are two small faint ones; and `Post.rush` blurs the frame's edges at speed.
 - Sky and light per theme live in `LOOKS` (trackview.ts). Day skies are toned down with `skyGain` (the visible sky; the
   environment the cars reflect is dimmed less) and the sun is 1.75 by default: Michael found the old 2.4 sun and full-strength sky
   far too bright (2026-11-02). `clouds` sets the sky shader's coverage/density per theme.

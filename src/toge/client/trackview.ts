@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { CUT_HALF, type Crossing, SAMPLE, type Theme, type Track, type TrackId, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
 import type { Grade } from './post.ts';
+import { envLevel } from './envlevel.ts';
 import { decor, type Site } from './scenery.ts';
 import { BUSH_COLOURS, WIND, bushGeometry, speciesFor, sway } from './trees.ts';
 import { FACADE_H, FACADE_W, NEON_SIGNS, ROAD_TILE, TOWER_H, TOWER_W, asphalt, banner, facade, gravel, ground, mulberry, neonSigns, roofTiles, stone, towerFacade, vendingFront } from './tracktextures.ts';
@@ -96,6 +97,21 @@ export interface TrackView {
   dispose(): void;
 }
 
+/**
+ * Grass, earth and rock barely shine. With the full dielectric sheen three.js gives every rough material, any slope seen
+ * at a glancing angle toward the sun (or under a bright sky) washed out to a flat pale grey: the desert went the colour
+ * of concrete and the far mountains looked like plastic. Cutting the terrain's specular to a third keeps its own
+ * colours. Free: two multiplies in the shader. (On Low the Lambert stand-in has no such chunk, so it's a no-op there.)
+ */
+export function matteGround(sh: { fragmentShader: string }) {
+  sh.fragmentShader = sh.fragmentShader.replace(
+    '#include <lights_physical_fragment>',
+    `#include <lights_physical_fragment>
+    material.specularColor *= 0.3;
+    material.specularF90 *= 0.3;`,
+  );
+}
+
 /** `low`: Low graphics (src/client/graphics.ts): no shadow casting, no clouds, half the forest, brighter fill light. */
 /** How much brighter the fill light is on Low, standing in for the environment light Lambert doesn't get. */
 export const LOW_FILL = 2.4;
@@ -128,6 +144,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
       sampledDiffuseColor.rgb *= mix( vec3( 1.0 ), macro * 1.25, 0.65 );
       diffuseColor *= sampledDiffuseColor;`,
     );
+    matteGround(sh);
     // The far ring ends in a square edge ~4 km out: fade it fully into the fog before then, so the land melts into the
     // painted backdrop's haze (whose foot is the fog colour) instead of stopping on a hard straight line.
     sh.fragmentShader = sh.fragmentShader.replace(
@@ -1211,13 +1228,15 @@ export function atmosphere(scene: THREE.Scene, look: Look, renderer: THREE.WebGL
     envMesh(new THREE.CylinderGeometry(490, 490, 60, 48, 1, true), new THREE.Color(0.5, 0.22, 0.08));
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2;
-      envMesh(new THREE.PlaneGeometry(120, 18), new THREE.Color(6, 4.2, 2.4), new THREE.Vector3(Math.cos(a) * 300, 300, Math.sin(a) * 300));
+      // 3.5, not brighter: with the clear coat's own reflection strength honoured (envlevel.ts), brighter lamps here
+      // put bloom-hot glare on every roof and truck box at night.
+      envMesh(new THREE.PlaneGeometry(120, 18), new THREE.Color(3.5, 2.45, 1.4), new THREE.Vector3(Math.cos(a) * 300, 300, Math.sin(a) * 300));
     }
   }
   const env = keep(pmrem.fromScene(envScene, 0.02)).texture;
   for (const d of envKeep) d.dispose();
   scene.environment = env;
-  scene.environmentIntensity = 0.55;
+  envLevel(scene, 0.55);
   pmrem.dispose();
   scene.fog = new THREE.FogExp2(look.fog, look.fogDensity);
 

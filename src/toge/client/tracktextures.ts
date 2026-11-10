@@ -168,8 +168,12 @@ export function asphalt(theme: Theme, seed: number, aniso: number, circuit = fal
   const lit = LITTER[theme];
   const dirt = theme === 'desert' ? '#8a5a3c' : theme === 'coast' ? '#8d8068' : '#4a4436';
   zone(0, 0.12 * W, dirt, 240, 120);
-  zone(0.12 * W, R0, '#323234', 225, 128);
-  L.c.fillStyle = '#2a2b2d';
+  // Sun-faded mid grey by day (nearly black asphalt read as a void under a bright sky), darker at night, where the
+  // damp road's reflections do the work. The shoulder is a shade lighter, the desert's bleached and a little warm.
+  const tar = theme === 'night' || theme === 'city' ? '#2c2d30' : theme === 'desert' ? '#5c5753' : theme === 'coast' ? '#56555a' : '#505156';
+  const shade = (hex: string, d: number) => '#' + [1, 3, 5].map((i) => Math.min(255, parseInt(hex.slice(i, i + 2), 16) + d).toString(16).padStart(2, '0')).join('');
+  zone(0.12 * W, R0, shade(tar, 8), 225, 128);
+  L.c.fillStyle = tar;
   L.c.fillRect(R0, 0, R1 - R0, H);
   L.r.fillStyle = 'rgb(228,228,228)';
   L.r.fillRect(R0, 0, R1 - R0, H);
@@ -201,7 +205,7 @@ export function asphalt(theme: Theme, seed: number, aniso: number, circuit = fal
         pts.forEach(([px, py], k) => (k ? g.lineTo(px, py + dy) : g.moveTo(px, py + dy)));
         g.closePath();
       };
-      paint3(L, p, fresh ? 'rgba(14,14,16,0.42)' : 'rgba(70,70,72,0.22)', 'rgba(200,200,200,0.5)', 'rgba(132,132,132,1)');
+      paint3(L, p, fresh ? 'rgba(14,14,16,0.3)' : 'rgba(96,96,100,0.2)', 'rgba(200,200,200,0.5)', 'rgba(132,132,132,1)');
       paint3(L, p, 'rgba(8,8,8,0.45)', 'rgb(120,120,120)', 'rgb(134,134,134)', false, 2);
     }
   }
@@ -292,7 +296,7 @@ export function asphalt(theme: Theme, seed: number, aniso: number, circuit = fal
       const y = rnd() * H;
       const r = 0.8 + rnd() * 2.6;
       const ry = r * (1 + rnd());
-      paint3(L, (g) => g.ellipse(x, y, r, ry, 0, 0, Math.PI * 2), 'rgba(42,43,45,0.85)', 'rgb(214,214,214)', 'rgb(126,126,126)');
+      paint3(L, (g) => g.ellipse(x, y, r, ry, 0, 0, Math.PI * 2), tar + 'd9', 'rgb(214,214,214)', 'rgb(126,126,126)');
     }
 
   // Litter on the verge and shoulder; drifted sand by the sea and in the desert.
@@ -749,9 +753,12 @@ export function towerFacade(seed: number): { map: THREE.CanvasTexture; glow: THR
   e.fillRect(0, 0, W, H);
   const bay = W / 8;
   const floor = H / 4;
+  // Each floor is let to someone: how many of its windows are lit and the light's colour (office white, warm lamps,
+  // the odd blue-green screen glow), so whole floors read as offices rather than a random speckle.
+  const TONES = ['#dfe9ff', '#dfe9ff', '#ffd9a0', '#ffe6c2', '#bfefff'];
   for (let f = 0; f < 4; f++) {
-    const lit = rnd() < 0.25 ? 1 : rnd() < 0.3 ? 0 : 0.5;
-    const tone = rnd() < 0.6 ? '#dfe9ff' : '#ffd9a0';
+    const lit = rnd() < 0.25 ? 0.95 : rnd() < 0.3 ? 0.08 : 0.55;
+    const tone = TONES[Math.floor(rnd() * TONES.length)];
     for (let b = 0; b < 8; b++) {
       const x = b * bay + 3;
       const y = f * floor + floor * 0.2;
@@ -764,13 +771,19 @@ export function towerFacade(seed: number): { map: THREE.CanvasTexture; glow: THR
       c.fillStyle = glass;
       c.fillRect(x, y, w, h);
       if (rnd() < lit) {
-        e.fillStyle = tone;
-        e.globalAlpha = 0.55 + rnd() * 0.45;
+        // The room's light falls off from the ceiling panels at the top of the window to the desks below.
+        const fall = e.createLinearGradient(x, y, x, y + h);
+        fall.addColorStop(0, tone);
+        fall.addColorStop(0.18, tone);
+        fall.addColorStop(1, 'rgba(40,40,48,0.6)');
+        e.fillStyle = fall;
+        e.globalAlpha = 0.5 + rnd() * 0.5;
         e.fillRect(x, y, w, h);
-        // Blinds half down, a desk lamp in the corner.
         e.globalAlpha = 1;
-        e.fillStyle = 'rgba(0,0,0,0.55)';
-        e.fillRect(x, y, w, h * rnd() * 0.5);
+        // Blinds part way down, and now and then someone standing at the glass or a plant on the sill.
+        e.fillStyle = 'rgba(0,0,0,0.6)';
+        e.fillRect(x, y, w, h * rnd() * 0.45);
+        if (rnd() < 0.2) e.fillRect(x + w * (0.2 + rnd() * 0.5), y + h * 0.45, w * 0.14, h * 0.55);
       }
     }
   }

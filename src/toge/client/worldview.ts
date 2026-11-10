@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { SAMPLE, SHOULDER, type Track, fbm } from '../shared/track.ts';
 import { CITY, RAIL_H, type Road, type World, WORLD, cityAt, coveredBy, roadGap, worldHeight } from '../shared/world.ts';
-import { HORIZON_FADE, LOOKS, type Look, TRACK_LOOKS, type TrackView, atmosphere, noiseNormal, rockGeometry } from './trackview.ts';
+import { HORIZON_FADE, LOOKS, type Look, TRACK_LOOKS, type TrackView, atmosphere, matteGround, noiseNormal, rockGeometry } from './trackview.ts';
 import { FACADE_H, FACADE_W, TARMAC_TILE, TOWER_H, TOWER_W, facade, ground, mulberry, tarmac, towerFacade } from './tracktextures.ts';
 import { WIND, speciesFor, sway } from './trees.ts';
 
@@ -116,6 +116,7 @@ function terrain(scene: THREE.Scene, w: World, look: Look, keep: Keep, aniso: nu
       sampledDiffuseColor.rgb *= mix( vec3( 1.0 ), macro * 1.25, 0.65 );
       diffuseColor *= sampledDiffuseColor;`,
     );
+    matteGround(sh);
     sh.fragmentShader = sh.fragmentShader.replace(
       '#include <fog_fragment>',
       `#include <fog_fragment>

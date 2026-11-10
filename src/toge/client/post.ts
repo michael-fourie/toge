@@ -1,6 +1,6 @@
 // The race's post chain: the scene into a multisampled HDR target, bloom (head and tail lights, neon,
 // low sun on chrome), then a film grade (contrast, cool shadows, warm highlights, vignette, a little grain,
-// a lens flare off the sun) and the tone mapping in the same last pass. Grading in linear HDR keeps the
+// a lens flare off the sun, a speed blur at the edges at speed) and the tone mapping in the same last pass. Grading in linear HDR keeps the
 // highlights from clipping before ACES rolls them off.
 
 import * as THREE from 'three';
@@ -38,6 +38,8 @@ const GradeShader = {
     /** The sun on screen (uv), and the flare's strength for this frame (0 when it's behind the camera). */
     sunUv: { value: new THREE.Vector2(0.5, 2) },
     flare: { value: 0 },
+    /** Speed blur toward the screen's edges (0 = none): see `Post.rush`. */
+    rush: { value: 0 },
   },
   vertexShader: /* glsl */ `
     uniform sampler2D tDiffuse;
@@ -66,7 +68,7 @@ const GradeShader = {
     }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float contrast, saturation, vignette, exposure, aspect, time;
+    uniform float contrast, saturation, vignette, exposure, aspect, time, rush;
     uniform vec3 shadows, highlights;
     uniform vec2 sunUv;
     varying vec2 vUv;
@@ -75,6 +77,19 @@ const GradeShader = {
     float ghost(vec2 p, vec2 at, float r) { return 1.0 - smoothstep(r * 0.55, r, length(p - at)); }
     void main() {
       vec3 c = max(texture2D(tDiffuse, vUv).rgb, 0.0);
+      // Speed blur: the edges of the frame streak away from a point a little above the middle (where the road
+      // goes), the middle (your car, the road ahead) stays sharp. Four more taps, and only where it shows: skipped
+      // whole below cruising speed, and per pixel inside the sharp middle.
+      if (rush > 0.0) {
+        vec2 dir = vUv - vec2(0.5, 0.56);
+        float k = rush * smoothstep(0.22, 0.75, length(dir * vec2(aspect, 1.0)));
+        if (k > 0.004) {
+          vec2 st = dir * k * 0.032;
+          float j = 0.6 * fract(sin(dot(vUv, vec2(91.7, 37.3)) + time) * 4375.85); // a little dither: no ghost copies, no grain
+          for (int i = 1; i <= 4; i++) c += max(texture2D(tDiffuse, vUv - st * (float(i) - j)).rgb, 0.0);
+          c *= 0.2;
+        }
+      }
       // Work at the brightness the tone mapper will see, then hand back the same scale.
       vec3 e = c * exposure;
       float l = dot(e, vec3(0.2126, 0.7152, 0.0722));
@@ -85,7 +100,7 @@ const GradeShader = {
       float w = smoothstep(0.02, 0.6, lc);
       e *= mix(shadows, highlights, w);
       e = mix(vec3(lc), e, saturation);
-      // Lens flare: a warm glow round the sun, a thin anamorphic streak through it, and a few faint ghosts
+      // Lens flare: a warm glow round the sun, a thin anamorphic streak through it, and two faint ghosts
       // on the line from the sun through the middle of the frame.
       if (vSun > 0.001) {
         vec2 a = vec2(aspect, 1.0);
@@ -95,10 +110,9 @@ const GradeShader = {
         f += vec3(0.65, 0.8, 1.0) * 0.8 * exp(-abs(d.y) * 140.0) * exp(-abs(d.x) * 2.2);
         vec2 p = vUv * a;
         vec2 s = sunUv * a, m = 0.5 * a, axis = m - s;
-        f += vec3(0.5, 0.75, 1.0) * 0.45 * ghost(p, s + axis * 1.45, 0.05);
-        f += vec3(0.8, 0.55, 1.0) * 0.28 * ghost(p, s + axis * 1.9, 0.11);
-        f += vec3(0.6, 1.0, 0.7) * 0.18 * ghost(p, s + axis * 2.5, 0.2);
-        f += vec3(1.0, 0.7, 0.45) * 0.35 * ghost(p, s + axis * 0.55, 0.035);
+        // Two small, faint ones: big saturated discs read as blobs of paint sitting on the road.
+        f += vec3(0.6, 0.78, 1.0) * 0.16 * ghost(p, s + axis * 1.45, 0.028);
+        f += vec3(1.0, 0.75, 0.5) * 0.2 * ghost(p, s + axis * 0.55, 0.02);
         e += f * vSun;
       }
       // Vignette (round, whatever the aspect) and a touch of moving grain.
@@ -136,6 +150,8 @@ export class Post {
   private bloom: UnrealBloomPass | null = null;
   private grade: ShaderPass | null = null;
   private flare = 0;
+  /** Speed blur at the frame's edges, 0..1 (racegame.ts sets it from the camera's car: speed and boost). */
+  rush = 0;
   /** Where the sun is (a direction), for the flare; null for none. */
   sun: THREE.Vector3 | null = null;
   private sunAt = new THREE.Vector3();
@@ -178,6 +194,7 @@ export class Post {
     }
     const u = this.grade.uniforms;
     u.time.value = time % 100;
+    u.rush.value = this.rush;
     // The sun, projected onto the screen: no flare when it's behind the camera.
     let flare = 0;
     if (this.sun && this.flare > 0) {

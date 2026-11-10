@@ -120,6 +120,11 @@ const TAG_NEAR = 120;
 const TAG_FAR = 280;
 const TAG_CHECK = 6;
 /** Adaptive resolution (racegame.adaptResolution): frame-time thresholds (ms), how long they must hold (s), the step and floor. */
+/**
+ * Speed blur at the edges of the frame (post.ts `rush`): from `from` m/s (~150 km/h), full at `full` (~290 km/h), `boost`
+ * more on a boost, and a share of it from the cockpit, where the A pillars and dash already sell the speed.
+ */
+const RUSH = { from: 42, full: 80, boost: 0.35, cockpit: 0.5 };
 const RES = { slowMs: 22, slowFor: 1.5, fastMs: 15, fastFor: 6, step: 0.15, min: 0.55, settle: 4 };
 
 const RIVAL_NAMES = CPU.names;
@@ -1597,6 +1602,9 @@ export class RaceGame {
       this.camera.fov = 60 + Math.min(18, speed * 0.22) + (t.boost ? 8 : 0);
     }
     this.camera.updateProjectionMatrix();
+    // Speed blur at the edges of the frame (post.ts): none below RUSH.from, full at RUSH.full, more on a boost.
+    const want = Math.min(1, Math.max(0, (speed - RUSH.from) / (RUSH.full - RUSH.from)) + (t.boost ? RUSH.boost : 0)) * (inside ? RUSH.cockpit : 1);
+    this.post.rush += (want - this.post.rush) * (1 - Math.exp(-dt * 4));
   }
 
   /**
