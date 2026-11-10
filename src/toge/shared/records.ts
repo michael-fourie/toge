@@ -34,10 +34,12 @@ export interface NewBest {
 
 export const RECORDS = {
   /**
-   * No car averages more than this over a whole race (m/s, about 324 km/h). Solo times come from the client, so a
-   * time quicker than the track's length at this speed is refused (`minTime`).
+   * No car averages more than this over a whole race (m/s, about 468 km/h): a time quicker than the track's length at
+   * this speed is refused (`minTime`). It must stay above every car's top speed (a maxed Vanta on the shortest final
+   * drive tops out near 120 m/s; records.test.ts checks every car). It was 90 until 2026-11-10, below what a maxed
+   * Vanta averages flat out on the fast highways, so Sea-to-Sky, Hayate and Ryusei threw away every quick time.
    */
-  maxAvgSpeed: 90,
+  maxAvgSpeed: 130,
   /** Slower than this isn't a finish worth keeping (s). */
   maxTime: 3600,
 } as const;

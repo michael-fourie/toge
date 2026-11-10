@@ -218,7 +218,7 @@ a component or a page.
   time. Bests set before this rule on Kōri Pass, Saltwind and Red Mesa are wiped with `POST /api/admin/clear-race-records` (Accounts.clearRaceRecords,
   `RecordStore.clear`; docs/DEPLOYMENT.md). Guests keep theirs in localStorage
   (`garage.noteTime`, `atrous.bests`). The results screen tags a new best (`ResultLine.newBest`, gold "New best −0.532").
-  Solo times are client-reported, so `cleanTime` refuses anything quicker than the track at `RECORDS.maxAvgSpeed`.
+  Solo times are client-reported, so `cleanTime` refuses anything quicker than the track at `RECORDS.maxAvgSpeed`. Keep that bound above every car's top speed (records.test.ts checks it): at 90 m/s it silently dropped every quick Sea-to-Sky, Hayate and Ryusei time.
 - **All-time boards** (records.ts `placeOnBoard`, recordStore.ts `lb:<track>`): every track keeps the top `BOARD.size`
   accounts, one row each (their best there). Each new account best goes on its board, and the `NewBest` comes back with
   `rank` (1 = a new track record) and `beat` (the record it took); the room's `records` rows carry both. Bests from

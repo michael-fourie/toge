@@ -3,7 +3,10 @@ import { test } from 'node:test';
 import { BOARD, RECORDS, cleanBests, cleanBoard, minTime, placeOnBoard, profileOf, recordTime } from '../../src/toge/shared/records.ts';
 import { RecordStore } from '../../src/toge/server/recordStore.ts';
 import { TRACK_LENGTH_KM, applyAction, newGarage } from '../../src/toge/shared/garage.ts';
-import { decodeCar, encodeCar } from '../../src/toge/shared/cars.ts';
+import { CAR_IDS, TUNE_RANGE, carSpec, decodeCar, encodeCar, maxedUpgrades, newOwnedCar, topSpeed } from '../../src/toge/shared/cars.ts';
+import { aiDrive, newAi } from '../../src/toge/shared/driver.ts';
+import { getTrack, gridSlot } from '../../src/toge/shared/track.ts';
+import { type DriveInput, TICK_DT, newCar, stepCar } from '../../src/toge/shared/vehicle.ts';
 import { decodeRider } from '../../src/toge/shared/rider.ts';
 import { Race, type RaceClient } from '../../src/toge/server/race.ts';
 import { type RaceMode, recordMode } from '../../src/toge/shared/protocol.ts';
@@ -36,9 +39,43 @@ test('a best time is kept only when it beats the old one; the old one comes back
   assert.deepEqual(recordTime(second!.bests, 'monza', 300, CAR, 4)?.best.prev, null);
 });
 
+test('the speed bound sits above every car flat out', () => {
+  // No car can average more than its own top speed, so the bound has to clear the fastest one: every model, maxed, on
+  // every final drive the tuner allows.
+  for (const model of CAR_IDS) {
+    const car = { ...newOwnedCar(model), up: maxedUpgrades() };
+    for (let f = TUNE_RANGE.final.min; f <= TUNE_RANGE.final.max + 1e-9; f += TUNE_RANGE.final.step) {
+      const v = topSpeed(carSpec({ ...car, tune: { ...car.tune, final: f } }));
+      assert.ok(v < RECORDS.maxAvgSpeed * 0.95, `${model} at final ${f.toFixed(2)}: ${v.toFixed(1)} m/s`);
+    }
+  }
+});
+
+test('a maxed Vanta run flat out on the fast highways keeps its time', () => {
+  // The 'Maxed Vanta' time trial on Sea-to-Sky ran 62.0 s flat out, under the old 63.6 s floor (90 m/s average), so
+  // no best was ever saved there. Hayate and Ryusei were the same.
+  for (const id of ['seatosky', 'hayate', 'ryusei'] as TrackId[]) {
+    const t = getTrack(id);
+    const g = gridSlot(t, 0);
+    const sp = carSpec({ ...newOwnedCar('vanta'), up: maxedUpgrades() });
+    const car = newCar(sp, g.x, g.y, g.z, g.yaw);
+    const ai = newAi(1, 0);
+    const inp: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
+    let time = 0;
+    for (; car.s < t.finishS && time < 300; time += TICK_DT) {
+      aiDrive(car, t, ai, TICK_DT, inp);
+      inp.throttle = 1;
+      inp.brake = 0;
+      stepCar(car, inp, t);
+    }
+    assert.ok(car.s >= t.finishS, `${id}: didn't finish`);
+    assert.ok(recordTime({}, id, time, CAR, 0), `${id}: ${time.toFixed(2)} s refused (floor ${minTime(id).toFixed(2)} s)`);
+  }
+});
+
 test('impossible times and unknown tracks are refused', () => {
   for (const id of Object.keys(TRACK_LENGTH_KM) as TrackId[]) {
-    assert.ok(minTime(id) >= 30, `${id} floor is a real race`);
+    assert.ok(minTime(id) >= 20, `${id} floor is a real race`);
     assert.equal(recordTime({}, id, minTime(id) - 0.01, CAR, 0), null, `${id}: quicker than ${RECORDS.maxAvgSpeed} m/s average`);
     assert.ok(recordTime({}, id, minTime(id) + 0.01, CAR, 0));
   }
