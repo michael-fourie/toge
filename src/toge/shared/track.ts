@@ -15,7 +15,7 @@ import { type World, worldSlot, worldTrack } from './world.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'toge';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'toge';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -82,6 +82,13 @@ export interface TrackDef {
   water?: number;
   /** Four lanes of traffic to dodge (traffic.ts): two each way in town, or all four going your way on a `highway`. */
   traffic?: boolean | 'highway';
+  /** A highway's lane count (default 4). Six spread evenly across the whole asphalt, edge to edge (traffic.ts `lanesOf`). */
+  lanes?: 4 | 6;
+  /**
+   * Walls right at the asphalt's edge, like a street circuit: no shoulder, no verge, no runoff, so the outer lanes
+   * run along the barrier.
+   */
+  walled?: boolean;
   /**
    * A hill climb (the lobby's Hill climb mode): an uphill run with no ramps or cones; boulders and
    * rocks lie on the road's edges instead (props.ts), and the forest crowds right up to the barrier.
@@ -160,6 +167,8 @@ const RUNOFF = 240; // straight after the finish line to brake in
 const LAP_PRE = 150; // a circuit's grid: this much of the lap before the line
 export const SHOULDER = 2.5; // paved strip outside the white lines
 export const VERGE = 3; // grass between the shoulder and the barrier
+/** A `walled` road's barrier stands this far outside the white line. */
+export const WALL_GAP = 0.3;
 /** The road's plane carries on this far past the barrier so the rails stand on level ground. */
 const EDGE_PAD = 1.5;
 const BLEND = 26; // the ground eases from the road's plane into the hills over this many metres
@@ -188,6 +197,8 @@ export interface Track {
   /** Samples per lap on a circuit (sample i + lap is the same place as sample i); 0 on a point-to-point road. */
   lap: number;
   half: number; // half the asphalt width
+  /** Paved strip outside the white lines: SHOULDER, or none on a `walled` road. */
+  shoulder: number;
   rail: number; // barrier distance from the centreline, where there's no runoff
   edge: number; // where the road's plane ends and the blend begins, where there's no runoff
   /** Runoff: extra metres of flat dirt before the barrier, left and right of each sample. */
@@ -735,6 +746,88 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [-1937, 97.2, -4739], [-1970, 98.7, -4855], [-2003, 99.5, -4970],
     ],
   },
+  // Two grand prix highways (Andrew, 2026-11-09: "straight aways with high speed, as well as important breaking
+  // points/turns ... make the whole road full of traffic with 6 lanes going in the same direction ... two different
+  // maps with the same vibe, but different layouts"). Both 21 m: six 3.5 m lanes of traffic edge to edge (`lanes: 6`),
+  // walls at the white lines (`walled`), and long flat-out straights that end in hard braking: 90° corners of
+  // 40-60 m, a hairpin, a chicane. Laid out as straights and arcs like Sea-to-Sky.
+  shiden: {
+    id: 'shiden',
+    name: 'Shiden Boulevard',
+    tag: 'Night grand prix · six lanes of traffic · hard braking',
+    blurb: 'A grand prix down the city\'s widest boulevards after dark, six lanes of traffic wall to wall. A kilometre flat out into a square left, a chicane, a hairpin at the end of the longest straight: brake late, pick your gap, and get on the power first.',
+    theme: 'city',
+    seed: 5113,
+    width: 21,
+    relief: 50,
+    traffic: 'highway',
+    lanes: 6,
+    walled: true,
+    points: [
+      [0, 40.0, 0], [0, 40.3, -125], [0, 40.7, -250], [0, 41.0, -375], [0, 41.3, -500], [0, 41.7, -625],
+      [0, 42.0, -750], [0, 42.3, -875], [0, 42.7, -1000], [0, 42.7, -1006], [-2, 42.7, -1012], [-4, 42.7, -1018],
+      [-6, 42.7, -1024], [-10, 42.8, -1029], [-14, 42.8, -1034], [-19, 42.8, -1038], [-24, 42.8, -1042], [-30, 42.8, -1044],
+      [-36, 42.8, -1046], [-42, 42.9, -1048], [-48, 42.9, -1048], [-163, 43.2, -1048], [-278, 43.5, -1048], [-393, 43.8, -1048],
+      [-508, 43.9, -1048], [-516, 43.9, -1049], [-524, 43.9, -1050], [-531, 43.9, -1053], [-538, 43.9, -1056], [-545, 43.9, -1060],
+      [-550, 43.8, -1066], [-556, 43.8, -1071], [-560, 43.8, -1078], [-563, 43.8, -1085], [-566, 43.8, -1092], [-567, 43.8, -1100],
+      [-568, 43.7, -1108], [-568, 43.5, -1215], [-568, 43.3, -1321], [-568, 43.1, -1428], [-568, 43.1, -1433], [-569, 43.1, -1438],
+      [-571, 43.1, -1443], [-573, 43.1, -1448], [-576, 43.0, -1453], [-579, 43.0, -1457], [-583, 43.0, -1460], [-587, 43.0, -1464],
+      [-590, 43.0, -1468], [-593, 43.0, -1472], [-595, 43.0, -1477], [-597, 43.0, -1482], [-598, 43.0, -1487], [-598, 43.0, -1492],
+      [-598, 42.7, -1615], [-598, 42.5, -1738], [-598, 42.2, -1861], [-598, 42.0, -1984], [-598, 41.7, -2107], [-598, 41.5, -2229],
+      [-598, 41.2, -2352], [-598, 41.2, -2358], [-596, 41.2, -2364], [-594, 41.2, -2370], [-592, 41.2, -2375], [-588, 41.2, -2380],
+      [-584, 41.2, -2385], [-579, 41.1, -2388], [-574, 41.1, -2391], [-569, 41.1, -2394], [-563, 41.1, -2395], [-557, 41.1, -2396],
+      [-551, 41.1, -2396], [-545, 41.1, -2395], [-539, 41.1, -2394], [-534, 41.1, -2391], [-529, 41.0, -2388], [-524, 41.0, -2385],
+      [-520, 41.0, -2380], [-516, 41.0, -2375], [-514, 41.0, -2370], [-512, 41.0, -2364], [-510, 41.0, -2358], [-510, 41.0, -2352],
+      [-510, 41.1, -2240], [-510, 41.2, -2128], [-510, 41.3, -2016], [-510, 41.4, -1904], [-510, 41.4, -1792], [-510, 41.5, -1786],
+      [-508, 41.5, -1780], [-507, 41.5, -1775], [-504, 41.5, -1769], [-501, 41.5, -1764], [-497, 41.5, -1760], [-492, 41.5, -1756],
+      [-487, 41.5, -1753], [-482, 41.5, -1750], [-476, 41.5, -1748], [-470, 41.5, -1747], [-464, 41.5, -1746], [-359, 41.6, -1746],
+      [-254, 41.7, -1746], [-149, 41.7, -1746], [-44, 41.8, -1746], [-23, 41.8, -1748], [-3, 41.9, -1752], [17, 41.9, -1759],
+      [35, 41.9, -1769], [52, 41.9, -1781], [152, 42.0, -1865], [252, 42.1, -1949], [257, 42.1, -1953], [261, 42.1, -1959],
+      [265, 42.1, -1964], [267, 42.1, -1971], [270, 42.1, -1977], [271, 42.1, -1984], [271, 42.1, -1991], [271, 42.2, -2105],
+      [271, 42.3, -2219], [271, 42.4, -2334], [271, 42.5, -2448], [271, 42.6, -2562], [271, 42.7, -2676], [271, 42.8, -2791],
+    ],
+  },
+  isonami: {
+    id: 'isonami',
+    name: 'Isonami Corniche',
+    tag: 'Seafront grand prix · six lanes of traffic · hard braking',
+    blurb: 'The coast road closed for a grand prix, and nobody told the traffic: six lanes of it, wall to wall. Flat-out kinks along the sea, then a 95° left, a hairpin by the lighthouse and a chicane, each at the end of a straight you will want to brake too late for.',
+    theme: 'coast',
+    seed: 6211,
+    width: 21,
+    relief: 70,
+    tilt: [0.25, 0],
+    water: 0,
+    traffic: 'highway',
+    lanes: 6,
+    walled: true,
+    points: [
+      [0, 9.0, 0], [0, 9.3, -117], [0, 9.6, -233], [0, 9.9, -350], [0, 10.2, -467], [0, 10.5, -583],
+      [0, 10.8, -700], [1, 10.8, -727], [6, 10.9, -754], [13, 11.0, -780], [22, 11.0, -806], [75, 11.3, -925],
+      [128, 11.7, -1043], [181, 12.0, -1162], [234, 11.8, -1281], [236, 11.8, -1286], [237, 11.8, -1291], [237, 11.8, -1297],
+      [237, 11.7, -1302], [236, 11.7, -1308], [234, 11.7, -1313], [232, 11.7, -1318], [228, 11.7, -1322], [225, 11.7, -1326],
+      [220, 11.7, -1330], [216, 11.7, -1333], [210, 11.7, -1335], [91, 11.5, -1376], [-29, 11.3, -1417], [-149, 11.0, -1459],
+      [-158, 11.0, -1462], [-166, 11.0, -1467], [-174, 11.0, -1473], [-181, 11.0, -1480], [-187, 11.0, -1488], [-192, 10.9, -1497],
+      [-196, 10.9, -1506], [-198, 10.9, -1515], [-199, 10.9, -1525], [-199, 10.9, -1535], [-190, 10.7, -1664], [-181, 10.4, -1794],
+      [-181, 10.4, -1801], [-182, 10.4, -1808], [-184, 10.4, -1814], [-187, 10.4, -1821], [-190, 10.4, -1826], [-194, 10.4, -1832],
+      [-200, 10.4, -1836], [-205, 10.4, -1840], [-211, 10.3, -1844], [-218, 10.3, -1846], [-224, 10.3, -1847], [-231, 10.3, -1848],
+      [-238, 10.3, -1847], [-245, 10.3, -1846], [-360, 10.1, -1813], [-475, 10.2, -1780], [-591, 10.6, -1746], [-706, 11.0, -1713],
+      [-822, 11.4, -1680], [-937, 11.8, -1647], [-962, 11.9, -1641], [-987, 12.0, -1636], [-1012, 12.1, -1633], [-1038, 12.2, -1631],
+      [-1064, 12.3, -1630], [-1089, 12.3, -1626], [-1114, 12.4, -1621], [-1139, 12.5, -1615], [-1261, 12.9, -1580], [-1383, 13.4, -1545],
+      [-1504, 13.8, -1510], [-1510, 13.8, -1509], [-1517, 13.8, -1509], [-1523, 13.8, -1509], [-1529, 13.9, -1510], [-1535, 13.9, -1513],
+      [-1540, 13.9, -1515], [-1546, 13.9, -1519], [-1550, 13.9, -1523], [-1554, 14.0, -1528], [-1557, 14.0, -1534], [-1559, 14.0, -1539],
+      [-1561, 14.0, -1545], [-1562, 14.0, -1552], [-1562, 13.9, -1558], [-1561, 13.9, -1564], [-1559, 13.9, -1570], [-1556, 13.9, -1576],
+      [-1553, 13.9, -1581], [-1549, 13.9, -1586], [-1544, 13.9, -1590], [-1539, 13.8, -1593], [-1533, 13.8, -1596], [-1428, 13.5, -1636],
+      [-1324, 13.3, -1676], [-1219, 13.0, -1716], [-1115, 12.7, -1756], [-1010, 12.4, -1796], [-1006, 12.4, -1798], [-1001, 12.4, -1799],
+      [-996, 12.4, -1799], [-992, 12.4, -1798], [-987, 12.4, -1797], [-983, 12.3, -1796], [-978, 12.3, -1794], [-974, 12.3, -1793],
+      [-969, 12.3, -1793], [-964, 12.3, -1793], [-960, 12.3, -1794], [-955, 12.3, -1795], [-843, 12.0, -1838], [-731, 11.7, -1881],
+      [-619, 11.4, -1924], [-507, 11.1, -1967], [-489, 11.0, -1975], [-472, 11.0, -1986], [-456, 11.0, -1998], [-442, 11.0, -2013],
+      [-430, 10.9, -2029], [-421, 10.9, -2046], [-413, 10.9, -2064], [-378, 10.8, -2165], [-343, 10.7, -2266], [-309, 10.6, -2367],
+      [-306, 10.6, -2374], [-302, 10.6, -2380], [-298, 10.6, -2386], [-292, 10.6, -2391], [-286, 10.6, -2395], [-280, 10.6, -2399],
+      [-273, 10.6, -2402], [-266, 10.6, -2403], [-258, 10.6, -2404], [-251, 10.6, -2404], [-243, 10.6, -2402], [-117, 10.5, -2371],
+      [9, 10.4, -2339], [135, 10.3, -2308], [261, 10.1, -2276],
+    ],
+  },
   toge: {
     id: 'toge',
     name: 'Toge',
@@ -1026,7 +1119,8 @@ export function buildTrack(def: TrackDef): Track {
   for (let i = 0; i < n; i++) bank[i] = Math.max(-0.07, Math.min(0.07, curv[i] * 3));
 
   const half = def.width / 2;
-  const rail = half + SHOULDER + VERGE;
+  const shoulder = def.walled ? 0 : SHOULDER;
+  const rail = def.walled ? half + WALL_GAP : half + SHOULDER + VERGE;
   const edge = rail + EDGE_PAD;
   const startS = lap ? pre * SAMPLE : nearestS(first);
   const finishS = lap ? startS + laps * lap * SAMPLE : nearestS(last);
@@ -1119,6 +1213,7 @@ export function buildTrack(def: TrackDef): Track {
     finishS,
     lap,
     half,
+    shoulder,
     rail,
     edge,
     runL,
@@ -1261,6 +1356,8 @@ function runoff(
   def: TrackDef, n: number, x: Float64Array, z: Float64Array, curv: Float64Array, spans: Span[], crests: { s: number; len: number }[],
   edge: number, startS: number, finishS: number, lap: number, pre: number,
 ): [Float64Array, Float64Array] {
+  // A walled road has no runoff: the wall is the price of a missed braking point.
+  if (def.walled) return [new Float64Array(n), new Float64Array(n)];
   const vlim = new Float64Array(n);
   for (let i = 0; i < n; i++) vlim[i] = Math.min(RUN.vmax, Math.sqrt(RUN.grip / Math.max(1e-6, Math.abs(curv[i]))));
   const v = Float64Array.from(vlim);
@@ -1338,7 +1435,7 @@ export const railAt = (t: Track, s: number, d: number) => t.rail + runoffAt(t, s
 export const edgeAt = (t: Track, s: number, d: number) => t.edge + runoffAt(t, s, d);
 
 /** Runoff of `r` metres is dirt from this far out (|d|): it eats into the grass verge as it widens. */
-export const dirtFrom = (t: Track, r: number) => (r < 0.05 ? Infinity : Math.max(t.half + SHOULDER, t.rail - r));
+export const dirtFrom = (t: Track, r: number) => (r < 0.05 ? Infinity : Math.max(t.half + t.shoulder, t.rail - r));
 
 // ---------------------------------------------------------------------------------------------
 // Queries
@@ -1666,7 +1763,7 @@ export function groundAt(t: Track, x: number, z: number, out: Ground, hint = -1)
     out.nz = nz;
     const ad = Math.abs(tmpLoc.d);
     out.surf =
-      ad > t.half + SHOULDER ? (ad >= dirtFrom(t, runoffAt(t, tmpLoc.s, tmpLoc.d)) ? 'dirt' : 'grass') : t.gravel[tmpLoc.i] ? 'gravel' : ad <= t.half ? 'asphalt' : 'shoulder';
+      ad > t.half + t.shoulder ? (ad >= dirtFrom(t, runoffAt(t, tmpLoc.s, tmpLoc.d)) ? 'dirt' : 'grass') : t.gravel[tmpLoc.i] ? 'gravel' : ad <= t.half ? 'asphalt' : 'shoulder';
     return out;
   }
   const onRamp = tmpLoc.i >= 0;

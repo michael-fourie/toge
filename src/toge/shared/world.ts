@@ -1476,6 +1476,7 @@ export function worldTrack(def: TrackDef): Track {
     finishS: Infinity,
     lap: 0,
     half: 4,
+    shoulder: SHOULDER,
     rail: 4 + SHOULDER + VERGE,
     edge: 4 + SHOULDER + VERGE + EDGE_PAD,
     runL: zero,
