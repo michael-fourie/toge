@@ -29,8 +29,26 @@ Simulation handling (`arcade` off) keeps the tyres' own numbers.
 Wall riding (2026-11-06, Michael: "wall riding is faster than slowing down for corners"): grinding a barrier
 drags the car by `SCRAPE + SCRAPE_V` × speed (9 + 0.6·v m/s², vehicle.ts `barrier()`), so a brush at hairpin speed
 costs about 2 g and pinned at 150 km/h about 70 km/h a second. It applies to every car, CPU included; clean CPU lines
-barely touch the rails, so their times didn't move. Full throttle never braking still beats the CPUs on many tracks,
-but that time comes from the CPU slowing a lot for jumps and bends (`targetSpeed`), not from the walls.
+barely touch the rails, so their times didn't move.
+
+Full throttle no longer wins (2026-11-10, Michael: "improve the gameplay ... make the game better"). Measured with the AI's
+own steering and the throttle pinned, no brakes: that beat the old CPUs on 20 of 22 tracks (Monaco by 21 s). Two causes,
+both fixed. (1) The rail was a better brake than the brakes: a car that went into a hairpin flat out bounced off the
+outside wall at about the speed it would have braked to. Now a hit, not a brush, costs speed (`IMPACT` in vehicle.ts
+`pushOff`: past 3 m/s into the rail, 2 m/s of speed per m/s more, keeping at least half): a 2° brush at 150 km/h costs
+nothing extra, 12° about 30 km/h, 30° most of it. The open world's walls go through `pushOff` too. (2) The AI braked
+early and softly (planned at ~60% of the brakes, feathered the pedal at ~0.5), planned corners on 0.86 of
+`ARCADE.grip` though its line cuts the bends (it holds the road at `LINE_GRIP` 1.3 × grip × skill, plus `ARCADE.fast`
+at speed), and lifted to 94 km/h for every crest. Now it brakes late and hard (`BRAKING`), takes crests at 151 km/h
+(`CREST_SPEED`, scaled down below skill 0.84) but takes the flight out of its braking distance (`FLIGHT`), counts on half
+the grip over `bumps` (it flew off Karasu Peak's), looks 30 m ahead instead of 42 in traffic (it cut kinks into the
+car it was passing at 250 km/h; Hayate is now clean) and steers onto boost pads within 7 m of its line. Any Hard CPU
+beats full throttle (racephysics "CPUs" test; Monaco is the closest, about a second); the three speed roads are flat
+out for everyone.
+
+**CPU difficulty** (driver.ts `CPU_LEVELS`, `rivalAi`; the Race page's CPU pills, saved as `atrous.cpu`, read by
+racegame.ts `cpuLevel()`): Easy (pace 0.66, about where the CPUs were before), Normal (0.86, the default; its slowest
+CPUs about match full throttle) and Hard (1: skills 0.84-0.94). The host's level also drives an online lobby's CPU racers.
 
 Arcade refinements (2026-11-04, Devlin: "the drift hops", "turning radius and medium speeds", "losing traction at
 speed should be possible"; then "the drift turns me 90° at once"), grip left as it was: the drift button is an
@@ -237,7 +255,7 @@ a component or a page.
   `/api/friends`), see who added you, open a friend's garage (`/api/garage?u=`, a `TogeProfile`: cars, driver, races,
   wins, best times, no money). Their car goes on the turntable with their driver beside it, and their best times sit next
   to yours with the gap. Guests see a sign-in prompt and their own times.
-- **Solo**: 0/3/5/7 AI rivals (hub.ts, saved as `atrous.rivals`) picked near your PI with your upgrades; you start mid-pack.
+- **Solo**: 0/3/5/7 AI rivals (hub.ts, saved as `atrous.rivals`) picked near your PI with your upgrades, at the CPU difficulty you pick; you start mid-pack.
 - **Online**: Directory instance `"race"`, sockets `/ws?game=race`, up to `RACE.maxPlayers` (8).
 - **CPU racers online** (`CPU` in protocol.ts): the host adds them in the lobby's first open slot (`cpu` add/remove, lobby only). The room keeps them as members with negative ids and a dead socket, ready from the start; the host's racegame.ts drives them as `rivals` (`netId`, the solo AI; the room picks `rivalCar` / `rivalRider` against the host's), sends their poses in one `cpus` message (relayed as one `snap`), and `cpufinish` / `cpuwreck` on its own `clock`. Everyone else sees them as remotes. They give up a seat to a person who joins a full lobby, leave with a host who quits mid-race, are DNF if the people are all home first, and are never paid: people get max(the prize among the people alone, the solo-share prize for the whole field). A win only counts against another person.
 
@@ -270,8 +288,8 @@ src/toge/shared/
                rollCosCase, CosKit (what a car wears), encode/decodeKit (the optional last segment of a car code).
   standings.ts race order (finishers by time, then progress); the place readout and the leaderboard both use it.
                Lap races pass laps × lap length + distance into the lap as `progress`.
-  driver.ts    AI: pure pursuit on a corner-cutting line; target speed from the tightest bend in braking range; picks a
-               clear lane round city traffic.
+  driver.ts    AI: pure pursuit on a corner-cutting line; target speed from the tightest bend in braking range (late, hard
+               braking; crests, bumps); boost pads; picks a clear lane round city traffic. CPU_LEVELS / rivalAi: difficulty.
   traffic.ts   traffic (tracks with `traffic`): four lanes, two each way (`LANES`), or on a `'highway'` all four with the
                race (`HIGHWAY_LANES`; `lanesOf`, which the AI's dodging reads too), every car's place a pure function
                of the race clock (seconds since GO), so it's identical for every racer with nothing on the wire.
@@ -458,6 +476,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in toge/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

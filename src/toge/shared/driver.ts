@@ -14,11 +14,27 @@ const G = 9.81;
 /** Share of the tyres' peak grip that's usable mid-corner once load transfer is counted. */
 const USABLE = 0.86;
 const GRAVEL = 0.74;
-/** How fast (m/s) the AI takes a crest. */
-const CREST_SPEED = 26;
+/**
+ * How far past ARCADE.grip × skill the AI dares to corner, planning on the centreline's curvature. Its line cuts
+ * across the road (leaning into each bend), so it drives a wider radius than the centreline's, and the AI test
+ * shows it holds the road at this much more without touching the rails. It used to plan on 0.86 of the grip
+ * with brakes at three quarters, and holding full throttle into the walls beat every CPU on 20 of 22 tracks.
+ */
+const LINE_GRIP = 1.3;
+/** Share of the arcade brakes (the tyres × ARCADE.brakeGrip, at full skill) the AI plans to stop with. */
+const BRAKING = 1.07;
+/**
+ * How fast (m/s) the AI takes a crest: past it the car flies, and can't brake or steer until it lands. It was 26
+ * (94 km/h), far slower than the jumps need, and a player who just kept their foot in gained seconds at each one.
+ */
+const CREST_SPEED = 42;
+/** Metres past a crest's far side that the car may still be in the air (no brakes, no steering) at crest speed. */
+const FLIGHT = 30;
+/** Share of the corner grip the AI counts on over heaved tarmac (`bumps`): the car goes light, and flies off the big ones. */
+const BUMPY = 0.5;
 
 export interface Ai {
-  /** 0.8 (gentle) .. 1 (on the limit): how much of the tyres' grip it dares to use. */
+  /** How much of what the car can do it dares to use: 0.84-0.94 on Hard (rivalAi), 1 on the limit. */
   skill: number;
   /** Preferred offset from the line (m), so a pack spreads across the road. */
   lane: number;
@@ -31,9 +47,32 @@ export interface Ai {
 
 export const newAi = (skill: number, lane: number): Ai => ({ skill, lane, stuck: 0, wrongWay: 0, dodge: 0, dodgeFor: 0 });
 
+/**
+ * CPU difficulty (the solo Race page; the host's choice drives an online lobby's CPU racers too). `pace` scales
+ * every rival's skill. Easy is about where the CPUs were before they braked late and took crests properly; Hard
+ * is all they've got (any of them beats full throttle into the walls).
+ */
+export type CpuLevel = 'easy' | 'normal' | 'hard';
+export const CPU_LEVELS: Record<CpuLevel, { name: string; pace: number }> = {
+  easy: { name: 'Easy', pace: 0.66 },
+  normal: { name: 'Normal', pace: 0.86 },
+  hard: { name: 'Hard', pace: 1 },
+};
+export const CPU_LEVEL_IDS = Object.keys(CPU_LEVELS) as CpuLevel[];
+export const isCpuLevel = (x: unknown): x is CpuLevel => typeof x === 'string' && x in CPU_LEVELS;
+
+/** The AI for the `i`th CPU rival: skills spread 0.84-0.94 (times the level's pace), lanes spread across the road. */
+export const rivalAi = (i: number, level: CpuLevel): Ai => newAi((0.84 + ((i * 37) % 11) / 100) * CPU_LEVELS[level].pace, ((i % 3) - 1) * 1.6);
+
 function curvAt(t: Track, s: number): number {
   const i = Math.max(0, Math.min(t.n - 1, Math.round(s / SAMPLE)));
   return t.curv[i];
+}
+
+/** ARCADE.fast's extra grip at a speed (m/s), as a factor. */
+function fastGrip(speed: number): number {
+  const F = ARCADE.fast;
+  return 1 + F.extra * Math.max(0, Math.min(1, (speed - F.from) / (F.to - F.from)));
 }
 
 /** The fastest the car can be going right now and still make every bend in braking range. */
@@ -45,30 +84,43 @@ export function targetSpeed(car: Car, t: Track, skill: number): number {
   // Braking downhill: gravity pushes along the road, so the brakes have less to give.
   const i = Math.max(0, Math.min(t.n - 30, car.hint));
   const grade = Math.max(0, (t.y[i] - t.y[i + 25]) / (25 * SAMPLE));
-  // Arcade brakes bite harder than the tyres alone (ARCADE.brakeGrip), and the AI brakes as late as you can.
-  const decel = mu * G * 0.75 * (DEFAULT_ASSISTS.arcade ? ARCADE.brakeGrip : 1) - G * grade;
+  // Arcade brakes bite harder than the tyres alone (ARCADE.brakeGrip), and the AI brakes nearly as late as you can.
+  const decel = (DEFAULT_ASSISTS.arcade ? (mu / USABLE) * BRAKING * ARCADE.brakeGrip : mu * 0.75) * G - G * grade;
   const reach = (v * v) / (2 * decel) + 40;
   let best = Infinity;
-  // Arcade handling corners at the grip it promises; the simulation at the tyres'.
-  const corner = DEFAULT_ASSISTS.arcade ? ARCADE.grip * skill * USABLE : mu;
+  // Arcade handling corners at the grip it promises (and its line runs wider than the centreline); the simulation at the tyres'.
+  const corner = DEFAULT_ASSISTS.arcade ? ARCADE.grip * skill * LINE_GRIP : mu;
   for (let d = 0; d <= reach; d += 4) {
-    const k = Math.abs(curvAt(t, car.s + d));
+    const s = car.s + d;
+    const k = Math.abs(curvAt(t, s));
     if (k < 1e-4) continue;
-    // Gravel has about three quarters of tarmac's grip.
-    const j = Math.max(0, Math.min(t.n - 1, Math.round((car.s + d) / SAMPLE)));
-    const vc = Math.sqrt(((t.gravel[j] ? corner * GRAVEL : corner) * G) / k);
-    const allowed = Math.sqrt(vc * vc + 2 * decel * Math.max(0, d - 8));
+    // Gravel has about three quarters of tarmac's grip; bumps lift the car light.
+    const j = Math.max(0, Math.min(t.n - 1, Math.round(s / SAMPLE)));
+    const bumpy = t.bumps.some((b) => s >= b.s0 && s <= b.s1);
+    const g = (t.gravel[j] ? corner * GRAVEL : corner) * (bumpy ? BUMPY : 1) * G;
+    // Arcade grip grows a little at speed (ARCADE.fast): a fast sweeper takes more than its slow-corner speed.
+    let vc = Math.sqrt(g / k);
+    if (DEFAULT_ASSISTS.arcade) vc = Math.sqrt((g * fastGrip(vc)) / k);
+    // No braking in the air: a crest between here and the bend takes its flight out of the braking distance.
+    let air = 0;
+    for (const c of t.crests) if (c.s - c.len / 2 > car.s && c.s - c.len / 2 < s) air += Math.min(s - (c.s - c.len / 2), c.len + FLIGHT);
+    const allowed = Math.sqrt(vc * vc + 2 * decel * Math.max(0, d - 8 - air));
     if (allowed < best) best = allowed;
   }
   // Lift for jumps: a crest taken flat out lands you in the next bend.
+  const crest = CREST_SPEED * Math.min(1, skill / 0.84);
   for (const c of t.crests) {
     const d = c.s - c.len / 2 - car.s;
     if (d < -c.len / 2 || d > reach) continue;
-    const allowed = Math.sqrt(CREST_SPEED ** 2 + 2 * decel * Math.max(0, d));
+    const allowed = Math.sqrt(crest ** 2 + 2 * decel * Math.max(0, d));
     if (allowed < best) best = allowed;
   }
   return best;
 }
+
+/** The AI goes for a boost pad up to this far (m) off its line, once it's within its look-ahead plus PAD_LOOK m. */
+const PAD_REACH = 7;
+const PAD_LOOK = 15;
 
 /** Two cars this far apart across the road (m) or less are in each other's way. */
 const CLEAR = 2.9;
@@ -156,10 +208,18 @@ function dodge(car: Car, t: Track, ai: Ai, off: number, v: number, dt: number, t
 export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput, traffic?: Obstacle[]): DriveInput {
   const sp = car.spec;
   const v = forwardSpeed(car);
-  const ld = Math.max(9, Math.min(42, 6 + v * 0.55));
+  // Looking less far ahead in traffic holds the line it picked more tightly: at 250 km/h through a kink, aiming 42 m
+  // out cut the bend by over a metre, into the car it was passing.
+  const ld = Math.max(9, Math.min(traffic?.length ? 30 : 42, 6 + v * 0.55));
   const ahead = car.s + ld;
   const lean = Math.max(-(t.half - 1.4), Math.min(t.half - 1.4, curvAt(t, ahead + 10) * 240));
   let off = Math.max(-(t.half - 1.2), Math.min(t.half - 1.2, ai.lane + lean));
+  // Run over a boost pad coming up near our line (they sit on the outside of corner exits, where the line runs out).
+  for (const p of t.boosts) {
+    if (p.s + p.len < car.s + 2 || p.s > car.s + ld + PAD_LOOK) continue;
+    if (Math.abs(p.d - off) < PAD_REACH) off = p.d;
+    break;
+  }
   // Steer round bales, barrels, boulders and rocks coming up on our line (cones it just drives through).
   for (let i = firstPropFrom(t.props, car.s); i < t.props.length && t.props[i].s < car.s + ld + 25; i++) {
     const p = t.props[i];
@@ -202,7 +262,8 @@ export function aiDrive(car: Car, t: Track, ai: Ai, dt: number, out: DriveInput,
     out.brake = 0;
   } else if (err < -1.5) {
     out.throttle = 0;
-    out.brake = Math.min(1, -err * 0.22);
+    // Its braking points are late, so it stands on the pedal (it used to feather it at about half).
+    out.brake = Math.min(1, -err * 0.8);
   } else {
     out.throttle = 0.25;
     out.brake = 0;

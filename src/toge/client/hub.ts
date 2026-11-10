@@ -11,6 +11,8 @@ import { type Rider, decodeRider, defaultRider, encodeRider, isRider, riderInfo 
 import { driverCard, driverTab } from './riderui.ts';
 import { cardData, openPlayerCard } from './playercard.ts';
 import { PHYSICS } from '../shared/protocol.ts';
+import { CPU_LEVELS, CPU_LEVEL_IDS, type CpuLevel } from '../shared/driver.ts';
+import { cpuLevel, setCpuLevel } from './racegame.ts';
 import { settingsTab } from './settingsui.ts';
 import { friendCar, friendsApi, friendsTab } from './friendsui.ts';
 import { type Leaders, boardApi, leaderboardTab } from './leaderboardui.ts';
@@ -111,6 +113,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   let track = (read(TRACK_KEY, 'koripass') in TRACK_DEFS ? read(TRACK_KEY, 'koripass') : 'koripass') as TrackId;
   let rivals = Number(read(RIVALS_KEY, '5'));
   let physics = read(PHYSICS_KEY, '0') === '1';
+  let cpu = cpuLevel();
   let status = screen.notice ?? '';
   let draft: { look: Look; tune: Tune } | null = null;
   /** A dealer car being looked at (shown in the showroom and on the card until you leave the page). */
@@ -318,6 +321,10 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       <div class="tg-seg" role="group" aria-label="Rivals">
         <span class="tg-label">Rivals</span>
         ${[0, 3, 5, 7].map((n) => `<button class="tg-pill" data-rivals="${n}" aria-pressed="${n === rivals}">${n}</button>`).join('')}
+      </div>
+      <div class="tg-seg" role="group" aria-label="CPU difficulty" title="How hard the CPU rivals push (also your online lobby's CPU racers when you host)">
+        <span class="tg-label">CPU</span>
+        ${CPU_LEVEL_IDS.map((l) => `<button class="tg-pill" data-cpu="${l}" aria-pressed="${l === cpu}">${CPU_LEVELS[l].name}</button>`).join('')}
       </div>
       <div class="tg-seg" role="group" aria-label="${esc(PHYSICS.name)}" title="${esc(PHYSICS.on.blurb)}">
         <span class="tg-label">${esc(PHYSICS.name)}</span>
@@ -577,6 +584,13 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       b.addEventListener('click', () => {
         rivals = Number(b.dataset.rivals);
         write(RIVALS_KEY, String(rivals));
+        draw();
+      }),
+    );
+    panel.querySelectorAll<HTMLElement>('[data-cpu]').forEach((b) =>
+      b.addEventListener('click', () => {
+        cpu = b.dataset.cpu as CpuLevel;
+        setCpuLevel(cpu);
         draw();
       }),
     );
@@ -1086,7 +1100,7 @@ function focusId(el: Element | null): string | null {
   const dl = el.getAttribute('data-dl');
   if (dl) return el.hasAttribute('data-pick') ? `input[data-dl="${dl}"]` : `button[data-dl="${dl}"][data-v="${el.getAttribute('data-v')}"]`;
   if (el.hasAttribute('data-dl-random')) return '[data-dl-random]';
-  for (const attr of ['data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-track', 'data-gp', 'data-rivals', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
+  for (const attr of ['data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-track', 'data-gp', 'data-rivals', 'data-cpu', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }

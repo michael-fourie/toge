@@ -1028,6 +1028,13 @@ const WALL_FRICTION = 0.35;
  */
 const SCRAPE = 9;
 const SCRAPE_V = 0.6;
+/**
+ * Hitting a barrier, not brushing it: past `from` m/s into the rail, the car loses `loss` m/s of speed for each m/s
+ * more (never below `keep` of what it had). Without it the rail was a better brake than the brakes: a car that went
+ * into a hairpin flat out bounced off the outside wall at the speed it would have braked to, having braked for none of
+ * it, and holding full throttle beat every CPU on 20 of 22 tracks. A 10° hit at 150 km/h now costs about 30 km/h.
+ */
+export const IMPACT = { from: 3, loss: 2, keep: 0.5 };
 
 /** Rails either side of the road, and the walls across both ends: the corner that went through is pushed back. */
 function barrier(car: Car, t: Track) {
@@ -1141,6 +1148,11 @@ function pushOff(car: Car, worst: number, wx: number, wz: number, nx: number, nz
   const vz = car.v.z - w.y * wx;
   const vn = vx * nx + vz * nz;
   if (vn >= 0) return;
+  if (-vn > IMPACT.from && v > 1) {
+    const f = Math.max(IMPACT.keep, 1 - (IMPACT.loss * (-vn - IMPACT.from)) / v);
+    car.v.x *= f;
+    car.v.z *= f;
+  }
   const k = invMassAt(car, wx, 0, wz, nx, 0, nz);
   const j = (-(1 + RESTITUTION) * vn) / k;
   // Scrape: friction along the rail, capped so it never reverses the slide.
