@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import { CUT_HALF, type Crossing, SAMPLE, SHOULDER, type Theme, type Track, type TrackId, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
+import { CUT_HALF, type Crossing, SAMPLE, type Theme, type Track, type TrackId, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
 import type { Grade } from './post.ts';
 import { decor, type Site } from './scenery.ts';
 import { BUSH_COLOURS, WIND, bushGeometry, speciesFor, sway } from './trees.ts';
@@ -239,7 +239,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
 
   // --- Road ribbon (chunks of ~200 m)
   // At night the road is damp: the same textures, glossier, so the lamps and headlights streak on it.
-  const roadTex = asphalt(t.def.theme, t.def.seed, aniso, !!t.lap, t.def.traffic === 'highway');
+  const roadTex = asphalt(t.def.theme, t.def.seed, aniso, !!t.lap, t.def.traffic === 'highway' ? (t.def.lanes ?? 4) : 0);
   for (const tex of Object.values(roadTex)) keep(tex);
   const roadMat = keep(new THREE.MeshStandardMaterial({ ...roadTex, normalScale: new THREE.Vector2(0.9, 0.9), roughness: look.moon ? 0.62 : 1, metalness: 0, envMapIntensity: look.moon ? 2.5 : 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   const gravelTex = gravel(t.def.theme, t.def.seed, aniso);
@@ -266,7 +266,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     const uvs: number[] = [];
     const idx: number[] = [];
     for (let i = i0; i <= i1; i++) {
-      const cross = [-(railOf(t, i, -1) + 1.2), -(t.rail + 1.2), -(t.half + SHOULDER), -t.half, t.half, t.half + SHOULDER, t.rail + 1.2, railOf(t, i, 1) + 1.2];
+      const cross = [-(railOf(t, i, -1) + 1.2), -(t.rail + 1.2), -(t.half + t.shoulder), -t.half, t.half, t.half + t.shoulder, t.rail + 1.2, railOf(t, i, 1) + 1.2];
       for (let k = 0; k < cross.length; k++) {
         const d = cross[k];
         const x = t.x[i] - t.tz[i] * d;

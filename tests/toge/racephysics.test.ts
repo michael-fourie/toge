@@ -499,8 +499,9 @@ test('traffic: hitting a car knocks you off it, and the AI gets every car throug
   for (let time = 1; time < 1.6; time += TICK_DT) collideTraffic(t, tr, car, time);
   assert.ok(car.hit > 5, 'a real knock');
   assert.ok(car.v.x * p.vx + car.v.z * p.vz > 0, 'pushed the way the traffic is going');
-  // The city, and the two highways (all four lanes going your way, at 250+ km/h on Hayate Flats).
-  for (const id of ['neonbay', 'ryusei', 'hayate'] as const) {
+  // The city, the two highways (all four lanes going your way, at 250+ km/h on Hayate Flats) and the two six-lane
+  // grand prix roads (traffic wall to wall, braking from 250 into hairpins).
+  for (const id of ['neonbay', 'ryusei', 'hayate', 'shiden', 'isonami'] as const) {
     const t = getTrack(id);
     const tr = getTraffic(t)!;
     for (const model of CAR_IDS) {
