@@ -77,7 +77,10 @@ player sees is decided or checked by the server; anything the server can't check
 - **TŌGE best times** (`src/toge/shared/records.ts`, kept per account as `b:<user>`) never pay anything. They only
   come from online time trials and hill climbs (`recordMode`), timed by the room (within the window above, at least
   `MIN_RACE_SECONDS`), and bounded: nothing quicker than the track's length at `RECORDS.maxAvgSpeed` (130 m/s
-  average, above every car's top speed) or slower than an hour. Solo runs carry no time, so a client can't post a best on its own.
+  average, above every car's top speed) or slower than an hour. Solo races carry no time, so a client can't post a best on its own.
+  The Race page's solo **Time trial** is no exception: it opens a private room of one (`solo=1`, passed on by the
+  Worker only to a new room, never to a code being joined; the room is always a time trial and full at one racer),
+  so the room times the run exactly like an online time trial.
 - **Friends** (`/api/friends`, `src/server/friendStore.ts`) are one way, like following: anyone signed in can add any
   username (20 adds or removes per account at once, then one per 3 s), which also tells them the name exists (as
   sign-up already does). Adding someone lets you open their TŌGE profile (`/api/garage?u=`): cars with their looks

@@ -449,6 +449,14 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   its piers (kept clear of the lower road). Cars on the two levels never collide (collideCars checks height). The leg
   spacing test skips the crossing; `figure 8` in racephysics tests the bridge. Put the start line well clear of the bridge.
 - Time trial (`mode: 'trial'` on the room, picked by the host in the lobby; switching to it puts up Kodama Ring, the short circuit built for it): the other racers' cars are see-through ghosts (`ghostly()` in carmodel.ts) and never collide. Clients send their best lap with `finish` (shown only, never paid on); the results add each racer's gap to the winner and best lap.
+- **Solo time trial** (2026-11-10, Andrew: time trials "accessible when playing Solo (ie. without having to Host a Race)
+  ... so you are able to put times on the Leaderboard"): the Race page's Time trial button (hub.ts `soloTrial`) opens a
+  private room of one on the picked track (`raceNet.hostSolo`, socket param `solo=1`; the Worker passes it only to a
+  new room) and goes straight to the start, no lobby. The room (`Race.makeSolo`) is always a time trial, full at one
+  racer, ignores `mode` / `cpu` / `cup`, and says `solo` on its `room` message and its directory entry: the lobby list
+  hides it, but it still counts as someone playing for the nightly deploy. Because the room times the run, a finish
+  counts as a best time and goes on the all-time board like any online time trial (a solo race still keeps no time).
+  Its results have Run again (the room's `start`) and Done; the room going back to its lobby takes you to the Race page.
 - Hill climb (`mode: 'climb'`): solid cars (you bump and draft each other, and take damage with Physics on), but like the
   time trial the host's car rule (`cleanMode()`), run only on `climb` tracks (`modeTracks`; the server ignores any other pick, and leaving the mode puts Kōri
   Pass back up). One map so far, Karasu Peak: bumpy forest climb, a hairpin ladder up the face, a crest, a gravel shelf,

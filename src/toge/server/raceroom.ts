@@ -29,7 +29,8 @@ export class RaceRoom extends DurableObject<Env> {
       rider: url.searchParams.get('rider') ?? '',
       user: url.searchParams.get('user') === '1',
     };
-    const race = this.open(code);
+    // `solo` (only on a new room: the Worker passes it to hosts, never to joiners) makes it a private time trial.
+    const race = this.open(code, url.searchParams.get('solo') === '1');
     if (race.full) {
       sendTo(client, { t: 'error', message: 'That race is full.' });
       ws.close(1000, 'full');
@@ -72,12 +73,13 @@ export class RaceRoom extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: peer });
   }
 
-  private open(code: string): Race {
+  private open(code: string, solo: boolean): Race {
     const dir = this.env.DIRECTORY.getByName('race');
     const accounts = this.env.ACCOUNTS.getByName('all');
-    this.race ??= new Race(
+    if (this.race) return this.race;
+    this.race = new Race(
       code,
-      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, ...(r.mode === 'gp' ? { cup: r.cup } : {}), physics: r.physics, phase: r.phase, players: r.humans, max: RACE.maxPlayers })),
+      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, ...(r.mode === 'gp' ? { cup: r.cup } : {}), ...(r.solo ? { solo: true } : {}), physics: r.physics, phase: r.phase, players: r.humans, max: r.solo ? 1 : RACE.maxPlayers })),
       (r) => {
         this.race = null;
         this.ctx.waitUntil(dir.remove(r.code));
@@ -113,6 +115,7 @@ export class RaceRoom extends DurableObject<Env> {
       },
     );
     this.race.ghostSource ??= (track) => accounts.recordGhost(track);
+    if (solo) this.race.makeSolo();
     return this.race;
   }
 }

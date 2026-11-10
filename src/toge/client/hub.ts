@@ -29,7 +29,7 @@ import { passChip, passRibbon, passTab } from './passui.ts';
 import { PASS, TIERS, type BgId, type TitleId, tierOf } from '../shared/pass.ts';
 import { garage } from './garageStore.ts';
 import { money } from './hud.ts';
-import { raceNet } from './racenet.ts';
+import { raceNet, roomRace } from './racenet.ts';
 import { Showroom } from './showroom.ts';
 import { ICON, LOGO } from './brand.ts';
 import { TRACK_IDS, cupCard, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
@@ -330,7 +330,10 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
         <span class="tg-label">${esc(PHYSICS.name)}</span>
         ${[false, true].map((on) => `<button class="tg-pill" data-physics="${on ? 1 : 0}" aria-pressed="${on === physics}">${on ? 'On' : 'Off'}</button>`).join('')}
       </div>
-      <button class="tg-go" data-solo data-autofocus>${ICON.flag}Race solo</button>
+      <div class="tg-launch-go">
+        <button class="tg-go alt" data-trial title="Just you and the clock on this track. The server times the run, so signed in it counts for your best time and the leaderboard.">${ICON.clock}Time trial</button>
+        <button class="tg-go" data-solo data-autofocus>${ICON.flag}Race solo</button>
+      </div>
     </div>
     <p class="tg-blurb">${esc(d.blurb)}</p>
     <h2 class="tg-h">Tracks <small>${TRACK_IDS.length}</small></h2>
@@ -602,6 +605,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       }),
     );
     panel.querySelector('[data-solo]')?.addEventListener('click', () => ctx.drive({ track, rivals, physics }));
+    panel.querySelector('[data-trial]')?.addEventListener('click', () => soloTrial());
     // A solo Grand Prix: the cup's first round, against your rivals (at least three: a cup needs a field).
     panel.querySelectorAll<HTMLElement>('[data-gp]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -996,12 +1000,40 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     else raceNet.host(playerName(), enc, rider);
   };
 
+  /**
+   * A solo time trial on the picked track: a private room of one (raceNet.hostSolo), so the server times the run and
+   * keeps it as a best time and on the leaderboard like any online time trial. Straight to the start, no lobby.
+   */
+  const soloTrial = () => {
+    flushDraft();
+    setStatus(`Opening a time trial on ${TRACK_DEFS[track].name}…`);
+    offNet?.();
+    let started = false;
+    offNet = raceNet.on((m) => {
+      if (m.t === 'room' && !started) {
+        started = true;
+        raceNet.send({ t: 'track', track });
+        raceNet.send({ t: 'start' });
+      } else if (m.t === 'load') {
+        offNet?.();
+        offNet = null;
+        ctx.drive(roomRace(m));
+      } else if (m.t === 'error') {
+        offNet?.();
+        offNet = null;
+        setStatus(m.message);
+      }
+    });
+    raceNet.hostSolo(playerName(), encodeCar(car()), encodeRider(viewedRider()));
+  };
+
   const refreshLobbies = async () => {
     clearTimeout(listTimer);
     const list = root.querySelector('[data-lobbies]');
     if (!list || page !== 'race') return;
     try {
-      const lobbies = await raceNet.lobbies();
+      // Solo time trials are rooms too, but private: nobody can join one.
+      const lobbies = (await raceNet.lobbies()).filter((l) => !l.solo);
       if (!root.querySelector('[data-lobbies]')) return;
       list.innerHTML = lobbies.length
         ? lobbies
@@ -1104,6 +1136,6 @@ function focusId(el: Element | null): string | null {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }
-  for (const attr of ['data-solo', 'data-host', 'data-join', 'data-code', 'data-friend-name']) if (el.hasAttribute(attr)) return `[${attr}]`;
+  for (const attr of ['data-solo', 'data-trial', 'data-host', 'data-join', 'data-code', 'data-friend-name']) if (el.hasAttribute(attr)) return `[${attr}]`;
   return null;
 }
