@@ -42,6 +42,7 @@ import { DriveControls } from './input.ts';
 import { type RaceNet, roomRace } from './racenet.ts';
 import type { DriveOpts } from '../../client/menu/router.ts';
 import { Post } from './post.ts';
+import { drawLow } from './lowgfx.ts';
 import { ContactShadows } from './contactshadow.ts';
 import { frameGate, lowGraphics, LOW_PIXEL_RATIO, releaseRenderer } from '../../client/graphics.ts';
 import { buildTrackView, type TrackView } from './trackview.ts';
@@ -454,6 +455,7 @@ export class RaceGame {
     }
     for (const r of [this.me, ...this.rivals]) r.car.gear = 0; // revving on the line
     this.snapCamera();
+    this.warmShaders();
     addEventListener('resize', this.resize);
     this.resize();
     setMenuNav(false);
@@ -463,6 +465,25 @@ export class RaceGame {
   }
 
   // --- setup ---------------------------------------------------------------------------------
+
+  /**
+   * Compiles every material in the scene now, behind the loading screen, hidden things included (far scenery, the
+   * other cars' parts, effects): otherwise each one compiled the first time it came into view mid-race, a stall of
+   * 50-300 ms each on Windows (ANGLE), seven of them in Kōri Pass's first 20 seconds. Low compiles its stand-ins.
+   */
+  private warmShaders() {
+    const scene = this.view.scene;
+    const hidden: THREE.Object3D[] = [];
+    scene.traverse((o) => {
+      if (o.visible) return;
+      hidden.push(o);
+      o.visible = true;
+    });
+    const compile = () => void this.renderer.compile(scene, this.camera);
+    if (this.low) drawLow(scene, compile);
+    else compile();
+    for (const o of hidden) o.visible = false;
+  }
 
   private spawn(owned: OwnedCar, slot: number, name: string, mine: boolean, rider: Rider): Racing {
     const g = gridSlot(this.track, slot);
@@ -1441,7 +1462,7 @@ export class RaceGame {
       rg.s = locate(this.track, rg.position.x, rg.position.z, this.ghostLoc.i, this.ghostLoc).s;
     }
     this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera.position.x, this.camera.position.z);
-    this.worldTraffic?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera.position.x, this.camera.position.z);
+    this.worldTraffic?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera);
     const view = this.camTarget();
     this.updateCamera(dt, view);
     this.driversVisible();

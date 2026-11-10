@@ -338,9 +338,9 @@ src/toge/shared/
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`), recordStore.ts (accounts' best times, `b:<user>`, and the all-time boards, `lb:<track>`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.
-src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), trees.ts (tree and bush shapes, wind sway), scenery.ts (props outside the barriers), tracktextures.ts
+src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), trees.ts (tree and bush shapes, wind sway, far stand-ins), lod.ts (distance swaps for tiled scenery), scenery.ts (props outside the barriers), tracktextures.ts
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
-  post chain: clamp, bloom, film grade per theme (`Look.grade`), then tone mapping), carmodel.ts
+  post chain: bloom (into its own texture), then one pass that adds it, grades per theme (`Look.grade`) and tone maps), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
   textures in carparts.ts, merged by material; bikes in bikemodel.ts; tune them in `/dev/cars.html`, `window.lab`, `lab.info()` for draw
   calls and triangles). The glass is see-through (`GLASS` per tint in carparts.ts; cosmetic tints are too), so every
@@ -373,7 +373,7 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
   garageStore.ts, racenet.ts, race.css, propview.ts (props, boost pads), trafficview.ts (instanced city traffic),
   worldview.ts (the open world's scene; shares trackview.ts `atmosphere()` for sky, sun and fog), worldtrafficview.ts
-  (its traffic: the Pebble model baked into one instanced mesh per material, painted per car).
+  (its traffic: the Pebble model baked into instanced meshes per material, painted per car, culled per car).
 src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/B/LB/RB) and for driving (readPad, padAxis, rumble).
 ```
 
@@ -386,6 +386,13 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   desert and the plastic look off far mountains; day asphalt is a sun-faded mid grey (`tar` in tracktextures.ts
   `asphalt()`; night and city stay dark for the wet look); city towers' windows are let floor by floor in a few light
   colours with a ceiling-to-desk falloff; the flare's ghosts are two small faint ones; and `Post.rush` blurs the frame's edges at speed.
+- **Performance** (2026-11-10, Michael: "improve performance"): far forest tiles, bushes and fine terrain swap to
+  cheaper versions by distance (lod.ts `LodTiles` / `LOD`, trees.ts `farTree`), the post chain has two full-size passes
+  after the scene (bloom added in the grade), every shader compiles at load (racegame.ts `warmShaders`), tree shadows
+  come from small shadow-only tiles, and the open world culls its traffic per car and shadows only the nearest.
+  Triangles a frame (main + shadow): Kōri Pass 2.26 M -> 1.36 M, Monza 1.56 M -> 1.07 M, Neon Bay 0.91 M -> 0.81 M,
+  the open world 2.44 M -> 0.36 M; SwiftShader frame time -35%, -14%, -11%, -44%. Details and rules in
+  `src/toge/client/CLAUDE.md`. Measure a change with `/dev/race.html` + `rl.cost(n)` before and after.
 - Sky and light per theme live in `LOOKS` (trackview.ts). Day skies are toned down with `skyGain` (the visible sky; the
   environment the cars reflect is dimmed less) and the sun is 1.75 by default: Michael found the old 2.4 sun and full-strength sky
   far too bright (2026-11-02). `clouds` sets the sky shader's coverage/density per theme.

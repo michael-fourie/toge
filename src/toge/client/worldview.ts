@@ -13,7 +13,8 @@ import { SAMPLE, SHOULDER, type Track, fbm } from '../shared/track.ts';
 import { CITY, RAIL_H, type Road, type World, WORLD, cityAt, coveredBy, roadGap, worldHeight } from '../shared/world.ts';
 import { HORIZON_FADE, LOOKS, type Look, TRACK_LOOKS, type TrackView, atmosphere, matteGround, noiseNormal, rockGeometry } from './trackview.ts';
 import { FACADE_H, FACADE_W, TARMAC_TILE, TOWER_H, TOWER_W, facade, ground, mulberry, tarmac, towerFacade } from './tracktextures.ts';
-import { WIND, speciesFor, sway } from './trees.ts';
+import { WIND, farTree, farTwin, speciesFor, sway } from './trees.ts';
+import { LOD, LodTiles, ShadowOnly, shadowCasters } from './lod.ts';
 
 type Keep = <T extends { dispose(): void }>(x: T) => T;
 
@@ -52,7 +53,8 @@ export function buildWorldView(t: Track, renderer: THREE.WebGLRenderer, low = fa
   city(scene, w, keep, low);
   lamps(scene, w, keep);
   landmarks(scene, w, keep);
-  const trees = forest(scene, w, look, keep, low);
+  const lods = new LodTiles();
+  const trees = forest(scene, w, look, keep, low, lods);
 
   // The sea.
   const normal = keep(noiseNormal(256));
@@ -84,6 +86,7 @@ export function buildWorldView(t: Track, renderer: THREE.WebGLRenderer, low = fa
       if (time - lastTreeCheck > 250) {
         lastTreeCheck = time;
         for (const tile of trees) tile.group.visible = Math.hypot(tile.x - x, tile.z - z) < reach + 300;
+        lods.update(x, z);
       }
     },
     dispose() {
@@ -323,18 +326,37 @@ function roads(scene: THREE.Scene, w: World, keep: Keep, aniso: number) {
     }
     markings(w, rd, ri, white, yellow);
   });
-  for (const [arr, mat] of [
+  for (const [all, mat] of [
     [white, lineW],
     [yellow, lineY],
-  ] as const) {
-    if (!arr.length) continue;
-    const geo = keep(new THREE.BufferGeometry());
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
-    geo.computeVertexNormals();
-    const m = new THREE.Mesh(geo, mat);
-    m.receiveShadow = true;
-    scene.add(m);
+  ] as const)
+    for (const arr of cells(all)) {
+      const geo = keep(new THREE.BufferGeometry());
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat);
+      m.receiveShadow = true;
+      scene.add(m);
+    }
+}
+
+/**
+ * The island-wide line work, rails and walls are drawn in squares this big (m): as one mesh each they were drawn
+ * whole every frame, and the rails into the shadow map too (~300k triangles), wherever the camera was.
+ */
+const CELL = 700;
+const cellOf = (x: number, z: number) => `${Math.floor(x / CELL)}:${Math.floor(z / CELL)}`;
+
+/** Splits a triangle soup (x, y, z per corner) into one per CELL square, by each triangle's first corner. */
+function cells(tris: number[]): number[][] {
+  const out = new Map<string, number[]>();
+  for (let i = 0; i < tris.length; i += 9) {
+    const k = cellOf(tris[i], tris[i + 2]);
+    let a = out.get(k);
+    if (!a) out.set(k, (a = []));
+    for (let j = 0; j < 9; j++) a.push(tris[i + j]);
   }
+  return [...out.values()];
 }
 
 /** A road's painted lines, as triangles appended to `white` / `yellow`: solid or dashed, left out where another road crosses. */
@@ -510,26 +532,37 @@ function rails(scene: THREE.Scene, w: World, keep: Keep) {
       }
     }
   }
-  for (const [arr, mat] of [
+  for (const [all, mat] of [
     [beam, steel],
     [wall, concrete],
-  ] as const) {
-    const geo = keep(new THREE.BufferGeometry());
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
-    geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-  }
-  const im = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(0.12, 0.85, 0.08)), steel, posts.length);
+  ] as const)
+    for (const arr of cells(all)) {
+      const geo = keep(new THREE.BufferGeometry());
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+    }
+  const postGeo = keep(new THREE.BoxGeometry(0.12, 0.85, 0.08));
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const one = new THREE.Vector3(1, 1, 1);
   const v = new THREE.Vector3();
-  posts.forEach(([x, y, z, yaw], i) => im.setMatrixAt(i, m4.compose(v.set(x, y + 0.42, z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), one)));
-  im.computeBoundingSphere();
-  scene.add(im);
+  const up = new THREE.Vector3(0, 1, 0);
+  const bins = new Map<string, typeof posts>();
+  for (const p of posts) {
+    const k = cellOf(p[0], p[2]);
+    if (!bins.has(k)) bins.set(k, []);
+    bins.get(k)!.push(p);
+  }
+  for (const list of bins.values()) {
+    const im = new THREE.InstancedMesh(postGeo, steel, list.length);
+    list.forEach(([x, y, z, yaw], i) => im.setMatrixAt(i, m4.compose(v.set(x, y + 0.42, z), q.setFromAxisAngle(up, yaw), one)));
+    im.computeBoundingSphere();
+    scene.add(im);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -912,10 +945,14 @@ interface TreeTile {
   group: THREE.Group;
 }
 
-function forest(scene: THREE.Scene, w: World, look: Look, keep: Keep, low: boolean): TreeTile[] {
+function forest(scene: THREE.Scene, w: World, look: Look, keep: Keep, low: boolean, lods: LodTiles): TreeTile[] {
   const lowland = speciesFor('coast');
   const upland = speciesFor('alpine');
   for (const s of [lowland, upland]) for (const sp of [s.a, s.b]) keep(sp.geo);
+  // On High each tile's shadow comes from small shadow-only copies (lod.ts shadowCasters); Low draws no shadows.
+  const shadowOnly = low ? null : new ShadowOnly(scene);
+  // Past LOD.trees each tile's trees swap to stand-ins a third to a fifth the triangles (trees.ts farTree).
+  const fars = [lowland.a, lowland.b, upland.a, upland.b].map((sp) => (sp.noFar ? null : keep(farTree(sp.geo))));
   const mat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88 }));
   sway(mat, 0.0026, 1.5);
   const rock = keep(rockGeometry());
@@ -978,6 +1015,12 @@ function forest(scene: THREE.Scene, w: World, look: Look, keep: Keep, low: boole
         im.receiveShadow = true;
         im.computeBoundingSphere();
         group.add(im);
+        shadowCasters(group, im, shadowOnly); // before the twin, which copies castShadow
+        const far = fars[k];
+        if (!far) return;
+        const lo = farTwin(im, far);
+        group.add(lo);
+        lods.add(im, lo, tx, tz, tx + TILE, tz + TILE, LOD.trees);
       });
       if (rocks.length) {
         const im = new THREE.InstancedMesh(rock, rockMat, rocks.length);
@@ -985,6 +1028,7 @@ function forest(scene: THREE.Scene, w: World, look: Look, keep: Keep, low: boole
         im.castShadow = !low;
         im.computeBoundingSphere();
         group.add(im);
+        shadowCasters(group, im, shadowOnly);
       }
       if (!group.children.length) continue;
       scene.add(group);

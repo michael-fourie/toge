@@ -24,9 +24,17 @@ export interface Grade {
   flare: number;
 }
 
+/**
+ * A sun glint on a mirror-smooth clear coat is thousands of times brighter than white (or Inf in a half float); the
+ * tone mapper doesn't care, but the bloom would smear it into a fog over the whole screen. Everything that reads the
+ * scene clips it first (NaN-safe: anything not a number goes black rather than spreading).
+ */
+const SAFE = /* glsl */ `vec3 safe(vec3 c) { return all(equal(c, c)) ? clamp(c, 0.0, 64.0) : vec3(0.0); }`;
+
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
+    tBloom: { value: null as THREE.Texture | null },
     contrast: { value: 1 },
     saturation: { value: 1 },
     shadows: { value: new THREE.Vector3(1, 1, 1) },
@@ -43,12 +51,14 @@ const GradeShader = {
   },
   vertexShader: /* glsl */ `
     uniform sampler2D tDiffuse;
+    uniform sampler2D tBloom;
     uniform vec2 sunUv;
     uniform float flare, exposure, aspect;
     varying vec2 vUv;
     // How much of the sun is showing, worked out once per corner of the screen quad (the same few texels for
     // every vertex, so it costs nothing per pixel): a hill, a tree or a car in front of it darkens those texels.
     varying float vSun;
+    ${SAFE}
     void main() {
       vUv = uv;
       float seen = 0.0;
@@ -56,7 +66,8 @@ const GradeShader = {
         vec2 r = vec2(0.006 / aspect, 0.006);
         for (int i = 0; i < 5; i++) {
           vec2 o = i == 0 ? vec2(0.0) : vec2(i == 1 ? 1.0 : i == 2 ? -1.0 : 0.0, i == 3 ? 1.0 : i == 4 ? -1.0 : 0.0) * r;
-          vec3 c = textureLod(tDiffuse, clamp(sunUv + o, 0.0, 1.0), 0.0).rgb * exposure;
+          vec2 at = clamp(sunUv + o, 0.0, 1.0);
+          vec3 c = (safe(textureLod(tDiffuse, at, 0.0).rgb) + textureLod(tBloom, at, 0.0).rgb) * exposure;
           seen += smoothstep(1.5, 5.0, dot(c, vec3(0.2126, 0.7152, 0.0722)));
         }
         // Fade out as the sun leaves the frame.
@@ -68,6 +79,7 @@ const GradeShader = {
     }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
+    uniform sampler2D tBloom;
     uniform float contrast, saturation, vignette, exposure, aspect, time, rush;
     uniform vec3 shadows, highlights;
     uniform vec2 sunUv;
@@ -75,8 +87,10 @@ const GradeShader = {
     varying float vSun;
     // A soft disc of radius r for the flare's ghosts.
     float ghost(vec2 p, vec2 at, float r) { return 1.0 - smoothstep(r * 0.55, r, length(p - at)); }
+    ${SAFE}
     void main() {
-      vec3 c = max(texture2D(tDiffuse, vUv).rgb, 0.0);
+      // The scene, clipped as the bloom saw it (SAFE).
+      vec3 c = safe(texture2D(tDiffuse, vUv).rgb);
       // Speed blur: the edges of the frame streak away from a point a little above the middle (where the road
       // goes), the middle (your car, the road ahead) stays sharp. Four more taps, and only where it shows: skipped
       // whole below cruising speed, and per pixel inside the sharp middle.
@@ -86,10 +100,12 @@ const GradeShader = {
         if (k > 0.004) {
           vec2 st = dir * k * 0.032;
           float j = 0.6 * fract(sin(dot(vUv, vec2(91.7, 37.3)) + time) * 4375.85); // a little dither: no ghost copies, no grain
-          for (int i = 1; i <= 4; i++) c += max(texture2D(tDiffuse, vUv - st * (float(i) - j)).rgb, 0.0);
+          for (int i = 1; i <= 4; i++) c += safe(texture2D(tDiffuse, vUv - st * (float(i) - j)).rgb);
           c *= 0.2;
         }
       }
+      // Plus the bloom, added here rather than in a full-screen pass of its own.
+      c += texture2D(tBloom, vUv).rgb;
       // Work at the brightness the tone mapper will see, then hand back the same scale.
       vec3 e = c * exposure;
       float l = dot(e, vec3(0.2126, 0.7152, 0.0722));
@@ -127,19 +143,86 @@ const GradeShader = {
     }`,
 };
 
-const ClampShader = {
-  uniforms: { tDiffuse: { value: null as THREE.Texture | null } },
-  vertexShader: GradeShader.vertexShader,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse;
-    varying vec2 vUv;
-    void main() {
-      vec3 c = texture2D(tDiffuse, vUv).rgb;
-      // NaN-safe: anything not a number goes black rather than spreading.
-      c = all(equal(c, c)) ? clamp(c, 0.0, 64.0) : vec3(0.0);
-      gl_FragColor = vec4(c, 1.0);
-    }`,
-};
+/**
+ * The bloom, left in a texture of its own (half size) for the grade pass to add. UnrealBloomPass would blend it over
+ * the full-size scene, a full-screen pass the grade can do for free; and its bright pass clips the scene (`safe`) tap by
+ * tap, so the old full-screen clamp pass before it is gone too: the same picture for two fewer full-screen passes.
+ */
+const BLUR_X = new THREE.Vector2(1, 0);
+const BLUR_Y = new THREE.Vector2(0, 1);
+
+class Bloom extends UnrealBloomPass {
+  private texel = { value: new THREE.Vector2() };
+  private oldClear = new THREE.Color();
+
+  constructor(strength: number, radius: number, threshold: number) {
+    super(new THREE.Vector2(256, 256), strength, radius, threshold);
+    const hp = this.materialHighPassFilter;
+    hp.uniforms.texel = this.texel;
+    // The bright pass runs at half size: four taps, one on each full-size texel under its pixel, each clipped on its own
+    // (as the clamp pass did before the bloom filtered it).
+    hp.fragmentShader = /* glsl */ `
+      uniform sampler2D tDiffuse;
+      uniform vec2 texel;
+      uniform float luminosityThreshold;
+      uniform float smoothWidth;
+      varying vec2 vUv;
+      ${SAFE}
+      vec3 tap(vec2 o) { return safe(texture2D(tDiffuse, vUv + o * texel).rgb); }
+      void main() {
+        vec3 c = 0.25 * (tap(vec2(-0.5, -0.5)) + tap(vec2(0.5, -0.5)) + tap(vec2(-0.5, 0.5)) + tap(vec2(0.5, 0.5)));
+        float a = smoothstep(luminosityThreshold, luminosityThreshold + smoothWidth, luminance(c));
+        gl_FragColor = vec4(c * a, a);
+      }`;
+    hp.needsUpdate = true;
+  }
+
+  /** The finished bloom (half size), for the grade pass. */
+  get texture() {
+    return this.renderTargetsHorizontal[0].texture;
+  }
+
+  setSize(width: number, height: number) {
+    super.setSize(width, height);
+    this.texel.value.set(1 / Math.max(1, width), 1 / Math.max(1, height));
+  }
+
+  render(renderer: THREE.WebGLRenderer, _write: THREE.WebGLRenderTarget, read: THREE.WebGLRenderTarget) {
+    const quad = (this as unknown as { _fsQuad: { material: THREE.Material; render(r: THREE.WebGLRenderer): void } })._fsQuad;
+    renderer.getClearColor(this.oldClear);
+    const oldAlpha = renderer.getClearAlpha();
+    const oldAuto = renderer.autoClear;
+    renderer.autoClear = false;
+    renderer.setClearColor(this.clearColor, 0);
+    const draw = (mat: THREE.Material, to: THREE.WebGLRenderTarget) => {
+      quad.material = mat;
+      renderer.setRenderTarget(to);
+      renderer.clear();
+      quad.render(renderer);
+    };
+    this.materialHighPassFilter.uniforms.tDiffuse.value = read.texture;
+    this.materialHighPassFilter.uniforms.luminosityThreshold.value = this.threshold;
+    draw(this.materialHighPassFilter, this.renderTargetBright);
+    let input = this.renderTargetBright;
+    for (let i = 0; i < this.nMips; i++) {
+      const blur = this.separableBlurMaterials[i];
+      blur.uniforms.colorTexture.value = input.texture;
+      blur.uniforms.direction.value = BLUR_X;
+      draw(blur, this.renderTargetsHorizontal[i]);
+      blur.uniforms.colorTexture.value = this.renderTargetsHorizontal[i].texture;
+      blur.uniforms.direction.value = BLUR_Y;
+      draw(blur, this.renderTargetsVertical[i]);
+      input = this.renderTargetsVertical[i];
+    }
+    const comp = this.compositeMaterial;
+    comp.uniforms.bloomStrength.value = this.strength;
+    comp.uniforms.bloomRadius.value = this.radius;
+    comp.uniforms.bloomTintColors.value = this.bloomTintColors;
+    draw(comp, this.renderTargetsHorizontal[0]);
+    renderer.setClearColor(this.oldClear, oldAlpha);
+    renderer.autoClear = oldAuto;
+  }
+}
 
 /**
  * On Low graphics (`low`), there is no chain at all: the scene goes straight to the screen (tone mapped there by the
@@ -147,7 +230,7 @@ const ClampShader = {
  */
 export class Post {
   private composer: EffectComposer | null = null;
-  private bloom: UnrealBloomPass | null = null;
+  private bloom: Bloom | null = null;
   private grade: ShaderPass | null = null;
   private flare = 0;
   /** Speed blur at the frame's edges, 0..1 (racegame.ts sets it from the camera's car: speed and boost). */
@@ -161,15 +244,13 @@ export class Post {
     const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(renderer, target);
     this.composer.addPass(new RenderPass(scene, camera));
-    // A sun glint on a mirror-smooth clear coat is thousands of times brighter than white; the tone
-    // mapper doesn't care, but the bloom would smear it into a fog over the whole screen. Clip first.
-    this.composer.addPass(new ShaderPass(ClampShader));
     const exposure = renderer.toneMappingExposure;
     // Bloom runs before exposure, so its threshold is in scene units.
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), g.bloom, 0.55, g.threshold / exposure);
+    this.bloom = new Bloom(g.bloom, 0.55, g.threshold / exposure);
     this.composer.addPass(this.bloom);
     this.grade = new ShaderPass(GradeShader);
     const u = this.grade.uniforms;
+    u.tBloom.value = this.bloom.texture;
     u.contrast.value = g.contrast;
     u.saturation.value = g.saturation;
     u.shadows.value.set(...g.shadows);
