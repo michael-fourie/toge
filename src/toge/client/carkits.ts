@@ -105,6 +105,8 @@ export interface Kit {
   side(t: number, v: number, s?: number): THREE.Vector3;
   front(x: number, y: number): number;
   rear(x: number, y: number): number;
+  /** `rear` found to a millimetre, for parts laid along the tail in pieces (`rear` steps about a centimetre). */
+  rearFine(x: number, y: number): number;
 }
 
 export function makeKitHelpers(body: Section) {
@@ -115,6 +117,7 @@ export function makeKitHelpers(body: Section) {
     side: (t: number, v: number, s = 1) => surface(body, t, v, s),
     front: (x: number, y: number) => endZ(body, x, y, 1),
     rear: (x: number, y: number) => endZ(body, x, y, -1),
+    rearFine: (x: number, y: number) => endZ(body, x, y, -1, true),
   };
 }
 
@@ -245,6 +248,52 @@ function spine(k: Kit, t0: number, t1: number, w: number, h: (t: number) => numb
   g.setIndex(idx);
   g.computeVertexNormals();
   k.put(g, mat, [0, 0, 0]);
+}
+
+/**
+ * The tail's curve in plan at height y across ±w, as a smooth even polynomial fitted to the rear face (the face
+ * found point by point steps where the loft's rings do), and its yaw. Parts laid along it sit flush, where one
+ * straight box stood off the paint at the corners. They stay upright: tilted to the face, a lamp lens caught the
+ * sky and went white.
+ */
+function rearCurve(k: Kit, y: number, w: number) {
+  // Least squares for z = a + b·x² + c·x⁴ on samples across the band.
+  const n = 25;
+  const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const r = [0, 0, 0];
+  for (let i = 0; i < n; i++) {
+    const x = -w + (2 * w * i) / (n - 1);
+    const f = [1, x * x, x ** 4];
+    const z = k.rearFine(x, y);
+    for (let p = 0; p < 3; p++) {
+      r[p] += f[p] * z;
+      for (let q = 0; q < 3; q++) A[p][q] += f[p] * f[q];
+    }
+  }
+  const [a, b, c] = solve3(A, r);
+  return {
+    z: (x: number) => a + b * x * x + c * x ** 4,
+    turn: (x: number, roll = 0): [number, number, number] => [0, -Math.atan(2 * b * x + 4 * c * x ** 3), roll],
+  };
+}
+
+function solve3(A: number[][], r: number[]): [number, number, number] {
+  const det = (m: number[][]) =>
+    m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  const d = det(A);
+  const col = (j: number) => det(A.map((row, i) => row.map((v, q) => (q === j ? r[i] : v))));
+  return [col(0) / d, col(1) / d, col(2) / d];
+}
+
+/** A band across the tail on `curve`, out to ±w, h tall, its face `out` off the paint and its back `depth` behind that. */
+function rearBand(k: Kit, curve: ReturnType<typeof rearCurve>, y: number, w: number, h: number, mat: THREE.Material, out: number, depth: number) {
+  const n = 16;
+  const seg = (2 * w) / n;
+  for (let i = 0; i < n; i++) {
+    const x = -w + (i + 0.5) * seg;
+    const t = curve.turn(x);
+    k.put(rbox(seg / Math.cos(t[1]) + 0.012, h, depth, 0.003), mat, [x, y, curve.z(x) + out - depth / 2], t);
+  }
 }
 
 /** A dark grille slab on the nose. */
@@ -479,7 +528,7 @@ export const DESIGNS: Record<Exclude<CarId, BikeId>, Design> = {
     roof: [[0.3, 0.56], [0.36, 0.78], [0.43, 0.955], [0.5, 1], [0.6, 0.975], [0.68, 0.86], [0.78, 0.64]],
     roofF: 0.43, roofR: 0.6, bPillar: 0, cPillar: 0.64, cabin: 0.78, cabTumble: 0.28,
     waist: 0.09, flareF: 0.08, flareR: 0.13, nose: [0.18, 0.5], tail: [0.05, 0.9], tumble: 0.12, rb: 0.05, rt: 0.14,
-    plate: 'V10', plateY: 0.36, slimA: true, eyeT: 0.52, eyeDrop: 0.2, recline: 0.26, noFuelFlap: true,
+    plate: 'V10', plateY: 0.44, slimA: true, eyeT: 0.52, eyeDrop: 0.2, recline: 0.26, noFuelFlap: true,
     interior: { seat: 0x8a1216, bolster: 0x121215, accent: 0xe0281e, liner: 0x1d1e22, carbon: true, sport: true },
     kit(k) {
       // Slim headlamps lying along the top of the nose, ahead of the fenders.
@@ -508,24 +557,27 @@ export const DESIGNS: Record<Exclude<CarId, BikeId>, Design> = {
       for (let i = 0; i < 5; i++) k.put(new THREE.CylinderGeometry(0.028, 0.034, 0.06, 12), MAT.chrome, [0, ey + 0.15, k.z(et) - 0.2 + i * 0.1]);
       // Louvred engine cover.
       louvres(k, 0.74, 0.92, 7, () => k.W * 1.0, (t) => k.top(t), MAT.carbon);
-      // Light bar across the tail with arrow ends, a gaping grille, diffuser fins and two hex exhausts.
+      // Light bar across the tail with arrow ends, in a dark red lens band that wraps the tail's curve (a straight
+      // bar stood off the corners in mid-air); then a low grille with the two hex exhausts in it, under the plate.
       const ty = k.top(0.99) - 0.05;
       const tw = k.body.half(0.99, 0.8) * 0.92;
-      k.put(rbox(tw * 2, 0.022, 0.03, 0.008), k.tail, [0, ty, k.rear(0, ty) + 0.008]);
+      const tc = rearCurve(k, ty - 0.022, tw * 1.03);
+      rearBand(k, tc, ty - 0.022, tw * 1.03, 0.1, MAT.gloss, 0.006, 0.06);
+      rearBand(k, tc, ty - 0.022, tw, 0.084, MAT.redLens, 0.011, 0.04);
+      rearBand(k, tc, ty, tw * 0.97, 0.024, k.tail, 0.019, 0.04);
       // Chevrons at each end, pointing outward: two strokes meeting at the tip.
       for (const a of [0.55, -0.55]) {
-        const tip = tw * 0.95;
-        const half = 0.065;
-        const x = tip - Math.cos(a) * half;
-        const y = ty - 0.045 + Math.sin(a) * half;
-        k.put(rbox(half * 2, 0.02, 0.03, 0.008), k.tail, [x, y, k.rear(x, y) + 0.004], [0, 0, -a], true);
+        const half = 0.05;
+        const x = tw * 0.92 - Math.cos(a) * half;
+        const y = ty - 0.038 + Math.sin(a) * half;
+        k.put(rbox(half * 2.1, 0.02, 0.03, 0.006), k.tail, [x, y, tc.z(x) + 0.004], tc.turn(x, -a), true);
       }
       const gw = k.body.half(0.99, 0.3) * 0.9;
-      k.put(rbox(gw * 2, 0.18, 0.12, 0.03), MAT.grille, [0, 0.33, k.rear(0, 0.33) - 0.04]);
+      k.put(rbox(gw * 2, 0.14, 0.12, 0.03), MAT.grille, [0, 0.27, k.rear(0, 0.27) - 0.04]);
       const dz = k.rear(0, 0.2);
       k.put(rbox(gw * 1.9, 0.02, 0.5, 0.006), MAT.carbon, [0, 0.14, dz - 0.18], [-0.22, 0, 0]);
       for (let i = -3; i <= 3; i++) k.put(rbox(0.012, 0.16, 0.42, 0.004), MAT.carbon, [i * 0.22, 0.18, dz - 0.16], [-0.22, 0, 0]);
-      exhaust(k, 0.13, 0.36, 0.07, true, 6);
+      exhaust(k, 0.34, 0.285, 0.055, true, 6);
     },
   },
 };
