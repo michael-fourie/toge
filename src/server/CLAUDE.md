@@ -38,7 +38,8 @@ imports the other game's (`tests/boundaries.test.ts`).
   name (a guest using an account's name plays as `"name (guest)"`). With `code=` the Directory must know it; without
   one, `dir.allocate(ip)` makes a code and the room is created near the host (`locationHint`).
 - The Worker **rebuilds** the query it forwards. Shooter rooms get `code, name, user, mode (battle|survival), teams,
-  map, koth, br, skin (≤24 chars), gear (≤120)`; race rooms get `car` (≤ `CAR_CODE_MAX` = 128 chars, cosmetics checked against an account's garage). A new socket parameter must be added here.
+  map, koth, br, skin (≤24 chars), gear (≤120)`; race rooms get `car` (≤ `CAR_CODE_MAX` = 128 chars, cosmetics checked against an account's garage), `rider`, and
+  `solo` (only when hosting: a fresh private time trial of one, TŌGE's solo Time trial). A new socket parameter must be added here.
 - Refusals go through `refuse()`: accept, send `{t:'error'}`, close.
 - POST bodies go through `jsonBody` (POST only, `application/json`, same origin, size cap). There are no CORS headers:
   the API is same-origin only. Static-page security headers are in `public/_headers`.
@@ -108,7 +109,7 @@ shooter) and the server sanity-checks distance and fire rate.
   `applyAction` in `toge/shared/garage.ts`). Signed in, the server runs them with its own dice and clock.
 - Paying: shooter rooms call `Lobby.pay` → `Accounts.reward` (only for `client.user`; killing your own second tab pays
   nothing). Races call `Accounts.raceReward`, and `Accounts.raceTime` for each account's finish (a new best comes back
-  and the room tells everyone with `records`), only for time trials and hill climbs (`recordMode`). Solo finishes keep no time. Amounts must match what the client floats up for guests.
+  and the room tells everyone with `records`), only for time trials and hill climbs (`recordMode`). Solo races keep no time (TŌGE's solo Time trial is a room, so it does). Amounts must match what the client floats up for guests.
 
 ## Rules for server changes
 

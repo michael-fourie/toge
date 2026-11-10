@@ -47,7 +47,7 @@ export interface DriveOpts {
   rivals?: number;
   /** Solo: Physics mode (crash damage). Online it comes with the race. */
   physics?: boolean;
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null };
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null; solo?: boolean };
   /** A Grand Prix round: the cup, the round and the cup table so far (solo; online it comes with the room's `load`). */
   gp?: GpState;
 }

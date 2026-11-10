@@ -857,6 +857,15 @@ html:not(.pad) .tg-bumper {
 .tg-launch .tg-go {
   min-width: 220px;
 }
+/* The launch buttons: a solo time trial beside the solo race. */
+.tg-launch-go {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.tg-launch .tg-launch-go .tg-go.alt {
+  min-width: 170px;
+}
 .tg-blurb {
   margin: 14px 0 0;
   font-size: 14px;

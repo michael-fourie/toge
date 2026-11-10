@@ -59,7 +59,8 @@ export interface RaceSetup {
    * from their garage car). The car
    * waits on the line until every racer has loaded and the server sends the countdown.
    */
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null };
+  /** `solo`: a solo time trial (a private room of one, hub.ts `soloTrial`): no lobby to go back to. */
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null; solo?: boolean };
   /** Solo: how many AI rivals. */
   rivals?: number;
   /** Solo: Physics mode (crash damage, damage.ts). Online it comes with the race (`online.physics`). */
@@ -656,7 +657,8 @@ export class RaceGame {
         }
       // Free roam: whoever drove in since is put on the road; the host ending it sends everyone back to the lobby.
       if (this.roam) for (const r of m.racers) if (r.roaming && r.id !== this.setup.online!.net.id && !this.remotes.has(r.id)) this.addRemote(r);
-      if (m.phase === 'lobby' && (this.phase === 'done' || this.roam)) this.exit('lobby');
+      // A solo time trial has no lobby to go back to: its room's results time out to the Race page.
+      if (m.phase === 'lobby' && (this.phase === 'done' || this.roam)) this.exit(this.setup.online!.solo ? 'garage' : 'lobby');
       else if (this.phase === 'done') this.resultActs(); // the host may have changed
         } else if (m.t === 'error') this.exit('garage', m.message);
   }
@@ -1248,16 +1250,20 @@ export class RaceGame {
     const gp = this.gpShown;
     const again = !gp ? 'Rerace' : gp.final ? 'Race the cup again' : 'Next race';
     const wait = !gp ? 'If the host races again, you go straight to the start.' : gp.final ? 'If the host races the cup again, you go straight to the start.' : 'You go straight on to the next round.';
-    box.innerHTML = host
-      ? `<button data-act="again" data-autofocus>${again}</button><button data-act="lobby">Back to lobby</button><button data-act="leave">Leave race</button>`
-      : `<button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button><p class="rh-note">${wait}</p>`;
+    // A solo time trial: run it again, or done (back to the Race page; there's no lobby).
+    const solo = !!this.setup.online?.solo;
+    box.innerHTML = solo
+      ? `<button data-act="again" data-autofocus>Run again</button><button data-act="leave">Done</button>`
+      : host
+        ? `<button data-act="again" data-autofocus>${again}</button><button data-act="lobby">Back to lobby</button><button data-act="leave">Leave race</button>`
+        : `<button data-act="lobby" data-autofocus>Back to lobby</button><button data-act="leave">Leave race</button><p class="rh-note">${wait}</p>`;
     const againBtn = box.querySelector<HTMLButtonElement>('[data-act="again"]');
     againBtn?.addEventListener('click', () => {
       againBtn.disabled = true;
       againBtn.textContent = 'Starting…';
       net.send({ t: 'start' });
     });
-    box.querySelector('[data-act="lobby"]')!.addEventListener('click', () => this.exit('lobby'));
+    box.querySelector('[data-act="lobby"]')?.addEventListener('click', () => this.exit('lobby'));
     box.querySelector('[data-act="leave"]')!.addEventListener('click', () => {
       net.leave();
       this.exit('garage');
@@ -1321,7 +1327,7 @@ export class RaceGame {
         ${this.roam ? this.spots().map((sp, k) => `<button data-act="spot" data-spot="${k}">Go to ${esc(sp.name)}</button>`).join('') : ''}
         ${this.roam && this.setup.online && this.canRestart ? '<button data-act="end">End free roam</button>' : ''}
         <button data-act="settings">Settings</button>
-        <button data-act="leave">${this.setup.online ? 'Leave race' : 'Quit to garage'}</button>
+        <button data-act="leave">${this.setup.online && !this.setup.online.solo ? 'Leave race' : 'Quit to garage'}</button>
       </div>${this.setup.online && !this.canRestart && !this.roam ? '<p class="rh-note">Only the host can restart an online race.</p>' : ''}`)
         : this.hud.panel(`
       <h2>Settings</h2>

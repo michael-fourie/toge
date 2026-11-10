@@ -198,7 +198,9 @@ async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, ur
   if (user) car = await env.ACCOUNTS.getByName('all').raceCar(name, car);
   const target = new URL(req.url);
   const rider = (url.searchParams.get('rider') ?? '').slice(0, RIDER_CODE_MAX);
-  target.search = new URLSearchParams({ code, name, user: user ? '1' : '', car, rider }).toString();
+  // A solo time trial (`solo=1`) is a fresh private room: never passed on to someone joining a code.
+  const solo = !join && url.searchParams.get('solo') === '1';
+  target.search = new URLSearchParams({ code, name, user: user ? '1' : '', car, rider, ...(solo ? { solo: '1' } : {}) }).toString();
   return room.fetch(new Request(target, req));
 }
 

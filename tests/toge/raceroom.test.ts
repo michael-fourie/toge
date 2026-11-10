@@ -177,6 +177,55 @@ test('time trial: only the host switches to it, it brings up the ring, and ranks
   );
 });
 
+test('solo time trial: a private room of one, always a time trial, timed by the room so the run counts as a best time', () => {
+  let now = 1_000_000;
+  const inbox: RaceServerMsg[] = [];
+  const results: { rows: ResultRow[]; users: Set<number>; mode: string; track: string }[] = [];
+  const race = new Race('SOLO', () => {}, () => {}, (rows, users, track, _tapes, mode) => results.push({ rows, users, mode, track }), () => now, false);
+  race.makeSolo();
+  assert.equal(race.mode, 'trial');
+  const me: RaceClient = { id: 1, ws: { readyState: 1, send: (d: string) => inbox.push(JSON.parse(d)) }, name: 'andrew', car: 'shiro.0.1.0.0.0.0.1.00000000', rider: '', user: true };
+  assert.equal(race.full, false);
+  race.add(me);
+  assert.equal(race.full, true, 'nobody else gets in');
+  const last = (t: RaceServerMsg['t']) => inbox.filter((m) => m.t === t).at(-1);
+  const r0 = last('room');
+  assert.ok(r0 && r0.t === 'room' && r0.solo === true && r0.mode === 'trial');
+  // It stays a solo time trial.
+  race.handle(me, { t: 'mode', mode: 'race' });
+  race.handle(me, { t: 'cpu', op: 'add' });
+  race.handle(me, { t: 'cup', cup: 'apex' });
+  assert.equal(race.mode, 'trial');
+  assert.equal(race.humans, race.members.size, 'no CPU racers');
+  // Any race track, never the hill climb.
+  race.handle(me, { t: 'track', track: 'karasu' });
+  assert.equal(race.track, 'kodama');
+  race.handle(me, { t: 'track', track: 'shiden' });
+  assert.equal(race.track, 'shiden');
+  race.handle(me, { t: 'start' });
+  race.handle(me, { t: 'ready' });
+  const ld = last('load');
+  assert.ok(ld && ld.t === 'load' && ld.mode === 'trial' && ld.track === 'shiden');
+  const tick = (ms: number) => {
+    for (let t = 0; t < ms; t += 50) {
+      now += 50;
+      race.tick();
+    }
+  };
+  tick(RACE.countdownMs + 100);
+  assert.equal(race.phase, 'racing');
+  tick(110_000);
+  race.handle(me, { t: 'finish', time: 110, best: 110 });
+  assert.equal(results.length, 1);
+  const res = results[0];
+  assert.equal(res.mode, 'trial', 'a record mode, so the platform keeps the time');
+  assert.equal(res.track, 'shiden');
+  assert.ok(res.users.has(1) && res.rows[0].time !== null && Math.abs(res.rows[0].time - 110) < 0.6, 'timed by the room');
+  // Run again straight from the results.
+  race.handle(me, { t: 'start' });
+  assert.equal(race.phase, 'loading');
+});
+
 test('hill climb: it runs only on the mountain, cars are solid but throw nothing, the car rule applies, and leaving it comes back down', () => {
   assert.equal(ghostMode('climb'), false, 'hill climb cars are solid: you bump and draft them');
   assert.equal(cleanMode('climb'), true);

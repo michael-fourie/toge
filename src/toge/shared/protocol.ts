@@ -170,6 +170,8 @@ export interface RaceLobbyInfo {
   phase: RacePhase;
   players: number;
   max: number;
+  /** A solo time trial: counted (the nightly deploy waits for it) but never shown or joinable. */
+  solo?: boolean;
 }
 
 export type RaceServerMsg =
@@ -179,7 +181,7 @@ export type RaceServerMsg =
    * not fetched yet).
    */
   /** `cup`: the Grand Prix cup the host picked; `gp`: the cup under way (null between cups). */
-  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; ghost: boolean; record: { name: string; time: number } | null; phase: RacePhase; racers: Racer[]; cup: CupId; gp: GpState | null }
+  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; ghost: boolean; record: { name: string; time: number } | null; phase: RacePhase; racers: Racer[]; cup: CupId; gp: GpState | null; solo?: true }
   /**
    * The race is on: build the track and say `ready`. Nobody moves until `countdown` then `go`. `rule` and `cars`
    * (each racer's car code for this race) settle what everyone drives; see raceCars().

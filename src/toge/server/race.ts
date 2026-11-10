@@ -75,6 +75,12 @@ export class Race {
   physics = false;
   /** The track record's ghost races too (the host's toggle; never in a Grand Prix, whose track changes every round). */
   ghost = false;
+  /**
+   * A solo time trial (2026-11-10, Andrew: time trials "accessible when playing Solo ... so you are able to put times
+   * on the Leaderboard"): a private room of one, always a time trial, that nobody else can join and the lobby list
+   * hides. It's a room so the server still times the run (solo races keep no time). Set before the first `add`.
+   */
+  solo = false;
   /** A Grand Prix lobby's cup (the host's pick). */
   cup: CupId = 'torii';
   /** The Grand Prix under way: its round and cup table (null between cups). */
@@ -115,7 +121,14 @@ export class Race {
 
   /** No seat for another person (CPU racers give theirs up: see add()). */
   get full() {
-    return this.humans >= RACE.maxPlayers;
+    return this.humans >= (this.solo ? 1 : RACE.maxPlayers);
+  }
+
+  /** Makes this a solo time trial (see `solo`). */
+  makeSolo() {
+    this.solo = true;
+    this.mode = 'trial';
+    this.track = MODE_TRACK.trial;
   }
 
   /** The people in the room (not CPU racers). */
@@ -191,6 +204,8 @@ export class Race {
     const m = this.members.get(c.id);
     if (!m || m.cpu || !msg || typeof msg !== 'object') return;
     const host = c.id === this.hostId;
+    // A solo time trial stays one: no CPU racers, no other mode, no cup.
+    if (this.solo && (msg.t === 'cpu' || msg.t === 'mode' || msg.t === 'cup')) return;
     switch (msg.t) {
       case 'cpu':
         // Free roam has no CPU racers (there's nothing to race).
@@ -570,7 +585,7 @@ export class Race {
   room(): Extract<RaceServerMsg, { t: 'room' }> {
     const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user, ...(m.cpu ? { cpu: true } : {}), ...(m.pit ? { pit: true } : {}), ...(m.racing && this.mode === 'roam' ? { roaming: true } : {}) }));
     const record = this.ghostOf === this.track && this.ghostRun ? { name: this.ghostRun.name, time: this.ghostRun.time } : null;
-    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers, cup: this.cup, gp: this.mode === 'gp' ? this.gp : null };
+    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers, cup: this.cup, gp: this.mode === 'gp' ? this.gp : null, ...(this.solo ? { solo: true as const } : {}) };
   }
 
   /** The host wants the record ghost: fetch the current track's (the lobby shows whose it is, or that there's none). */
