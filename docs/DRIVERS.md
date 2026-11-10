@@ -20,6 +20,14 @@ You pick yours on the garage's **Driver** tab; rivals get the other three; onlin
   (the `drive` clip held at the steering angle; seat and wheel shown, shoes hidden), `ride()`s (the bike) or
   `stand()`s (the `idle` loop). `arrive()` seats one in a car or on a bike once it has loaded (and fades a
   time-trial ghost's copy).
+- `hands.ts` (`gripClips`, run by driver.ts as a model loads, legends and custom drivers alike, ~20 ms once): fixes
+  the baked clips' hands. `pose.py` put them on the wheel from inside the rim (wrists toward the hub, the hand lying
+  over the rim, fingers splayed). Each `drive` key now puts the hand on the wheel's own rim (measured from its mesh,
+  so yokes and dished wheels work), wrist out behind the rim, palm in toward the hub, knuckles along it, the arm
+  following by two-bone IK; the fingers are straightened back to the model's, drawn together, and closed joint by
+  joint until they rest on the rim. `ride` closes them round the bike's grips; `idle` gives them a soft curl.
+  Tunables are `HANDS`; `tests/toge/hands.test.ts` checks every legend at five steering angles. A rebuilt GLB
+  goes through the same fix, so if `pose.py` ever grips properly itself, check the fix still agrees.
 - `carmodel.ts`: the driver's eyes go where the cockpit camera's are, never through the roof; they replace the
   cabin's own driver seat and wheel (theirs fit their reach). `pose()` turns the wheel with the steering (with a
   little extra ratio, so small corrections read). The cabin is hidden in the cockpit view, the driver with it.

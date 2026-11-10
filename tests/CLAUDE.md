@@ -32,6 +32,7 @@ Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs
 | koth, teams, royale, bot, spawn, weapons, grenade | match modes, bots, guns |
 | accounts, security, loot, casino, levels, skin | accounts, server-side economy, input validation, stash rules |
 | racephysics, garage, raceroom, standings, raceinput, pad, headcam, cosmetics, records | TŌGE: every car down every track with the AI, economy, cosmetics and cases, race server, cockpit camera head, best times and friend profiles |
+| drivers, hands | TŌGE drivers: every GLB has what the game needs; hands hold the wheel from outside the rim, fingers round it |
 | friends | friend lists (one-way adds, "added you", caps, bad names) |
 | party, snap, boys-day, royal-degeneracy-* | plug-in game rooms and the plug-in games |
 | boundaries | the folder split: Gambol and TŌGE never import each other; `src/shared` imports no game |

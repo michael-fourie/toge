@@ -11,6 +11,7 @@ import { type GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { decodeLook } from '../shared/look.ts';
 import { isLegend, type Legend, type Rider } from '../shared/rider.ts';
+import { gripClips } from './hands.ts';
 import { assemble } from './wardrobe.ts';
 
 /** Measured once per driver. Seated: the eyes and the top of the head (hair and gear) from the hip point, +z behind
@@ -47,6 +48,7 @@ function load(id: Legend) {
           }
         }
       });
+      gltf.animations = gripClips(gltf.scene, gltf.animations);
       return { gltf, fit: measure(gltf.scene, gltf.animations) };
     });
     p.catch(() => files.delete(id));
@@ -186,7 +188,8 @@ export async function loadDriver(id: Rider, opts?: { shadows?: boolean }): Promi
   const look = decodeLook(id);
   if (!look) throw new Error(`not a driver: ${id}`);
   const a = await assemble(look);
-  return new DriverRig(a.scene, a.animations, measure(a.scene, a.animations), opts, a.owned);
+  const clips = gripClips(a.scene, a.animations);
+  return new DriverRig(a.scene, clips, measure(a.scene, clips), opts, a.owned);
 }
 
 /**
