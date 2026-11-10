@@ -110,14 +110,26 @@ export function surface(s: Section, t: number, v: number, side = 1): THREE.Vecto
 }
 
 /** Where the surface is at this x and height, coming in from the nose (`dir` 1) or the tail (-1). */
-export function endZ(s: Section, x: number, y: number, dir: 1 | -1): number {
-  for (let i = 0; i <= 400; i++) {
-    const t = dir > 0 ? s.t0 + (i / 400) * (s.t1 - s.t0) : s.t1 - (i / 400) * (s.t1 - s.t0);
+export function endZ(s: Section, x: number, y: number, dir: 1 | -1, fine = false): number {
+  const at = (i: number) => (dir > 0 ? s.t0 + (i / 400) * (s.t1 - s.t0) : s.t1 - (i / 400) * (s.t1 - s.t0));
+  const inside = (t: number) => {
     const b = s.floor(t);
     const w = s.half(t, 0.5);
     const top = topAt(s, t, Math.abs(x) / w);
-    if (y < b || y > top) continue;
-    if (s.half(t, (y - b) / Math.max(1e-3, top - b)) >= Math.abs(x)) return zAt(s, t);
+    return y >= b && y <= top && s.half(t, (y - b) / Math.max(1e-3, top - b)) >= Math.abs(x);
+  };
+  for (let i = 0; i <= 400; i++) {
+    if (!inside(at(i))) continue;
+    if (!fine || i === 0) return zAt(s, at(i));
+    // Bisect the step it was found in, so parts laid along the end follow it smoothly (the 400 steps are ~1 cm).
+    let lo = at(i - 1);
+    let hi = at(i);
+    for (let j = 0; j < 10; j++) {
+      const m = (lo + hi) / 2;
+      if (inside(m)) hi = m;
+      else lo = m;
+    }
+    return zAt(s, hi);
   }
   return zAt(s, dir > 0 ? s.t0 : s.t1);
 }

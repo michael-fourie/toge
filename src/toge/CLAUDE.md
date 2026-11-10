@@ -357,7 +357,9 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   (`Section.crease`, `Design.crease`, default 0.012 m; carloft.ts samples the side finely enough to hold it, and every
   ring keeps the same point count). Round headlamps are shallow buckets standing proud of the panel (reflector bowl,
   bulb and shield, chrome rim, glass), since a flush one sits behind the paint; slit lamps are a housing with projectors
-  under a clear cover; tail lamps are a dark red lens (`MAT.redLens`) with lit elements (`tailLamp`). Lamp glow is
+  under a clear cover; tail lamps are a dark red lens (`MAT.redLens`) with lit elements (`tailLamp`); a light bar across a curved tail
+  goes on `rearCurve` / `rearBand` (carkits.ts), which follow the tail in plan (one straight box floats off the corners:
+  the Vanta's did, 2026-11-10), and the plate (`plateY`) needs clear paint behind it. Lamp glow is
   global: `setLampLevel` (carparts.ts) scales every registered lamp material (`lamp()`; cosmetic lamp tints too). The
   race sets `LAMP_NIGHT` on night and city tracks and `LAMP_DAY` otherwise, so headlamps don't blaze white by day. showroom.ts (the turntable; `place()` frames the car beside the rail; `showRider()` stands your driver by the
   driver's door, `focus('rider')` turns them to the camera), driver.ts (the drivers' GLBs from public/models/drivers:
