@@ -1,5 +1,5 @@
 // Dev-only lab for the TŌGE drivers: legends and custom looks side by side, standing or seated.
-// window.lab: show(ids[]) (legend ids or look codes), view(yawDeg, pitchDeg, dist, y), sit(on), ride(), steer(s),
+// window.lab: show(ids[]) (legend ids or look codes), view(yawDeg, pitchDeg, dist, y, x?, z?), sit(on), ride(), steer(s),
 // look (the current custom Look; edit it then call lab.custom()), random().
 
 import * as THREE from 'three';
@@ -36,6 +36,8 @@ let ids: string[] = ['marlowe', encodeLook(DEFAULT_LOOK)];
 let pose: 'stand' | 'sit' | 'ride' = 'stand';
 let steer = 0;
 let yaw = 0, pitch = 6, dist = 5.5, height = 0.95;
+/** What the camera orbits: x and z (height is `height`). */
+let aimX = 0, aimZ = 0;
 let look: Look = DEFAULT_LOOK;
 
 async function show(list: string[] = ids) {
@@ -59,8 +61,8 @@ async function show(list: string[] = ids) {
 
 function place() {
   const y = (yaw * Math.PI) / 180, p = (pitch * Math.PI) / 180;
-  camera.position.set(Math.sin(y) * Math.cos(p) * dist, height + Math.sin(p) * dist, Math.cos(y) * Math.cos(p) * dist);
-  camera.lookAt(0, height, 0);
+  camera.position.set(aimX + Math.sin(y) * Math.cos(p) * dist, height + Math.sin(p) * dist, aimZ + Math.cos(y) * Math.cos(p) * dist);
+  camera.lookAt(aimX, height, aimZ);
 }
 
 function resize() {
@@ -83,8 +85,9 @@ renderer.setAnimationLoop(frame);
 
 const lab = {
   show,
-  view(y = yaw, p = pitch, d = dist, h = height) {
-    [yaw, pitch, dist, height] = [y, p, d, h];
+  /** Orbit `d` m from (x, h, z) (x, z default to the middle): close-ups of the hands. */
+  view(y = yaw, p = pitch, d = dist, h = height, x = 0, z = 0) {
+    [yaw, pitch, dist, height, aimX, aimZ] = [y, p, d, h, x, z];
     place();
     frame();
   },

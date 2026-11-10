@@ -208,7 +208,8 @@ a component or a page.
   wheel, turning it with the steering), rides your bike, stands by your car in the showroom (the Driver tab walks the
   camera in), and the lobby shows every racer's driver in the Crew row. AI rivals get the other three. Drivers are
   ~30k triangles: the race only draws those within `DRIVER_RANGE`. After changing one, rebuild it and keep
-  `tests/toge/drivers.test.ts` green.
+  `tests/toge/drivers.test.ts` and `hands.test.ts` green. Their hands on the wheel, the bike's grips and standing are
+  fixed at load by client/hands.ts (2026-11-10, Michael: hand positions "look unnatural"; docs/DRIVERS.md).
 - **Your own driver** (look.ts, docs/DRIVER_CREATOR.md): the Driver page's fifth card opens the creator (creator.ts):
   six bodies, skin, eyes, brows, hair, 12 outfits with colour zones, shoes, up to five kit pieces (mech arms, gloves),
   metal, leather, glow, wheel. A look is an `L2.` code and is itself a `Rider`, so it travels everywhere a legend's id
@@ -499,6 +500,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in toge/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `damage`, `records` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records` in `tests/toge/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).
