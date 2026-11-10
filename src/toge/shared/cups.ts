@@ -1,6 +1,6 @@
 // Grand Prix cups: four fixed tracks raced back to back, points for every place, and a cup standings table at the
 // end. Solo (you against the AI, hub.ts → racegame.ts) and online (the room runs it, toge/server/race.ts).
-// Every race track (not the hill climb) sits in a cup, and only the Velocity and Rush Hour Cups borrow tracks from the others;
+// Every race track (not the hill climb) sits in a cup, and only the Velocity and Overdrive Cups borrow tracks from the others;
 // the cups test checks it.
 
 import { TRACK_DEFS, type TrackId } from './track.ts';
@@ -26,8 +26,9 @@ export const CUPS: Record<CupId, CupDef> = {
   apex: { id: 'apex', name: 'Apex Cup', tag: 'Four grand circuits, lap after lap', color: '#22c3e6', tracks: ['kodama', 'hachi', 'spa', 'monza'] },
   // The fast roads: the three built for speed, with Monza (from the Apex Cup) between them.
   velocity: { id: 'velocity', name: 'Velocity Cup', tag: 'Flat out: salt flats, the Sea-to-Sky, the expressway', color: '#3ddc84', tracks: ['hayate', 'seatosky', 'monza', 'ryusei'] },
-  // Every road with traffic on it: the two six-lane grand prix highways, with the city and the expressway between.
-  rush: { id: 'rush', name: 'Rush Hour Cup', tag: 'Traffic everywhere: the city, the corniche, the expressway, the boulevard', color: '#ff5ca8', tracks: ['neonbay', 'isonami', 'ryusei', 'shiden'] },
+  // The two six-lane grand prix roads, with the city and the expressway between. (Its id is from when it was the
+  // Rush Hour Cup, every road with traffic, before the grand prix roads lost theirs.)
+  rush: { id: 'rush', name: 'Overdrive Cup', tag: 'Flat out, then hard on the brakes: the city, the corniche, the expressway, the boulevard', color: '#ff5ca8', tracks: ['neonbay', 'isonami', 'ryusei', 'shiden'] },
 };
 export const CUP_IDS = Object.keys(CUPS) as CupId[];
 export const ROUNDS = 4;

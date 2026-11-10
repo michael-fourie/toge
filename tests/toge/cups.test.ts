@@ -4,7 +4,7 @@ import { CUPS, CUP_IDS, GP_POINTS, ROUNDS, addRound, pointsFor } from '../../src
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../../src/toge/shared/track.ts';
 import { MODE_TRACK, cleanMode, recordMode } from '../../src/toge/shared/protocol.ts';
 
-test('every race track is in a cup of four, only the Velocity and Rush Hour Cups borrow; the hill climb is in none', () => {
+test('every race track is in a cup of four, only the Velocity and Overdrive Cups borrow; the hill climb is in none', () => {
   const seen = new Map<TrackId, string>();
   for (const id of CUP_IDS) {
     const c = CUPS[id];
@@ -19,8 +19,7 @@ test('every race track is in a cup of four, only the Velocity and Rush Hour Cups
     }
   }
   assert.deepEqual(CUPS.velocity.tracks.filter((t) => seen.get(t) === 'velocity'), ['hayate', 'seatosky', 'ryusei'], 'the new fast roads live in Velocity');
-  assert.deepEqual(CUPS.rush.tracks.filter((t) => seen.get(t) === 'rush'), ['isonami', 'shiden'], 'the six-lane grand prix roads live in Rush Hour');
-  assert.ok(CUPS.rush.tracks.every((t) => TRACK_DEFS[t].traffic), 'Rush Hour is every road with traffic');
+  assert.deepEqual(CUPS.rush.tracks.filter((t) => seen.get(t) === 'rush'), ['isonami', 'shiden'], 'the six-lane grand prix roads live in Overdrive');
   const races = RACE_TRACKS.filter((t) => !TRACK_DEFS[t].climb);
   assert.deepEqual(races.filter((t) => !seen.has(t)), [], 'a new race track needs a cup');
 });

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { BOOST, type BoostPad, onBoostPad, padKick } from '../../src/toge/shared/boost.ts';
 import { carSpec, newOwnedCar } from '../../src/toge/shared/cars.ts';
 import { RACE_TRACKS, SAMPLE, TRACK_DEFS, buildTrack, getTrack, gridSlot } from '../../src/toge/shared/track.ts';
-import { HIGHWAY_LANES, SIX_LANE_SPEEDS, TRAFFIC_KINDS, getTraffic, lanesOf } from '../../src/toge/shared/traffic.ts';
+import { HIGHWAY_LANES, getTraffic, lanesOf } from '../../src/toge/shared/traffic.ts';
 import { type Car, type DriveInput, TICK_HZ, forwardSpeed, newCar, stepCar } from '../../src/toge/shared/vehicle.ts';
 
 const flat = buildTrack({ id: 'koripass', name: 'flat', tag: '', blurb: '', theme: 'alpine', seed: 1, width: 12, relief: 0, points: Array.from({ length: 21 }, (_, i) => [0, 100, -i * 200] as [number, number, number]) });
@@ -141,25 +141,16 @@ test('Hayate Flats has highway traffic too, its four lanes spread across the wid
   assert.equal(t.props.length, 0, 'still no obstacles');
 });
 
-test('six-lane grand prix roads: traffic wall to wall, walls at the white lines, and straights that end in hard braking', () => {
+test('six-lane grand prix roads: nothing on the road but the racers, walls at the white lines, and straights that end in hard braking', () => {
   for (const id of ['shiden', 'isonami'] as const) {
     const t = getTrack(id);
-    assert.equal(TRACK_DEFS[id].traffic, 'highway');
-    const lanes = lanesOf(t);
-    assert.equal(lanes.length, 6);
-    assert.deepEqual(lanes.map((l) => l.v), SIX_LANE_SPEEDS, `${id}: slow on the left, fast on the right`);
-    assert.ok(lanes.every((l) => l.dir === 1), `${id}: all going with the race`);
-    for (let i = 1; i < 6; i++) assert.ok(Math.abs(lanes[i].d - lanes[i - 1].d - lanes[1].d + lanes[0].d) < 1e-9 && lanes[i].d - lanes[i - 1].d > 3.3, `${id}: even lanes, room to pass between`);
-    // The outer lanes ride the edge lines, and the wall is right there: a truck clears it by about a metre, far too
-    // little for a car to squeeze through.
-    const truck = TRAFFIC_KINDS.truck.width / 2;
+    // Andrew took the traffic off (2026-11-09), and `clean` keeps the ramps and cones off too.
+    assert.ok(!TRACK_DEFS[id].traffic && getTraffic(t) === null, `${id}: no traffic`);
+    assert.ok(TRACK_DEFS[id].clean && t.props.length === 0 && t.ramps.length === 0, `${id}: no obstacles`);
+    assert.equal(TRACK_DEFS[id].lanes, 6, `${id}: six lanes still painted`);
     assert.equal(t.shoulder, 0);
     assert.ok(t.rail - t.half < 0.5, `${id}: the wall stands at the white line`);
-    for (const l of [lanes[0], lanes[5]]) assert.ok(Math.abs(l.d) + truck < t.rail && t.rail - (Math.abs(l.d) + truck) < 1.1, `${id}: outer lane at ${l.d.toFixed(2)} m`);
     assert.ok(t.runL.every((r) => r === 0) && t.runR.every((r) => r === 0), `${id}: no runoff`);
-    const tr = getTraffic(t)!;
-    for (let lane = 0; lane < 6; lane++) assert.ok(tr.cars.filter((c) => c.lane === lane).length > 10, `${id}: lane ${lane} has traffic`);
-    assert.equal(t.props.length, 0);
     // Braking zones: corners tighter than 70 m at the end of at least 300 m of near-straight road.
     let straight = 0;
     let zones = 0;

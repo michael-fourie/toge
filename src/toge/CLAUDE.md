@@ -102,13 +102,12 @@ a component or a page.
   points/turns ... make the whole road full of traffic with 6 lanes going in the same direction ... two different
   maps with the same vibe, but different layouts"): `shiden` (Shiden Boulevard: city at night, 5.3 km, a 1 km straight
   into a square left, a chicane, a hairpin) and `isonami` (Isonami Corniche: coast, 5.8 km, flat-out kinks by the sea,
-  a 95° left, a hairpin on the headland, a chicane). Both 21 m wide, `traffic: 'highway'` with `lanes: 6`
-  (`SIX_LANE_SPEEDS`, 54-112 km/h slow left to fast right; `lanesOf` cuts the asphalt into six equal lanes, so the
-  outer ones ride the edge lines; the road paints a dashed line between every lane) and `walled`: the barrier stands
-  `WALL_GAP` outside the white line (`t.shoulder` 0, no verge, no runoff), so there's nowhere to pass but between
-  the cars. Each has 4+ braking zones (a corner under 70 m after 300 m of straight); the boost test checks lanes,
-  walls and zones, and the traffic test drives every car through both (AI ~113-146 s). Their cup is Rush Hour
-  (below).
+  a 95° left, a hairpin on the headland, a chicane). Both 21 m wide, `lanes: 6` (six lanes painted, a dashed line
+  between each) and `walled`: the barrier stands `WALL_GAP` outside the white line (`t.shoulder` 0, no verge, no
+  runoff). They shipped with six lanes of same-way traffic wall to wall, then the same day Andrew asked to "remove
+  traffic/cars from Shiden Boulevard and Isonami Corniche": no `traffic` now, and `clean`, so no ramps or cones
+  either, only the racers. Each has 4+ braking zones (a corner under 70 m after 300 m of straight); the boost test
+  checks walls, the empty road and the zones. Their cup is Overdrive (below).
 - **No items** (2026-11-08, Devlin: "remove items from all maps"): mystery boxes, the item slot, the turbo/oil/shield/
   shockwave/comet items, the `item`/`used` messages and the item bonus money are gone. In their place, **boost pads**
   (boost.ts; same request: "a few mini rainbow speed boosters but it doesn't cover the whole lane and is only in
@@ -122,11 +121,12 @@ a component or a page.
 - **Grand Prix cups** (cups.ts; Michael asked for "4 set maps, each group of 4 a cup like Mario Kart", 2026-11-08): `CUPS`
   puts every race track in a cup of four, raced in order: Torii (nagare, sakura, momiji, koripass), Mirage
   (saltwind, kazeoka, redmesa, akane), Lantern (minato, monaco, neonbay, tsukiyo), Apex (kodama, hachi, spa, monza) and
-  Velocity (hayate, seatosky, monza, ryusei: the three speed roads plus Monza) and Rush Hour (neonbay, isonami, ryusei,
-  shiden: every road with traffic). Only those two borrow tracks from other cups.
+  Velocity (hayate, seatosky, monza, ryusei: the three speed roads plus Monza) and Overdrive (id `rush`, first named Rush Hour;
+  neonbay, isonami, ryusei, shiden: the two grand prix roads with the city and the expressway). Only those two
+  borrow tracks from other cups.
   Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
   more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
-  test checks every one is in one, and only Velocity and Rush Hour repeat tracks); a new cup is an append to `CupId` / `CUPS`.
+  test checks every one is in one, and only Velocity and Overdrive repeat tracks); a new cup is an append to `CupId` / `CUPS`.
   Solo: the Race page's cup cards start round 1 (`DriveOpts.gp`, at least 3 rivals); racegame.ts `soloCup` adds the
   places to the table (you are key `me`, rivals by name: the same every round) and Next race hands `onNext` the next
   round, so each round is a fresh RaceGame with its own loading screen. Every round pays like a solo race.
