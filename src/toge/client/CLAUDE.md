@@ -39,7 +39,9 @@ The rules that bite most often in this folder:
   only the trees round the camera, not every tree of each 400 m tile it touches. The tiles themselves don't cast.
 - Shaders: racegame.ts `warmShaders()` compiles every material in the scene behind the loading screen, hidden ones
   included (far stand-ins, effects). Anything shown later with a new material (or new defines) compiles mid-race, a
-  stall of 50-300 ms on Windows: build it hidden at load instead of creating it when it's first needed.
+  stall of 50-300 ms on Windows: build it hidden at load instead of creating it when it's first needed. It compiles
+  into the post chain's HDR target (`post.sceneTarget`: tone mapping and colour space differ from the screen's), and
+  shadows use `PCFShadowMap` (three r186 swaps PCFSoft for PCF at the first shadow render, recompiling everything).
 - Adaptive resolution (`adaptResolution` + `RES` in racegame.ts): when frames average slower than `RES.slowMs` for
   `RES.slowFor` s, the render scale drops a step (to `RES.min` of the pixel ratio at worst); with headroom it climbs back.
   `__race.resScale` shows it. A machine that keeps up never leaves full resolution.

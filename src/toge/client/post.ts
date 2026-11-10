@@ -261,6 +261,11 @@ export class Post {
     this.composer.addPass(this.grade);
   }
 
+  /** Where the scene is drawn (null: the screen, on Low). Shaders compile per target (tone mapping, colour space). */
+  get sceneTarget(): THREE.WebGLRenderTarget | null {
+    return this.composer?.readBuffer ?? null;
+  }
+
   setSize(w: number, h: number) {
     if (!this.composer || !this.grade) return;
     this.composer.setPixelRatio(this.renderer.getPixelRatio());
