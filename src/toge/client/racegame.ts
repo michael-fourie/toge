@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, myRaceCar, newOwnedCar, rivalCar } from '../shared/cars.ts';
-import { type Ai, aiDrive, newAi } from '../shared/driver.ts';
+import { type Ai, type CpuLevel, aiDrive, isCpuLevel, newAi, rivalAi } from '../shared/driver.ts';
 import { DRAFT, type Body, stepDraft, strongestWake } from '../shared/draft.ts';
 import { DAMAGE, type Damage, ZONES, damagedInput, newDamage, packZones, repair, takeHit, unpackZones } from '../shared/damage.ts';
 import { Blasts, CarDents } from './damageview.ts';
@@ -182,6 +182,23 @@ function loadAssists(): Assists {
   }
 }
 const CAM_KEY = 'atrous.raceCam';
+/** CPU difficulty (driver.ts CPU_LEVELS), picked on the Race page; it also sets an online lobby's CPUs when you host. */
+const CPU_KEY = 'atrous.cpu';
+export function cpuLevel(): CpuLevel {
+  try {
+    const v = localStorage.getItem(CPU_KEY);
+    return isCpuLevel(v) ? v : 'normal';
+  } catch {
+    return 'normal';
+  }
+}
+export function setCpuLevel(level: CpuLevel) {
+  try {
+    localStorage.setItem(CPU_KEY, level);
+  } catch {
+    /* private mode */
+  }
+}
 
 const hexColor = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
@@ -407,7 +424,7 @@ export class RaceGame {
           continue;
         }
         const bot = this.spawn(decodeCar(car) ?? newOwnedCar('pebble'), online.grid[r.id], r.name, false, decodeRider(r.rider) ?? defaultRider());
-        bot.ai = newAi(0.84 + ((k * 37) % 11) / 100, ((k % 3) - 1) * 1.6);
+        bot.ai = rivalAi(k, cpuLevel());
         bot.netId = r.id;
         this.rivals.push(bot);
         k++;
@@ -423,7 +440,7 @@ export class RaceGame {
         const slot = i < mySlot ? i : i + 1;
         // Each rival gets a driver of their own (seen on a bike), the same one every race.
         const r = this.spawn(car, slot, RIVAL_NAMES[i], false, rivalRider(setup.rider, i));
-        r.ai = newAi(0.84 + ((i * 37) % 11) / 100, ((i % 3) - 1) * 1.6);
+        r.ai = rivalAi(i, cpuLevel());
         this.rivals.push(r);
       }
       // Free roam has nothing to count down to: you're away on the first tick.

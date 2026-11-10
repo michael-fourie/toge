@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CAR_IDS, carSpec, newOwnedCar, rating, topSpeed } from '../../src/toge/shared/cars.ts';
-import { aiDrive, newAi } from '../../src/toge/shared/driver.ts';
+import { CPU_LEVEL_IDS, aiDrive, newAi, rivalAi } from '../../src/toge/shared/driver.ts';
+import { padKick } from '../../src/toge/shared/boost.ts';
 import { TRACK_LENGTH_KM } from '../../src/toge/shared/garage.ts';
 import { RACE_TRACKS, SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/toge/shared/track.ts';
 import { LANES, type Obstacle, TRAFFIC_KINDS, collideTraffic, getTraffic, newPose, trafficBetween, trafficPose, trafficS } from '../../src/toge/shared/traffic.ts';
@@ -397,6 +398,75 @@ test('AI drivers get every car down every track, with no NaNs and few big crashe
       assert.ok(crashes <= 2, `${model} on ${id}: ${crashes} big crashes`);
     }
   }
+});
+
+test('the barrier: hitting it costs more speed than brushing it, so the wall is never a better brake than the brakes', () => {
+  // Into the left rail at 150 km/h at an angle, from the middle of the road, on full throttle.
+  const hit = (deg: number) => {
+    const car = carOn();
+    const s = flat.startS + 150;
+    const p = pointAt(flat, s, -(flat.rail - 2.5));
+    Object.assign(car.p, { x: p.x, y: p.y + 0.4, z: p.z });
+    car.hint = Math.floor(s / SAMPLE);
+    const yaw = Math.atan2(-p.tx, -p.tz) + (deg * Math.PI) / 180;
+    car.q = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
+    car.v.x = -Math.sin(yaw) * (150 / 3.6);
+    car.v.z = -Math.cos(yaw) * (150 / 3.6);
+    run(car, gas, 0.5);
+    return speedOf(car) * 3.6;
+  };
+  const brush = hit(2);
+  const knock = hit(12);
+  const slam = hit(30);
+  assert.ok(brush > 140, `a brush cost too much: ${brush.toFixed(0)} km/h left`);
+  assert.ok(knock < brush - 25, `a 12° hit at 150 km/h left ${knock.toFixed(0)} km/h (a brush ${brush.toFixed(0)})`);
+  assert.ok(slam < knock - 15, `a 30° hit left ${slam.toFixed(0)} km/h (12°: ${knock.toFixed(0)})`);
+});
+
+/** Seconds for a car down a track: the AI driving, or the AI's steering with the throttle pinned and no brakes. */
+function lapTime(id: TrackId, model: (typeof CAR_IDS)[number], ai: ReturnType<typeof newAi>, flatOut = false) {
+  const t = getTrack(id);
+  const car = carOn(t, model);
+  const inp = { ...idle };
+  let time = 0;
+  while (car.s < t.finishS && time < 400) {
+    aiDrive(car, t, ai, TICK_DT, inp);
+    if (flatOut) Object.assign(inp, { throttle: 1, brake: 0 });
+    stepCar(car, inp, t);
+    padKick(car, t.boosts);
+    time += TICK_DT;
+  }
+  return time;
+}
+
+test('CPUs: a Hard CPU beats holding full throttle into the walls, and each level is quicker than the last', () => {
+  // These used to go the other way: full throttle and no brakes beat every CPU on 20 of 22 tracks (Monaco by 21 s),
+  // because the rails stopped the car for each bend sooner than its brakes, and the AI braked early and gently.
+  for (const id of ['koripass', 'redmesa', 'momiji', 'spa', 'minato'] as const) {
+    const flatOut = lapTime(id, 'kitsune', newAi(0.84, 0), true);
+    const hard = lapTime(id, 'kitsune', rivalAi(1, 'hard'));
+    assert.ok(hard < flatOut - 1, `${id}: Hard CPU ${hard.toFixed(1)} s, full throttle ${flatOut.toFixed(1)} s`);
+  }
+  const times = CPU_LEVEL_IDS.map((l) => lapTime('sakura', 'kitsune', rivalAi(1, l)));
+  assert.ok(times[0] > times[1] + 2 && times[1] > times[2] + 2, `Sakura: easy/normal/hard ${times.map((x) => x.toFixed(1)).join(' / ')} s`);
+});
+
+test('CPUs go for the boost pads on their way', () => {
+  let pads = 0;
+  let kicks = 0;
+  for (const id of ['monza', 'spa', 'kodama', 'kazeoka'] as const) {
+    const t = getTrack(id);
+    const car = carOn(t, 'kitsune');
+    const ai = rivalAi(0, 'hard');
+    const inp = { ...idle };
+    for (let time = 0; car.s < t.finishS && time < 400; time += TICK_DT) {
+      aiDrive(car, t, ai, TICK_DT, inp);
+      stepCar(car, inp, t);
+      if (padKick(car, t.boosts)) kicks++;
+    }
+    pads += t.boosts.filter((p) => p.s < t.finishS).length;
+  }
+  assert.ok(kicks >= pads * 0.75, `the AI took ${kicks} of ${pads} pads`);
 });
 
 test('cars bump each other apart and trade momentum', () => {
