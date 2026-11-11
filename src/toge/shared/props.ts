@@ -1,10 +1,11 @@
-// Things on the road: launch ramps, hay bales and barrels to steer round, cone chicanes
-// to smash through; on a hill climb, boulders and rocks fallen onto the road's edges. Placed from the track's
-// seed, so every racer gets the same layout.
+// Things on the road: hay bales and barrels to steer round, cone chicanes to smash through; on a hill climb,
+// boulders and rocks fallen onto the road's edges. Placed from the track's seed, so every racer gets the same
+// layout. (Launch ramps sat on the straights too until 2026-11-10, when Andrew asked to "remove all ramps/jumps
+// that are not part of the map": the road's own crests stay, track.ts `crest`.)
 
 import { type Track, SAMPLE, pointAt, roadY, newLoc, locate } from './track.ts';
 
-export type PropKind = 'ramp' | 'bale' | 'barrel' | 'cone' | 'boulder' | 'rock';
+export type PropKind = 'bale' | 'barrel' | 'cone' | 'boulder' | 'rock';
 
 export interface Prop {
   kind: PropKind;
@@ -19,19 +20,9 @@ export interface Prop {
   r: number;
 }
 
-/** A launch ramp: a wedge `len` long rising to `h`, `w` wide, starting at `s`, centred at offset `d`. */
-export interface Ramp {
-  s: number;
-  d: number;
-  len: number;
-  w: number;
-  h: number;
-}
-
-export const PROP_RADIUS: Record<PropKind, number> = { ramp: 0, bale: 0.8, barrel: 0.48, cone: 0.28, boulder: 1.8, rock: 0.6 };
+export const PROP_RADIUS: Record<PropKind, number> = { bale: 0.8, barrel: 0.48, cone: 0.28, boulder: 1.8, rock: 0.6 };
 /** Bales, barrels, boulders and rocks stop you; cones don't. */
 export const isSolid = (k: PropKind) => k === 'bale' || k === 'barrel' || k === 'boulder' || k === 'rock';
-export const RAMP = { len: 5.5, w: 3.2, h: 1.15 };
 
 function mulberry(seed: number) {
   let a = seed >>> 0;
@@ -43,12 +34,11 @@ function mulberry(seed: number) {
   };
 }
 
-/** Lays out a track's props (sorted by `s`) and its ramps. */
-export function placeProps(t: Track): { props: Prop[]; ramps: Ramp[] } {
-  if (t.def.climb) return { props: placeRockfall(t), ramps: [] };
+/** Lays out a track's props, sorted by `s`. */
+export function placeProps(t: Track): Prop[] {
+  if (t.def.climb) return placeRockfall(t);
   const rng = mulberry(t.def.seed * 31 + 7);
   const props: Prop[] = [];
-  const ramps: Ramp[] = [];
   const loc = newLoc();
   const add = (kind: PropKind, s: number, d: number) => {
     const p = pointAt(t, s, d);
@@ -69,18 +59,18 @@ export function placeProps(t: Track): { props: Prop[]; ramps: Ramp[] } {
     t.cuts.some((c) => [c.s0, c.s1].some((e) => s1 > e - 40 && s0 < e + 40)) ||
     t.boosts.some((b) => s1 > b.s - 40 && s0 < b.s + b.len + 40);
   // With traffic on the road there's enough to dodge.
-  if (t.def.traffic) return { props, ramps };
+  if (t.def.traffic) return props;
   let s = t.startS + 400;
   let k = 0;
   while (s < t.finishS - 200) {
     if (k % 4 === 1) {
-      // A launch ramp on a straight, with room to land.
+      // An open straight: a launch ramp stood here until 2026-11-10. The stretch (and the two random draws the ramp
+      // took) is kept, so every bale, barrel and cone stays exactly where it was.
       if (busy(s, s + 180) || curvMax(s, s + 170) > 1 / 200) {
         s += 30;
         continue;
       }
-      const d = (rng() < 0.5 ? -1 : 1) * (t.half - RAMP.w / 2 - 0.4);
-      ramps.push({ s, d, len: RAMP.len, w: RAMP.w, h: RAMP.h });
+      rng();
       s += 420 + rng() * 160;
     } else {
       // Something to drive round (or through), never blocking the whole road.
@@ -101,7 +91,7 @@ export function placeProps(t: Track): { props: Prop[]; ramps: Ramp[] } {
     k++;
   }
   props.sort((a, b) => a.s - b.s);
-  return { props, ramps };
+  return props;
 }
 
 /** The narrowest the road gets between a fallen boulder or rock and the far edge of the asphalt (m). */
@@ -170,14 +160,4 @@ export function firstPropFrom(props: Prop[], s: number): number {
     else hi = m;
   }
   return lo;
-}
-
-/** How high a ramp lifts the road at (along `s`, across `d`), or 0. */
-export function rampLift(ramps: Ramp[], s: number, d: number): number {
-  for (const r of ramps) {
-    const u = s - r.s;
-    if (u < 0 || u > r.len || Math.abs(d - r.d) > r.w / 2) continue;
-    return (r.h * u) / r.len;
-  }
-  return 0;
 }

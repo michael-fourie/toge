@@ -1,4 +1,4 @@
-// Draws the road's props: launch ramps, hay bales, barrels, cones that go flying when hit, a hill climb's
+// Draws the road's props: hay bales, barrels, cones that go flying when hit, a hill climb's
 // boulders and rocks (instanced: a few draw calls for the whole mountain), and the rainbow boost pads.
 
 import * as THREE from 'three';
@@ -41,8 +41,6 @@ export class PropView {
       }
     });
     this.rockfall(track, keep);
-    const rampMat = keep(new THREE.MeshStandardMaterial({ map: keep(rampTexture()), roughness: 0.7, side: THREE.DoubleSide }));
-    for (const r of track.ramps) this.group.add(rampMesh(track, r.s, r.d, r.len, r.w, keep, rampMat));
     if (track.boosts.length) {
       this.padTex = keep(rainbowTexture());
       this.padTex.wrapT = THREE.RepeatWrapping;
@@ -155,37 +153,6 @@ function padsGeometry(t: Track): THREE.BufferGeometry {
   return geo;
 }
 
-/** The wedge of a launch ramp, following the road (its top is the ground the wheels see). */
-function rampMesh(t: Track, s: number, d: number, len: number, w: number, keep: <T extends { dispose(): void }>(x: T) => T, mat: THREE.Material): THREE.Mesh {
-  const loc = newLoc();
-  const pt = (u: number, side: number, top: boolean) => {
-    const p = pointAt(t, s + u, d + side * (w / 2));
-    locate(t, p.x, p.z, p.i, loc);
-    const base = roadY(t, loc);
-    return [p.x, top ? heightAt(t, p.x, p.z) : base, p.z];
-  };
-  const eps = 0.01;
-  const a0 = pt(eps, -1, false);
-  const b0 = pt(eps, 1, false);
-  const a1 = pt(len - eps, -1, true);
-  const b1 = pt(len - eps, 1, true);
-  const a1b = pt(len - eps, -1, false);
-  const b1b = pt(len - eps, 1, false);
-  const pos = [...a0, ...b0, ...a1, ...b1, ...a1b, ...b1b];
-  const uv = [0, 0, 1, 0, 0, 1, 1, 1, 0, 1, 1, 1];
-  // top, back face, two sides
-  const idx = [0, 1, 2, 2, 1, 3, 4, 2, 5, 5, 2, 3, 0, 2, 4, 1, 5, 3];
-  const geo = keep(new THREE.BufferGeometry());
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  const m = new THREE.Mesh(geo, mat);
-  m.position.y = 0.02;
-  m.castShadow = m.receiveShadow = true;
-  return m;
-}
-
 function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
   const c = document.createElement('canvas');
   c.width = w;
@@ -241,15 +208,6 @@ function strawTexture() {
       g.moveTo(x, y);
       g.lineTo(x + Math.random() * 10 - 5, y + Math.random() * 3);
       g.stroke();
-    }
-  });
-}
-
-function rampTexture() {
-  return canvasTex(64, 64, (g) => {
-    for (let i = 0; i < 8; i++) {
-      g.fillStyle = i % 2 ? '#1b1b1b' : '#ffc21a';
-      g.fillRect(0, i * 8, 64, 8);
     }
   });
 }

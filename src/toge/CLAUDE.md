@@ -88,7 +88,7 @@ a component or a page.
 
 - **Tracks** (`TrackId` in track.ts): passes `koripass` (alpine), `saltwind` (coast), `redmesa` (desert rally:
   gravel, crests, canyon), `tsukiyo` (night: bridge, tunnel), `momiji` (autumn), `sakura` (spring), `nagare` (Nagare Pass: alpine, 3.2 km, gentle
-  (< 6%), 8 corners, a ~1 minute run built for grinding time trials; `clean: true` = no obstacles or ramps);
+  (< 6%), 8 corners, a ~1 minute run built for grinding time trials; `clean: true` = no obstacles);
   circuits `monza` (3 laps), `spa`, `monaco` (2 laps), `kodama` (the time trial's ring), `hachi` (Hachi-no-ji: a 1.2 km figure 8 for drifting, 3 laps,
   the first pass over the crossing on a bridge), and three original grand prix layouts (2026-11-06): `minato` (Minato
   Street: a night street circuit in the city theme round a harbour, open waterfront, big wheel), `akane` (Akane Sands:
@@ -123,7 +123,7 @@ a component or a page.
   a 95° left, a hairpin on the headland, a chicane). Both 21 m wide, `lanes: 6` (six lanes painted, a dashed line
   between each) and `walled`: the barrier stands `WALL_GAP` outside the white line (`t.shoulder` 0, no verge, no
   runoff). They shipped with six lanes of same-way traffic wall to wall, then the same day Andrew asked to "remove
-  traffic/cars from Shiden Boulevard and Isonami Corniche": no `traffic` now, and `clean`, so no ramps or cones
+  traffic/cars from Shiden Boulevard and Isonami Corniche": no `traffic` now, and `clean`, so no bales, barrels or cones
   either, only the racers. Each has 4+ braking zones (a corner under 70 m after 300 m of straight); the boost test
   checks walls, the empty road and the zones. Their cup is Overdrive (below).
 - **No items** (2026-11-08, Devlin: "remove items from all maps"): mystery boxes, the item slot, the turbo/oil/shield/
@@ -326,7 +326,10 @@ src/toge/shared/
                toge/client/damageview.ts draws it: CarDents (moves the body's own vertices, flat normals in the creases),
                Blasts (fireball, black cloud, instanced debris, a flash light that only exists with the mode on).
                A damaged car doesn't smoke: the engine plume hid the road.
-  props.ts     seeded track props (`placeProps`): ramps, bales, barrels, cones. Not on circuits, clean passes or traffic
+  props.ts     seeded track props (`placeProps`): bales, barrels, cones. No launch ramps since 2026-11-10 (Andrew: "remove
+               all ramps/jumps that are not part of the map ... Do not remove the jumps that make up the entire road"):
+               jumps are only the road's own `crest` features (and the open world's runway kickers); their old slots
+               are open straights, so every other prop stayed put. Not on circuits, clean passes or traffic
                tracks. A `climb` track gets rockfall instead (`placeRockfall`): boulders and rocks, each its own
                radius, bitten into the road's edges, always leaving `ROCKFALL_GAP` of clear tarmac; solid, and the AI
                steers round them by their radius. toge/client/propview.ts draws props and the boost pads.
