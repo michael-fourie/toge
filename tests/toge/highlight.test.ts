@@ -52,7 +52,9 @@ test('highlight: the best moment is the long drift, not the cruise around it', (
   const tape = run(60, (t) => (t >= 30 && t < 34 ? { speed: 28, slip: 0.7 } : { speed: 28 }));
   const m = bestMoment(tape)!;
   assert.equal(m.kind, 'drift');
-  assert.ok(m.start > 28.9 && m.start <= 30.05, `the window covers the drift: starts ${m.start}`);
+  const mid = m.start + HIGHLIGHT.seconds / 2;
+  assert.ok(m.start <= 30 && m.start + HIGHLIGHT.seconds >= 34, `the window covers the drift: starts ${m.start}`);
+  assert.ok(Math.abs(mid - 32) < 0.6, `the drift is in the middle of the replay: ${mid}`);
   assert.equal(m.angle, 40);
   assert.equal(m.kmh, 101);
   assert.equal(momentLine(m), 'Drift · 40° at 101 km/h');
@@ -62,11 +64,15 @@ test('highlight: flat out beats a gentle slide, and a jump counts', () => {
   const fast = run(60, (t) => (t > 40 && t < 46 ? { speed: 80 } : t > 10 && t < 15 ? { speed: 20, slip: 0.2 } : { speed: 35 }));
   const m = bestMoment(fast)!;
   assert.equal(m.kind, 'speed');
-  assert.ok(m.start >= 40 && m.start <= 41.05, `starts ${m.start}`);
+  assert.ok(m.start <= 40.05 && m.start + HIGHLIGHT.seconds >= 46, `covers the run: starts ${m.start}`);
+  assert.ok(Math.abs(m.start + HIGHLIGHT.seconds / 2 - 43) < 0.6, `centred on it: starts ${m.start}`);
   assert.equal(m.kmh, 288);
   assert.equal(momentLine(m), 'Flat out · 288 km/h');
   const jump = run(60, (t) => ({ speed: 33, air: t > 20 && t < 22.5 }));
   assert.equal(bestMoment(jump)!.kind, 'air');
+  // A one second jump in ten seconds of cruising is still the jump.
+  const hop = run(60, (t) => ({ speed: 33, air: t > 20 && t < 21 }));
+  assert.equal(bestMoment(hop)!.kind, 'air');
 });
 
 test('highlight: never the launch, never past the line, and a short run is shown whole', () => {

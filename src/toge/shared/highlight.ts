@@ -5,8 +5,10 @@
 // scoring a stretch and posing a car at any moment of it.
 
 export const HIGHLIGHT = {
-  /** Seconds the replay runs. */
-  seconds: 5,
+  /** Seconds the replay runs (Michael 2026-11-11: 5 was "too short to see the moment"). */
+  seconds: 10,
+  /** A window that keeps this share of the best one's score may slide to put the action in the middle of the replay. */
+  centre: 0.9,
   /** Samples a second (poses in between are interpolated). */
   hz: 20,
   /** A tape never grows past this (RACE.maxSeconds at `hz`). */
@@ -191,8 +193,8 @@ export interface Moment {
 
 /**
  * The tape's best HIGHLIGHT.seconds: the window (after HIGHLIGHT.skip, before the finish) with the most excitement
- * summed over its samples, each sample worth its best of speed, drift or air. Its kind is whichever of those summed
- * most over the window. Null for an empty tape.
+ * summed over its samples, each sample worth its best of speed, drift or air, slid to centre the action. Its kind is
+ * whichever of those stands out most in the window. Null for an empty tape.
  */
 export function bestMoment(tape: MomentTape): Moment | null {
   const n = tape.length;
@@ -224,18 +226,43 @@ export function bestMoment(tape: MomentTape): Moment | null {
       bestI = i;
     }
   }
+  // Many windows can hold the same action (a 4 s drift fits a 10 s window six ways), and the first of them would open
+  // on six seconds of cruising: slide the window so the action, weighted by its score², sits in the middle, as long
+  // as that keeps nearly all of the best score.
+  const win = (t0: number) => {
+    let a = 0;
+    for (let i = lowerIndex(tape.d, n, t0) + 1; i < n && tape.time(i) < t0 + span; i++) a += sc[i];
+    return a;
+  };
+  let w = 0;
+  let wt = 0;
+  for (let i = bestI; i < n && tape.time(i) < tape.time(bestI) + span; i++) {
+    w += sc[i] * sc[i];
+    wt += sc[i] * sc[i] * tape.time(i);
+  }
+  if (w > 0) {
+    const t0 = Math.max(lo, Math.min(hi, wt / w - span / 2));
+    let k = Math.max(0, lowerIndex(tape.d, n, t0) + 1);
+    if (k > 0 && (k >= n || tape.time(k) > hi + 1e-6)) k--;
+    if (k < n && win(tape.time(k)) >= best * HIGHLIGHT.centre) bestI = k;
+  }
   const start = tape.time(bestI);
+  // What makes the stretch special: each sample counts for whatever scored it, by how far it stands above the
+  // stretch's typical (median) sample, so ten seconds of cruising round a one second jump still reads as the jump.
+  const inWin: number[] = [];
+  for (let i = bestI; i < n && tape.time(i) < start + span; i++) inWin.push(i);
+  const med = inWin.map((i) => sc[i]).sort((x, y) => x - y)[inWin.length >> 1] ?? 0;
   const tot = { speed: 0, drift: 0, air: 0 };
   let kmh = 0;
   let angle = 0;
-  for (let i = bestI; i < n && tape.time(i) < start + span; i++) {
-    tot.speed += parts[i].speed;
-    tot.drift += parts[i].drift;
-    tot.air += parts[i].air;
+  for (const i of inWin) {
+    const p = parts[i];
+    const top: MomentKind = p.drift >= p.speed && p.drift >= p.air ? 'drift' : p.air > p.speed ? 'air' : 'speed';
+    tot[top] += Math.max(0, sc[i] - med);
     kmh = Math.max(kmh, tape.speed(i) * 3.6);
     if (tape.speed(i) >= HIGHLIGHT.minSpeed) angle = Math.max(angle, Math.min(Math.abs(tape.slip(i)), 1.1) * (180 / Math.PI));
   }
-  const kind: MomentKind = tot.drift >= tot.speed && tot.drift >= tot.air ? 'drift' : tot.air > tot.speed ? 'air' : 'speed';
+  const kind: MomentKind = tot.drift > tot.speed && tot.drift >= tot.air ? 'drift' : tot.air > tot.speed ? 'air' : 'speed';
   return { start, kind, kmh: Math.round(kmh), angle: Math.round(angle) };
 }
 
