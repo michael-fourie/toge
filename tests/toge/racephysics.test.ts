@@ -4,9 +4,9 @@ import { CAR_IDS, carSpec, newOwnedCar, rating, topSpeed } from '../../src/toge/
 import { CPU_LEVEL_IDS, aiDrive, newAi, rivalAi } from '../../src/toge/shared/driver.ts';
 import { padKick } from '../../src/toge/shared/boost.ts';
 import { TRACK_LENGTH_KM } from '../../src/toge/shared/garage.ts';
-import { RACE_TRACKS, SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/toge/shared/track.ts';
+import { RACE_TRACKS, SAMPLE, SKY, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/toge/shared/track.ts';
 import { LANES, type Obstacle, TRAFFIC_KINDS, collideTraffic, getTraffic, newPose, trafficBetween, trafficPose, trafficS } from '../../src/toge/shared/traffic.ts';
-import { ARCADE, type Car, arcadeMaxYaw, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, collideCars, forwardSpeed, newCar, speedOf, spinOut, stepCar, yawOf } from '../../src/toge/shared/vehicle.ts';
+import { ARCADE, type Car, arcadeMaxYaw, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, catchFall, collideCars, forwardSpeed, newCar, speedOf, spinOut, stepCar, yawOf } from '../../src/toge/shared/vehicle.ts';
 
 // Race tracks only: the open world (world.ts) has its own tests in world.test.ts.
 const TRACKS = RACE_TRACKS;
@@ -61,6 +61,8 @@ test('tracks: the ground under the road is the road, and it is continuous everyw
         assert.ok(Math.abs(heightAt(t, x, z, undefined, i) - roadY(t, loc)) < 1e-6, `${id}: off the road plane at s=${s}, d=${d}`);
       }
     }
+    // A sky road has no hills to blend into: off its edge is the abyss (its own test checks).
+    if (t.abyss !== undefined) continue;
     // A walk across the map near the road (where it blends into the hills): no seams. A seam shows as the
     // midpoint far off the line between its neighbours; a steep but smooth embankment doesn't.
     const { x0, x1, z0, z1 } = t.bounds;
@@ -151,7 +153,7 @@ test('runoff: dirt before the barrier on the outside of fast bends and after eve
     const covered = Array.from(t.runL, (l, i) => Math.max(l, t.runR[i]) > 1).filter(Boolean).length / t.n;
     // An expressway runs between its walls: its sweepers are too gentle to need any. A `walled` road has none at all
     // (its own test checks).
-    if (t.def.traffic === 'highway' || t.def.walled) continue;
+    if (t.def.traffic === 'highway' || t.def.walled || t.def.sky) continue;
     // A road as wide as a runway (Hayate Flats) is its own runoff: only its quickest kinks get more. A sprint ring
     // (a lap under 1.5 km, all fast corners: Mizuumi, Hibari) is nearly all bend taken quick, so most of it has some.
     const sprint = !!t.lap && t.lap * SAMPLE < 1500;
@@ -386,9 +388,11 @@ test('AI drivers get every car down every track, with no NaNs and few big crashe
       let time = 0;
       let crashes = 0;
       let lastHit = -9;
+      let falls = 0;
       while (car.s < t.finishS && time < 400 * Math.max(1, TRACK_LENGTH_KM[id] / 5)) {
         aiDrive(car, t, ai, TICK_DT, inp);
         stepCar(car, inp, t);
+        if (catchFall(car, t)) falls++;
         assert.ok(Number.isFinite(car.p.x + car.p.y + car.p.z), `${model} on ${id}: NaN at ${time}`);
         // One crash can land a few hard hits in a row (nose, then the side swinging in): count it once.
         if (car.hit > 12) {
@@ -399,6 +403,7 @@ test('AI drivers get every car down every track, with no NaNs and few big crashe
       }
       assert.ok(car.s >= t.finishS, `${model} didn't finish ${id} (stuck at s=${car.s.toFixed(0)})`);
       assert.ok(crashes <= 2, `${model} on ${id}: ${crashes} big crashes`);
+      assert.equal(falls, 0, `${model} fell off ${id}`);
     }
   }
 });
@@ -436,6 +441,7 @@ function lapTime(id: TrackId, model: (typeof CAR_IDS)[number], ai: ReturnType<ty
     aiDrive(car, t, ai, TICK_DT, inp);
     if (flatOut) Object.assign(inp, { throttle: 1, brake: 0 });
     stepCar(car, inp, t);
+    catchFall(car, t);
     padKick(car, t.boosts);
     time += TICK_DT;
   }
@@ -891,4 +897,54 @@ test('clean passes (time trial roads): no item boxes or obstacles, and an easy g
     assert.equal(t.props.length, 0, `${id}: props on a clean road`);
     for (let i = 0; i + 5 < t.n; i++) assert.ok(Math.abs(t.y[i + 5] - t.y[i]) / (5 * SAMPLE) < 0.07, `${id}: grade at s=${i * SAMPLE}`);
   }
+});
+
+test('sky road (Kumo Skyway): no barriers, nothing under the edge, and a car that falls off is put back on the road, stopped', () => {
+  const t = getTrack('kumo');
+  assert.ok(t.def.sky && t.def.laps && t.abyss !== undefined);
+  const loc = newLoc();
+  for (let i = 0; i < t.lap; i += 13) {
+    // The road, its lip and nothing else: the ground drops away right at the edge.
+    for (const side of [-1, 1]) {
+      const on = pointAt(t, i * SAMPLE, side * (t.half + SKY.lip - 0.05));
+      assert.ok(Math.abs(heightAt(t, on.x, on.z, loc, i) - roadY(t, loc)) < 1e-9, `the lip is road at s=${i * SAMPLE}`);
+      const off = pointAt(t, i * SAMPLE, side * (t.half + SKY.lip + 0.6));
+      assert.equal(heightAt(t, off.x, off.z, undefined, i), t.abyss, `nothing past the edge at s=${i * SAMPLE}`);
+    }
+    assert.ok(t.y[i] - t.abyss! > 500, 'high above the abyss');
+  }
+  assert.ok(t.runL.every((r) => r === 0) && t.runR.every((r) => r === 0), 'no runoff');
+  // Straight off the side at 120 km/h: no rail stops it, it falls, and it's back in the middle of the road where it
+  // went off, standing still, facing along the road.
+  const s = t.startS + 120;
+  const p = pointAt(t, s, 4);
+  const car = carOn(t, 'kitsune');
+  const yaw = Math.atan2(-p.tx, -p.tz) - 0.5; // nose 29° toward the right-hand edge
+  Object.assign(car.p, { x: p.x, y: p.y + car.spec.cg + 0.05, z: p.z });
+  car.q = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
+  car.hint = Math.round(s / SAMPLE);
+  car.v.x = -Math.sin(yaw) * (120 / 3.6);
+  car.v.z = -Math.cos(yaw) * (120 / 3.6);
+  let caught = -1;
+  let wentOff = 0;
+  for (let k = 0; k < 4 * TICK_HZ && caught < 0; k++) {
+    stepCar(car, gas, t);
+    if (!wentOff && Math.abs(car.d) > t.half + SKY.lip + 2) wentOff = car.s;
+    if (catchFall(car, t)) caught = k / TICK_HZ;
+  }
+  assert.ok(wentOff > 0, 'drove off the edge');
+  assert.ok(caught > 0.8 && caught < 2.5, `caught after ${caught.toFixed(2)} s`);
+  assert.equal(speedOf(car), 0, 'all its speed lost');
+  locate(t, car.p.x, car.p.z, car.hint, loc);
+  assert.ok(Math.abs(loc.d) < 0.01, `back in the middle (d=${loc.d.toFixed(2)})`);
+  assert.ok(Math.abs(loc.s - wentOff) < 60, `back where it went off (s=${loc.s.toFixed(0)}, off at ${wentOff.toFixed(0)})`);
+  const back = Math.abs(car.p.y - car.spec.cg - roadY(t, loc));
+  assert.ok(back < 0.1, `on the road surface (${back.toFixed(2)} m)`);
+  // And it drives on from there.
+  run(car, gas, 3, t);
+  assert.ok(forwardSpeed(car) > 15 && Math.abs(car.d) < t.half, 'drives away');
+  // On every other track the catch does nothing.
+  const other = carOn(getTrack('monza'));
+  other.p.y -= 50;
+  assert.ok(!catchFall(other, getTrack('monza')));
 });

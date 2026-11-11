@@ -8,14 +8,14 @@ import { type Ai, type CpuLevel, aiDrive, isCpuLevel, newAi, rivalAi } from '../
 import { DRAFT, type Body, stepDraft, strongestWake } from '../shared/draft.ts';
 import { DAMAGE, type Damage, ZONES, damagedInput, newDamage, packZones, repair, takeHit, unpackZones } from '../shared/damage.ts';
 import { Blasts, CarDents } from './damageview.ts';
-import { bankCombo, comboPoints, newDriftMeter, stepDrift } from '../shared/drift.ts';
+import { bankCombo, comboPoints, dropCombo, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { tierOf } from '../shared/pass.ts';
 import { CUPS, ROUNDS, addRound, roundLabel } from '../shared/cups.ts';
 import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, recordMode, type CarRule, type GpState, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
 import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc } from '../shared/track.ts';
-import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, placeCar, resetCar, speedOf, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
+import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, catchFall, collideCars, forwardSpeed, newCar, placeCar, resetCar, speedOf, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
 import { WORLD, respawnAt, trapCrossed } from '../shared/world.ts';
 import { collideWorldTraffic, newNearMisses, roamClock, stepNearMisses } from '../shared/worldtraffic.ts';
 import { WorldTrafficView } from './worldtrafficview.ts';
@@ -874,6 +874,7 @@ export class RaceGame {
       r.input.shiftUp = r.input.shiftDown = false;
     }
     this.pickups();
+    if (t.abyss !== undefined) this.falls();
     // Bumps
     const all = [me, ...this.rivals];
     // In a time trial the others are ghosts: you (and the host's CPU racers) drive straight through them.
@@ -945,6 +946,25 @@ export class RaceGame {
         if (me.finished === null) this.send();
         this.sendCpus();
       }
+    }
+  }
+
+  /**
+   * A sky road: every car we drive that's gone off the edge and dropped is put back on the middle of the road where it
+   * went off, stopped (vehicle.ts `catchFall`). Online, the others just see it jump back (racenet snaps a big gap).
+   */
+  private falls() {
+    for (const r of [this.me, ...this.rivals]) {
+      if (!catchFall(r.car, this.track)) continue;
+      if (r.ai) r.ai = newAi(r.ai.skill, r.ai.lane);
+      r.prevP.set(r.car.p.x, r.car.p.y, r.car.p.z);
+      r.prevQ.set(r.car.q.x, r.car.q.y, r.car.q.z, r.car.q.w);
+      if (r !== this.me) continue;
+      const lost = dropCombo(this.driftMeter);
+      if (lost > 0) this.hud.driftLost(lost);
+      if (this.phase === 'racing' && r.finished === null) this.hud.banner('Fell off!', 'Back on the road', 1400);
+      rumble(0.8, 0.4, 300);
+      if (this.watching === null) this.snapCamera();
     }
   }
 
