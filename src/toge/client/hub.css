@@ -1865,6 +1865,160 @@ html:not(.pad) .tg-bumper {
   text-transform: none;
 }
 
+/* Medal table (Leaderboard → Overall, leaderboardui.ts): golds, silvers and bronzes across every board's top three,
+   in the podium colours of the cup table and trophies. A medal you don't have is a faint ring. */
+:root {
+  --tg-gold-m: #ffc940;
+  --tg-silver-m: #d9e1ec;
+  --tg-bronze-m: #d08a4a;
+}
+.tg-medals {
+  margin-bottom: 20px;
+}
+.tg-medals th.tg-medal-h {
+  width: 64px;
+  text-align: center;
+}
+.tg-medal-h.g {
+  color: var(--tg-gold-m);
+}
+.tg-medal-h.s {
+  color: var(--tg-silver-m);
+}
+.tg-medal-h.b {
+  color: var(--tg-bronze-m);
+}
+.tg-medals td.tg-medal-n {
+  text-align: center;
+}
+.tg-medal {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font: italic 800 17px/1 var(--tg-display);
+  font-variant-numeric: tabular-nums;
+  color: #1a1206;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.22), inset 0 2px 0 rgba(255, 255, 255, 0.45);
+}
+.tg-medal.g {
+  background: radial-gradient(circle at 35% 30%, #fff1b8, var(--tg-gold-m) 55%, #c9901a);
+}
+.tg-medal.s {
+  background: radial-gradient(circle at 35% 30%, #ffffff, var(--tg-silver-m) 55%, #98a3b4);
+}
+.tg-medal.b {
+  background: radial-gradient(circle at 35% 30%, #f4c497, var(--tg-bronze-m) 55%, #8f5527);
+}
+.tg-medal.none {
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--tg-line-2);
+  color: var(--tg-faint);
+}
+.tg-medals tr.gap > * {
+  border-top: 1px dashed var(--tg-line-2);
+}
+.tg-medals-more {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+/* Times beaten (Leaderboard, top): someone's new best moved you down a board. Each line opens that board. */
+.tg-notices {
+  margin: 0 0 6px;
+  padding: 4px 14px 12px;
+  border-left: 3px solid var(--tg-red);
+}
+.tg-notices header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tg-notices ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tg-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 4px;
+  border: 0;
+  border-top: 1px solid var(--tg-line);
+  background: none;
+  color: var(--tg-text);
+  font: 500 14px/1.35 var(--tg-body);
+  text-align: left;
+  cursor: pointer;
+}
+.tg-notice:hover {
+  background: var(--tg-ink-3);
+}
+.tg-notice small {
+  display: block;
+  font-size: 12px;
+  color: var(--tg-dim);
+}
+.tg-notice-tag {
+  flex: none;
+  padding: 3px 8px;
+  background: var(--tg-red);
+  color: #fff;
+  font: italic 800 11px/1.2 var(--tg-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transform: skewX(var(--tg-skew));
+}
+/* The popup when you arrive (or while you're in the garage) and someone has beaten your time. */
+.tg-notice-pop {
+  position: fixed;
+  z-index: 40;
+  top: 76px;
+  right: var(--tg-gutter);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(460px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--tg-line-2);
+  border-left: 3px solid var(--tg-red);
+  border-radius: var(--tg-radius);
+  background: var(--tg-glass);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--tg-shadow);
+  animation: tg-pop-in 0.35s var(--tg-ease);
+}
+.tg-notice-pop p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+@keyframes tg-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+/* A count on a sub-tab (the Leaderboard's unseen times beaten). */
+.tg-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--tg-red);
+  color: #fff;
+  font: 700 11px/1 var(--tg-body);
+  letter-spacing: 0;
+  vertical-align: 2px;
+}
+
 /* ============================================================================================
    Small screens
    ============================================================================================ */

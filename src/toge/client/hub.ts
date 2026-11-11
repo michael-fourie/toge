@@ -15,9 +15,9 @@ import { CPU_LEVELS, CPU_LEVEL_IDS, type CpuLevel } from '../shared/driver.ts';
 import { cpuLevel, setCpuLevel } from './racegame.ts';
 import { settingsTab } from './settingsui.ts';
 import { friendCar, friendsApi, friendsTab } from './friendsui.ts';
-import { type Leaders, boardApi, leaderboardTab } from './leaderboardui.ts';
+import { type Leaders, boardApi, leaderboardTab, noticeText } from './leaderboardui.ts';
 import type { FriendList } from '../../shared/friends.ts';
-import type { BoardRow, TogeProfile } from '../shared/records.ts';
+import type { BoardRow, MedalRow, Notice, TogeProfile } from '../shared/records.ts';
 import { type Graphics, graphics, setGraphics } from '../../client/graphics.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
@@ -54,6 +54,11 @@ const tabOf = (p: Page) => TABS.find((t) => t.pages.some(([q]) => q === p))!;
 
 const TRACK_KEY = 'atrous.track';
 const RIVALS_KEY = 'atrous.rivals';
+/** The newest "time beaten" notice this browser has popped up (its `at`), so each pops up once. */
+const NOTICE_POP_KEY = 'atrous.noticePop';
+/** How often the garage checks for new notices while it's open, and how long the popup stays. */
+const NOTICE_POLL_MS = 90_000;
+const NOTICE_POP_MS = 9_000;
 /** Physics mode (crash damage) for solo races, on or off. */
 const PHYSICS_KEY = 'atrous.physics';
 /** A page's slide-in: the last child starts 0.09 s late and runs 0.24 s (hub.css `.tg-panel.enter`). */
@@ -141,8 +146,13 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   /** Leaderboard: the track whose board is open, every track's record, and the boards loaded so far. */
   let lbTrack: TrackId = track;
   let leaders: Leaders | null = null;
+  let medals: MedalRow[] | null = null;
   const boards = new Map<TrackId, BoardRow[]>();
   let lbFailed = false;
+  /** Your unseen "your time was beaten" notices (signed in), checked on arrival and every NOTICE_POLL_MS. */
+  let notices: Notice[] = [];
+  let noticeTimer = 0;
+  let popTimer = 0;
   /** Battle pass: the tier open in its detail card (previewed in the showroom while the page is up): the next to reach. */
   let passSel = Math.min(PASS.tiers, tierOf(garage.g.xp) + 1);
   const passReward = () => (page === 'pass' ? TIERS[passSel - 1] : null);
@@ -251,7 +261,9 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     });
     const sub = $(root, '[data-subtabs]');
     sub.hidden = tab.pages.length < 2;
-    sub.innerHTML = tab.pages.map(([p, label]) => `<button role="tab" data-page="${p}" aria-selected="${p === page}" class="${p === page ? 'on' : ''}">${esc(label)}</button>`).join('');
+    // The Leaderboard tab counts your unseen "time beaten" notices.
+    const badge = (p: Page) => (p === 'leaderboard' && notices.length ? `<b class="tg-badge" aria-label="${notices.length} times beaten">${notices.length}</b>` : '');
+    sub.innerHTML = tab.pages.map(([p, label]) => `<button role="tab" data-page="${p}" aria-selected="${p === page}" class="${p === page ? 'on' : ''}">${esc(label)}${badge(p)}</button>`).join('');
     sub.querySelectorAll<HTMLElement>('[data-page]').forEach((b) => b.addEventListener('click', () => switchPage(b.dataset.page as Page)));
   };
 
@@ -506,6 +518,8 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     return leaderboardTab({
       track: lbTrack,
       leaders,
+      medals,
+      notices,
       rows: boards.get(lbTrack) ?? null,
       user: account.user,
       friends: new Set(friendList?.friends.map((n) => n.toLowerCase())),
@@ -539,9 +553,53 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   const loadBoard = async (t: TrackId) => {
     const [l, rows] = await Promise.all([boardApi.leaders(), boardApi.board(t)]);
     lbFailed = !l || !rows;
-    if (l) leaders = l;
+    if (l) ({ leaders, medals } = l);
     if (rows) boards.set(t, rows);
     if (page === 'leaderboard') draw();
+  };
+
+  /**
+   * Checks for new "your time was beaten" notices (signed in only). Ones not popped up before (by `at`, kept in this
+   * browser as NOTICE_POP_KEY) get a popup; the Leaderboard tab shows how many are unseen until Got it.
+   */
+  const loadNotices = async () => {
+    // Not over a lobby (the pit garage has no Leaderboard to open).
+    if (pit) return;
+    clearTimeout(noticeTimer);
+    noticeTimer = window.setTimeout(() => void loadNotices(), NOTICE_POLL_MS);
+    if (!account.user) {
+      if (notices.length) (notices = []), drawTop();
+      return;
+    }
+    const n = await boardApi.notices();
+    if (!n) return;
+    notices = n;
+    const popped = Number(read(NOTICE_POP_KEY, '0')) || 0;
+    const fresh = n.filter((x) => x.at > popped);
+    if (fresh.length) {
+      write(NOTICE_POP_KEY, String(fresh[0].at));
+      popNotice(fresh.length === 1 ? noticeText(fresh[0]) : `${noticeText(fresh[0])} And ${fresh.length - 1} more.`);
+    }
+    if (page === 'leaderboard') draw();
+    else drawTop();
+  };
+
+  /** A popup in the corner: someone beat your time. View opens the Leaderboard. */
+  const popNotice = (text: string) => {
+    root.querySelector('.tg-notice-pop')?.remove();
+    clearTimeout(popTimer);
+    const el = document.createElement('div');
+    el.className = 'tg-notice-pop';
+    el.setAttribute('role', 'status');
+    el.innerHTML = `<span class="tg-notice-tag">Time beaten</span><p></p><button class="tg-pill" data-notice-view>View</button>`;
+    el.querySelector('p')!.textContent = text;
+    el.querySelector('[data-notice-view]')!.addEventListener('click', () => {
+      el.remove();
+      switchPage('leaderboard');
+    });
+    // Inside the garage's own element: its design tokens (colours, skew) are set there.
+    $(root, 'main.tg').appendChild(el);
+    popTimer = window.setTimeout(() => el.remove(), NOTICE_POP_MS);
   };
 
   const setStatus = (text: string) => {
@@ -620,6 +678,12 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
         void loadBoard(lbTrack);
       }),
     );
+    panel.querySelector('[data-notices-seen]')?.addEventListener('click', () => {
+      if (!notices.length) return;
+      void boardApi.seen(notices[0].at);
+      notices = [];
+      draw();
+    });
     panel.querySelector<HTMLElement>('[data-lb-race]')?.addEventListener('click', (e) => {
       track = (e.currentTarget as HTMLElement).dataset.lbRace as TrackId;
       write(TRACK_KEY, track);
@@ -1098,10 +1162,12 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   const offAccount = account.onChange(() => {
     friendList = null;
     friendOpen = null;
+    void loadNotices();
     if (page === 'friends' || page === 'leaderboard') draw();
     else drawTop();
   });
   void garage.refresh();
+  void loadNotices();
   if (page === 'leaderboard') void loadBoard(lbTrack);
   draw(false);
   frameCar();
@@ -1111,6 +1177,8 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     flushDraft();
     clearTimeout(listTimer);
     clearTimeout(enterTimer);
+    clearTimeout(noticeTimer);
+    clearTimeout(popTimer);
     offNet?.();
     offGarage();
     offAccount();

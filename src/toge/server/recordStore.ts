@@ -1,4 +1,4 @@
-import { type Bests, type BoardRow, type NewBest, cleanBests, cleanBoard, placeOnBoard, recordTime } from '../shared/records.ts';
+import { type Bests, type BoardRow, type MedalRow, NOTICES, type NewBest, type Notice, cleanBests, cleanBoard, cleanNotices, medalTable, overtaken, placeOnBoard, recordTime } from '../shared/records.ts';
 import { type GhostRun, type GhostTape, cleanRun, cleanTape } from '../shared/ghost.ts';
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { KV } from '../../server/accountStore.ts';
@@ -33,6 +33,8 @@ export class RecordStore {
   private key = (user: string) => `b:${user.toLowerCase()}`;
   private boardKey = (track: TrackId) => `lb:${track}`;
   private ghostKey = (track: TrackId) => `gh:${track}`;
+  /** An account's unseen "your time was beaten" notices (records.ts `Notice`). */
+  private noticeKey = (user: string) => `nt:${user.toLowerCase()}`;
 
   /** The track record's run, to race against (null: no record yet, or it was set without a recording). */
   async ghost(track: unknown): Promise<GhostRun | null> {
@@ -51,14 +53,28 @@ export class RecordStore {
     return isTrack(track) ? cleanBoard(track, await this.kv.get(this.boardKey(track))) : [];
   }
 
-  /** Every track's record (its board's top row), for the track list. */
-  async leaders(): Promise<Partial<Record<TrackId, BoardRow>>> {
-    const out: Partial<Record<TrackId, BoardRow>> = {};
+  /** Every track's record (its board's top row), for the track list, and the medal table over every board's top three. */
+  async leaders(): Promise<{ leaders: Partial<Record<TrackId, BoardRow>>; medals: MedalRow[] }> {
+    const leaders: Partial<Record<TrackId, BoardRow>> = {};
+    const boards: BoardRow[][] = [];
     for (const t of TRACKS) {
-      const top = (await this.board(t))[0];
-      if (top) out[t] = top;
+      const rows = await this.board(t);
+      boards.push(rows);
+      if (rows[0]) leaders[t] = rows[0];
     }
-    return out;
+    return { leaders, medals: medalTable(boards) };
+  }
+
+  /** `user`'s unseen notices, newest first. */
+  async notices(user: string): Promise<Notice[]> {
+    return cleanNotices(await this.kv.get(this.noticeKey(user)));
+  }
+
+  /** `user` has seen every notice up to `upTo` (its `at`); later ones stay. */
+  async seen(user: string, upTo: number): Promise<void> {
+    const left = (await this.notices(user)).filter((n) => n.at > upTo);
+    if (left.length) await this.kv.put(this.noticeKey(user), left);
+    else await this.kv.delete(this.noticeKey(user));
   }
 
   /**
@@ -71,8 +87,15 @@ export class RecordStore {
     if (!r) return null;
     await this.kv.put(this.key(user), r.bests);
     const t = r.best.track;
-    const placed = placeOnBoard(await this.board(t), { name: user, ...r.bests[t]! });
+    const before = await this.board(t);
+    const placed = placeOnBoard(before, { name: user, ...r.bests[t]! });
     await this.kv.put(this.boardKey(t), placed.board);
+    // Everyone it moved down (or off) the board hears about it.
+    const at = this.now();
+    for (const p of overtaken(before, placed.board, user)) {
+      const n: Notice = { track: t, by: user, time: r.best.time, yours: p.yours, was: p.was, rank: p.rank, at };
+      await this.kv.put(this.noticeKey(p.name), [n, ...(await this.notices(p.name))].slice(0, NOTICES.keep));
+    }
     if (placed.rank === 1) {
       const clean: GhostTape | null = tape === undefined ? null : cleanTape(tape, r.best.time);
       if (clean) await this.kv.put(this.ghostKey(t), { name: user, time: r.best.time, ...clean } satisfies GhostRun);

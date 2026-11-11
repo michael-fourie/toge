@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { ActionResult, Garage, GarageAction } from '../toge/shared/garage.ts';
-import { type Bests, type BoardRow, type NewBest, type TogeProfile, cleanBests, profileOf } from '../toge/shared/records.ts';
+import { type Bests, type BoardRow, type MedalRow, type NewBest, type Notice, type TogeProfile, cleanBests, profileOf } from '../toge/shared/records.ts';
 import type { TrackId } from '../toge/shared/track.ts';
 import type { GhostRun, GhostTape } from '../toge/shared/ghost.ts';
 import type { FriendAction, FriendList, FriendResult } from '../shared/friends.ts';
@@ -94,11 +94,25 @@ export class Accounts extends DurableObject {
 
   /**
    * TŌGE's all-time boards, open to anyone: one track's board (one row per account, their best there), or with no
-   * track every track's record.
+   * track every track's record and the medal table (golds, silvers, bronzes across every board's top three).
    */
-  async leaderboard(track: string | null): Promise<{ rows: BoardRow[] } | { leaders: Partial<Record<TrackId, BoardRow>> }> {
+  async leaderboard(track: string | null): Promise<{ rows: BoardRow[] } | { leaders: Partial<Record<TrackId, BoardRow>>; medals: MedalRow[] }> {
     await this.boardsBuilt();
-    return track === null ? { leaders: await this.records.leaders() } : { rows: await this.records.board(track) };
+    return track === null ? await this.records.leaders() : { rows: await this.records.board(track) };
+  }
+
+  /** TŌGE: a session's unseen "your time was beaten" notices (null for guests, who aren't on the boards). */
+  async notices(token: string | undefined): Promise<Notice[] | null> {
+    const user = await this.store.me(token);
+    return user ? this.records.notices(user) : null;
+  }
+
+  /** TŌGE: the session has seen its notices up to `upTo` (a notice's `at`). */
+  async seenNotices(token: string | undefined, upTo: number): Promise<boolean> {
+    const user = await this.store.me(token);
+    if (!user || !Number.isFinite(upTo)) return false;
+    await this.records.seen(user, upTo);
+    return true;
   }
 
   /** Best times set before there were boards: put them on once (`lb:built` marks it done). */

@@ -154,6 +154,15 @@ async function garageApi(req: Request, url: URL, accounts: DurableObjectStub<Acc
   return Response.json(await accounts.garageAct(token, action));
 }
 
+/** TŌGE notices ("your time was beaten"): GET lists yours (null for guests), POST `{seen: <at>}` clears up to that one. */
+async function noticesApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
+  const token = readCookie(req);
+  if (req.method === 'GET') return Response.json({ notices: await accounts.notices(token) });
+  const body = await jsonBody<{ seen?: unknown }>(req, url, 128);
+  if (!body || typeof body !== 'object' || typeof body.seen !== 'number') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
+  return Response.json({ ok: await accounts.seenNotices(token, body.seen) });
+}
+
 /** Friends (site-wide): GET lists yours and who added you, POST `{a: 'add' | 'remove', name}`. Signed-in only. */
 async function friendsApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
   const token = readCookie(req);
@@ -264,6 +273,7 @@ export default {
     if (url.pathname === '/api/races') return Response.json(await env.DIRECTORY.getByName('race').listRaces());
     if (url.pathname === '/api/garage') return garageApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/friends') return friendsApi(req, url, env.ACCOUNTS.getByName('all'));
+    if (url.pathname === '/api/notices') return noticesApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/leaderboard') return Response.json(await env.ACCOUNTS.getByName('all').leaderboard(url.searchParams.get('t')?.slice(0, 32) ?? null));
     if (url.pathname === '/api/stash') return stashApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/parties') {
