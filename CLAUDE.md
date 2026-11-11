@@ -8,7 +8,7 @@ The home page is a console-style **game chooser** with these channels:
    and co-op zombie Survival in the Foundry. ("Atrous" was the shooter's working title; you'll still see it in names
    like `atrous.inventory`.)
 2. **TŌGE**: mountain-pass and circuit racing against AI or friends, with a garage economy.
-3. **Plug-in games** (`src/games/`): SNAP!, Royal Degeneracy, and anything friends add.
+3. **Plug-in games** (`src/games/`): SNAP!, Royal Degeneracy, BEACON (a first-person parkour climb), and anything friends add.
 
 It's a prototype that changes a lot. Player-facing docs: `README.md`.
 
@@ -25,6 +25,7 @@ It's a prototype that changes a lot. Player-facing docs: `README.md`.
 | Worker, Durable Objects, netcode, accounts, security rules: every game's server (`src/server`, `src/*/server`) | `src/server/CLAUDE.md` |
 | Adding a new game to the chooser | `src/games/CLAUDE.md` + `docs/ADDING_A_GAME.md` |
 | Royal Degeneracy | `src/games/royal-degeneracy/CLAUDE.md` |
+| BEACON (parkour climb) | `src/games/beacon/CLAUDE.md` |
 | Tests | `tests/CLAUDE.md` |
 
 ## Architecture
