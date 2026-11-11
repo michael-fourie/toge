@@ -50,7 +50,7 @@ function swatch(it: CosItem): { bg: string; glyph?: string; glow?: string } {
     case 'exhaust':
       return { bg: `radial-gradient(circle, ${it.fx.heat ? hex(it.fx.heat) : '#050505'} 0 30%, ${hex(it.fx.color)} 34% 58%, #0b0e14 62%)`, glow: it.fx.heat ? hex(it.fx.heat) : undefined };
     case 'shell':
-      return { bg: `url('${shellArt(it.fx.style)}') center / 92% no-repeat, radial-gradient(circle at 50% 70%, #3a1418, #0b0e14 70%)`, glow: it.fx.style === 'kage' ? '#22e6ff' : undefined };
+      return { bg: `url('${shellArt(it.fx.style)}') center / 92% no-repeat, radial-gradient(circle at 50% 70%, #3a1418, #0b0e14 70%)`, glow: it.fx.style === 'kage' ? '#22e6ff' : it.fx.style === 'oni' ? '#ff2a3a' : undefined };
     default: {
       // Body parts: the material as the background, a glyph for the part.
       const fx = it.fx;
@@ -75,6 +75,12 @@ const SHELL_ART: Record<ShellStyle, string> = {
   gt: '<path d="M3 29 L8 23 L22 18 L42 12 L58 11 L72 17 L95 19 L96 29 Z"/><path d="M84 18 C 84 10, 88 8, 88 8" stroke="#9aa3ad" stroke-width="1.6" fill="none"/><path d="M78 8 L99 7" stroke="#2c2f36" stroke-width="3"/><path d="M2 30 L14 30" stroke="#2c2f36" stroke-width="1.5"/>',
   longtail: '<path d="M3 28 L10 22 L26 18 L42 12 L58 11 L72 17 L90 18 L99 24 L98 28 Z"/><path d="M60 11 L90 8 L94 18" fill="#f2f2f0"/><path d="M90 9 L99 9" stroke="#2c2f36" stroke-width="2.5"/>',
   kage: '<path d="M2 28 L18 21 L40 12 L58 11 L70 16 L96 18 L97 28 Z" fill="#14161b" stroke="#22e6ff" stroke-width="1"/><path d="M76 11 L98 11" stroke="#22e6ff" stroke-width="1.6"/><path d="M8 25 L30 18" stroke="#22e6ff" stroke-width="1"/>',
+  wangan: '<path d="M2 28 L12 22 L34 17 L44 12 L58 11 L72 16 L94 17 L98 15 L98 28 Z"/><path d="M14 23 L30 19" stroke="#2a2d33" stroke-width="1.2"/>',
+  missile: '<path d="M6 29 L8 21 L30 18 L42 12 L58 11 L70 17 L94 19 L96 29 Z"/><path d="M8 21 L30 18 L30 26 L8 27 Z" fill="#8b8f93"/><path d="M42 18 L56 18 L56 27 L42 27 Z" fill="#e8e6df" stroke="#2a2d33" stroke-width=".6"/><path d="M78 9 L98 8" stroke="#9a6a3a" stroke-width="3"/><path d="M2 26 C 3 22, 6 22, 7 24" stroke="#2a2d33" stroke-width="1.5" fill="none"/>',
+  kustom: '<path d="M4 29 L6 19 L30 17 L42 12 L58 11 L72 17 L92 18 L96 29 Z"/><rect x="18" y="9" width="10" height="9" rx="1.5" fill="#d9dde4"/><rect x="17" y="6" width="12" height="4" rx="1" fill="#2a2d33"/><circle cx="7" cy="15" r="3" fill="#d9dde4"/><path d="M30 31 L70 31" stroke="#d9dde4" stroke-width="2.4"/>',
+  classic: '<path d="M3 28 C 3 20, 10 18, 30 17 L42 12 C 50 9, 60 10, 70 16 L90 17 C 96 18, 97 22, 97 28 Z"/><path d="M14 22 L88 22" stroke="#d9dde4" stroke-width="1"/><path d="M14 18 C 22 16, 30 16, 36 16" stroke="#2a2d33" stroke-width="1" fill="none"/>',
+  hyper: '<path d="M2 29 L14 21 L40 12 L58 11 L68 15 L96 18 L97 29 Z"/><path d="M58 11 L90 16 L66 16 Z" fill="#c9cdd3"/><path d="M40 22 L64 20 L64 26 L42 27 Z" fill="#2c2f36"/><path d="M84 15 L98 15" stroke="#2c2f36" stroke-width="2"/>',
+  oni: '<path d="M2 28 L16 21 L40 12 L58 11 L70 16 L96 18 L97 28 Z" fill="#14161b" stroke="#ff2a3a" stroke-width="1"/><path d="M16 20 C 18 12, 22 8, 26 6" stroke="#f1ead8" stroke-width="2.4" fill="none"/><path d="M46 10 L48 6 L50 10 M54 10 L56 6 L58 10 M64 13 L66 9 L68 14 M74 16 L76 12 L78 17" fill="#14161b" stroke="#14161b"/><path d="M5 25 L14 22" stroke="#ff2a3a" stroke-width="1.6"/><path d="M76 11 L98 11" stroke="#ff2a3a" stroke-width="1.6"/>',
 };
 const shellArt = (style: ShellStyle) =>
   'data:image/svg+xml,' +

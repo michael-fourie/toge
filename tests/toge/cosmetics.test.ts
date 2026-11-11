@@ -183,7 +183,7 @@ test('body parts: a car wearing every slot (last item each, longest plate) still
 
 test('Vanta Case: whole body kits made for the Vanta, worn only on a Vanta, looks only', () => {
   const kits = caseItems('vanta');
-  assert.ok(kits.length >= 5, `${kits.length} kits`);
+  assert.equal(kits.length, 12, `${kits.length} kits`);
   assert.ok(kits.every((i) => i.slot === 'shell' && i.fx.car === 'vanta'), 'the Vanta Case holds only Vanta body kits');
   assert.ok(CATALOG.shell.every((i) => i.cases.includes('vanta') || passOnly(i)), 'every body kit drops from the Vanta Case');
   assert.equal(new Set(CATALOG.shell.map((i) => i.fx.style)).size, CATALOG.shell.length, 'every kit is its own body');

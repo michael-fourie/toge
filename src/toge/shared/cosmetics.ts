@@ -84,7 +84,7 @@ export interface FlapFx extends PartLook { mark?: 'stripe' | 'chevron' }
  * A whole new body for one model (`car`): the shell is redrawn from new curves with its own lamps, intakes and
  * aero (toge/client/shells.ts), in the car's own paint. Same chassis, same numbers: physics never sees it.
  */
-export type ShellStyle = 'kaido' | 'safari' | 'wedge' | 'gt' | 'longtail' | 'kage';
+export type ShellStyle = 'kaido' | 'safari' | 'wedge' | 'gt' | 'longtail' | 'kage' | 'wangan' | 'missile' | 'kustom' | 'classic' | 'hyper' | 'oni';
 export interface ShellFx { car: 'vanta'; style: ShellStyle }
 
 export interface FxBySlot {
@@ -428,6 +428,12 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     sh('vk_gt', 'GT Works', 'epic', VK, vanta('gt')),
     sh('vk_longtail', 'Longtail LM', 'legendary', VK, vanta('longtail')),
     sh('vk_kage', 'Kage', 'mythic', VK, vanta('kage')),
+    sh('vk_wangan', 'Wangan Runner', 'rare', VK, vanta('wangan')),
+    sh('vk_missile', 'Drift Missile', 'rare', VK, vanta('missile')),
+    sh('vk_kustom', 'Kustom', 'epic', VK, vanta('kustom')),
+    sh('vk_classic', 'Grand Tourer \'64', 'epic', VK, vanta('classic')),
+    sh('vk_hyper', 'Aeon Hyper', 'legendary', VK, vanta('hyper')),
+    sh('vk_oni', 'Oni', 'mythic', VK, vanta('oni')),
   ],
 };
 
@@ -457,7 +463,7 @@ export const COS_CASES: readonly CosCase[] = [
   { id: 'livery', name: 'Livery Case', blurb: 'Paint jobs with a story: stripes, flames, camo, kanji and race numbers.', price: 2500, color: 0xff8a00, weights: { common: 48, rare: 32, epic: 14, legendary: 5, mythic: 1 } },
   { id: 'chrome', name: 'Chrome Case', blurb: 'Shiny things: chrome paint, mirror tints, gold rims, frames and tips.', price: 3000, color: 0xd9dde4, weights: { common: 40, rare: 34, epic: 18, legendary: 6.5, mythic: 1.5 } },
   { id: 'aero', name: 'Aero Case', blurb: 'Bolt-ons: wings, scoops, splitters, skirts, roof gear and mudflaps.', price: 2800, color: 0x7cff6b, weights: { common: 46, rare: 32, epic: 15, legendary: 5.5, mythic: 1.5 } },
-  { id: 'vanta', name: 'Vanta Case', blurb: 'Whole new bodies for the Vanta V10: widebody, wedge, longtail and more. Looks only: same car underneath.', price: 6000, color: 0xe0281e, weights: { rare: 62, epic: 28, legendary: 8, mythic: 2 } },
+  { id: 'vanta', name: 'Vanta Case', blurb: 'Twelve whole new bodies for the Vanta V10: widebody, wedge, hot rod, hypercar and more. Looks only: same car underneath.', price: 6000, color: 0xe0281e, weights: { rare: 62, epic: 28, legendary: 8, mythic: 2 } },
   { id: 'legend', name: 'Legend Case', blurb: 'Epic or better, from every case. The big one.', price: 8000, color: 0xffb020, weights: { epic: 72, legendary: 23, mythic: 5 } },
 ];
 

@@ -25,7 +25,7 @@ import {
   vantaEngine,
   vantaRoofScoop,
 } from './carkits.ts';
-import { MAT, rbox } from './carparts.ts';
+import { MAT, rbox, share } from './carparts.ts';
 
 /** The design a car is built from: its body kit's, when it wears one made for it, else its own. */
 export function designFor(owned: OwnedCar): Design {
@@ -35,8 +35,22 @@ export function designFor(owned: OwnedCar): Design {
 }
 
 const V = DESIGNS.vanta;
-/** The Kage's edge light. */
+/** The Kage's edge light, the Oni's eyes and veins. */
 const KAGE = 0x22e6ff;
+const ONI = 0xff2a3a;
+
+/** A kit's own finishes (primer, tape, ivory), made once and shared so a car's dispose leaves them. */
+const mats = new Map<string, THREE.Material>();
+const own = (key: string, make: () => THREE.Material) => {
+  let m = mats.get(key);
+  if (!m) mats.set(key, (m = share(make())));
+  return m;
+};
+const primer = () => own('primer', () => new THREE.MeshStandardMaterial({ color: 0x8b8f93, roughness: 0.9, metalness: 0 }));
+const whitePrimer = () => own('white', () => new THREE.MeshStandardMaterial({ color: 0xe8e6df, roughness: 0.85, metalness: 0 }));
+const tape = () => own('tape', () => new THREE.MeshStandardMaterial({ color: 0xb9bcc0, roughness: 0.45, metalness: 0.6 }));
+const ivory = () => own('ivory', () => new THREE.MeshStandardMaterial({ color: 0xf1ead8, roughness: 0.4 }));
+const wood = () => own('wood', () => new THREE.MeshStandardMaterial({ color: 0x9a6a3a, roughness: 0.8 }));
 
 // ---------------------------------------------------------------------------------------------
 // Shared pieces
@@ -129,10 +143,10 @@ function rivets(k: Kit, t: number, n: number) {
  * A panel lying on both flanks from t0 to t1, between heights lo(t) and hi(t) (shares of the section, 0 at the
  * bottom), `out` off the paint: it follows the body's curves, where a flat plate would float off them.
  */
-function sidePanel(k: Kit, t0: number, t1: number, lo: (t: number) => number, hi: (t: number) => number, mat: THREE.Material, out = 0.006) {
+function sidePanel(k: Kit, t0: number, t1: number, lo: (t: number) => number, hi: (t: number) => number, mat: THREE.Material, out = 0.006, sides: readonly number[] = [-1, 1]) {
   const N = 24;
   const M = 6;
-  for (const side of [-1, 1]) {
+  for (const side of sides) {
     const pos: number[] = [];
     const idx: number[] = [];
     for (let i = 0; i <= N; i++) {
@@ -156,6 +170,60 @@ function sidePanel(k: Kit, t0: number, t1: number, lo: (t: number) => number, hi
     g.setIndex(idx);
     g.computeVertexNormals();
     k.put(g, mat, [0, 0, 0]);
+  }
+}
+
+/** A panel lying on the top (hood, deck) from t0 to t1, out to ±half(t) either side of the middle, `up` off the paint. */
+function topPanel(k: Kit, t0: number, t1: number, half: (t: number) => number, mat: THREE.Material, up = 0.005) {
+  const N = 20;
+  const M = 10;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = t0 + ((t1 - t0) * i) / N;
+    for (let j = 0; j <= M; j++) {
+      const x = -half(t) + (2 * half(t) * j) / M;
+      pos.push(x, k.height(t, x) + up, k.z(t));
+    }
+  }
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < M; j++) {
+      const a = i * (M + 1) + j;
+      const b = a + M + 1;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  k.put(g, mat, [0, 0, 0]);
+}
+
+/** A flat fin standing in a plane x = const: its outline is (z, y) pairs in body space, `w` thick. */
+function fin(k: Kit, outline: [number, number][], x: number, w: number, mat: THREE.Material, mirror = false) {
+  const shape = new THREE.Shape();
+  outline.forEach(([z, y], i) => (i ? shape.lineTo(-z, y) : shape.moveTo(-z, y)));
+  const g = new THREE.ExtrudeGeometry(shape, { depth: w, bevelEnabled: false });
+  g.rotateY(Math.PI / 2);
+  g.translate(-w / 2, 0, 0);
+  return k.put(g, mat, [x, 0, 0], [0, 0, 0], mirror);
+}
+
+/** A horn (or spike): a tapered cone from `base` bending through `mid` to `tip`, built in short pieces. */
+function horn(k: Kit, base: THREE.Vector3, mid: THREE.Vector3, tip: THREE.Vector3, r: number, mat: THREE.Material, mirror = true) {
+  const c = new THREE.QuadraticBezierCurve3(base, mid, tip);
+  const n = 8;
+  for (let i = 0; i < n; i++) {
+    const a = c.getPoint(i / n);
+    const b = c.getPoint((i + 1) / n);
+    const r0 = r * (1 - i / n);
+    const r1 = Math.max(0.002, r * (1 - (i + 1) / n));
+    const g = new THREE.CylinderGeometry(r1, r0, a.distanceTo(b) * 1.04, 10);
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+    const e = new THREE.Euler().setFromQuaternion(q);
+    const m = a.clone().add(b).multiplyScalar(0.5);
+    k.put(g, mat, [m.x, m.y, m.z], [e.x, e.y, e.z], mirror);
   }
 }
 
@@ -554,6 +622,322 @@ export const SHELLS: Record<ShellStyle, Design> = {
       exhaust(k, 0.32, 0.28, 0.05, true, 6);
       // The floating blade: a single thin plane on two slim posts, its trailing edge lit.
       wing(k, { t: 0.95, up: 0.26, back: 0.08, span: k.W * 1.9, chord: 0.26, pitch: -0.06, mat: MAT.gloss, posts: 'straight', postX: k.W * 0.2, edge });
+    },
+  },
+  // Wangan: a highway runner built for 300 km/h at night. Smooth and long, lamps under glass, a ducktail, no wing.
+  wangan: {
+    ...V,
+    top: [[0, 0.26], [0.05, 0.42], [0.12, 0.54], [0.209, 0.62], [0.3, 0.6], [0.45, 0.6], [0.62, 0.64], [0.791, 0.68], [0.92, 0.7], [0.985, 0.74], [1, 0.68]],
+    dip: [[0, 0], [0.1, 0.04], [0.24, 0.05], [0.34, 0], [0.7, 0], [0.85, 0.02], [1, 0]],
+    floor: [[0, 0.17], [0.04, 0.12], [0.1, 0.11], [0.93, 0.11], [0.97, 0.16], [1, 0.28]],
+    waist: 0.05, flareF: 0.06, flareR: 0.09, nose: [0.22, 0.42], tail: [0.06, 0.9], rb: 0.06, rt: 0.17, crease: 0.006,
+    plate: 'WANGAN', plateY: 0.46,
+    kit(k) {
+      // Long lamps under a clear cover, faired into the nose.
+      slitLamp(k, k.W * 0.34, 0.04, k.W * 0.84, 0.12, 0.09);
+      k.put(rbox(k.W * 1.1, 0.06, 0.1, 0.03), MAT.grille, [0, 0.22, k.front(0, 0.22) + 0.04]);
+      k.put(rbox(k.body.half(0.07, 0.1) * 1.9, 0.016, 0.24, 0.006), MAT.gloss, [0, 0.12, k.front(0, k.body.floor(0.05) + 0.03) + 0.1]);
+      // Twin NACA ducts in the hood, a smooth side scoop ahead of the rear wheel.
+      for (const x of [k.W * 0.26]) {
+        const t = 0.18;
+        k.put(rbox(0.1, 0.012, 0.3, 0.02), MAT.hole, [x, k.height(t, x) + 0.002, k.z(t)], [0.05, 0, 0], true);
+      }
+      const it = k.tR - 0.17;
+      const p = k.side(it, 0.55);
+      k.put(rbox(0.06, 0.14, 0.3, 0.05), MAT.hole, [p.x - 0.02, p.y, p.z], [0, 0.12, 0], true);
+      vantaEngine(k);
+      louvres(k, 0.75, 0.9, 6, () => k.W * 0.9, (t) => k.top(t), MAT.gloss);
+      // A gurney strip along the ducktail, a slim lamp band, a clean diffuser and two big round pipes.
+      const dt = 0.975;
+      k.put(rbox(k.body.half(dt, 1) * 1.8, 0.02, 0.03, 0.006), MAT.gloss, [0, k.top(dt) + 0.012, k.z(dt)]);
+      lampBand(k, k.top(0.99) - 0.07, k.body.half(0.99, 0.8) * 0.94, 0.05);
+      k.put(rbox(k.body.half(0.99, 0.3) * 1.8, 0.1, 0.12, 0.03), MAT.grille, [0, 0.26, k.rear(0, 0.26) - 0.04]);
+      diffuser(k, 2, 0.1, MAT.gloss);
+      exhaust(k, 0.32, 0.26, 0.06, true, 22);
+    },
+  },
+
+  // Drift Missile: a car that has been sideways into every wall on the mountain. No front bumper, a crash bar
+  // and the intercooler out in the open, a primer hood, one door from another car, tape, zip ties, a plank wing.
+  missile: {
+    ...V,
+    top: [[0, 0.34], [0.05, 0.48], [0.12, 0.6], [0.209, 0.69], [0.3, 0.62], [0.45, 0.6], [0.62, 0.66], [0.791, 0.72], [0.92, 0.7], [0.98, 0.67], [1, 0.6]],
+    floor: [[0, 0.3], [0.05, 0.16], [0.1, 0.12], [0.92, 0.12], [0.97, 0.18], [1, 0.3]],
+    nose: [0.1, 0.66], flareF: 0.11, flareR: 0.16, rb: 0.04,
+    plate: 'SIDEWAYS', plateY: 0.46,
+    kit(k) {
+      slitLamp(k, k.W * 0.4, 0.045, k.W * 0.8, 0.095, 0.1);
+      // Where the bumper was: the intercooler, the crash bar in front of it, a tow strap and zip ties.
+      const cy = 0.24;
+      const cz = k.front(0, cy);
+      k.put(rbox(k.W * 1.3, 0.16, 0.06, 0.01), MAT.alloy, [0, cy, cz - 0.03]);
+      for (let i = 0; i < 12; i++) k.put(rbox(k.W * 1.28, 0.006, 0.064, 0.002), MAT.trim, [0, cy - 0.07 + i * 0.0125, cz - 0.03]);
+      k.put(tube([[-k.W * 0.8, 0.22, cz + 0.05], [-k.W * 0.6, 0.2, cz - 0.11], [k.W * 0.6, 0.2, cz - 0.11], [k.W * 0.8, 0.22, cz + 0.05]], 0.022), MAT.gloss, [0, 0, 0]);
+      for (const x of [-0.5, 0.5]) k.put(rbox(0.012, 0.03, 0.03, 0.003), ivory(), [x * k.W, 0.2, cz - 0.11]);
+      towStraps(k);
+      // A primer hood and a white door on the left side, swapped in from another car.
+      const tw = V.roof[0][0] - 0.01;
+      topPanel(k, 0.07, tw, (t) => k.body.half(t, 1) * 0.62, primer(), 0.004);
+      sidePanel(k, 0.33, 0.6, () => 0.2, () => 0.86, whitePrimer(), 0.004, [-1]);
+      // Gaffer tape over the corners and one tail lamp.
+      for (const [t, v] of [[0.08, 0.5], [0.12, 0.7]] as const) {
+        const p = k.side(t, v);
+        k.put(rbox(0.012, 0.05, 0.22, 0.004), tape(), [p.x + 0.004, p.y, p.z], [0.3, 0.2, 0], true);
+      }
+      vantaRoofScoop(k);
+      vantaEngine(k);
+      louvres(k, 0.74, 0.92, 7, () => k.W * 1.0, (t) => k.top(t), MAT.carbon);
+      const ty = k.top(0.99) - 0.11;
+      tailLamp(k, 0.62 * k.W, ty, 0.3, 0.1);
+      const lz = k.rear(-0.62 * k.W, ty);
+      k.put(rbox(0.34, 0.035, 0.012, 0.004), tape(), [-0.62 * k.W, ty + 0.02, lz + 0.016], [0, 0, 0.12]);
+      k.put(rbox(0.34, 0.035, 0.012, 0.004), tape(), [-0.62 * k.W, ty - 0.02, lz + 0.016], [0, 0, -0.1]);
+      k.put(rbox(k.W * 1.84, 0.12, 0.14, 0.05), MAT.trim, [0, 0.26, k.rear(0, 0.26) - 0.05]);
+      // One fat pipe out the side of the tail, and the plank wing on alloy stays.
+      exhaust(k, k.W * 0.6, 0.2, 0.075, false, 20);
+      if (!k.wing) {
+        const t = 0.95;
+        const by = k.top(t);
+        const z = k.z(t) + 0.08;
+        k.put(rbox(k.W * 1.9, 0.035, 0.26, 0.004), wood(), [0, by + 0.3, z], [-0.14, 0, 0]);
+        for (const x of [-0.45, 0.45]) k.put(rbox(0.04, 0.32, 0.06, 0.004), MAT.alloy, [x * k.W, by + 0.15, z], [0.15, 0, 0]);
+      }
+    },
+  },
+
+  // Kustom: a hot rod. A blower through the hood, lamps on chrome stalks, chrome bumpers, fat rear arches and side
+  // pipes down both sills.
+  kustom: {
+    ...V,
+    top: [[0, 0.4], [0.04, 0.54], [0.12, 0.62], [0.209, 0.68], [0.3, 0.62], [0.45, 0.6], [0.62, 0.66], [0.791, 0.75], [0.92, 0.72], [0.98, 0.68], [1, 0.62]],
+    dip: [[0, 0], [0.06, 0.02], [0.15, 0.03], [0.24, 0.03], [0.32, 0.02], [0.38, 0], [0.6, 0], [0.72, 0.06], [0.9, 0.06], [1, 0.02]],
+    floor: [[0, 0.22], [0.05, 0.15], [0.1, 0.13], [0.92, 0.13], [0.97, 0.19], [1, 0.3]],
+    waist: 0.08, flareF: 0.07, flareR: 0.22, nose: [0.1, 0.72], tail: [0.05, 0.88], rb: 0.06, rt: 0.14, crease: 0.01,
+    ownWing: true, plate: 'HOT ROD', plateY: 0.44,
+    kit(k) {
+      // Big round lamps on chrome stalks off the fenders, a chrome-ringed mouth and a chrome bumper.
+      for (const x of [0.66]) {
+        const lx = x * k.W;
+        const t = 0.06;
+        const y = k.height(t, lx);
+        const z = k.z(t) - 0.04;
+        k.put(new THREE.CylinderGeometry(0.012, 0.016, 0.1, 8), MAT.chrome, [lx, y + 0.04, z], [0, 0, 0], true);
+        k.put(new THREE.SphereGeometry(0.1, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.6), MAT.chrome, [lx, y + 0.13, z + 0.03], [-Math.PI / 2, 0, 0], true);
+        k.put(new THREE.CircleGeometry(0.075, 24), MAT.head, [lx, y + 0.13, z - 0.031], [Math.PI, 0, 0], true);
+        k.put(new THREE.TorusGeometry(0.08, 0.01, 8, 28), MAT.chrome, [lx, y + 0.13, z - 0.03], [0, 0, 0], true);
+      }
+      const my = 0.3;
+      const mz = k.front(0, my);
+      const ring = new THREE.TorusGeometry(0.2, 0.025, 10, 36);
+      ring.scale(1.6, 0.6, 1);
+      k.put(ring, MAT.chrome, [0, my, mz - 0.01]);
+      const mouth = new THREE.CircleGeometry(0.2, 36);
+      mouth.scale(1.6, 0.6, 1);
+      k.put(mouth, MAT.grille, [0, my, mz + 0.005], [Math.PI, 0, 0]);
+      for (let i = -3; i <= 3; i++) k.put(rbox(0.012, 0.2, 0.02, 0.004), MAT.chrome, [i * 0.07, my, mz - 0.005]);
+      k.put(tube([[-k.W * 0.86, 0.2, mz + 0.18], [-k.W * 0.7, 0.19, mz - 0.03], [k.W * 0.7, 0.19, mz - 0.03], [k.W * 0.86, 0.2, mz + 0.18]], 0.04), MAT.chrome, [0, 0, 0]);
+      // The blower: case, belt, a scoop with three butterflies on top.
+      const bt = 0.17;
+      const by = k.top(bt);
+      const bz = k.z(bt);
+      k.put(rbox(0.44, 0.2, 0.52, 0.04), MAT.chrome, [0, by + 0.07, bz]);
+      for (let i = 0; i < 6; i++) k.put(rbox(0.46, 0.012, 0.03, 0.005), MAT.alloy, [0, by + 0.04 + i * 0.024, bz]);
+      k.put(new THREE.TorusGeometry(0.075, 0.014, 6, 24), MAT.rubber, [0, by + 0.07, bz - 0.27]);
+      k.put(rbox(0.38, 0.16, 0.38, 0.05), MAT.gloss, [0, by + 0.25, bz - 0.02], [0.12, 0, 0]);
+      for (const x of [-0.12, 0, 0.12]) k.put(rbox(0.1, 0.1, 0.02, 0.01), MAT.chrome, [x, by + 0.26, bz - 0.21], [0.12, 0, 0]);
+      // Side pipes down both sills, with heat shields.
+      const pz0 = k.z(k.tF) + k.b.radius + 0.16;
+      const pz1 = k.z(k.tR) - k.b.radius - 0.08;
+      const px = k.side(0.5, 0.06).x + 0.04;
+      k.put(new THREE.CylinderGeometry(0.055, 0.055, pz1 - pz0, 16), k.pipe, [px, 0.2, (pz0 + pz1) / 2], [Math.PI / 2, 0, 0], true);
+      k.put(rbox(0.03, 0.08, (pz1 - pz0) * 0.6, 0.02), MAT.chrome, [px + 0.05, 0.21, (pz0 + pz1) / 2], [0, 0, 0], true);
+      k.put(new THREE.CircleGeometry(0.045, 16), k.pipeHole, [px, 0.2, pz1 + 0.001], [0, 0, 0], true);
+      vantaEngine(k);
+      // Round tail lamps, a chrome bumper and a little ducktail lip.
+      const ty = k.top(0.99) - 0.11;
+      for (const x of [0.48, 0.74]) roundLamp(k, x * k.W, ty, 0.065, k.tail, -1, MAT.chrome);
+      const rz = k.rear(0, 0.26);
+      k.put(tube([[-k.W * 0.86, 0.27, rz - 0.16], [-k.W * 0.7, 0.26, rz + 0.04], [k.W * 0.7, 0.26, rz + 0.04], [k.W * 0.86, 0.27, rz - 0.16]], 0.04), MAT.chrome, [0, 0, 0]);
+      if (!k.wing) k.put(rbox(k.W * 1.6, 0.06, 0.22, 0.03), k.paint, [0, k.top(0.955) + 0.02, k.z(0.955) + 0.05], [-0.4, 0, 0]);
+    },
+  },
+
+  // Classic: a 60s grand tourer. Covered round lamps, an oval mouth in chrome, chrome bumperettes and side trim, a
+  // power bulge down the hood and a Kamm tail with round lamps.
+  classic: {
+    ...V,
+    top: [[0, 0.36], [0.04, 0.48], [0.12, 0.58], [0.209, 0.64], [0.3, 0.6], [0.45, 0.6], [0.62, 0.64], [0.791, 0.69], [0.92, 0.68], [0.985, 0.66], [1, 0.58]],
+    dip: [[0, 0], [0.08, 0.03], [0.2, 0.04], [0.32, 0.01], [0.38, 0], [0.6, 0], [0.72, 0.02], [0.9, 0.03], [1, 0]],
+    floor: [[0, 0.22], [0.05, 0.15], [0.1, 0.13], [0.92, 0.13], [0.97, 0.19], [1, 0.3]],
+    waist: 0.04, flareF: 0.07, flareR: 0.1, nose: [0.14, 0.62], tail: [0.04, 0.92], tumble: 0.1, rb: 0.08, rt: 0.2, crease: 0,
+    plate: 'GT 1964', plateY: 0.46,
+    kit(k) {
+      // Round lamps sunk in the fenders under clear perspex covers.
+      const ly = k.top(0.05) - 0.03;
+      for (const x of [0.62]) {
+        const lx = x * k.W;
+        roundLamp(k, lx, ly, 0.075, MAT.head, 1);
+        const cov = new THREE.SphereGeometry(0.12, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+        cov.scale(0.9, 0.7, 1.6);
+        k.put(cov, MAT.lampGlass, [lx, ly + 0.01, k.front(lx, ly) + 0.08], [-Math.PI / 2 + 0.25, 0, 0], true);
+      }
+      // The oval mouth with a chrome surround and an egg-crate grille, chrome bumperettes either side.
+      const my = 0.27;
+      const mz = k.front(0, my);
+      const ring = new THREE.TorusGeometry(0.16, 0.018, 10, 36);
+      ring.scale(1.5, 0.62, 1);
+      k.put(ring, MAT.chrome, [0, my, mz + 0.005]);
+      const mouth = new THREE.CircleGeometry(0.16, 36);
+      mouth.scale(1.5, 0.62, 1);
+      k.put(mouth, MAT.grille, [0, my, mz + 0.02], [Math.PI, 0, 0]);
+      for (const x of [-0.08, 0.08]) k.put(rbox(0.006, 0.17, 0.01, 0.002), MAT.chrome, [x, my, mz + 0.012]);
+      k.put(rbox(0.4, 0.006, 0.01, 0.002), MAT.chrome, [0, my, mz + 0.012]);
+      for (const x of [0.62]) {
+        const bx = x * k.W;
+        k.put(rbox(0.32, 0.04, 0.06, 0.02), MAT.chrome, [bx, 0.22, k.front(bx, 0.22) + 0.01], [0, 0.35, 0], true);
+      }
+      // A power bulge down the hood (a long rounded hump), a chrome strip along each flank.
+      const hb = (0.08 + V.roof[0][0]) / 2;
+      const hl = (V.roof[0][0] - 0.12) * k.L;
+      k.put(rbox(0.36, 0.06, hl, 0.03), k.paint, [0, k.top(hb) + 0.005, k.z(hb)], [-Math.atan2(k.top(hb + 0.02) - k.top(hb - 0.02), 0.04 * k.L), 0, 0]);
+      const trim: THREE.Vector3[] = [];
+      for (let t = 0.16; t <= 0.86; t += 0.035) trim.push(k.side(t, 0.42).add(new THREE.Vector3(0.006, 0, 0)));
+      strip(k, trim, 0.01, 0.014, MAT.chrome);
+      vantaEngine(k);
+      louvres(k, 0.76, 0.9, 5, () => k.W * 0.7, (t) => k.top(t), MAT.chrome);
+      // Kamm tail: four round lamps, chrome bumperettes, twin pipes.
+      const ty = k.top(0.99) - 0.1;
+      for (const x of [0.5, 0.74]) roundLamp(k, x * k.W, ty, 0.055, k.tail, -1, MAT.chrome);
+      for (const x of [0.62]) {
+        const bx = x * k.W;
+        k.put(rbox(0.34, 0.04, 0.06, 0.02), MAT.chrome, [bx, 0.28, k.rear(bx, 0.28) - 0.01], [0, -0.3, 0], true);
+      }
+      exhaust(k, 0.28, 0.22, 0.04, true, 18);
+    },
+  },
+
+  // Hyper: a modern hypercar. Flying buttresses from the roof to the tail, C-shaped lamps, vents in the front
+  // fenders, side pods, a venturi tail with three pipes high in it and a slim active wing.
+  hyper: {
+    ...V,
+    top: [[0, 0.22], [0.05, 0.4], [0.12, 0.56], [0.209, 0.68], [0.3, 0.6], [0.45, 0.6], [0.62, 0.64], [0.791, 0.74], [0.92, 0.72], [0.98, 0.7], [1, 0.62]],
+    dip: [[0, 0], [0.06, 0.1], [0.15, 0.18], [0.24, 0.15], [0.32, 0.04], [0.38, 0], [0.6, 0], [0.7, 0.16], [0.9, 0.18], [1, 0.06]],
+    floor: [[0, 0.15], [0.04, 0.11], [0.1, 0.1], [0.92, 0.1], [0.97, 0.16], [1, 0.3]],
+    waist: 0.13, flareF: 0.1, flareR: 0.17, nose: [0.2, 0.4], tail: [0.04, 0.9], tumble: 0.16, rb: 0.035, rt: 0.12, crease: 0.02,
+    ownWing: true, plate: 'AEON', plateY: 0.44,
+    kit(k) {
+      // C-shaped lamp lines round a slim projector housing.
+      slitLamp(k, k.W * 0.46, 0.05, k.W * 0.8, 0.09, 0.07);
+      const c: THREE.Vector3[] = [];
+      for (let i = 0; i <= 8; i++) {
+        const a = -Math.PI / 2 + (i / 8) * Math.PI;
+        const x = k.W * (0.62 - 0.17 * Math.cos(a));
+        const t = 0.07 + 0.035 * Math.sin(a);
+        c.push(new THREE.Vector3(x, k.height(t, x) + 0.01, k.z(t)));
+      }
+      strip(k, c, 0.014, 0.012, MAT.drl);
+      // A front splitter, twin centre intakes and vents through the tops of the front fenders.
+      k.put(rbox(k.body.half(0.07, 0.1) * 1.96, 0.02, 0.32, 0.006), MAT.carbon, [0, 0.11, k.front(0, k.body.floor(0.05) + 0.03) + 0.13]);
+      for (const x of [0.26]) k.put(rbox(0.36, 0.12, 0.14, 0.04), MAT.grille, [x * k.W, 0.23, k.front(x * k.W, 0.23) + 0.06], [0, 0.2, 0], true);
+      slats(k, k.W * 0.72, k.tF + 0.02, k.tF + 0.08, 5, 0.24, MAT.carbon);
+      // Side pods: a dark sculpted panel down each flank feeding a big intake ahead of the rear wheel.
+      const b0 = k.tF + 0.12;
+      const b1 = k.tR - 0.13;
+      sidePanel(k, b0, b1, (t) => 0.18 + 0.1 * smoothstep(b0, b1, t), (t) => 0.4 + 0.2 * smoothstep(b0, b1, t), MAT.carbon);
+      const it = k.tR - 0.13;
+      const p = k.side(it, 0.55);
+      k.put(rbox(0.12, 0.3, 0.26, 0.05), MAT.hole, [p.x - 0.04, p.y, p.z], [0, 0.18, 0], true);
+      vantaRoofScoop(k);
+      vantaEngine(k);
+      // Flying buttresses: painted fins from the back of the roof down to the tail's corners, the engine between.
+      const outline: [number, number][] = [];
+      const under: [number, number][] = [];
+      const bx = k.cabin.half(V.roofR, 1) * 0.9;
+      for (let i = 0; i <= 12; i++) {
+        const t = V.roofR + (i / 12) * (0.985 - V.roofR);
+        const base = k.height(t, bx);
+        outline.push([k.z(t), Math.max(base + 0.04, k.cabin.top(V.roofR) - 0.02 - (k.cabin.top(V.roofR) - base - 0.04) * smoothstep(V.roofR, 0.985, t) ** 0.7)]);
+        under.push([k.z(t), base - 0.04]);
+      }
+      fin(k, [...outline, ...under.reverse()], bx, 0.05, MAT.gloss, true);
+      // Tail: a lamp line across the top, a venturi tail with tall fences, three pipes high in the middle, the wing.
+      lampBand(k, k.top(0.99) - 0.05, k.body.half(0.99, 0.8) * 0.94, 0.03);
+      k.put(rbox(k.body.half(0.99, 0.3) * 1.8, 0.16, 0.14, 0.03), MAT.grille, [0, 0.3, k.rear(0, 0.3) - 0.05]);
+      diffuser(k, 4, 0.28);
+      for (const x of [-0.11, 0, 0.11]) exhaust(k, x, 0.3, 0.042, false, 6);
+      wing(k, { t: 0.965, up: 0.12, back: 0.06, span: k.W * 1.6, chord: 0.28, pitch: -0.08, mat: MAT.carbon, posts: 'straight', postX: k.W * 0.3 });
+    },
+  },
+
+  // Oni: a demon in armour. Plated flanks, two horns off the front fenders, angry red eyes, fangs in the mouth,
+  // dragon spines down the back and red veins that glow.
+  oni: {
+    ...V,
+    top: [[0, 0.24], [0.06, 0.46], [0.15, 0.62], [0.209, 0.72], [0.3, 0.62], [0.45, 0.6], [0.62, 0.68], [0.791, 0.77], [0.95, 0.74], [1, 0.66]],
+    dip: [[0, 0], [0.06, 0.12], [0.15, 0.22], [0.24, 0.18], [0.32, 0.05], [0.38, 0], [0.6, 0], [0.72, 0.12], [0.9, 0.14], [1, 0.04]],
+    floor: [[0, 0.16], [0.04, 0.12], [0.1, 0.11], [0.92, 0.11], [0.97, 0.17], [1, 0.28]],
+    waist: 0.11, flareF: 0.14, flareR: 0.19, nose: [0.24, 0.3], tail: [0.05, 0.86], tumble: 0.18, rb: 0.025, rt: 0.06, crease: 0.028,
+    ownWing: true, plate: 'ONI', plateY: 0.44,
+    kit(k) {
+      const vein = glowMat(ONI);
+      // Angry eyes: red slits slanting down towards the middle, under black brows.
+      for (const [x0, t0, x1, t1] of [[0.34, 0.07, 0.78, 0.1]] as const) {
+        const pts = Array.from({ length: 5 }, (_, i) => {
+          const x = k.W * (x0 + ((x1 - x0) * i) / 4);
+          const t = t0 + ((t1 - t0) * i) / 4;
+          return new THREE.Vector3(x, k.height(t, x) + 0.012, k.z(t));
+        });
+        strip(k, pts.map((p) => p.clone().add(new THREE.Vector3(0, 0.02, 0.03))), 0.05, 0.02, MAT.gloss);
+        for (const m of strip(k, pts, 0.03, 0.016, vein)) lit(m);
+      }
+      // The mouth: a wide dark intake with white fangs hanging into it.
+      const my = 0.25;
+      const mz = k.front(0, my);
+      k.put(rbox(k.W * 1.2, 0.14, 0.14, 0.04), MAT.grille, [0, my, mz + 0.06]);
+      for (const x of [-0.42, -0.18, 0.18, 0.42]) {
+        const fang = new THREE.ConeGeometry(0.026, Math.abs(x) > 0.3 ? 0.11 : 0.08, 10);
+        fang.rotateX(Math.PI);
+        k.put(fang, ivory(), [x * k.W, my + 0.03, k.front(x * k.W, my + 0.07) - 0.005]);
+      }
+      // Horns off the front fenders, swept back and up.
+      const ht = k.tF - 0.02;
+      const hx = k.W * 0.74;
+      const hy = k.height(ht, hx);
+      horn(k, new THREE.Vector3(hx, hy - 0.02, k.z(ht)), new THREE.Vector3(hx + 0.12, hy + 0.22, k.z(ht) - 0.02), new THREE.Vector3(hx + 0.06, hy + 0.4, k.z(ht) + 0.2), 0.055, ivory());
+      // Armour plates down the flanks, each with a lit seam above it, and red rings in the arches.
+      for (const [a, b] of [[k.tF + 0.1, 0.38], [0.4, 0.52], [0.54, k.tR - 0.1]] as const) {
+        sidePanel(k, a, b, () => 0.18, () => 0.6, MAT.gloss, 0.008);
+        const seam: THREE.Vector3[] = [];
+        for (let i = 0; i <= 4; i++) {
+          const t = a + ((b - a) * i) / 4;
+          seam.push(k.side(t, 0.63).add(new THREE.Vector3(0.012, 0, 0)));
+        }
+        for (const m of strip(k, seam, 0.008, 0.008, vein)) lit(m);
+      }
+      for (const t of [k.tF, k.tR]) {
+        const x = k.side(t, 0.06).x + 0.01;
+        lit(k.put(new THREE.TorusGeometry(k.b.radius + 0.08, 0.008, 4, 28, Math.PI), vein, [x, k.b.radius, k.z(t)], [0, Math.PI / 2, 0], true));
+      }
+      // Dragon spines down the roof and the engine cover.
+      vantaEngine(k, vein);
+      for (let i = 0; i < 9; i++) {
+        const t = V.roofF + 0.02 + i * 0.055;
+        const y = t < V.roofR + 0.12 ? Math.max(k.cabin.top(Math.min(t, 0.77)), k.top(t)) : k.top(t);
+        const h = 0.13 - Math.abs(i - 3) * 0.015;
+        const spike = new THREE.ConeGeometry(0.035, h, 4);
+        spike.scale(0.5, 1, 1.8);
+        k.put(spike, MAT.gloss, [0, y + h / 2 - 0.01, k.z(t)], [0.5, 0, 0]);
+      }
+      // Tail: red lamp slits on the curve over a lit vein, a black blade wing with a red edge.
+      const ty = k.top(0.99) - 0.06;
+      const tw = k.body.half(0.99, 0.8) * 0.94;
+      const tc = rearCurve(k, ty, tw);
+      rearBand(k, tc, ty, tw * 1.02, 0.05, MAT.gloss, 0.006, 0.05);
+      rearBand(k, tc, ty, tw, 0.022, k.tail, 0.014, 0.04);
+      k.put(rbox(k.body.half(0.99, 0.3) * 1.8, 0.12, 0.12, 0.02), MAT.grille, [0, 0.26, k.rear(0, 0.26) - 0.04]);
+      diffuser(k, 3, 0.16, MAT.gloss);
+      exhaust(k, 0.3, 0.28, 0.05, true, 6);
+      wing(k, { t: 0.95, up: 0.3, back: 0.1, span: k.W * 2.0, chord: 0.3, pitch: -0.1, mat: MAT.gloss, posts: 'swan', postX: k.W * 0.3, edge: vein });
     },
   },
 };
