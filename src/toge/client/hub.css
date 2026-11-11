@@ -2349,6 +2349,53 @@ html:not(.pad) .tg-bumper {
   }
 }
 
+/* Lobby, Team Grand Prix: each grid row edged in its team's colour, and a team chip (a button on your own row, and
+   the host's CPU racers', that switches sides). Red and Blue are protocol.ts TEAMS. */
+.tg-racers li[data-team-row] {
+  box-shadow: inset 3px 0 0 var(--team), inset 0 0 0 1px var(--tg-line);
+}
+.tg-racers li.me[data-team-row] {
+  box-shadow: inset 3px 0 0 var(--team), inset 0 0 0 1px rgba(255, 201, 64, 0.45);
+}
+.tg-team {
+  display: inline-block;
+  flex: none;
+  padding: 3px 7px;
+  border: 1px solid var(--team);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--team) 18%, transparent);
+  color: var(--team);
+  font: 700 11px/1 var(--tg-display);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* With the team chip there's less room: the name and chip stay on the first line, and the tags wrap under them
+   rather than squeezing the name or running over the car. */
+.tg-racers li[data-team-row] .tg-racer {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.tg-racers li[data-team-row] .tg-racer b {
+  /* The face and the name fill the first line; the team chip and tags always start the second. */
+  flex: 1 0 calc(100% - 52px);
+  min-width: 4.5em;
+}
+.tg-racers li[data-team-row] .tg-tag {
+  flex: none;
+}
+button.tg-team {
+  cursor: pointer;
+}
+button.tg-team::after {
+  content: ' ⇄';
+  opacity: 0.7;
+}
+button.tg-team:hover,
+button.tg-team:focus-visible {
+  background: color-mix(in srgb, var(--team) 32%, transparent);
+}
+
 /* Lobby: CPU racers (the host adds them in the first open slot and can take them off again) */
 .tg-tag.cpu {
   background: rgba(255, 255, 255, 0.08);

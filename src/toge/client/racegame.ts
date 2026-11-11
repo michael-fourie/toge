@@ -11,7 +11,7 @@ import { Blasts, CarDents } from './damageview.ts';
 import { bankCombo, comboPoints, dropCombo, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { tierOf } from '../shared/pass.ts';
 import { CUPS, ROUNDS, addRound, roundLabel } from '../shared/cups.ts';
-import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, cleanMode, ghostMode, recordMode, type CarRule, type GpState, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow } from '../shared/protocol.ts';
+import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, TEAMS, cleanMode, ghostMode, recordMode, teammates, type CarRule, type GpState, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow, type Team } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
 import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc } from '../shared/track.ts';
@@ -318,6 +318,8 @@ export class RaceGame {
   private topSpeed = 0;
   /** A time trial: the other racers are ghosts (no contact, no slipstream). */
   private readonly trial: boolean;
+  /** A Team Grand Prix: each racer's team by their id in the room (empty in every other mode). */
+  private readonly teams = new Map<number, Team>();
   /** A time trial or hill climb: the host's car rule, and the results show gaps. */
   private readonly clean: boolean;
   /** A hill climb (one run up the mountain). */
@@ -437,6 +439,18 @@ export class RaceGame {
         bot.netId = r.id;
         this.rivals.push(bot);
         k++;
+      }
+      // A Team Grand Prix: everyone's team, for contact (teammates drive through each other) and the name tags,
+      // map dots and board, which take the team's colour instead of the car's paint.
+      if (online.mode === 'team') {
+        for (const r of online.racers) if (r.team !== undefined) this.teams.set(r.id, r.team);
+        const tint = (id: number | undefined, x: { color: string }) => {
+          const t = id === undefined ? undefined : this.teams.get(id);
+          if (t !== undefined) x.color = TEAMS[t].color;
+        };
+        tint(online.net.id, this.me);
+        for (const r of this.rivals) tint(r.netId, r);
+        for (const r of this.remotes.values()) tint(r.id, r);
       }
       if (online.ghost) this.recordGhost = new GhostCar(online.ghost, this.view.scene);
       this.countdown = RACE.countdownMs / 1000;
@@ -877,10 +891,12 @@ export class RaceGame {
     if (t.abyss !== undefined) this.falls();
     // Bumps
     const all = [me, ...this.rivals];
-    // In a time trial the others are ghosts: you (and the host's CPU racers) drive straight through them.
+    // In a time trial the others are ghosts: you (and the host's CPU racers) drive straight through them. In a Team
+    // Grand Prix only teammates are: rivals bump.
     if (!this.trial) {
-      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) collideCars(all[i].car, all[j].car, true);
-      for (const r of this.remotes.values()) for (const x of all) if (x === me || x.finished === null) collideCars(x.car, r.ghost, false);
+      const team = (x: Racing) => this.teams.get(x === me ? this.setup.online?.net.id ?? 0 : (x.netId ?? 0));
+      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) if (!teammates(team(all[i]), team(all[j]))) collideCars(all[i].car, all[j].car, true);
+      for (const r of this.remotes.values()) for (const x of all) if ((x === me || x.finished === null) && !teammates(team(x), this.teams.get(r.id))) collideCars(x.car, r.ghost, false);
     }
     if (traffic) for (const r of all) collideTraffic(t, traffic, r.car, this.trafficTime);
     if (t.world) {
