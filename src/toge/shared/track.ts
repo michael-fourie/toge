@@ -15,7 +15,7 @@ import { type World, worldSlot, worldTrack } from './world.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'kamome' | 'shiokaze' | 'taketomi' | 'hallstatt' | 'goreme' | 'oia' | 'chefchaouen' | 'toge';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'kamome' | 'shiokaze' | 'taketomi' | 'hallstatt' | 'goreme' | 'oia' | 'chefchaouen' | 'toge' | 'kumo';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -109,6 +109,12 @@ export interface TrackDef {
    */
   overpass?: number;
   /**
+   * A sky road (circuits only): the road floats high above the clouds with no barriers, no verge and no ground. Off
+   * its edge there's nothing: the car drops, and SKY.fall metres under the road it's put back on the middle of the
+   * road where it went off, stopped (vehicle.ts `catchFall`).
+   */
+  sky?: true;
+  /**
    * The open world (world.ts): not a race track but an island of roads to drive round freely (the lobby's Free
    * roam mode). `points` only frame its menu map; the roads are world.ts's.
    */
@@ -172,6 +178,11 @@ export const SHOULDER = 2.5; // paved strip outside the white lines
 export const VERGE = 3; // grass between the shoulder and the barrier
 /** A `walled` road's barrier stands this far outside the white line. */
 export const WALL_GAP = 0.3;
+/**
+ * A `sky` road: a paved lip of `lip` m outside the white lines is the last of it. Past that the ground is `abyss` m
+ * under the lowest of the road, and a car that falls `fall` m below the road is put back on it.
+ */
+export const SKY = { lip: 1.2, abyss: 600, fall: 9 };
 /** The road's plane carries on this far past the barrier so the rails stand on level ground. */
 const EDGE_PAD = 1.5;
 const BLEND = 26; // the ground eases from the road's plane into the hills over this many metres
@@ -228,6 +239,8 @@ export interface Track {
   bounds: { x0: number; x1: number; z0: number; z1: number };
   /** The open world (free roam): its ground replaces this track's. */
   world?: WorldHooks;
+  /** A `sky` road: the height of the nothing off its edge (SKY.abyss under the lowest of the road). */
+  abyss?: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1154,6 +1167,52 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [0, 317.9, 144], [0, 319.1, 108], [0, 320, 72], [0, 320.7, 36],
     ],
   },
+  // A road in the sky (2026-11-10: "a new map that doesn't have walls ... just like a floating road, and if you fall off
+  // the side, you lose all your speed and respawn in the middle of the road"). `sky`: no barriers, nothing under it.
+  // Laid out as straights and arcs closed exactly (like the sprint rings): the line 120 m up a 410 m straight into a 35 m hairpin, back
+  // down beside it with 70 m of air between, a left away east, two rights onto the back straight, a flick, and a
+  // right onto the line. 1.94 km a lap, 600 m up, rising and falling ~20 m round the lap.
+  kumo: {
+    id: 'kumo',
+    name: 'Kumo Skyway',
+    tag: 'Sky road · 3 laps · no walls',
+    blurb: 'A ribbon of road floating above the clouds, with no barriers and nothing underneath: a long straight into a hairpin, a fast flick on the back straight and sweepers that open onto the void. Run wide and you fall, losing all your speed before you are put back on the road.',
+    theme: 'alpine',
+    seed: 3331,
+    width: 14,
+    relief: 0,
+    laps: 3,
+    sky: true,
+    points: [
+      [0, 622.4, -121], [0, 622.9, -133], [0, 623.3, -145], [0, 623.7, -158], [0, 624.1, -170], [0, 624.4, -182],
+      [0, 624.7, -194], [0, 625, -206], [0, 625.2, -218], [0, 625.5, -230], [0, 625.7, -242], [0, 625.9, -255],
+      [0, 626, -267], [0, 626.2, -279], [0, 626.3, -291], [0, 626.4, -303], [0, 626.5, -315], [0, 626.6, -327],
+      [0, 626.7, -339], [0, 626.8, -352], [0, 626.9, -364], [0, 627, -376], [0, 627, -388], [0, 627.1, -400],
+      [0, 627.2, -412], [2, 627.3, -424], [8, 627.4, -435], [18, 627.5, -442], [29, 627.6, -447], [41, 627.7, -447],
+      [53, 627.9, -442], [62, 628, -435], [68, 628.2, -424], [70, 628.4, -412], [70, 628.5, -401], [70, 628.7, -389],
+      [70, 628.9, -377], [70, 629.1, -366], [70, 629.4, -354], [70, 629.6, -343], [70, 629.9, -331], [70, 630.1, -320],
+      [70, 630.4, -308], [70, 630.7, -297], [70, 631, -285], [70, 631.3, -274], [70, 631.6, -262], [71, 631.9, -250],
+      [74, 632.2, -238], [79, 632.5, -227], [86, 632.8, -217], [95, 633.2, -208], [105, 633.4, -201], [116, 633.7, -196],
+      [128, 634, -193], [140, 634.3, -192], [152, 634.5, -192], [164, 634.7, -192], [175, 634.9, -192], [187, 635.1, -192],
+      [199, 635.2, -192], [211, 635.3, -192], [222, 635.4, -192], [234, 635.4, -192], [246, 635.4, -192], [258, 635.4, -192],
+      [270, 635.3, -192], [281, 635.2, -192], [293, 635.1, -192], [305, 634.9, -192], [317, 634.6, -192], [329, 634.4, -192],
+      [340, 634, -192], [352, 633.7, -192], [364, 633.3, -192], [376, 632.8, -192], [387, 632.3, -192], [399, 631.7, -192],
+      [411, 631.2, -192], [423, 630.5, -192], [435, 629.9, -192], [446, 629.1, -192], [458, 628.4, -192], [470, 627.6, -192],
+      [483, 626.7, -191], [495, 625.8, -188], [506, 624.9, -183], [517, 623.9, -177], [527, 622.9, -169], [535, 621.8, -159],
+      [541, 620.8, -148], [546, 619.7, -137], [549, 618.6, -125], [550, 617.5, -112], [550, 616.5, -100], [550, 615.4, -87],
+      [550, 614.3, -75], [550, 613.2, -62], [549, 612.2, -50], [547, 611.2, -39], [543, 610.2, -28], [538, 609.3, -17],
+      [531, 608.3, -7], [524, 607.4, 2], [515, 606.6, 9], [505, 605.7, 16], [494, 604.9, 21], [483, 604.1, 25],
+      [472, 603.4, 27], [460, 602.7, 28], [448, 602.1, 28], [436, 601.5, 28], [424, 601, 28], [413, 600.5, 28],
+      [401, 600.1, 28], [389, 599.7, 28], [377, 599.4, 28], [365, 599.1, 28], [353, 598.9, 28], [341, 598.8, 28],
+      [329, 598.7, 28], [318, 598.6, 28], [306, 598.7, 28], [293, 598.7, 29], [281, 598.9, 31], [269, 599.1, 36],
+      [258, 599.4, 42], [248, 599.7, 49], [238, 600.1, 56], [227, 600.5, 62], [215, 601, 67], [203, 601.5, 69],
+      [190, 602.1, 70], [178, 602.7, 70], [166, 603.3, 70], [154, 604, 70], [142, 604.7, 70], [130, 605.4, 70],
+      [118, 606.1, 70], [106, 606.9, 70], [94, 607.6, 70], [82, 608.4, 70], [70, 609.2, 70], [58, 610, 69],
+      [46, 610.8, 66], [35, 611.6, 61], [25, 612.4, 54], [16, 613.2, 45], [9, 614, 35], [4, 614.8, 24],
+      [1, 615.6, 12], [0, 616.3, 0], [0, 617, -12], [0, 617.7, -24], [0, 618.4, -36], [0, 619.1, -48],
+      [0, 619.7, -61], [0, 620.3, -73], [0, 620.9, -85], [0, 621.4, -97], [0, 621.9, -109],
+    ],
+  },
   toge: {
     id: 'toge',
     name: 'Toge',
@@ -1445,9 +1504,11 @@ export function buildTrack(def: TrackDef): Track {
   for (let i = 0; i < n; i++) bank[i] = Math.max(-0.07, Math.min(0.07, curv[i] * 3));
 
   const half = def.width / 2;
-  const shoulder = def.walled ? 0 : SHOULDER;
-  const rail = def.walled ? half + WALL_GAP : half + SHOULDER + VERGE;
-  const edge = rail + EDGE_PAD;
+  const shoulder = def.sky ? SKY.lip : def.walled ? 0 : SHOULDER;
+  // A sky road ends at its lip: no verge, no barrier, no plane past it.
+  const rail = def.sky ? half + SKY.lip : def.walled ? half + WALL_GAP : half + SHOULDER + VERGE;
+  // (A sky road's plane runs a hair past the lip, so a wheel on the lip's very edge never finds the abyss in a bend.)
+  const edge = rail + (def.sky ? 0.25 : EDGE_PAD);
   const startS = lap ? pre * SAMPLE : nearestS(first);
   const finishS = lap ? startS + laps * lap * SAMPLE : nearestS(last);
   const [runL, runR] = runoff(def, n, x, z, curv, spans, crests, edge, startS, finishS, lap, pre);
@@ -1557,6 +1618,7 @@ export function buildTrack(def: TrackDef): Track {
     cuts: [],
     cross,
   };
+  if (def.sky) t.abyss = Math.min(...y) - SKY.abyss;
   for (const f of def.features ?? []) if (f.kind === 'cut') t.cuts.push(makeCut(t, f.s0, f.s1));
   // Boost pads keep off jumps, tunnels and the mouths of shortcuts (props then keep off the pads).
   t.boosts = placeBoosts(t, (s0, s1) =>
@@ -1679,8 +1741,8 @@ function runoff(
   def: TrackDef, n: number, x: Float64Array, z: Float64Array, curv: Float64Array, spans: Span[], crests: { s: number; len: number }[],
   edge: number, startS: number, finishS: number, lap: number, pre: number,
 ): [Float64Array, Float64Array] {
-  // A walled road has no runoff: the wall is the price of a missed braking point.
-  if (def.walled) return [new Float64Array(n), new Float64Array(n)];
+  // A walled road has no runoff: the wall is the price of a missed braking point. A sky road has nothing to run off onto.
+  if (def.walled || def.sky) return [new Float64Array(n), new Float64Array(n)];
   const vlim = new Float64Array(n);
   for (let i = 0; i < n; i++) vlim[i] = Math.min(RUN.vmax, Math.sqrt(RUN.grip / Math.max(1e-6, Math.abs(curv[i]))));
   const v = Float64Array.from(vlim);
@@ -1968,7 +2030,7 @@ let roadDist = Infinity;
 function roadHeight(t: Track, x: number, z: number, onRoad: Loc | undefined, hint: number): number {
   const list = t.grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
   roadDist = Infinity;
-  if (!list) return terrainAt(t, x, z);
+  if (!list) return t.abyss ?? terrainAt(t, x, z);
   const L = list.length;
   if (d2s.length < L) d2s = new Float64Array(L * 2);
   // A figure 8's crossing: the layer the hint is on leaves the other one out (see Crossing).
@@ -1999,6 +2061,8 @@ function roadHeight(t: Track, x: number, z: number, onRoad: Loc | undefined, hin
       return roadY(t, pieceLoc);
     }
   }
+  // A sky road: off its edge there's no ground at all.
+  if (t.abyss !== undefined) return t.abyss;
   // How far past each sample's edge (runoff included) the point is; the road pulls the ground by a smooth
   // minimum of those (the plain minimum has a kink where two legs are equally near, which would crease the
   // ground there).

@@ -84,6 +84,8 @@ export const TRACK_LOOKS: Partial<Record<TrackId, Partial<Look>>> = {
   kazeoka: { grass: [0.7, 0.6, 0.32], grassDry: [0.9, 0.76, 0.5], verge: [0.66, 0.58, 0.36], forest: -0.32 },
   // Akane Sands races in the late sun: low in the west, its light gone gold.
   akane: { sun: [11, 250], turbidity: 12, rayleigh: 1.3, light: 0xffb26a, lightPower: 2.3, hemi: 0.5, skyGain: 0.6, clouds: [0.3, 0.35], exposure: 0.5, grade: grade({ contrast: 1.16, saturation: 1.05, shadows: [0.86, 0.92, 1.12], highlights: [1.14, 0.99, 0.84] }) },
+  // Kumo Skyway: high noon over the cloud sea, a clear sky above and a thin haze so the far road still shows.
+  kumo: { sun: [36, 200], clouds: [0.2, 0.3], fogDensity: 0.00022, exposure: 0.44 },
   // Toge (the open world) in the late afternoon: the sun warm but well up in the west-south-west, so every way you
   // drive is lit (a golden-hour sun left half the island in shade), and greener grass for the long views.
   // The sprint rings race at midday (Andrew: "day-time maps"): the sun high, so nothing reads as evening. The coast
@@ -334,8 +336,11 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     return Math.abs(under.d) < railOf(t, under.i, under.d) + 7 ? 0.45 : 0;
   };
   const CH = 300;
-  for (let cx = inner.x0; cx < inner.x1; cx += CH)
-    for (let cz = inner.z0; cz < inner.z1; cz += CH) terrainChunk(cx, cz, Math.min(inner.x1, cx + CH), Math.min(inner.z1, cz + CH), 6, underRoad, false);
+  // A sky road has no ground: only the road, its deck and the clouds far below (skyDeck).
+  const skyRoad = !!t.def.sky;
+  if (!skyRoad)
+    for (let cx = inner.x0; cx < inner.x1; cx += CH)
+      for (let cz = inner.z0; cz < inner.z1; cz += CH) terrainChunk(cx, cz, Math.min(inner.x1, cx + CH), Math.min(inner.z1, cz + CH), 6, underRoad, false);
   const FAR = 4200;
   const insideInner = (x: number, z: number) => (x > inner.x0 + 1 && x < inner.x1 - 1 && z > inner.z0 + 1 && z < inner.z1 - 1 ? 40 : 0);
   // Over its last ~2 km the far ring sinks to well below the lowest point of the road, so its square edge always lies
@@ -348,7 +353,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     const k = 1 - THREE.MathUtils.smoothstep(d, 0, 2000);
     return k ? k * Math.max(0, terrainAt(t, x, z) - (lowest - 300)) : 0;
   };
-  terrainChunk(inner.x0 - FAR, inner.z0 - FAR, inner.x1 + FAR, inner.z1 + FAR, 70, (x, z) => insideInner(x, z) + edgeDrop(x, z), true);
+  if (!skyRoad) terrainChunk(inner.x0 - FAR, inner.z0 - FAR, inner.x1 + FAR, inner.z1 + FAR, 70, (x, z) => insideInner(x, z) + edgeDrop(x, z), true);
 
   // --- Road ribbon (chunks of ~200 m)
   // At night the road is damp: the same textures, glossier, so the lamps and headlights streak on it.
@@ -379,14 +384,16 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     const uvs: number[] = [];
     const idx: number[] = [];
     for (let i = i0; i <= i1; i++) {
-      const cross = [-(railOf(t, i, -1) + 1.2), -(t.rail + 1.2), -(t.half + t.shoulder), -t.half, t.half, t.half + t.shoulder, t.rail + 1.2, railOf(t, i, 1) + 1.2];
+      // A sky road is only the road and its lip, out to the deck's edge.
+      const cross = skyRoad ? SKY_CROSS.map((k) => k * t.rail) : [-(railOf(t, i, -1) + 1.2), -(t.rail + 1.2), -(t.half + t.shoulder), -t.half, t.half, t.half + t.shoulder, t.rail + 1.2, railOf(t, i, 1) + 1.2];
+      const us = skyRoad ? SKY_CROSS_U : crossU;
       for (let k = 0; k < cross.length; k++) {
-        const d = cross[k];
+        const d = skyRoad ? cross[k] * (k === 1 || k === 2 ? t.half / t.rail : 1) : cross[k];
         const x = t.x[i] - t.tz[i] * d;
         const z = t.z[i] + t.tx[i] * d;
-        const y = Math.abs(d) <= railOf(t, i, d) + t.edge - t.rail ? t.y[i] - t.bank[i] * d : heightAt(t, x, z);
+        const y = skyRoad || Math.abs(d) <= railOf(t, i, d) + t.edge - t.rail ? t.y[i] - t.bank[i] * d : heightAt(t, x, z);
         pos.push(x, y + 0.03, z);
-        uvs.push(crossU[k], (i * SAMPLE) / ROAD_TILE);
+        uvs.push(us[k], (i * SAMPLE) / ROAD_TILE);
       }
       if (i < i1) {
         const a = (i - i0) * cross.length;
@@ -480,114 +487,119 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     scene.add(m);
   }
 
-  // --- Armco both sides: a galvanised beam on posts.
-  const railMat = keep(
-    look.whiteRail
-      ? new THREE.MeshStandardMaterial({ color: 0xe9ecee, metalness: 0.05, roughness: 0.42, side: THREE.DoubleSide })
-      : new THREE.MeshStandardMaterial({ color: 0xb4b9bf, metalness: 0.9, roughness: 0.34, envMapIntensity: 1.4, side: THREE.DoubleSide }),
-  );
-  // Where a shortcut leaves the road the rail has a gap.
-  const gap = (i: number, side: number) => t.cuts.length > 0 && onCut(t, t.x[i] - t.tz[i] * side * t.rail, t.z[i] + t.tx[i] * side * t.rail, 2.5);
-  for (const side of [-1, 1]) {
-    const runs: [number, number][] = [];
-    for (let i = 0; i < t.n - 1; ) {
-      while (i < t.n - 1 && gap(i, side)) i++;
-      let j = i;
-      while (j < t.n - 1 && j - i < ROAD_CHUNK && !gap(j + 1, side)) j++;
-      if (j > i) runs.push([i, j]);
-      i = j + 1;
-    }
-    for (const [i0, i1] of runs) {
-      const pos: number[] = [];
-      const idx: number[] = [];
-      for (let i = i0; i <= i1; i++) {
-        const d = side * (railOf(t, i, side) + 0.15);
-        const x = t.x[i] - t.tz[i] * d;
-        const z = t.z[i] + t.tx[i] * d;
-        const y = t.y[i] - t.bank[i] * d;
-        // A W-beam: three points in profile (low, bulge, high).
-        pos.push(x, y + 0.42, z, x - t.tz[i] * side * 0.06, y + 0.6, z + t.tx[i] * side * 0.06, x, y + 0.78, z);
-        if (i < i1) {
-          const a = (i - i0) * 3;
-          idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
+  // --- A sky road: the deck under the road, its glowing edges, and the clouds. No rails, chevrons or poles.
+  let clouds: THREE.Mesh[] = [];
+  if (skyRoad) clouds = skyDeck(scene, t, look, keep);
+  else {
+    // --- Armco both sides: a galvanised beam on posts.
+    const railMat = keep(
+      look.whiteRail
+        ? new THREE.MeshStandardMaterial({ color: 0xe9ecee, metalness: 0.05, roughness: 0.42, side: THREE.DoubleSide })
+        : new THREE.MeshStandardMaterial({ color: 0xb4b9bf, metalness: 0.9, roughness: 0.34, envMapIntensity: 1.4, side: THREE.DoubleSide }),
+    );
+    // Where a shortcut leaves the road the rail has a gap.
+    const gap = (i: number, side: number) => t.cuts.length > 0 && onCut(t, t.x[i] - t.tz[i] * side * t.rail, t.z[i] + t.tx[i] * side * t.rail, 2.5);
+    for (const side of [-1, 1]) {
+      const runs: [number, number][] = [];
+      for (let i = 0; i < t.n - 1; ) {
+        while (i < t.n - 1 && gap(i, side)) i++;
+        let j = i;
+        while (j < t.n - 1 && j - i < ROAD_CHUNK && !gap(j + 1, side)) j++;
+        if (j > i) runs.push([i, j]);
+        i = j + 1;
+      }
+      for (const [i0, i1] of runs) {
+        const pos: number[] = [];
+        const idx: number[] = [];
+        for (let i = i0; i <= i1; i++) {
+          const d = side * (railOf(t, i, side) + 0.15);
+          const x = t.x[i] - t.tz[i] * d;
+          const z = t.z[i] + t.tx[i] * d;
+          const y = t.y[i] - t.bank[i] * d;
+          // A W-beam: three points in profile (low, bulge, high).
+          pos.push(x, y + 0.42, z, x - t.tz[i] * side * 0.06, y + 0.6, z + t.tx[i] * side * 0.06, x, y + 0.78, z);
+          if (i < i1) {
+            const a = (i - i0) * 3;
+            idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
+          }
         }
+        const geo = keep(new THREE.BufferGeometry());
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        geo.setIndex(idx);
+        geo.computeVertexNormals();
+        const m = new THREE.Mesh(geo, railMat);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        scene.add(m);
       }
-      const geo = keep(new THREE.BufferGeometry());
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      geo.setIndex(idx);
-      geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, railMat);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      scene.add(m);
     }
-  }
-  const postEvery = 2; // samples (4 m)
-  const nPosts = Math.ceil(t.n / postEvery) * 2;
-  const postMat = look.whiteRail ? railMat : keep(new THREE.MeshStandardMaterial({ color: 0x8e9399, metalness: 0.7, roughness: 0.5 }));
-  const posts = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(0.12, 0.85, 0.08)), postMat, nPosts);
-  const m4 = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const e = new THREE.Euler();
-  const v = new THREE.Vector3();
-  const one = new THREE.Vector3(1, 1, 1);
-  let pi = 0;
-  for (let i = 0; i < t.n; i += postEvery)
-    for (const side of [-1, 1]) {
-      if (gap(i, side)) continue;
-      const d = side * (railOf(t, i, side) + 0.3);
-      v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 0.42, t.z[i] + t.tx[i] * d);
-      q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]), 0));
-      posts.setMatrixAt(pi++, m4.compose(v, q, one));
-    }
-  posts.count = pi;
-  posts.castShadow = true;
-  scene.add(posts);
-  // Round amber reflectors on every fifth post: they catch the headlights (and the bloom) at night.
-  const reflGeo = keep(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 12).rotateX(Math.PI / 2));
-  const reflMat = keep(new THREE.MeshStandardMaterial({ color: 0xffa020, emissive: 0xff8a10, emissiveIntensity: look.moon ? 14 : 0.5, roughness: 0.3 }));
-  const refl = new THREE.InstancedMesh(reflGeo, reflMat, Math.ceil(t.n / (postEvery * 5)) * 2);
-  let ri = 0;
-  for (let i = 0; i < t.n; i += postEvery * 5)
-    for (const side of [-1, 1]) {
-      if (gap(i, side)) continue;
-      const d = side * (railOf(t, i, side) + 0.3);
-      v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 0.95, t.z[i] + t.tx[i] * d);
-      q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]), 0));
-      refl.setMatrixAt(ri++, m4.compose(v, q, one));
-    }
-  refl.count = ri;
-  scene.add(refl);
-
-  // --- Chevrons on the outside of tight bends, and (alpine) red-and-white snow poles.
-  const chevTex = keep(chevronTexture());
-  const chev = new THREE.InstancedMesh(keep(new THREE.PlaneGeometry(0.9, 0.9)), keep(new THREE.MeshStandardMaterial({ map: chevTex, side: THREE.DoubleSide, emissive: 0xffffff, emissiveMap: chevTex, emissiveIntensity: look.moon ? 1.1 : 0.12, roughness: 0.5 })), 600);
-  let ci = 0;
-  for (let i = 0; i < t.n && ci < 600; i += 6) {
-    const k = t.curv[i];
-    if (Math.abs(k) < 1 / 75) continue;
-    const side = -Math.sign(k); // outside of the bend
-    const d = side * (railOf(t, i, side) + 0.9);
-    v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 1.5, t.z[i] + t.tx[i] * d);
-    // Face back up the road; mirror for left-handers.
-    q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]) + Math.PI, 0));
-    chev.setMatrixAt(ci++, m4.compose(v, q, new THREE.Vector3(k > 0 ? 1 : -1, 1, 1)));
-  }
-  chev.count = ci;
-  scene.add(chev);
-  if (t.def.theme === 'alpine' || t.def.theme === 'night') {
-    const poleGeo = keep(new THREE.CylinderGeometry(0.04, 0.04, 2, 6));
-    const poleMat = keep(new THREE.MeshStandardMaterial({ map: keep(stripeTexture()), roughness: 0.6 }));
-    const poles = new THREE.InstancedMesh(poleGeo, poleMat, Math.ceil(t.n / 12) * 2);
-    let k = 0;
-    for (let i = 0; i < t.n; i += 12)
+    const postEvery = 2; // samples (4 m)
+    const nPosts = Math.ceil(t.n / postEvery) * 2;
+    const postMat = look.whiteRail ? railMat : keep(new THREE.MeshStandardMaterial({ color: 0x8e9399, metalness: 0.7, roughness: 0.5 }));
+    const posts = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(0.12, 0.85, 0.08)), postMat, nPosts);
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const v = new THREE.Vector3();
+    const one = new THREE.Vector3(1, 1, 1);
+    let pi = 0;
+    for (let i = 0; i < t.n; i += postEvery)
       for (const side of [-1, 1]) {
-        const d = side * (railOf(t, i, side) + 1.6);
-        v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 1, t.z[i] + t.tx[i] * d);
-        poles.setMatrixAt(k++, m4.compose(v, q.identity(), one));
+        if (gap(i, side)) continue;
+        const d = side * (railOf(t, i, side) + 0.3);
+        v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 0.42, t.z[i] + t.tx[i] * d);
+        q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]), 0));
+        posts.setMatrixAt(pi++, m4.compose(v, q, one));
       }
-    poles.count = k;
-    scene.add(poles);
+    posts.count = pi;
+    posts.castShadow = true;
+    scene.add(posts);
+    // Round amber reflectors on every fifth post: they catch the headlights (and the bloom) at night.
+    const reflGeo = keep(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 12).rotateX(Math.PI / 2));
+    const reflMat = keep(new THREE.MeshStandardMaterial({ color: 0xffa020, emissive: 0xff8a10, emissiveIntensity: look.moon ? 14 : 0.5, roughness: 0.3 }));
+    const refl = new THREE.InstancedMesh(reflGeo, reflMat, Math.ceil(t.n / (postEvery * 5)) * 2);
+    let ri = 0;
+    for (let i = 0; i < t.n; i += postEvery * 5)
+      for (const side of [-1, 1]) {
+        if (gap(i, side)) continue;
+        const d = side * (railOf(t, i, side) + 0.3);
+        v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 0.95, t.z[i] + t.tx[i] * d);
+        q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]), 0));
+        refl.setMatrixAt(ri++, m4.compose(v, q, one));
+      }
+    refl.count = ri;
+    scene.add(refl);
+
+    // --- Chevrons on the outside of tight bends, and (alpine) red-and-white snow poles.
+    const chevTex = keep(chevronTexture());
+    const chev = new THREE.InstancedMesh(keep(new THREE.PlaneGeometry(0.9, 0.9)), keep(new THREE.MeshStandardMaterial({ map: chevTex, side: THREE.DoubleSide, emissive: 0xffffff, emissiveMap: chevTex, emissiveIntensity: look.moon ? 1.1 : 0.12, roughness: 0.5 })), 600);
+    let ci = 0;
+    for (let i = 0; i < t.n && ci < 600; i += 6) {
+      const k = t.curv[i];
+      if (Math.abs(k) < 1 / 75) continue;
+      const side = -Math.sign(k); // outside of the bend
+      const d = side * (railOf(t, i, side) + 0.9);
+      v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 1.5, t.z[i] + t.tx[i] * d);
+      // Face back up the road; mirror for left-handers.
+      q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]) + Math.PI, 0));
+      chev.setMatrixAt(ci++, m4.compose(v, q, new THREE.Vector3(k > 0 ? 1 : -1, 1, 1)));
+    }
+    chev.count = ci;
+    scene.add(chev);
+    if (t.def.theme === 'alpine' || t.def.theme === 'night') {
+      const poleGeo = keep(new THREE.CylinderGeometry(0.04, 0.04, 2, 6));
+      const poleMat = keep(new THREE.MeshStandardMaterial({ map: keep(stripeTexture()), roughness: 0.6 }));
+      const poles = new THREE.InstancedMesh(poleGeo, poleMat, Math.ceil(t.n / 12) * 2);
+      let k = 0;
+      for (let i = 0; i < t.n; i += 12)
+        for (const side of [-1, 1]) {
+          const d = side * (railOf(t, i, side) + 1.6);
+          v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 1, t.z[i] + t.tx[i] * d);
+          poles.setMatrixAt(k++, m4.compose(v, q.identity(), one));
+        }
+      poles.count = k;
+      scene.add(poles);
+    }
   }
 
   // --- Start and finish gantries, with a chequered line across the road at the finish (one line on a circuit).
@@ -596,14 +608,16 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
 
   // --- Forests and rocks, villages, and the houses, poles, shrines, signs and landmarks outside the barriers
   const forestAt = (x: number, z: number) => fbm(x / 140, z / 140, t.def.seed + 11, 3) + (look.forest ?? (t.def.theme === 'alpine' ? 0.15 : -0.05)) + (t.def.climb ? 0.2 : 0);
-  const props = decor(scene, t, keep, { night: !!look.moon, low, forestAt, area: inner });
-  if (t.def.theme === 'city') city(scene, t, rng, inner, keep, props.sites);
-  else {
-    scatter(scene, t, look, rng, inner, keep, low, forestAt, props.sites, lods);
-    // The Postcard Cup's towns line their own roads (towns.ts, through decor).
-    if (!TOWNS[t.def.id]) village(scene, t, rng, keep, !!look.moon);
+  if (!skyRoad) {
+    const props = decor(scene, t, keep, { night: !!look.moon, low, forestAt, area: inner });
+    if (t.def.theme === 'city') city(scene, t, rng, inner, keep, props.sites);
+    else {
+      scatter(scene, t, look, rng, inner, keep, low, forestAt, props.sites, lods);
+      // The Postcard Cup's towns line their own roads (towns.ts, through decor).
+      if (!TOWNS[t.def.id]) village(scene, t, rng, keep, !!look.moon);
+    }
+    props.build();
   }
-  props.build();
 
   // --- The sea (or a lake)
   let sea: THREE.Mesh | null = null;
@@ -637,6 +651,8 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
         const n = (sea.material as THREE.MeshStandardMaterial).normalMap!;
         n.offset.set(time * 0.004, time * 0.0025);
       }
+      // The cloud sea drifts, its two layers at different speeds.
+      clouds.forEach((c, k) => (c.material as THREE.MeshBasicMaterial).map!.offset.set(time * (k ? 1.1e-6 : 0.6e-6), time * (k ? 0.4e-6 : 0.9e-6)));
     },
     dispose() {
       for (const d of disposables) d.dispose();
@@ -650,6 +666,111 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   };
 }
 
+/** A sky road's ribbon across, as shares of `rail`: lip | road | lip (the inner two are scaled to the white lines). */
+const SKY_CROSS = [-1, -1, 1, 1];
+const SKY_CROSS_U = [0.12, 0.2, 0.8, 0.88];
+/**
+ * A sky road's dressing: the deck the road is the top of (a slab `depth` deep, tapering underneath), a glowing strip
+ * along each edge so you can see where the road ends at speed, and two layers of cloud far below.
+ */
+export const SKY_DECK = { depth: 1.6, taper: 0.5, glow: 0.22, clouds: [150, 210] };
+
+function skyDeck(scene: THREE.Scene, t: Track, look: Look, keep: <T extends { dispose(): void }>(x: T) => T): THREE.Mesh[] {
+  const night = !!look.moon;
+  const deckMat = keep(new THREE.MeshStandardMaterial({ color: 0x8a919c, roughness: 0.75, metalness: 0.15, side: THREE.DoubleSide }));
+  const glowMat = keep(new THREE.MeshStandardMaterial({ color: 0x0b2a33, emissive: 0x38e8ff, emissiveIntensity: night ? 6 : 3.2, roughness: 0.4, side: THREE.DoubleSide }));
+  const { depth, taper, glow } = SKY_DECK;
+  const CHUNK = 100;
+  for (let i0 = 0; i0 < t.n - 1; i0 += CHUNK) {
+    const i1 = Math.min(t.n - 1, i0 + CHUNK);
+    // Across the deck, from the left edge round underneath to the right: the glow strip, the side, the underside.
+    const deck: number[] = [];
+    const lit: number[] = [];
+    const dIdx: number[] = [];
+    const gIdx: number[] = [];
+    const ring = (i: number) => {
+      const w = t.rail;
+      const y = (d: number) => t.y[i] - t.bank[i] * d;
+      // [offset, drop below the road surface] for each corner of the section, left to right.
+      return [
+        [-w, 0.03],
+        [-w, glow],
+        [-(w - taper), depth],
+        [w - taper, depth],
+        [w, glow],
+        [w, 0.03],
+      ].map(([d, drop]) => [t.x[i] - t.tz[i] * d, y(d) - drop, t.z[i] + t.tx[i] * d]);
+    };
+    for (let i = i0; i <= i1; i++) {
+      const r = ring(i);
+      // The glow strips: corners 0-1 and 4-5. The deck: 1-2, 2-3, 3-4.
+      for (const k of [0, 1, 4, 5]) lit.push(...r[k]);
+      for (const k of [1, 2, 3, 4]) deck.push(...r[k]);
+      if (i < i1) {
+        const a = (i - i0) * 4;
+        gIdx.push(a, a + 1, a + 4, a + 4, a + 1, a + 5, a + 2, a + 6, a + 3, a + 3, a + 6, a + 7);
+        for (let c = 0; c < 3; c++) dIdx.push(a + c, a + c + 1, a + c + 4, a + c + 4, a + c + 1, a + c + 5);
+      }
+    }
+    for (const [pos, idx, mat] of [[deck, dIdx, deckMat], [lit, gIdx, glowMat]] as const) {
+      const geo = keep(new THREE.BufferGeometry());
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat);
+      m.castShadow = mat === deckMat;
+      scene.add(m);
+    }
+  }
+  // The cloud sea: a soft tiling noise in two layers, far enough down that it reads as a floor of cloud.
+  let low = Infinity;
+  for (let i = 0; i < t.n; i++) low = Math.min(low, t.y[i]);
+  const tex = keep(cloudTexture(t.def.seed));
+  const { x0, x1, z0, z1 } = t.bounds;
+  const out: THREE.Mesh[] = [];
+  SKY_DECK.clouds.forEach((below, k) => {
+    const map = k ? keep(tex.clone()) : tex;
+    map.repeat.set(k ? 9 : 6, k ? 9 : 6);
+    // Brighter than white: the sky above is ~10 before exposure, and white cloud under it should read as lit.
+    const mat = keep(new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, opacity: k ? 1 : 0.85 }));
+    mat.color.setScalar(night ? 0.35 : k ? 2.3 : 2.7);
+    const m = new THREE.Mesh(keep(new THREE.PlaneGeometry(16000, 16000)), mat);
+    m.rotation.x = -Math.PI / 2;
+    m.position.set((x0 + x1) / 2, low - below, (z0 + z1) / 2);
+    m.renderOrder = -1 - k;
+    scene.add(m);
+    out.push(m);
+  });
+  return out;
+}
+
+/** Soft, tiling cloud tufts: white with the noise as alpha. */
+function cloudTexture(seed: number): THREE.CanvasTexture {
+  const N = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(N, N);
+  // Periodic noise: sample fbm on a torus so the tile wraps without a seam.
+  const R = 1.6;
+  for (let y = 0; y < N; y++)
+    for (let x = 0; x < N; x++) {
+      const a = (x / N) * Math.PI * 2;
+      const b = (y / N) * Math.PI * 2;
+      const n = fbm(Math.cos(a) * R + Math.cos(b) * R * 0.6, Math.sin(a) * R + Math.sin(b) * R * 0.6, seed + 17, 5);
+      const v = THREE.MathUtils.smoothstep(n, -0.15, 0.45);
+      const o = (y * N + x) * 4;
+      img.data[o] = img.data[o + 1] = img.data[o + 2] = 235 + v * 20;
+      img.data[o + 3] = Math.round(v * 255);
+    }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 function gantry(scene: THREE.Scene, t: Track, s: number, text: string, chequer: boolean, keep: <T extends { dispose(): void }>(x: T) => T) {
   const c = pointAt(t, s, 0);
   const yaw = Math.atan2(-c.tx, -c.tz);
@@ -657,7 +778,8 @@ function gantry(scene: THREE.Scene, t: Track, s: number, text: string, chequer: 
   g.position.set(c.x, c.y, c.z);
   g.rotation.y = yaw;
   const steel = keep(new THREE.MeshStandardMaterial({ color: 0x1c1f25, metalness: 0.75, roughness: 0.38 }));
-  const span = t.rail + 0.8;
+  // (On a sky road the posts stand on the lip: past it there's nothing to stand on.)
+  const span = t.def.sky ? t.rail - 0.2 : t.rail + 0.8;
   for (const side of [-1, 1]) {
     const post = new THREE.Mesh(keep(new THREE.BoxGeometry(0.4, 6.2, 0.4)), steel);
     post.position.set(side * span, 3.1, 0);

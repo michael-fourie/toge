@@ -75,16 +75,19 @@ export function bankCombo(m: DriftMeter): number {
 
 export type DriftEvent = { kind: 'bank'; points: number } | { kind: 'drop'; points: number } | null;
 
+/** Loses the live combo (a crash, a spin, a fall off a sky road); returns what it would have banked. */
+export function dropCombo(m: DriftMeter): number {
+  const lost = comboPoints(m);
+  m.combo = 0;
+  m.mult = 1;
+  m.gap = 0;
+  m.sliding = false;
+  return lost;
+}
+
 /** One tick of the meter for `car`. Returns an event when a combo banks or is lost. */
 export function stepDrift(m: DriftMeter, car: Car, dt: number): DriftEvent {
-  if (m.combo > 0 && (car.hit > DRIFT.crash || car.spin > 0)) {
-    const lost = comboPoints(m);
-    m.combo = 0;
-    m.mult = 1;
-    m.gap = 0;
-    m.sliding = false;
-    return { kind: 'drop', points: lost };
-  }
+  if (m.combo > 0 && (car.hit > DRIFT.crash || car.spin > 0)) return { kind: 'drop', points: dropCombo(m) };
   const grounded = car.wheels.filter((w) => w.contact).length >= 2;
   const { angle, speed, forward } = slideOf(car);
   const sliding = grounded && speed > DRIFT.minSpeed && forward > 0 && (car.drift !== 0 || angle > DRIFT.minAngle);

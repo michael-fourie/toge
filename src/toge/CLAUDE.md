@@ -146,6 +146,21 @@ a component or a page.
   balloons), `oia` (Oia Caldera: coast, clifftop esses and a switchback, sunset, the caldera to the west) and
   `chefchaouen` (Chefchaouen Medina: coast theme for its pines and cypress, no sea, a stack of hairpins up the
   mountainside, 10 m wide). Each is lined with its own town instead of the theme's farmhouses (client/towns.ts, below).
+  A sky road (2026-11-10: "a new map that doesn't have walls ... just like a floating road, and if you fall off the
+  side, you lose all your speed and respawn in the middle of the road"): `kumo` (Kumo Skyway: alpine look at noon,
+  3 laps of 1.94 km, 14 m wide, ~620 m up), `sky: true` on the TrackDef. The road ends at a `SKY.lip` of paved
+  shoulder: no verge, no rails (vehicle.ts `barrier()` keeps only the end walls), no runoff, and off the edge
+  heightAt is `t.abyss` (SKY.abyss under the lowest of the road), so a wheel over the edge finds nothing and the car
+  tips off. `catchFall(car, t)` (vehicle.ts, after each stepCar: racegame.ts `falls()` for you and the AI, and the AI
+  tests) puts a car that's dropped `SKY.fall` m below the road back on the middle of the road at its `s`, stopped
+  (`resetCar`); yours also loses its drift combo (`dropCombo`) and gets a "Fell off!" banner. The AI plans corners at
+  `SKY_LINE_GRIP` (1.05) instead of `LINE_GRIP` (1.3) there: at 1.3 every fast CPU ran wide off the hairpin's exit,
+  where a rail would have caught it; the AI test asserts no CPU falls. trackview.ts draws no terrain, rails,
+  chevrons, poles or scenery: `skyDeck()` hangs a slab under the road (`SKY_DECK`) with glowing cyan edge strips and
+  two drifting layers of cloud 150 and 210 m down; the gantries stand on the lip. Laid out as straights and arcs with
+  the sprint rings' generator: the line 120 m up a 410 m straight (so the pad off the last corner isn't on the grid)
+  into a 35 m hairpin, back beside it with 70 m of air between, a left,
+  two rights onto the back straight, a flick, a right onto the line. Not in a cup yet (the cups test leaves it out).
 - **No items** (2026-11-08, Devlin: "remove items from all maps"): mystery boxes, the item slot, the turbo/oil/shield/
   shockwave/comet items, the `item`/`used` messages and the item bonus money are gone. In their place, **boost pads**
   (boost.ts; same request: "a few mini rainbow speed boosters but it doesn't cover the whole lane and is only in
@@ -483,7 +498,7 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 - Pause menu (`pause()` in racegame.ts): Restart at the top, then Resume, Settings and Quit/Leave. Settings is a second page of the same panel (camera, volume, ABS, TCS, steering assist, handling, gearbox, Back); put new in-race options there, not on the main page. Restart is solo `restart()`; online only the host sees it, and it sends `start` mid-race (the room accepts the host's `start` in every phase but `loading`), which drops the race unpaid and sends everyone a `load`. racegame.ts hands over on `load` in any phase, not only on the results.
 - **Drift bonus:** racegame.ts runs your `DriftMeter` each tick (the HUD shows the live combo over the spark readout and the banked total in the top bar). Online it sends `drift` (the total) as each combo banks and before `finish`; the room caps it by its own clock and puts `drift` + `bonus` on each `ResultRow` (`prize` includes the bonus). Solo sends `drift` with the `solo` action. Limits are in docs/SECURITY.md.
 - A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts. A time-trial pass gets `clean: true` (no props; the `clean passes` test also holds it under 7%).
-- Circuits (`laps` on the TrackDef: Monza, Spa, Monaco, Minato, Akane, Kazeoka, Kodama, Hachi, Mizuumi, Hibari, Kamome, Shiokaze and the five Postcard towns) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
+- Circuits (`laps` on the TrackDef: Monza, Spa, Monaco, Minato, Akane, Kazeoka, Kodama, Hachi, Mizuumi, Hibari, Kamome, Shiokaze, Kumo and the five Postcard towns) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
 - **Figure 8** (`overpass: <rise m>` on a circuit's TrackDef, Hachi-no-ji): `crossing()` in track.ts finds where the lap
   crosses itself, raises the first pass over it (a raised cosine over `OVERPASS.ramp`, so the grade stays under ~10%) and
   dips the second, and flags samples in `t.cross`: `deck` (the bridge), `up` (the upper road near it) and `low` (the lower

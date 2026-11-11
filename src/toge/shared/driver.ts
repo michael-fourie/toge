@@ -21,6 +21,11 @@ const GRAVEL = 0.74;
  * with brakes at three quarters, and holding full throttle into the walls beat every CPU on 20 of 22 tracks.
  */
 const LINE_GRIP = 1.3;
+/**
+ * The same on a sky road, where running wide on the way out doesn't scrape a rail, it drops you off the edge: at
+ * LINE_GRIP every fast CPU ran off the outside of Kumo Skyway's hairpin.
+ */
+const SKY_LINE_GRIP = 1.05;
 /** Share of the arcade brakes (the tyres × ARCADE.brakeGrip, at full skill) the AI plans to stop with. */
 const BRAKING = 1.07;
 /**
@@ -89,7 +94,7 @@ export function targetSpeed(car: Car, t: Track, skill: number): number {
   const reach = (v * v) / (2 * decel) + 40;
   let best = Infinity;
   // Arcade handling corners at the grip it promises (and its line runs wider than the centreline); the simulation at the tyres'.
-  const corner = DEFAULT_ASSISTS.arcade ? ARCADE.grip * skill * LINE_GRIP : mu;
+  const corner = DEFAULT_ASSISTS.arcade ? ARCADE.grip * skill * (t.abyss === undefined ? LINE_GRIP : SKY_LINE_GRIP) : mu;
   for (let d = 0; d <= reach; d += 4) {
     const s = car.s + d;
     const k = Math.abs(curvAt(t, s));
