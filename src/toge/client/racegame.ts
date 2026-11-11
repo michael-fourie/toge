@@ -1650,7 +1650,7 @@ export class RaceGame {
       this.camLook.lerp(look, 1 - Math.exp(-dt * 14));
       this.camera.position.copy(pos);
       // A little shake at speed and on impacts.
-      const shake = Math.min(0.033, speed * 0.00033) + Math.min(0.2, t.hit * 0.02);
+      const shake = Math.min(0.028, speed * 0.00028) + Math.min(0.2, t.hit * 0.02);
       this.camera.position.x += (Math.random() - 0.5) * shake;
       this.camera.position.y += (Math.random() - 0.5) * shake;
       this.camera.lookAt(this.camLook);
