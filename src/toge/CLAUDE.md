@@ -192,6 +192,18 @@ a component or a page.
   (`RACE.gpResultsSeconds`) the next round loads by itself, or sooner on the host's Next race; after the last the final
   table stays `RACE.cupResultsSeconds`, then the lobby (and `gp` clears). The host's `start` from the final results races
   the cup again. Each round pays like a race.
+- **Team Grand Prix** (mode `team`, online only; 2026-11-10, Andrew: "a new team mode in Host a Race, where you can make
+  contact with other cars except your teammates. Make it grandprix mode with points for each race and finish"): a Grand
+  Prix in every way (`isGp(mode)` everywhere the server and client used to ask for `gp`: the cup pick, the rounds,
+  points, CPU placing, no record ghost) with every racer on Red or Blue (`TEAMS`, `Team` in protocol.ts). The room
+  keeps a `team` on every member (a newcomer joins the smaller side; switching to the mode splits the grid in join
+  order, the host on Red) and puts it on `Racer.team` only in this mode. In the lobby, between cups, `{t:'team', team}`
+  switches your own side and the host's `{t:'team', team, id}` moves one of its CPU racers (lobby.ts: the team chip on
+  each grid row, a button where you may switch). In the race (racegame.ts) teammates never touch: the bump loop skips
+  pairs where `teammates()`, while rivals bump as in any race (drafting a teammate still works); name tags, map dots
+  and the board take the team's colour. Points: `addRound` keeps each row's `team`, `teamTable` adds the racers' points
+  per team (most points, then round wins), and the results' cup table opens with the two teams' totals (hud.ts
+  `teamsHtml`; after the last round the winner's trophy and "Red wins the cup"). Tests: tests/toge/teamgp.test.ts.
 - **Toge, the open world** (`toge` in TRACK_DEFS with `world: true`; world.ts; Michael asked for it 2026-11-08: "a free
   play map of its own... players can just drive around and hang out... great spots to go fast, and cool cutting between
   cars on the highway"). An island: a 470 m mountain, a harbour city, and 37 km of roads built as data (`layout()`): the

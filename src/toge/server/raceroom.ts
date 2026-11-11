@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { CAR_CODE_MAX } from '../shared/cars.ts';
-import { RACE, type RaceClientMsg, type RecordRow, recordMode } from '../shared/protocol.ts';
+import { RACE, type RaceClientMsg, type RecordRow, isGp, recordMode } from '../shared/protocol.ts';
 import { Limiter } from '../../server/limiter.ts';
 import { Race, type RaceClient, sendTo } from './race.ts';
 import type { Env } from '../../server/worker.ts';
@@ -79,7 +79,7 @@ export class RaceRoom extends DurableObject<Env> {
     if (this.race) return this.race;
     this.race = new Race(
       code,
-      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, ...(r.mode === 'gp' ? { cup: r.cup } : {}), ...(r.solo ? { solo: true } : {}), physics: r.physics, phase: r.phase, players: r.humans, max: r.solo ? 1 : RACE.maxPlayers })),
+      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, ...(isGp(r.mode) ? { cup: r.cup } : {}), ...(r.solo ? { solo: true } : {}), physics: r.physics, phase: r.phase, players: r.humans, max: r.solo ? 1 : RACE.maxPlayers })),
       (r) => {
         this.race = null;
         this.ctx.waitUntil(dir.remove(r.code));

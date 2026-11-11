@@ -26,18 +26,36 @@ export type RacePhase = 'lobby' | 'loading' | 'countdown' | 'racing' | 'results'
  * road at once, but the other cars are see-through ghosts you drive straight through)
  * or a `climb` (hill climb: one run up a hill-climb road (`climb` on its TrackDef), solid cars you can bump and
  * draft, rockfall on the road; first to the summit wins), a `gp` (Grand Prix: a cup of four tracks
- * (cups.ts) raced back to back with race rules, points for every place, a cup table at the end), or `roam` (free
- * roam: the open world (a TrackDef with `world`, world.ts), no start, finish or prizes, friends can drive in
- * while it's on, and it runs until the host ends it).
+ * (cups.ts) raced back to back with race rules, points for every place, a cup table at the end), a `team` (Team
+ * Grand Prix: the same cup, with every racer on Red or Blue; teammates drive through each other, rivals bump, and
+ * each team scores its racers' points), or `roam` (free roam: the open world (a TrackDef with `world`, world.ts), no
+ * start, finish or prizes, friends can drive in while it's on, and it runs until the host ends it).
  */
-export type RaceMode = 'race' | 'trial' | 'climb' | 'gp' | 'roam';
+export type RaceMode = 'race' | 'trial' | 'climb' | 'gp' | 'team' | 'roam';
 export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
   race: { name: 'Race', blurb: 'Bump, block, draft and hit the boost pads. First to the line wins.' },
   trial: { name: 'Time trial', blurb: 'Ghost cars, no contact. Fastest clean time wins.' },
   climb: { name: 'Hill climb', blurb: 'One run up the mountain past boulders and broken tarmac. First to the summit wins.' },
   gp: { name: 'Grand Prix', blurb: 'A cup of four tracks back to back. Points for every place; most points takes the trophy.' },
+  team: { name: 'Team Grand Prix', blurb: 'Red against Blue over a cup of four tracks. Bump the rivals, drive through your teammates; every place scores for your team.' },
   roam: { name: 'Free roam', blurb: 'The open world: no race, no clock. Cruise, hang out, and thread the highway traffic. Friends can drive in any time.' },
 };
+
+/** Modes that run a cup of four tracks with points (cups.ts): the Grand Prix and the Team Grand Prix. */
+export const isGp = (m: RaceMode) => m === 'gp' || m === 'team';
+
+/**
+ * A Team Grand Prix's two teams (2026-11-10, Andrew: "a new team mode ... where you can make contact with other cars
+ * except your teammates ... grandprix mode with points for each race and finish"). A racer's `team` is an index.
+ */
+export type Team = 0 | 1;
+export const TEAMS: readonly { name: string; color: string }[] = [
+  { name: 'Red', color: '#ff3b30' },
+  { name: 'Blue', color: '#38c9ff' },
+];
+export const isTeam = (x: unknown): x is Team => x === 0 || x === 1;
+/** Teammates: two racers on the same team (a racer with no team is nobody's teammate). They never touch. */
+export const teammates = (a: Team | undefined, b: Team | undefined) => a !== undefined && a === b;
 
 /** Modes where the other racers are ghosts you drive straight through (no contact, no slipstream): the time trial. */
 export const ghostMode = (m: RaceMode) => m === 'trial';
@@ -57,7 +75,7 @@ export const modeTracks = (m: RaceMode): TrackId[] =>
   m === 'roam' ? (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => TRACK_DEFS[id].world) : RACE_TRACKS.filter((id) => !!TRACK_DEFS[id].climb === (m === 'climb'));
 
 /** The track a mode starts on when the host switches to it (they can still pick another the mode allows). */
-export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0], roam: 'toge' };
+export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0], team: CUPS.torii.tracks[0], roam: 'toge' };
 
 /** A Grand Prix under way: the round being raced (from 0) and the cup table so far (keyed by racer id). */
 export interface GpState {
@@ -111,6 +129,8 @@ export interface Racer {
   pit?: boolean;
   /** Free roam: out driving now (sent only while true), so the others put their car on the road. */
   roaming?: boolean;
+  /** A Team Grand Prix: Red (0) or Blue (1). Sent only in that mode. */
+  team?: Team;
 }
 
 /** A car's pose as relayed between clients. */
@@ -231,6 +251,11 @@ export type RaceClientMsg =
   | { t: 'rider'; rider: string }
   /** You opened (or closed) the garage in the lobby, so the others see you're editing your car. Lobby only. */
   | { t: 'pit'; on: boolean }
+  /**
+   * A Team Grand Prix lobby: join a team. With `id`, the host moves one of its CPU racers instead. Between cups only
+   * (not while one is under way), so a team's points stay its own.
+   */
+  | { t: 'team'; team: Team; id?: number }
   | ({ t: 'state' } & Omit<NetCar, 'id'>)
   | { t: 'finish'; time: number; best?: number }
   /** Your drift total so far (sent as each combo banks, and just before `finish`). The server caps it by the clock. */

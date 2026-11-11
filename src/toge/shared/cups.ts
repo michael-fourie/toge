@@ -56,6 +56,8 @@ export interface CupRow {
   places: number[];
   cpu?: boolean;
   me?: boolean;
+  /** A Team Grand Prix: Red (0) or Blue (1) (protocol.ts `TEAMS`). */
+  team?: 0 | 1;
 }
 
 /**
@@ -63,11 +65,12 @@ export interface CupRow {
  * then most wins, then most seconds, and so on, then the better place in the latest round. Racers who weren't in this
  * round keep their points (0 for it); newcomers start from nothing.
  */
-export function addRound(table: CupRow[], round: number, results: { key: string; name: string; place: number; cpu?: boolean; me?: boolean }[]): CupRow[] {
+export function addRound(table: CupRow[], round: number, results: { key: string; name: string; place: number; cpu?: boolean; me?: boolean; team?: 0 | 1 }[]): CupRow[] {
   const rows = new Map(table.map((r) => [r.key, { ...r, last: 0, places: [...r.places] }]));
   for (const res of results) {
     const row = rows.get(res.key) ?? { key: res.key, name: res.name, pts: 0, last: 0, places: [], ...(res.cpu ? { cpu: true } : {}), ...(res.me ? { me: true } : {}) };
     row.name = res.name;
+    if (res.team !== undefined) row.team = res.team;
     const got = pointsFor(res.place);
     row.pts += got;
     row.last = got;
@@ -89,6 +92,32 @@ export function rankCup(rows: CupRow[], round: number): CupRow[] {
     const lb = b.places[round] || 99;
     return la - lb;
   });
+}
+
+/** One team's line in a Team Grand Prix: its racers' points added up. */
+export interface TeamRow {
+  team: 0 | 1;
+  pts: number;
+  /** Points from the latest round. */
+  last: number;
+  /** Rounds won by one of its racers. */
+  wins: number;
+}
+
+/**
+ * The teams' standings from the cup table (each racer's points count for their team): most points, then most round
+ * wins, then Red. Both teams are always listed, even one with nobody on it yet.
+ */
+export function teamTable(table: CupRow[]): TeamRow[] {
+  const rows: TeamRow[] = [0, 1].map((team) => ({ team: team as 0 | 1, pts: 0, last: 0, wins: 0 }));
+  for (const r of table) {
+    if (r.team === undefined) continue;
+    const t = rows[r.team];
+    t.pts += r.pts;
+    t.last += r.last;
+    t.wins += r.places.filter((p) => p === 1).length;
+  }
+  return rows.sort((a, b) => b.pts - a.pts || b.wins - a.wins || a.team - b.team);
 }
 
 /** A cup's total distance (km), from the tracks' own lengths (passed in so this file stays free of garage.ts). */

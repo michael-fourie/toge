@@ -5,7 +5,7 @@
 
 import { CARS, CLASS_COLORS, PAINTS, PAINT_NAMES, carSpec, decodeCar, encodeCar, isBike, peakPower, rating } from '../shared/cars.ts';
 import { current } from '../shared/garage.ts';
-import { CAR_RULES, PHYSICS, RACE, RECORD_GHOST, RACE_MODES, cleanMode, modeTracks, type CarRule, type RaceMode, type RaceServerMsg } from '../shared/protocol.ts';
+import { CAR_RULES, PHYSICS, RACE, RECORD_GHOST, RACE_MODES, TEAMS, cleanMode, isGp, modeTracks, type CarRule, type RaceMode, type RaceServerMsg, type Team } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { copy, esc, playerName } from '../../client/menu/ui.ts';
@@ -22,7 +22,7 @@ import { PORTRAIT, releasePortraits, riderPortrait } from './riderportrait.ts';
 import './race.css';
 import './hub.css';
 
-const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb', gp: 'Start Grand Prix', roam: 'Start free roam' };
+const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb', gp: 'Start Grand Prix', team: 'Start Team Grand Prix', roam: 'Start free roam' };
 
 /** A racer's face for the grid list: their portrait, cropped to the head (`ready`: redraw once it's drawn). */
 const face = (rider: string, ready: () => void) => {
@@ -68,19 +68,30 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const scroll = view.querySelector('.tg-lobby-body')?.scrollTop ?? 0;
     const isHost = room.hostId === raceNet.id;
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
-    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.random !== undefined ? '[data-random]' : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : null;
+    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.random !== undefined ? '[data-random]' : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : focus?.team ? `[data-team="${focus.team}"]` : null;
     const max = RACE.maxPlayers;
     // Free roam: the open world, no CPU racers, no record ghost, and friends can drive in while it's on.
     const roam = room.mode === 'roam';
     const canPick = isHost && room.phase === 'lobby';
+    // A Team Grand Prix: each racer's team chip. Yours (or, for the host, a CPU racer's) switches sides, between cups.
+    const teamMode = room.mode === 'team';
+    const canSwitch = (r: (typeof room.racers)[number]) => teamMode && room.phase === 'lobby' && !room.gp && (r.id === raceNet.id || (isHost && !!r.cpu));
+    const teamChip = (r: (typeof room.racers)[number]) => {
+      if (!teamMode || r.team === undefined) return '';
+      const t = TEAMS[r.team];
+      const other = TEAMS[1 - r.team];
+      return canSwitch(r)
+        ? `<button class="tg-team" style="--team:${t.color}" data-team="${r.id}" data-to="${1 - r.team}" title="Switch to ${other.name}" aria-label="${esc(r.name)}: ${t.name} team. Switch to ${other.name}">${t.name}</button>`
+        : `<span class="tg-team" style="--team:${t.color}">${t.name}</span>`;
+    };
     const racers =
       room.racers
         .map((r, i) => {
           const c = decodeCar(r.car);
           const cls = c ? rating(carSpec(c)) : null;
-          return `<li class="${r.id === raceNet.id ? 'me' : ''}">
+          return `<li class="${r.id === raceNet.id ? 'me' : ''}"${teamMode && r.team !== undefined ? ` style="--team:${TEAMS[r.team].color}" data-team-row` : ''}>
           <span class="tg-slot">${i + 1}</span>
-          <div class="tg-racer"><i class="tg-face" aria-hidden="true" style="--paint:${c ? hex(PAINTS[c.look.paint]) : '#888'};${face(r.rider, redraw)}"></i><b>${esc(r.name)}</b>${r.id === room.hostId ? '<span class="tg-tag">Host</span>' : ''}${r.id === raceNet.id ? '<span class="tg-tag you">You</span>' : ''}${r.cpu ? '<span class="tg-tag cpu">CPU</span>' : ''}${r.pit ? `<span class="tg-tag pit" title="Editing their car">${ICON.wrench}Garage</span>` : ''}${r.cpu && canPick ? `<button class="tg-kick" data-kick="${r.id}" aria-label="Remove ${esc(r.name)}" title="Remove">×</button>` : ''}</div>
+          <div class="tg-racer"><i class="tg-face" aria-hidden="true" style="--paint:${c ? hex(PAINTS[c.look.paint]) : '#888'};${face(r.rider, redraw)}"></i><b>${esc(r.name)}</b>${teamChip(r)}${r.id === room.hostId ? '<span class="tg-tag">Host</span>' : ''}${r.id === raceNet.id ? '<span class="tg-tag you">You</span>' : ''}${r.cpu ? '<span class="tg-tag cpu">CPU</span>' : ''}${r.pit ? `<span class="tg-tag pit" title="Editing their car">${ICON.wrench}Garage</span>` : ''}${r.cpu && canPick ? `<button class="tg-kick" data-kick="${r.id}" aria-label="Remove ${esc(r.name)}" title="Remove">×</button>` : ''}</div>
           <span class="car">${c ? esc(CARS[c.model].name) : ''}</span>
           ${cls ? `<span class="tg-class" style="--c:${CLASS_COLORS[cls.cls]}"><b>${cls.cls}</b>${cls.pi}</span>` : '<span></span>'}
         </li>`;
@@ -102,8 +113,8 @@ export const driveLobby: Render = (root, ctx, screen) => {
         </figure>`;
       })
       .join('');
-    // A Grand Prix: the host picks a cup (its four tracks, in order) instead of a track.
-    const gp = room.mode === 'gp';
+    // A Grand Prix (or a Team Grand Prix): the host picks a cup (its four tracks, in order) instead of a track.
+    const gp = isGp(room.mode);
     const cups = CUP_IDS.map((id) => cupCard(id, `data-cup="${id}" aria-pressed="${id === room.cup}" aria-label="${esc(CUPS[id].name)}" ${canPick ? '' : 'disabled'}`, room.gp && room.gp.cup === id ? room.gp.round : -1)).join('');
     // First tile: Random, which rolls one of the mode's other tracks (the host can keep rolling).
     const pool = modeTracks(room.mode);
@@ -150,7 +161,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
-          <div class="tg-lobby-title">${gp ? esc(CUPS[room.cup].name) : `${RACE_MODES[room.mode].name} lobby`}${room.physics ? ' · Physics' : ''}${room.ghost && !gp && !roam ? ' · Record ghost' : ''}</div>
+          <div class="tg-lobby-title">${gp ? `${teamMode ? 'Team Grand Prix · ' : ''}${esc(CUPS[room.cup].name)}` : `${RACE_MODES[room.mode].name} lobby`}${room.physics ? ' · Physics' : ''}${room.ghost && !gp && !roam ? ' · Record ghost' : ''}</div>
           <div class="tg-roomcode"><small>Race<br />code</small><b class="tg-bigcode">${esc(room.code)}</b></div>
         </header>
         <section class="tg-lobby-body${isHost ? '' : ' guest'}">
@@ -209,6 +220,13 @@ export const driveLobby: Render = (root, ctx, screen) => {
     view.querySelector('[data-start]')?.addEventListener('click', () => raceNet.send({ t: 'start' }));
     view.querySelector('[data-addcpu]')?.addEventListener('click', () => raceNet.send({ t: 'cpu', op: 'add' }));
     view.querySelectorAll<HTMLElement>('[data-kick]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cpu', op: 'remove', id: Number(b.dataset.kick) })));
+    view.querySelectorAll<HTMLElement>('[data-team]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const id = Number(b.dataset.team);
+        const team = Number(b.dataset.to) as Team;
+        raceNet.send(id === raceNet.id ? { t: 'team', team } : { t: 'team', team, id });
+      }),
+    );
     view.querySelector('[data-copy]')?.addEventListener('click', () => void copy(room.code, 'Code'));
     view.querySelector('[data-link]')?.addEventListener('click', () => void copy(`${location.origin}/?race=${room.code}`, 'Invite link'));
     view.querySelector('[data-edit]')?.addEventListener('click', openPit);

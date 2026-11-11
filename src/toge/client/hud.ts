@@ -4,7 +4,8 @@
 
 import { PAINTS, decodeCar, CARS } from '../shared/cars.ts';
 import { TRACK_DEFS, type Track } from '../shared/track.ts';
-import { CUPS, roundsOf, type CupId, type CupRow } from '../shared/cups.ts';
+import { CUPS, roundsOf, teamTable, type CupId, type CupRow } from '../shared/cups.ts';
+import { TEAMS } from '../shared/protocol.ts';
 import type { Damage, Zone } from '../shared/damage.ts';
 import type { NewBest } from '../shared/records.ts';
 import { esc } from '../../client/menu/ui.ts';
@@ -604,7 +605,7 @@ export function cupHtml(cup: CupId, round: number, table: CupRow[], final: boole
       }).join('');
       return `<tr class="${r.key === me ? 'me' : ''}${final && i < 3 ? ' pod' : ''}">
         <td class="pl">${ordinal(i + 1)}</td>
-        <td>${esc(r.name)}${r.cpu ? ' <small class="rh-cpu">CPU</small>' : ''}</td>
+        <td>${r.team !== undefined ? `<i class="rh-tdot" style="--team:${TEAMS[r.team].color}" title="${TEAMS[r.team].name}"></i>` : ''}${esc(r.name)}${r.cpu ? ' <small class="rh-cpu">CPU</small>' : ''}</td>
         <td class="rds">${rounds}</td>
         <td class="gain">${r.last ? `+${r.last}` : ''}</td>
         <td class="pts">${r.pts}<small>pts</small></td></tr>`;
@@ -617,10 +618,33 @@ export function cupHtml(cup: CupId, round: number, table: CupRow[], final: boole
       : `<div class="rh-cup-win"><div><small>${esc(c.name)}</small><b>${mine >= 0 ? `${ordinal(mine + 1)} overall` : 'Final standings'}</b></div></div>`
     : '';
   return `<section class="rh-cup" data-cup style="--cup:${c.color}">
-    ${head}
+    ${table.some((r) => r.team !== undefined) ? teamsHtml(table, final, table[mine]?.team) : head}
     <h3><span>${esc(c.name)}</span><small>${final ? 'Final standings' : `After round ${round + 1} of ${roundsOf(cup)}`}</small></h3>
     <table class="rh-results rh-cup-table"><tbody>${rows}</tbody></table>
   </section>`;
+}
+
+/**
+ * A Team Grand Prix: Red and Blue's points so far (each racer's points count for their team), over the drivers'
+ * table. After the last round the winning team gets the trophy, and your team is marked.
+ */
+function teamsHtml(table: CupRow[], final: boolean, mine: 0 | 1 | undefined): string {
+  const teams = teamTable(table);
+  const tie = teams[0].pts === teams[1].pts && teams[0].wins === teams[1].wins;
+  const win = final && !tie ? teams[0] : null;
+  const cards = teams
+    .map((t, i) => {
+      const meta = TEAMS[t.team];
+      return `<div class="rh-team${win && i === 0 ? ' won' : ''}${t.team === mine ? ' mine' : ''}" style="--team:${meta.color}">
+        ${win && i === 0 ? trophySvg(1) : ''}
+        <b>${esc(meta.name)}${t.team === mine ? ' <small>your team</small>' : ''}</b>
+        <span class="pts">${t.pts}<small>pts</small></span>
+        ${t.last ? `<span class="gain">+${t.last}</span>` : ''}
+      </div>`;
+    })
+    .join('');
+  const line = final ? (win ? `${TEAMS[win.team].name} wins the cup${mine === undefined ? '' : mine === win.team ? ': your team!' : ''}` : 'The teams finish level') : 'Team standings';
+  return `<div class="rh-teams"><small>${esc(line)}</small><div class="rh-team-cards">${cards}</div></div>`;
 }
 
 /** The tag before a finish time that was a new best: "Track record" when it tops the all-time board, else "New best". */
