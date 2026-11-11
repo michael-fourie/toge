@@ -1,5 +1,5 @@
 import { type BoostPad, placeBoosts } from './boost.ts';
-import { type Prop, type Ramp, placeProps, rampLift } from './props.ts';
+import { type Prop, placeProps } from './props.ts';
 import { type World, worldSlot, worldTrack } from './world.ts';
 
 // Race tracks: a point-to-point road down a mountain (or a closed circuit raced for laps), built from a
@@ -93,12 +93,12 @@ export interface TrackDef {
    */
   walled?: boolean;
   /**
-   * A hill climb (the lobby's Hill climb mode): an uphill run with no ramps or cones; boulders and
+   * A hill climb (the lobby's Hill climb mode): an uphill run with no bales, barrels or cones; boulders and
    * rocks lie on the road's edges instead (props.ts), and the forest crowds right up to the barrier.
    */
   climb?: boolean;
   /**
-   * Clean road for time trials: no obstacles or ramps (like a circuit), so a run is only you, the
+   * Clean road for time trials: no obstacles (like a circuit), so a run is only you, the
    * line and the clock.
    */
   clean?: boolean;
@@ -219,9 +219,8 @@ export interface Track {
   /** 1 where the road is gravel. */
   gravel: Uint8Array;
   cuts: Cut[];
-  /** Obstacles (sorted by s), and launch ramps (part of the ground). */
+  /** Obstacles (sorted by s). */
   props: Prop[];
-  ramps: Ramp[];
   /** Rainbow boost pads (boost.ts), sorted by s. */
   boosts: BoostPad[];
   /** A figure 8's crossing, or null. */
@@ -1232,7 +1231,6 @@ export function buildTrack(def: TrackDef): Track {
     bumps,
     gravel,
     props: [],
-    ramps: [],
     boosts: [],
     cuts: [],
     cross,
@@ -1244,10 +1242,8 @@ export function buildTrack(def: TrackDef): Track {
     t.spans.some((sp) => sp.kind === 'tunnel' && s1 > sp.s0 - 20 && s0 < sp.s1 + 20) ||
     t.cuts.some((c) => [c.s0, c.s1].some((e) => s1 > e - 30 && s0 < e + 30)),
   );
-  if (lap || def.clean) return t; // circuits and clean passes: no obstacles or ramps
-  const placed = placeProps(t);
-  t.props = placed.props;
-  t.ramps = placed.ramps;
+  if (lap || def.clean) return t; // circuits and clean passes: no obstacles
+  t.props = placeProps(t);
   return t;
 }
 /**
@@ -1678,7 +1674,7 @@ function roadHeight(t: Track, x: number, z: number, onRoad: Loc | undefined, hin
     if (dist <= edgeAt(t, pieceLoc.s, pieceLoc.d)) {
       roadHit = true;
       if (onRoad) Object.assign(onRoad, pieceLoc);
-      return roadY(t, pieceLoc) + (t.ramps.length ? rampLift(t.ramps, pieceLoc.s, pieceLoc.d) : 0);
+      return roadY(t, pieceLoc);
     }
   }
   // How far past each sample's edge (runoff included) the point is; the road pulls the ground by a smooth
@@ -1743,7 +1739,7 @@ export function groundAt(t: Track, x: number, z: number, out: Ground, hint = -1)
   tmpLoc.i = -1;
   const h = heightAt(t, x, z, tmpLoc, hint);
   out.h = h;
-  if (tmpLoc.i >= 0 && !(t.ramps.length && rampLift(t.ramps, tmpLoc.s, tmpLoc.d) > 0)) {
+  if (tmpLoc.i >= 0) {
     const i = tmpLoc.i;
     const g = (t.y[i + 1] - t.y[i]) / SAMPLE; // grade along the road
     const b = t.bank[i];
@@ -1771,8 +1767,7 @@ export function groundAt(t: Track, x: number, z: number, out: Ground, hint = -1)
       ad > t.half + t.shoulder ? (ad >= dirtFrom(t, runoffAt(t, tmpLoc.s, tmpLoc.d)) ? 'dirt' : 'grass') : t.gravel[tmpLoc.i] ? 'gravel' : ad <= t.half ? 'asphalt' : 'shoulder';
     return out;
   }
-  const onRamp = tmpLoc.i >= 0;
-  const e = onRamp ? 0.25 : 0.6;
+  const e = 0.6;
   const hx = heightAt(t, x + e, z, undefined, hint);
   const hz = heightAt(t, x, z + e, undefined, hint);
   const nx = -(hx - h) / e;
@@ -1781,7 +1776,7 @@ export function groundAt(t: Track, x: number, z: number, out: Ground, hint = -1)
   out.nx = nx / l;
   out.ny = 1 / l;
   out.nz = nz / l;
-  out.surf = onRamp ? 'asphalt' : onCut(t, x, z) ? 'gravel' : 'grass';
+  out.surf = onCut(t, x, z) ? 'gravel' : 'grass';
   return out;
 }
 

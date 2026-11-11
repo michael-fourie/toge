@@ -144,9 +144,9 @@ test('Hayate Flats has highway traffic too, its four lanes spread across the wid
 test('six-lane grand prix roads: nothing on the road but the racers, walls at the white lines, and straights that end in hard braking', () => {
   for (const id of ['shiden', 'isonami'] as const) {
     const t = getTrack(id);
-    // Andrew took the traffic off (2026-11-09), and `clean` keeps the ramps and cones off too.
+    // Andrew took the traffic off (2026-11-09), and `clean` keeps the bales, barrels and cones off too.
     assert.ok(!TRACK_DEFS[id].traffic && getTraffic(t) === null, `${id}: no traffic`);
-    assert.ok(TRACK_DEFS[id].clean && t.props.length === 0 && t.ramps.length === 0, `${id}: no obstacles`);
+    assert.ok(TRACK_DEFS[id].clean && t.props.length === 0, `${id}: no obstacles`);
     assert.equal(TRACK_DEFS[id].lanes, 6, `${id}: six lanes still painted`);
     assert.equal(t.shoulder, 0);
     assert.ok(t.rail - t.half < 0.5, `${id}: the wall stands at the white line`);

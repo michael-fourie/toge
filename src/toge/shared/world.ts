@@ -1490,7 +1490,6 @@ export function worldTrack(def: TrackDef): Track {
     gravel: new Uint8Array(w.n),
     cuts: [],
     props: [],
-    ramps: [],
     boosts: [],
     cross: null,
     bounds: { x0: -3200, x1: 3200, z0: -2700, z1: 2400 },

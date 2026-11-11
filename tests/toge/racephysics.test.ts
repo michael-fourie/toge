@@ -866,12 +866,26 @@ test('gearbox: crash damage costs engine power, not pedal, so a damaged car shif
   assert.ok(damaged > halfPedal, `damaged ${damaged.toFixed(1)} vs half pedal ${halfPedal.toFixed(1)}`);
 });
 
-test('clean passes (time trial roads): no item boxes, obstacles or ramps, and an easy grade', () => {
+test('no launch ramps (Andrew, 2026-11-10): across the asphalt the ground is the road itself, its own crests included', () => {
+  const loc = newLoc();
+  for (const id of TRACKS) {
+    const t = getTrack(id);
+    for (const p of t.props) assert.ok(['bale', 'barrel', 'cone', 'boulder', 'rock'].includes(p.kind), `${id}: a ${p.kind} on the road`);
+    for (let i = 0; i < (t.lap || t.n) - 1; i += 5)
+      for (const d of [-(t.half - 0.3), -(t.half - 2), 0, t.half - 2, t.half - 0.3]) {
+        const p = pointAt(t, i * SAMPLE, d);
+        const h = heightAt(t, p.x, p.z, loc, i);
+        assert.ok(Math.abs(h - roadY(t, loc)) < 1e-9, `${id}: something on the road at s=${i * SAMPLE}, d=${d}`);
+      }
+  }
+});
+
+test('clean passes (time trial roads): no item boxes or obstacles, and an easy grade', () => {
   const clean = TRACKS.filter((id) => TRACK_DEFS[id].clean);
   assert.ok(clean.includes('nagare'));
   for (const id of clean) {
     const t = getTrack(id);
-    assert.equal(t.props.length + t.ramps.length, 0, `${id}: props on a clean road`);
+    assert.equal(t.props.length, 0, `${id}: props on a clean road`);
     for (let i = 0; i + 5 < t.n; i++) assert.ok(Math.abs(t.y[i + 5] - t.y[i]) / (5 * SAMPLE) < 0.07, `${id}: grade at s=${i * SAMPLE}`);
   }
 });
