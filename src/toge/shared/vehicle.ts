@@ -547,11 +547,13 @@ function arcade(car: Car, input: DriveInput, throttle: number, brake: number) {
   const into = drifting ? Math.max(0, steer * car.drift) : 0;
   car.tight = into > car.tight ? Math.min(into, car.tight + dt / ARCADE.driftIn.build) : Math.max(into, car.tight - dt / ARCADE.driftIn.ease);
 
-  // Yaw toward what's asked (reversing turns the other way). In the air you get a little say, to line
-  // up a landing.
+  // Yaw toward what's asked. Reversing turns the other way, as a real car does: wheel right, the tail goes right
+  // and the nose swings left (eased in over the first 2 m/s backwards, so a car sliding sideways doesn't flip-flop).
+  // In the air you get a little say, to line up a landing.
   const max = arcadeMaxYaw(car.spec, speed) * (0.55 + 0.45 * surf) * (grounded ? 1 : 0.3);
+  const backing = vf < 0 ? Math.max(-1, vf / 2) : 1;
   {
-    let want = -steer * max * (1 + ARCADE.trailBrake * (grounded && vf > 0 ? brake : 0));
+    let want = -steer * max * backing * (1 + ARCADE.trailBrake * (grounded && vf > 0 ? brake : 0));
     if (drifting) {
       // Tightening never spins it faster than ARCADE.maxYaw: slow drifts already turn tight enough.
       const base = max * (1.05 + 0.45 * steer * car.drift);

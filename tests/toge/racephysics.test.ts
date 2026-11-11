@@ -948,3 +948,32 @@ test('sky road (Kumo Skyway): no barriers, nothing under the edge, and a car tha
   other.p.y -= 50;
   assert.ok(!catchFall(other, getTrack('monza')));
 });
+
+test('reversing steers like a real car: wheel right swings the nose left, as in the full simulation', () => {
+  // The arcade layer used to yaw toward the stick whichever way the car was going, so backing up with the wheel
+  // to the right swung the nose right, the opposite of a real car (and of the simulation underneath it).
+  const turnOf = (arcade: boolean, steer: number, backwards: boolean) => {
+    const car = carOn();
+    const assists = { ...DEFAULT_ASSISTS, arcade };
+    const pedal: DriveInput = backwards ? { ...idle, brake: 1 } : { ...idle, throttle: 0.5 };
+    // Holding the brake at a standstill selects reverse, then the brake pedal drives it backwards.
+    for (let i = 0; i < 1.5 * TICK_HZ; i++) stepCar(car, pedal, flat, assists);
+    assert.equal(car.gear < 0, backwards);
+    const y0 = yawOf(car);
+    for (let i = 0; i < 1.5 * TICK_HZ; i++) stepCar(car, { ...pedal, steer }, flat, assists);
+    assert.equal(forwardSpeed(car) < 0, backwards, 'still going the same way');
+    let d = yawOf(car) - y0;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    return d; // + = the nose turned left
+  };
+  for (const arcade of [true, false]) {
+    for (const steer of [1, -1]) {
+      const fwd = turnOf(arcade, steer, false);
+      const back = turnOf(arcade, steer, true);
+      const what = `${arcade ? 'arcade' : 'simulation'}, wheel ${steer > 0 ? 'right' : 'left'}`;
+      assert.ok(Math.abs(fwd) > 0.1 && Math.abs(back) > 0.1, `${what}: the car turns (${fwd.toFixed(2)}, ${back.toFixed(2)} rad)`);
+      assert.ok(Math.sign(back) === -Math.sign(fwd), `${what}: reversing turns the nose the other way (forward ${fwd.toFixed(2)}, back ${back.toFixed(2)} rad)`);
+      assert.ok(Math.sign(fwd) === -Math.sign(steer), `${what}: forwards the nose follows the wheel`);
+    }
+  }
+});
