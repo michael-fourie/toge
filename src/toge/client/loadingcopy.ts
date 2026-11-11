@@ -2,7 +2,7 @@
 
 import type { TrackId } from '../shared/track.ts';
 import type { RaceMode } from '../shared/protocol.ts';
-import { CUPS, ROUNDS, type CupId } from '../shared/cups.ts';
+import { CUPS, roundsOf, type CupId } from '../shared/cups.ts';
 
 /** One-line tips in the house voice (DESIGN.md §1): short, second person, no exclamation marks. */
 export const LOADING_TIPS = [
@@ -29,7 +29,7 @@ export interface LoadingRun {
 
 export function runLabel(r: LoadingRun): string {
   const parts: string[] = [];
-  if (r.gp) parts.push(`${CUPS[r.gp.cup].name} · Round ${r.gp.round + 1} of ${ROUNDS}`);
+  if (r.gp) parts.push(`${CUPS[r.gp.cup].name} · Round ${r.gp.round + 1} of ${roundsOf(r.gp.cup)}`);
   if (r.online) {
     if (!r.gp) parts.push(r.online.mode === 'trial' ? 'Online time trial' : r.online.mode === 'climb' ? 'Online hill climb' : 'Online race');
     if (r.online.racers > 1) parts.push(`${r.online.racers} racers`);

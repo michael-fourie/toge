@@ -9,6 +9,7 @@ import { CUT_HALF, type Crossing, SAMPLE, type Theme, type Track, type TrackId, 
 import type { Grade } from './post.ts';
 import { envLevel } from './envlevel.ts';
 import { decor, type Site } from './scenery.ts';
+import { TOWNS } from './towns.ts';
 import { BUSH_COLOURS, WIND, bushGeometry, farTree, farTwin, speciesFor, sway } from './trees.ts';
 import { LOD, LodTiles, ShadowOnly, shadowCasters } from './lod.ts';
 import { FACADE_H, FACADE_W, NEON_SIGNS, ROAD_TILE, TOWER_H, TOWER_W, asphalt, banner, facade, gravel, ground, mulberry, neonSigns, roofTiles, stone, towerFacade, vendingFront } from './tracktextures.ts';
@@ -43,6 +44,8 @@ export interface Look {
   forest?: number; // how wooded (added to the forest noise)
   /** White-painted guardrails, as on Japanese passes (otherwise galvanised). */
   whiteRail?: boolean;
+  /** The asphalt's own colour (CSS hex), over the theme's: Taketomi's pale coral-sand lanes. */
+  tar?: string;
   grade: Grade;
 }
 
@@ -89,6 +92,14 @@ export const TRACK_LOOKS: Partial<Record<TrackId, Partial<Look>>> = {
   hibari: { sun: [44, 205], light: 0xfff2dc },
   kamome: { sun: [46, 170], light: 0xfff4e4 },
   shiokaze: { sun: [40, 230], light: 0xfff0d8 },
+  // The Postcard Cup, each town at its best hour. Taketomi at tropical midday: a high sun, white coral sand on the
+  // verges and pale lanes; Hallstatt in the gold of the evening; Göreme at sunrise, bare pale tuff and no trees;
+  // Oia at sunset over the caldera, dark volcanic rock; Chefchaouen in the clear morning, pines and cypress.
+  taketomi: { sun: [52, 190], light: 0xfff6e6, turbidity: 4, rayleigh: 2.6, grass: [0.24, 0.42, 0.14], grassDry: [0.5, 0.52, 0.28], verge: [0.84, 0.8, 0.7], rock: [0.82, 0.78, 0.7], forest: 0.05, tar: '#8d887c', grade: grade({ saturation: 1.06, highlights: [1.06, 1.0, 0.94] }) },
+  hallstatt: { sun: [19, 250], light: 0xffd0a0, lightPower: 2.1, hemi: 0.6, turbidity: 5, clouds: [0.4, 0.4], exposure: 0.5, grade: grade({ saturation: 1.02, highlights: [1.12, 1.0, 0.86] }) },
+  goreme: { sun: [17, 100], light: 0xffc090, lightPower: 2.4, hemi: 0.7, turbidity: 8, rayleigh: 1.4, skyGain: 0.6, exposure: 0.55, grass: [0.62, 0.54, 0.4], grassDry: [0.78, 0.68, 0.5], rock: [0.82, 0.7, 0.52], verge: [0.72, 0.62, 0.46], forest: -1, grade: grade({ contrast: 1.14, saturation: 1.04, shadows: [0.88, 0.9, 1.12], highlights: [1.14, 1.0, 0.9] }) },
+  oia: { sun: [12, 262], light: 0xffb070, lightPower: 2.4, hemi: 0.7, turbidity: 9, rayleigh: 1.8, skyGain: 0.62, exposure: 0.56, grass: [0.48, 0.44, 0.26], grassDry: [0.6, 0.52, 0.34], rock: [0.48, 0.36, 0.3], verge: [0.55, 0.47, 0.36], forest: -0.5, grade: grade({ contrast: 1.15, saturation: 1.06, shadows: [0.86, 0.9, 1.14], highlights: [1.15, 0.99, 0.84] }) },
+  chefchaouen: { sun: [26, 120], light: 0xfff0d8, turbidity: 4, grass: [0.34, 0.4, 0.18], grassDry: [0.52, 0.5, 0.3], rock: [0.6, 0.55, 0.48], verge: [0.5, 0.47, 0.34], forest: 0 },
   toge: { sun: [24, 235], turbidity: 6, rayleigh: 1.8, light: 0xffd6a8, lightPower: 2.4, hemi: 0.85, skyGain: 0.58, clouds: [0.32, 0.38], exposure: 0.48, fogDensity: 0.00018, grass: [0.25, 0.42, 0.14], grassDry: [0.46, 0.5, 0.22], rock: [0.52, 0.48, 0.42], verge: [0.44, 0.42, 0.27], grade: grade({ contrast: 1.12, saturation: 1.06, shadows: [0.9, 0.95, 1.08], highlights: [1.1, 1.0, 0.88] }) },
 };
 
@@ -341,7 +352,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
 
   // --- Road ribbon (chunks of ~200 m)
   // At night the road is damp: the same textures, glossier, so the lamps and headlights streak on it.
-  const roadTex = asphalt(t.def.theme, t.def.seed, aniso, !!t.lap, t.def.lanes ?? (t.def.traffic === 'highway' ? 4 : 0));
+  const roadTex = asphalt(t.def.theme, t.def.seed, aniso, !!t.lap, t.def.lanes ?? (t.def.traffic === 'highway' ? 4 : 0), look.tar);
   for (const tex of Object.values(roadTex)) keep(tex);
   const roadMat = keep(new THREE.MeshStandardMaterial({ ...roadTex, normalScale: new THREE.Vector2(0.9, 0.9), roughness: look.moon ? 0.62 : 1, metalness: 0, envMapIntensity: look.moon ? 2.5 : 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   const gravelTex = gravel(t.def.theme, t.def.seed, aniso);
@@ -589,7 +600,8 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   if (t.def.theme === 'city') city(scene, t, rng, inner, keep, props.sites);
   else {
     scatter(scene, t, look, rng, inner, keep, low, forestAt, props.sites, lods);
-    village(scene, t, rng, keep, !!look.moon);
+    // The Postcard Cup's towns line their own roads (towns.ts, through decor).
+    if (!TOWNS[t.def.id]) village(scene, t, rng, keep, !!look.moon);
   }
   props.build();
 

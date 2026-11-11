@@ -2,7 +2,7 @@
 // telegraph poles and their wires along the passes, wayside shrines (torii, stone lanterns), road signs, and a landmark
 // or two per theme (a pagoda on the hill, a lighthouse and boats by the sea, a windmill and water tower in the desert,
 // a radio mast up the mountain); round the circuits the pits and race control, grandstands, trackside boards and a big
-// wheel by the harbour.
+// wheel by the harbour. The Postcard Cup's circuits are lined with their own towns instead (towns.ts).
 //
 // Cheap by construction: every prop is baked into merged meshes per 1.6 km chunk, one per material (vertex
 // colours with glowing windows, and a sign atlas), so the whole lot is a handful of draw calls; the wires are one line mesh. Placement
@@ -10,6 +10,7 @@
 
 import * as THREE from 'three';
 import { SAMPLE, type Track, heightAt, locate, newLoc, onCut, pointAt, roadDistance } from '../shared/track.ts';
+import { TOWNS } from './towns.ts';
 import { mulberry } from './tracktextures.ts';
 import { merge, shade, tint } from './trees.ts';
 
@@ -597,6 +598,7 @@ export function decor(
   const lap = !!t.lap;
   const city = theme === 'city';
   const japan = theme === 'alpine' || theme === 'night' || theme === 'autumn' || theme === 'spring';
+  const town = TOWNS[t.def.id];
 
   /** Clear of every road (and its runoff) at (x, z) by `by` metres, and of the shortcuts. */
   const clear = (x: number, z: number, by: number) => {
@@ -640,25 +642,41 @@ export function decor(
 
   // --- Houses in the clearings, in little hamlets
   const plans: { geo: THREE.BufferGeometry; win: THREE.BufferGeometry | null; w: number; d: number }[] = [];
-  if (!city) {
+  if (town) for (const h of town.houses) plans.push({ geo: keep(h.geo()), win: h.win ? keep(h.win()) : null, w: h.w, d: h.d });
+  else if (!city) {
     if (theme === 'coast') plans.push({ geo: villa(), win: villaWindows(), w: 8, d: 7 }, { geo: villa(), win: villaWindows(), w: 8, d: 7 }, { geo: barn(0xe9e1d0), win: null, w: 10, d: 7 });
     else if (theme === 'desert') plans.push({ geo: adobe(), win: adobeWindows(), w: 8, d: 7 }, { geo: adobe(), win: adobeWindows(), w: 8, d: 7 }, { geo: shack(), win: null, w: 6, d: 5 });
     else plans.push({ geo: farmhouse(0x3b434d), win: farmWindows(), w: 9, d: 6.5 }, { geo: farmhouse(0x5a3a2c), win: farmWindows(), w: 9, d: 6.5 }, { geo: barn(0x8a6248), win: null, w: 10, d: 7 });
     for (const p of plans) keep(p.geo), p.win && keep(p.win);
   }
   const houses: { x: number; z: number; y: number; yaw: number; plan: number }[] = [];
-  const tryHouse = (x: number, z: number, yaw: number) => {
-    const k = Math.floor(rnd() * plans.length);
+  const tryHouse = (x: number, z: number, yaw: number, k = Math.floor(rnd() * plans.length)) => {
     const p = plans[k];
-    const r = Math.hypot(p.w, p.d) / 2 + 2;
-    if (!free(x, z, r) || opts.forestAt(x, z) > 0.06) return false;
-    const y = footprint(x, z, yaw, p.w + 2, p.d + 2, 2.4, 6);
+    // A town's houses stand shoulder to shoulder, close to the road, whatever the forest says.
+    const r = Math.hypot(p.w, p.d) / 2 + (town ? 0.3 : 2);
+    if (!free(x, z, r) || (!town && opts.forestAt(x, z) > 0.06)) return false;
+    const y = town ? footprint(x, z, yaw, p.w, p.d, town.flat, 1.5) : footprint(x, z, yaw, p.w + 2, p.d + 2, 2.4, 6);
     if (y === null) return false;
-    sites.push({ x, z, r: r + 2 });
+    sites.push({ x, z, r: r + (town ? 0.5 : 2) });
     houses.push({ x, z, y, yaw, plan: k });
     return true;
   };
-  if (!city) {
+  if (town) {
+    // Rows of houses facing the road all the way round the lap, but not by the line (the pits and stands go there).
+    const lapLen = t.lap ? t.lap * SAMPLE : t.length;
+    for (let s = t.startS; s < t.startS + lapLen; s += town.every * (0.85 + rnd() * 0.3)) {
+      const off = s - t.startS;
+      if (off < 160 || lapLen - off < 190) continue;
+      const p0 = pointAt(t, s, 0);
+      for (const side of [-1, 1])
+        for (let row = 0; row < town.rows; row++) {
+          if (rnd() > town.fill * (1 - row * 0.12)) continue;
+          const k = Math.floor(rnd() * plans.length);
+          const p = pointAt(t, s, side * (railOf(t, p0.i, side) + town.gap + plans[k].d / 2 + row * town.depth + rnd() * 2.5));
+          tryHouse(p.x, p.z, facing(p.tx, p.tz, side) + (rnd() - 0.5) * 0.12, k);
+        }
+    }
+  } else if (!city) {
     const want = Math.round((t.length / 1000) * (lap ? 3 : 5));
     for (let tries = 0; tries < 900 && houses.length < want; tries++) {
       const s = rnd() * t.length;
@@ -760,10 +778,11 @@ export function decor(
   if ((theme === 'autumn' || theme === 'spring') && !lap) landmark(pagoda, null, 6, 30, 160, 2.2, high, 1);
   if ((theme === 'alpine' || theme === 'night') && !lap && !t.def.climb) landmark(radioMast, mastBeacon, 4, 40, 260, 2.5, high, 1);
   if (t.def.climb) landmark(radioMast, mastBeacon, 4, 20, 120, 3, high, 1);
-  if (theme === 'coast' && water !== undefined) landmark(lighthouse, lighthouseLamp, 4, 20, 220, 3, (_x, _z, h) => -Math.abs(h - water - 8), 1);
+  if (town) for (const m of town.marks) landmark(m.geo, null, m.r, m.near, m.far, m.flat, m.at === 'high' ? high : m.at === 'low' ? (_x, _z, h) => -h : () => rnd(), m.n);
+  if (theme === 'coast' && water !== undefined && !town) landmark(lighthouse, lighthouseLamp, 4, 20, 220, 3, (_x, _z, h) => -Math.abs(h - water - 8), 1);
   // A big wheel by the harbour on the seaside and street circuits.
-  if (lap && water !== undefined && (city || theme === 'coast')) landmark(bigWheel, wheelLights, 15, 25, 150, 3, (_x, _z, h) => -Math.abs(h - water - 6), 1);
-  if (theme === 'desert') {
+  if (lap && water !== undefined && (city || theme === 'coast') && !town) landmark(bigWheel, wheelLights, 15, 25, 150, 3, (_x, _z, h) => -Math.abs(h - water - 6), 1);
+  if (theme === 'desert' && !town) {
     // Hoodoos standing out on the plain.
     const any = () => rnd();
     landmark(() => hoodoo(t.def.seed * 3 + marks.length), null, 3, 30, 380, 6, any, Math.round(t.length / 350));
@@ -777,6 +796,58 @@ export function decor(
       marks.push({ geo: keep(k % 2 ? waterTower() : windmill()), x, y: heightAt(t, x, z) - 0.3, z, yaw: h.yaw });
     }
   }
+
+  /** A town's walls along the road, its balloons in the sky and its boathouses in the shallows (towns.ts). */
+  const townExtras = () => {
+    if (!town) return;
+    const lapN = t.lap || t.n;
+    if (town.wall) {
+      // Coral stone a step outside the barrier on both sides, in 4 m lengths that follow the road; gaps where
+      // something else stands (the pits, the stands) or the ground falls away to the beach.
+      const big = sites.filter((s) => s.r > 15);
+      const seg = keep(merge([box(4.3, town.wall.h + 1, 0.6, 0, (town.wall.h - 1) / 2, 0, town.wall.color), box(4.3, 0.12, 0.7, 0, town.wall.h + 0.03, 0, 0xe6e0d2)]));
+      for (let i = 0; i < lapN; i += 2)
+        for (const side of [-1, 1]) {
+          const d = side * (railOf(t, i, side) + 1.6);
+          const x = t.x[i] - t.tz[i] * d;
+          const z = t.z[i] + t.tx[i] * d;
+          const gy = heightAt(t, x, z);
+          const road = t.y[i] - t.bank[i] * d;
+          if (Math.abs(gy - road) > 1.2 || (water !== undefined && gy < water + 1) || !clear(x, z, 0.3) || !big.every((s) => Math.hypot(s.x - x, s.z - z) > s.r)) continue;
+          place('body', seg, x, gy, z, Math.atan2(-t.tz[i], t.tx[i]));
+        }
+    }
+    const { x0, x1, z0, z1 } = opts.area;
+    if (town.sky) {
+      const kinds = town.sky.geo().map((g) => keep(g));
+      let n = 0;
+      for (let tries = 0; tries < 2000 && n < town.sky.n; tries++) {
+        const x = x0 + rnd() * (x1 - x0);
+        const z = z0 + rnd() * (z1 - z0);
+        const rd = roadDistance(t, x, z);
+        if (rd < town.sky.d[0] || rd > town.sky.d[1]) continue;
+        const [h0, h1] = town.sky.h;
+        place('body', kinds[n % kinds.length], x, heightAt(t, x, z) + h0 + rnd() * (h1 - h0), z, rnd() * Math.PI * 2, 0.85 + rnd() * 0.35);
+        n++;
+      }
+    }
+    if (town.shore && water !== undefined) {
+      const hut = keep(town.shore.geo());
+      let n = 0;
+      for (let tries = 0; tries < 3000 && n < town.shore.n; tries++) {
+        const x = x0 + rnd() * (x1 - x0);
+        const z = z0 + rnd() * (z1 - z0);
+        const rd = roadDistance(t, x, z);
+        const h = heightAt(t, x, z);
+        if (rd < 22 || rd > 240 || h > water - 0.5 || h < water - 6 || !free(x, z, 6)) continue;
+        // Face the shore: the way the ground rises.
+        const yaw = Math.atan2(heightAt(t, x + 4, z) - heightAt(t, x - 4, z), heightAt(t, x, z + 4) - heightAt(t, x, z - 4)) + Math.PI;
+        sites.push({ x, z, r: 6 });
+        place('body', hut, x, water - 0.2, z, yaw);
+        n++;
+      }
+    }
+  };
 
   return {
     sites,
@@ -814,6 +885,7 @@ export function decor(
         place('body', mk.geo, mk.x, mk.y, mk.z, mk.yaw);
         if (mk.glow) place('glow', mk.glow, mk.x, mk.y, mk.z, mk.yaw);
       }
+      if (town) townExtras();
 
       // --- Telegraph poles along the passes, wires sagging between them
       if (!lap && !city) {

@@ -144,8 +144,8 @@ const LITTER: Record<Theme, { colors: string[]; n: number; sand?: string }> = {
  * has only its edge lines, like a race track.
  */
 export const ROAD_TILE = 24;
-export function asphalt(theme: Theme, seed: number, aniso: number, circuit = false, lanes = 0): Surface {
-  // `lanes`: a one-way highway with this many lanes (0: not one).
+export function asphalt(theme: Theme, seed: number, aniso: number, circuit = false, lanes = 0, tarColour?: string): Surface {
+  // `lanes`: a one-way highway with this many lanes (0: not one). `tarColour`: a track's own (TRACK_LOOKS `tar`).
   const highway = lanes > 0;
   const W = 1024;
   const H = 2048;
@@ -170,7 +170,7 @@ export function asphalt(theme: Theme, seed: number, aniso: number, circuit = fal
   zone(0, 0.12 * W, dirt, 240, 120);
   // Sun-faded mid grey by day (nearly black asphalt read as a void under a bright sky), darker at night, where the
   // damp road's reflections do the work. The shoulder is a shade lighter, the desert's bleached and a little warm.
-  const tar = theme === 'night' || theme === 'city' ? '#2c2d30' : theme === 'desert' ? '#5c5753' : theme === 'coast' ? '#56555a' : '#505156';
+  const tar = tarColour ?? (theme === 'night' || theme === 'city' ? '#2c2d30' : theme === 'desert' ? '#5c5753' : theme === 'coast' ? '#56555a' : '#505156');
   const shade = (hex: string, d: number) => '#' + [1, 3, 5].map((i) => Math.min(255, parseInt(hex.slice(i, i + 2), 16) + d).toString(16).padStart(2, '0')).join('');
   zone(0.12 * W, R0, shade(tar, 8), 225, 128);
   L.c.fillStyle = tar;
