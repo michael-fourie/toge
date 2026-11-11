@@ -214,7 +214,7 @@ export function raceBonus(drift: number, track: TrackId, solo: boolean): { drift
 }
 
 /** Rough race distances (km; every lap of a circuit) so payouts don't need the track built; tests check they stay close. */
-export const TRACK_LENGTH_KM: Record<TrackId, number> = { koripass: 5.3, saltwind: 3.6, redmesa: 4.1, tsukiyo: 5.1, momiji: 3.2, sakura: 4.2, monza: 5.6, spa: 5.2, monaco: 5.0, neonbay: 3.2, kodama: 4.4, karasu: 4.1, hachi: 3.7, nagare: 3.16, minato: 5.34, akane: 5.18, kazeoka: 5.52, ryusei: 4.72, hayate: 4.8, seatosky: 5.72, shiden: 5.29, isonami: 5.83, mizuumi: 5.79, hibari: 5.42, kamome: 5.28, shiokaze: 5.97, kumo: 5.82, toge: 37 };
+export const TRACK_LENGTH_KM: Record<TrackId, number> = { koripass: 5.3, saltwind: 3.6, redmesa: 4.1, tsukiyo: 5.1, momiji: 3.2, sakura: 4.2, monza: 5.6, spa: 5.2, monaco: 5.0, neonbay: 3.2, kodama: 4.4, karasu: 4.1, hachi: 3.7, nagare: 3.16, minato: 5.34, akane: 5.18, kazeoka: 5.52, ryusei: 4.72, hayate: 4.8, seatosky: 5.72, shiden: 5.29, isonami: 5.83, mizuumi: 5.79, hibari: 5.42, kamome: 5.28, shiokaze: 5.97, taketomi: 5.04, hallstatt: 5.13, goreme: 6.38, oia: 6.01, chefchaouen: 5.04, kumo: 5.82, toge: 37 };
 
 // ---------------------------------------------------------------------------------------------
 // Everything you can do to a garage, as one action type (the server's API and the guest's local store)

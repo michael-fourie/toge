@@ -15,7 +15,7 @@ import { fmtTime } from './hud.ts';
 import { ICON, LOGO } from './brand.ts';
 import { pitGarage } from './hub.ts';
 import { cupCard, trackClimb, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
-import { CUP_IDS, CUPS, ROUNDS, type CupId } from '../shared/cups.ts';
+import { CUP_IDS, CUPS, roundsOf, type CupId } from '../shared/cups.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { encodeRider } from '../shared/rider.ts';
 import { PORTRAIT, releasePortraits, riderPortrait } from './riderportrait.ts';
@@ -68,7 +68,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const scroll = view.querySelector('.tg-lobby-body')?.scrollTop ?? 0;
     const isHost = room.hostId === raceNet.id;
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
-    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : focus?.team ? `[data-team="${focus.team}"]` : null;
+    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.random !== undefined ? '[data-random]' : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : focus?.team ? `[data-team="${focus.team}"]` : null;
     const max = RACE.maxPlayers;
     // Free roam: the open world, no CPU racers, no record ghost, and friends can drive in while it's on.
     const roam = room.mode === 'roam';
@@ -116,7 +116,13 @@ export const driveLobby: Render = (root, ctx, screen) => {
     // A Grand Prix (or a Team Grand Prix): the host picks a cup (its four tracks, in order) instead of a track.
     const gp = isGp(room.mode);
     const cups = CUP_IDS.map((id) => cupCard(id, `data-cup="${id}" aria-pressed="${id === room.cup}" aria-label="${esc(CUPS[id].name)}" ${canPick ? '' : 'disabled'}`, room.gp && room.gp.cup === id ? room.gp.round : -1)).join('');
-    const tracks = modeTracks(room.mode).map((id) => trackTile(id, `data-pick="${id}" aria-pressed="${id === room.track}" aria-label="${esc(TRACK_DEFS[id].name)}" ${canPick ? '' : 'disabled'}`)).join('');
+    // First tile: Random, which rolls one of the mode's other tracks (the host can keep rolling).
+    const pool = modeTracks(room.mode);
+    const random =
+      pool.length > 1
+        ? `<button class="tg-track tg-track-random" data-random aria-label="Random track" title="Pick a random track" ${canPick ? '' : 'disabled'}><span class="tg-random-die">${ICON.dice}</span><b>Random</b><small>Roll a track</small></button>`
+        : '';
+    const tracks = random + pool.map((id) => trackTile(id, `data-pick="${id}" aria-pressed="${id === room.track}" aria-label="${esc(TRACK_DEFS[id].name)}" ${canPick ? '' : 'disabled'}`)).join('');
     const modes = (Object.keys(RACE_MODES) as RaceMode[])
       .map((id) => `<button class="tg-mode" data-mode="${id}" aria-pressed="${id === room.mode}" ${canPick ? '' : 'disabled'}><b>${esc(RACE_MODES[id].name)}</b><small>${esc(RACE_MODES[id].blurb)}</small></button>`)
       .join('');
@@ -147,7 +153,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         : roam
           ? `<span class="tg-muted">Free roam is on. Driving in…</span>`
           : room.gp
-          ? `<span class="tg-muted">The ${esc(CUPS[room.gp.cup].name)} is under way (round ${room.gp.round + 1} of ${ROUNDS}). You'll line up for the next round.</span>`
+          ? `<span class="tg-muted">The ${esc(CUPS[room.gp.cup].name)} is under way (round ${room.gp.round + 1} of ${roundsOf(room.gp.cup)}). You'll line up for the next round.</span>`
           : `<span class="tg-muted">A race is under way. You'll line up for the next one.</span>`;
     const d = TRACK_DEFS[room.track];
     crewShown = new Set(room.racers.map((r) => r.id));
@@ -164,7 +170,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
               <span class="tg-hero-art" aria-hidden="true"></span>
               <div class="tg-hero-map">${trackMap(room.track)}</div>
               <div class="tg-hero-copy">
-                <small class="tg-eyebrow">${gp ? esc(`${CUPS[room.cup].name} · round ${(room.gp?.cup === room.cup ? room.gp.round : 0) + 1} of ${ROUNDS}`) : esc(trackKind(room.track))}</small>
+                <small class="tg-eyebrow">${gp ? esc(`${CUPS[room.cup].name} · round ${(room.gp?.cup === room.cup ? room.gp.round : 0) + 1} of ${roundsOf(room.cup)}`) : esc(trackKind(room.track))}</small>
                 <h1 class="tg-display">${esc(d.name)}</h1>
                 <p>${esc(d.tag)}</p>
               </div>
@@ -202,6 +208,10 @@ export const driveLobby: Render = (root, ctx, screen) => {
         </section>`;
     view.querySelector('.tg-lobby-body')!.scrollTop = scroll;
     view.querySelectorAll<HTMLElement>('[data-pick]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'track', track: b.dataset.pick as TrackId })));
+    view.querySelector('[data-random]')?.addEventListener('click', () => {
+      const others = pool.filter((id) => id !== room.track);
+      raceNet.send({ t: 'track', track: others[Math.floor(Math.random() * others.length)] });
+    });
     view.querySelectorAll<HTMLElement>('[data-cup]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cup', cup: b.dataset.cup as CupId })));
     view.querySelectorAll<HTMLElement>('[data-mode]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'mode', mode: b.dataset.mode as RaceMode })));
     view.querySelectorAll<HTMLElement>('[data-rule]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cars', cars: b.dataset.rule as CarRule })));

@@ -10,7 +10,7 @@ import { DAMAGE, type Damage, ZONES, damagedInput, newDamage, packZones, repair,
 import { Blasts, CarDents } from './damageview.ts';
 import { bankCombo, comboPoints, dropCombo, newDriftMeter, stepDrift } from '../shared/drift.ts';
 import { tierOf } from '../shared/pass.ts';
-import { CUPS, ROUNDS, addRound, roundLabel } from '../shared/cups.ts';
+import { CUPS, addRound, roundLabel, roundsOf } from '../shared/cups.ts';
 import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, TEAMS, cleanMode, ghostMode, recordMode, teammates, type CarRule, type GpState, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow, type Team } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
 import { standings } from '../shared/standings.ts';
@@ -1211,7 +1211,7 @@ export class RaceGame {
    */
   private soloCup(gp: GpState, lines: ResultLine[], note: string) {
     const table = addRound(gp.table, gp.round, lines.map((l) => ({ key: l.me ? 'me' : l.name, name: l.name, place: l.place, me: l.me })));
-    const final = gp.round >= ROUNDS - 1;
+    const final = gp.round >= roundsOf(gp.cup) - 1;
     const cup = CUPS[gp.cup];
     const title = `${cup.name} · ${this.track.def.name}`;
     const p = this.hud.panel(`${this.hud.resultsHtml(title, lines)}
@@ -1266,7 +1266,7 @@ export class RaceGame {
     const next = CUPS[gp.cup].tracks[gp.round + 1];
     if (!el || !next || this.exited) return;
     const s = Math.max(0, Math.ceil((at - performance.now()) / 1000));
-    el.textContent = `Round ${gp.round + 2} of ${ROUNDS} · ${getTrack(next).def.name} starts in ${s} s`;
+    el.textContent = `Round ${gp.round + 2} of ${roundsOf(gp.cup)} · ${getTrack(next).def.name} starts in ${s} s`;
     if (s > 0) setTimeout(() => this.cupClock(gp, at), 250);
   }
 
@@ -1666,7 +1666,7 @@ export class RaceGame {
       this.camLook.lerp(look, 1 - Math.exp(-dt * 14));
       this.camera.position.copy(pos);
       // A little shake at speed and on impacts.
-      const shake = Math.min(0.033, speed * 0.00033) + Math.min(0.2, t.hit * 0.02);
+      const shake = Math.min(0.028, speed * 0.00028) + Math.min(0.2, t.hit * 0.02);
       this.camera.position.x += (Math.random() - 0.5) * shake;
       this.camera.position.y += (Math.random() - 0.5) * shake;
       this.camera.lookAt(this.camLook);

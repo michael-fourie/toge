@@ -1,11 +1,11 @@
-// Grand Prix cups: four fixed tracks raced back to back, points for every place, and a cup standings table at the
+// Grand Prix cups: four (or five) fixed tracks raced back to back, points for every place, and a cup standings table at the
 // end. Solo (you against the AI, hub.ts → racegame.ts) and online (the room runs it, toge/server/race.ts).
 // Every race track (not the hill climb) sits in a cup, and only the Velocity and Overdrive Cups borrow tracks from the others;
 // the cups test checks it.
 
 import { TRACK_DEFS, type TrackId } from './track.ts';
 
-export type CupId = 'torii' | 'mirage' | 'lantern' | 'apex' | 'velocity' | 'rush' | 'sprint';
+export type CupId = 'torii' | 'mirage' | 'lantern' | 'apex' | 'velocity' | 'rush' | 'sprint' | 'postcard';
 
 export interface CupDef {
   id: CupId;
@@ -14,8 +14,8 @@ export interface CupDef {
   tag: string;
   /** The cup's colour on its card and trophy (hex). */
   color: string;
-  /** The four rounds, in order. */
-  tracks: [TrackId, TrackId, TrackId, TrackId];
+  /** The rounds, in order: four, or five for the Postcard Cup (`roundsOf`). */
+  tracks: TrackId[];
 }
 
 /** The cups, easiest first. Append only (lobbies and saved picks name them by id). */
@@ -31,9 +31,12 @@ export const CUPS: Record<CupId, CupDef> = {
   rush: { id: 'rush', name: 'Overdrive Cup', tag: 'Flat out, then hard on the brakes: the city, the corniche, the expressway, the boulevard', color: '#ff5ca8', tracks: ['neonbay', 'isonami', 'ryusei', 'shiden'] },
   // The sprint rings, easiest first: four short 4-lap circuits by day, the last two Hibari made harder.
   sprint: { id: 'sprint', name: 'Sprint Cup', tag: 'Short laps, quick hands: the lake, then three clifftop rings, each harder', color: '#ff7a59', tracks: ['mizuumi', 'hibari', 'kamome', 'shiokaze'] },
+  // Five storybook towns (Michael, 2026-11-10), easiest first: flat Taketomi to Chefchaouen's hairpins.
+  postcard: { id: 'postcard', name: 'Postcard Cup', tag: 'Five storybook towns: Okinawa, the Alps, Cappadocia, Santorini, the Rif', color: '#2ec4b6', tracks: ['taketomi', 'hallstatt', 'goreme', 'oia', 'chefchaouen'] },
 };
 export const CUP_IDS = Object.keys(CUPS) as CupId[];
-export const ROUNDS = 4;
+/** How many rounds a cup races. */
+export const roundsOf = (cup: CupId) => CUPS[cup].tracks.length;
 
 export const isCup = (id: unknown): id is CupId => typeof id === 'string' && Object.hasOwn(CUPS, id);
 
@@ -121,4 +124,4 @@ export function teamTable(table: CupRow[]): TeamRow[] {
 export const cupKm = (cup: CupId, km: Record<TrackId, number>) => Math.round(CUPS[cup].tracks.reduce((a, t) => a + km[t], 0) * 10) / 10;
 
 /** "Round 2 of 4 · Sakura Ridge". */
-export const roundLabel = (cup: CupId, round: number) => `Round ${round + 1} of ${ROUNDS} · ${TRACK_DEFS[CUPS[cup].tracks[round]].name}`;
+export const roundLabel = (cup: CupId, round: number) => `Round ${round + 1} of ${roundsOf(cup)} · ${TRACK_DEFS[CUPS[cup].tracks[round]].name}`;

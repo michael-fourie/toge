@@ -8,7 +8,7 @@
 
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from './track.ts';
 import type { GhostRun } from './ghost.ts';
-import { CUPS, ROUNDS, type CupId, type CupRow } from './cups.ts';
+import { CUPS, type CupId, type CupRow } from './cups.ts';
 
 /** One signed-in racer's new best in `records` (NewBest in records.ts, keyed by racer id). */
 export interface RecordRow {
@@ -77,13 +77,12 @@ export const modeTracks = (m: RaceMode): TrackId[] =>
 /** The track a mode starts on when the host switches to it (they can still pick another the mode allows). */
 export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0], team: CUPS.torii.tracks[0], roam: 'toge' };
 
-/** A Grand Prix under way: the round being raced (0-3) and the cup table so far (keyed by racer id). */
+/** A Grand Prix under way: the round being raced (from 0) and the cup table so far (keyed by racer id). */
 export interface GpState {
   cup: CupId;
   round: number;
   table: CupRow[];
 }
-export { ROUNDS as GP_ROUNDS };
 
 /**
  * What the racers drive in a time trial (the host picks; a race always uses everyone's own car):

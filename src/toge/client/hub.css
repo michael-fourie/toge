@@ -947,6 +947,30 @@ html:not(.pad) .tg-bumper {
   opacity: 1;
 }
 
+/* The lobby's Random tile: first in the track grid, rolls one of the others. */
+.tg-track-random {
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0 10px, transparent 10px 20px),
+    linear-gradient(180deg, #1a2230, #0d121a);
+}
+.tg-random-die {
+  justify-self: end;
+  width: 30px;
+  height: 30px;
+  color: var(--tg-text);
+  transition: transform 0.3s var(--tg-ease);
+}
+.tg-random-die svg {
+  width: 100%;
+  height: 100%;
+}
+.tg-track-random:not(:disabled):hover .tg-random-die {
+  transform: rotate(-20deg) scale(1.08);
+}
+.tg-track-random:not(:disabled):active .tg-random-die {
+  transform: rotate(160deg);
+}
+
 /* Track map (trackart.ts) */
 .tg-map path {
   fill: none;
@@ -2967,7 +2991,8 @@ button.tg-team:focus-visible {
 }
 .tg-cup-rounds {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 5px;
   margin: 0;
   padding: 0;
@@ -3003,4 +3028,13 @@ button.tg-team:focus-visible {
 }
 .tg-cup-rounds li.done {
   opacity: 0.45;
+}
+/* A five-round cup (the Postcard Cup) takes two columns where there's room, so its names still fit. */
+.tg-cup.wide .tg-cup-rounds b {
+  overflow-wrap: anywhere;
+}
+@media (min-width: 700px) {
+  .tg-cup.wide {
+    grid-column: span 2;
+  }
 }

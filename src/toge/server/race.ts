@@ -3,7 +3,7 @@ import { clampDrift } from '../shared/drift.ts';
 import { payout, raceBonus } from '../shared/garage.ts';
 import { raceXp } from '../shared/pass.ts';
 import { cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
-import { CUPS, ROUNDS, addRound, isCup, type CupId } from '../shared/cups.ts';
+import { CUPS, addRound, isCup, roundsOf, type CupId } from '../shared/cups.ts';
 import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, isGp, isTeam, modeTracks, type CarRule, type GpState, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow, type Team } from '../shared/protocol.ts';
 import { GhostRecorder, type GhostRun, type GhostTape } from '../shared/ghost.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
@@ -531,7 +531,7 @@ export class Race {
       // A Team Grand Prix: each racer's points also count for their team (cups.ts teamTable).
       const team = (id: number) => (this.mode === 'team' ? this.members.get(id)?.team : undefined);
       this.gp.table = addRound(this.gp.table, this.gp.round, rows.map((r) => ({ key: String(r.id), name: r.name, place: r.place, cpu: r.cpu, team: team(r.id) })));
-      this.gpFinal = this.gp.round >= ROUNDS - 1;
+      this.gpFinal = this.gp.round >= roundsOf(this.gp.cup) - 1;
       const wait = (this.gpFinal ? RACE.cupResultsSeconds : RACE.gpResultsSeconds) * 1000;
       this.phaseEnds = now + wait;
       gp = { ...this.gp, final: this.gpFinal, next: this.gpFinal ? 0 : wait };

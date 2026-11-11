@@ -4,7 +4,7 @@
 
 import { PAINTS, decodeCar, CARS } from '../shared/cars.ts';
 import { TRACK_DEFS, type Track } from '../shared/track.ts';
-import { CUPS, ROUNDS, teamTable, type CupId, type CupRow } from '../shared/cups.ts';
+import { CUPS, roundsOf, teamTable, type CupId, type CupRow } from '../shared/cups.ts';
 import { TEAMS } from '../shared/protocol.ts';
 import type { Damage, Zone } from '../shared/damage.ts';
 import type { NewBest } from '../shared/records.ts';
@@ -598,7 +598,7 @@ export function cupHtml(cup: CupId, round: number, table: CupRow[], final: boole
   const mine = table.findIndex((r) => r.key === me);
   const rows = table
     .map((r, i) => {
-      const rounds = Array.from({ length: ROUNDS }, (_, k) => {
+      const rounds = Array.from({ length: roundsOf(cup) }, (_, k) => {
         const p = r.places[k];
         const cls = k > round ? 'todo' : p === 1 ? 'p1' : p === 2 ? 'p2' : p === 3 ? 'p3' : '';
         return `<i class="${cls}" title="${esc(TRACK_DEFS[c.tracks[k]].name)}">${k > round ? '' : p ? p : '–'}</i>`;
@@ -619,7 +619,7 @@ export function cupHtml(cup: CupId, round: number, table: CupRow[], final: boole
     : '';
   return `<section class="rh-cup" data-cup style="--cup:${c.color}">
     ${table.some((r) => r.team !== undefined) ? teamsHtml(table, final, table[mine]?.team) : head}
-    <h3><span>${esc(c.name)}</span><small>${final ? 'Final standings' : `After round ${round + 1} of ${ROUNDS}`}</small></h3>
+    <h3><span>${esc(c.name)}</span><small>${final ? 'Final standings' : `After round ${round + 1} of ${roundsOf(cup)}`}</small></h3>
     <table class="rh-results rh-cup-table"><tbody>${rows}</tbody></table>
   </section>`;
 }
