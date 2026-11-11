@@ -87,6 +87,8 @@ export const TRACK_LOOKS: Partial<Record<TrackId, Partial<Look>>> = {
   // theme's own sun sits at 14°, which looks like late afternoon.
   mizuumi: { sun: [38, 195] },
   hibari: { sun: [44, 205], light: 0xfff2dc },
+  kamome: { sun: [46, 170], light: 0xfff4e4 },
+  shiokaze: { sun: [40, 230], light: 0xfff0d8 },
   toge: { sun: [24, 235], turbidity: 6, rayleigh: 1.8, light: 0xffd6a8, lightPower: 2.4, hemi: 0.85, skyGain: 0.58, clouds: [0.32, 0.38], exposure: 0.48, fogDensity: 0.00018, grass: [0.25, 0.42, 0.14], grassDry: [0.46, 0.5, 0.22], rock: [0.52, 0.48, 0.42], verge: [0.44, 0.42, 0.27], grade: grade({ contrast: 1.12, saturation: 1.06, shadows: [0.9, 0.95, 1.08], highlights: [1.1, 1.0, 0.88] }) },
 };
 

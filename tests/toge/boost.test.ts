@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BOOST, type BoostPad, onBoostPad, padKick } from '../../src/toge/shared/boost.ts';
 import { carSpec, newOwnedCar } from '../../src/toge/shared/cars.ts';
-import { RACE_TRACKS, SAMPLE, TRACK_DEFS, buildTrack, getTrack, gridSlot } from '../../src/toge/shared/track.ts';
+import { RACE_TRACKS, SAMPLE, TRACK_DEFS, type TrackId, buildTrack, getTrack, gridSlot } from '../../src/toge/shared/track.ts';
 import { HIGHWAY_LANES, getTraffic, lanesOf } from '../../src/toge/shared/traffic.ts';
 import { type Car, type DriveInput, TICK_HZ, forwardSpeed, newCar, stepCar } from '../../src/toge/shared/vehicle.ts';
 
@@ -194,6 +194,42 @@ test('sprint rings: four short laps by day, no slow corners, and quick left-righ
     const flicks = turns.filter((c, k) => k > 0 && c.sign !== turns[k - 1].sign && c.at - turns[k - 1].at < 30 + 2 * Math.PI * c.r * 0.25).length;
     assert.ok(flicks >= 2, `${id}: ${flicks} left-right flicks a lap`);
     assert.ok(t.props.length === 0, 'a circuit: no obstacles');
+  }
+});
+
+test('the harder seaside rings: Hibari made tougher (narrower, tighter, more flicks, hills), still short 4-lap sprints', () => {
+  const measure = (id: TrackId) => {
+    const t = getTrack(id);
+    const i0 = Math.floor(t.startS / SAMPLE);
+    const turns: { sign: number; r: number; at: number }[] = [];
+    let sign = 0;
+    let peak = 0;
+    let lo = Infinity;
+    let hi = -Infinity;
+    let steep = 0;
+    for (let i = i0; i < i0 + t.lap; i++) {
+      const c = t.curv[i];
+      const s = Math.abs(c) > 1 / 400 ? Math.sign(c) : 0;
+      if (s !== sign && sign !== 0) turns.push({ sign, r: 1 / peak, at: i * SAMPLE }), (peak = 0);
+      if (s) peak = Math.max(peak, Math.abs(c));
+      sign = s;
+      lo = Math.min(lo, t.y[i]);
+      hi = Math.max(hi, t.y[i]);
+      steep = Math.max(steep, Math.abs(t.y[i + 5] - t.y[i]) / (5 * SAMPLE));
+    }
+    const flicks = turns.filter((c, k) => k > 0 && c.sign !== turns[k - 1].sign && c.at - turns[k - 1].at < 30 + 2 * Math.PI * c.r * 0.25).length;
+    return { t, lap: t.lap * SAMPLE, tightest: Math.min(...turns.map((c) => c.r)), flicks, rise: hi - lo, steep };
+  };
+  const base = measure('hibari');
+  for (const id of ['kamome', 'shiokaze'] as const) {
+    const m = measure(id);
+    assert.equal(m.t.def.laps, 4);
+    assert.equal(m.t.def.theme, 'coast', `${id}: by the sea, like Hibari`);
+    assert.ok(m.lap > 1200 && m.lap < 1500, `${id}: a short lap (${m.lap} m)`);
+    assert.ok(m.t.def.width < base.t.def.width, `${id}: narrower than Hibari`);
+    assert.ok(m.tightest < base.tightest - 8 && m.tightest > 38, `${id}: tighter corners than Hibari, never a hairpin (${m.tightest.toFixed(0)} m)`);
+    assert.ok(m.flicks > base.flicks, `${id}: more flicks a lap than Hibari (${m.flicks} vs ${base.flicks})`);
+    assert.ok(m.rise > 12 && m.steep < 0.08, `${id}: hills (${m.rise.toFixed(1)} m), but no grade over 8% (${(m.steep * 100).toFixed(1)}%)`);
   }
 });
 
