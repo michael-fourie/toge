@@ -989,7 +989,7 @@
   }
 }
 
-/* The winner's Best Moment (racegame.ts `bestMoment`): a 5 s replay before the results. Letterbox bars, a REPLAY tag,
+/* The winner's Best Moment (racegame.ts `bestMoment`): a 10 s replay before the results. Letterbox bars, a REPLAY tag,
    the title card bottom left with a cyan progress bar that runs for the replay (no per-frame DOM), and Skip. */
 .rh.replay > :not(.rh-replay),
 .rh.replay::after {

@@ -321,9 +321,11 @@ a component or a page.
   really fast or drifting well or something cool ... a cool overlay on it saying Best Moment"): every client records
   every car it draws on the race clock (`MomentTape`, HIGHLIGHT.hz; racegame.ts `recordMoments`: yours and the CPUs
   from the physics, online racers from the pose on screen), so nothing goes on the wire. When the race ends (solo:
-  you cross the line; online: `results`), `bestMoment` picks the winner's best `HIGHLIGHT.seconds` (after the launch,
+  you cross the line; online: `results`), `bestMoment` picks the winner's best `HIGHLIGHT.seconds` (10 s since Michael
+  found 5 "too short to see the moment"; after the launch,
   before their line): each sample scores the best of speed² (`fast`), drift (sin(slip) × speed / `driftRef`, tuned so
-  a real drift beats a straight) and air, summed over the window. racegame.ts then replays it in the race's own scene
+  a real drift beats a straight) and air, summed over the window, then slid to put the action mid-replay
+  (`HIGHLIGHT.centre`). racegame.ts then replays it in the race's own scene
   (every recorded car and the traffic put back where they were, the winner's sparks and smoke), filmed by
   `REPLAY_CAM` (a flat-out run: from ahead, letting the car by; a drift or jump: from behind round to the side), under
   the overlay (`.rh-replay` in race.css: letterbox, REPLAY tag, "Best Moment" card with the winner and the line from
