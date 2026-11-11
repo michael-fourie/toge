@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BOARD, RECORDS, cleanBests, cleanBoard, minTime, placeOnBoard, profileOf, recordTime } from '../../src/toge/shared/records.ts';
+import { BOARD, NOTICES, RECORDS, cleanBests, cleanBoard, cleanNotices, medalTable, minTime, overtaken, placeOnBoard, profileOf, recordTime } from '../../src/toge/shared/records.ts';
 import { RecordStore } from '../../src/toge/server/recordStore.ts';
 import { TRACK_LENGTH_KM, applyAction, newGarage } from '../../src/toge/shared/garage.ts';
 import { CAR_IDS, TUNE_RANGE, carSpec, decodeCar, encodeCar, maxedUpgrades, newOwnedCar, topSpeed } from '../../src/toge/shared/cars.ts';
@@ -238,7 +238,10 @@ test("RecordStore keeps each track's board beside the bests, and can rebuild the
   assert.equal((await r.record('Cy', 'koripass', 195, CAR))?.rank, 2);
   assert.equal((await r.record('Cy', 'saltwind', 150, CAR))?.rank, 1);
   assert.deepEqual((await r.board('koripass')).map((x) => x.name), ['Bob', 'Cy', 'Ann']);
-  assert.deepEqual(Object.fromEntries(Object.entries(await r.leaders()).map(([t, x]) => [t, x!.name])), { koripass: 'Bob', saltwind: 'Cy' });
+  const { leaders, medals } = await r.leaders();
+  assert.deepEqual(Object.fromEntries(Object.entries(leaders).map(([t, x]) => [t, x!.name])), { koripass: 'Bob', saltwind: 'Cy' });
+  // Cy: 1st on Saltwind and 2nd on Kōri; Bob 1st on Kōri; Ann 3rd on Kōri.
+  assert.deepEqual(medals.map((m) => [m.name, m.gold, m.silver, m.bronze]), [['Cy', 1, 1, 0], ['Bob', 1, 0, 0], ['Ann', 0, 0, 1]]);
   assert.deepEqual(await r.board('nowhere'), []);
 
   const fresh = new RecordStore(kv().store);
@@ -249,4 +252,83 @@ test("RecordStore keeps each track's board beside the bests, and can rebuild the
   assert.deepEqual((await fresh.board('koripass')).map((x) => x.name), ['Bob', 'Ann']);
   assert.equal((await fresh.board('monza'))[0]?.time, 300);
   assert.equal((await fresh.record('Ann', 'koripass', 195, CAR))?.rank, 1 + 1, 'quicker than her old time, still behind Bob');
+});
+
+test('the medal table counts every board\'s top three and ranks golds, then silvers, then bronzes', () => {
+  const boards = [
+    [row('Demon', 100), row('Ann', 101), row('Bob', 102), row('Cy', 103)],
+    [row('demon', 90), row('Bob', 91)],
+    [row('Ann', 80), row('Demon', 81), row('Cy', 82)],
+    [row('Cy', 70)],
+    [],
+  ];
+  const m = medalTable(boards);
+  assert.deepEqual(
+    m.map((r) => [r.name, r.gold, r.silver, r.bronze]),
+    [
+      ['Demon', 2, 1, 0],
+      ['Ann', 1, 1, 0],
+      ['Cy', 1, 0, 1],
+      ['Bob', 0, 1, 1],
+    ],
+    'one row per racer whatever the case of their name; 4th place earns nothing',
+  );
+  assert.deepEqual(medalTable([]), []);
+});
+
+test('a new best tells everyone it passed: their old and new places, or that they fell off the board', () => {
+  const before = [row('Ann', 100), row('Bob', 101), row('Cy', 102), row('Dee', 103)];
+  // Cy goes quickest: Ann and Bob each drop a place; Dee (behind Cy all along) doesn't move.
+  const after = placeOnBoard(before, row('Cy', 99, 5)).board;
+  assert.deepEqual(overtaken(before, after, 'cy'), [
+    { name: 'Ann', yours: 100, was: 1, rank: 2 },
+    { name: 'Bob', yours: 101, was: 2, rank: 3 },
+  ]);
+  // A slower improvement that passes nobody tells nobody.
+  assert.deepEqual(overtaken(before, placeOnBoard(before, row('Dee', 102.5, 5)).board, 'Dee'), []);
+  // A full board: the last row falls off.
+  const full = Array.from({ length: BOARD.size }, (_, i) => row(`R${i}`, 100 + i));
+  const pushed = overtaken(full, placeOnBoard(full, row('New', 50, 5)).board, 'New');
+  assert.equal(pushed.length, BOARD.size);
+  assert.deepEqual(pushed.at(-1), { name: `R${BOARD.size - 1}`, yours: 100 + BOARD.size - 1, was: BOARD.size, rank: null });
+});
+
+test('RecordStore keeps a notice for each racer a new best passes, newest first, until they have seen it', async () => {
+  const { store } = kv();
+  let now = 1000;
+  const r = new RecordStore(store, () => now);
+  await r.record('Andrew', 'shiden', 120, CAR);
+  await r.record('Bob', 'shiden', 125, CAR);
+  assert.deepEqual(await r.notices('andrew'), [], 'nobody passed yet');
+  now = 2000;
+  await r.record('Demon', 'shiden', 118, CAR);
+  const a = await r.notices('Andrew');
+  assert.deepEqual(a, [{ track: 'shiden', by: 'Demon', time: 118, yours: 120, was: 1, rank: 2, at: 2000 }], 'Andrew lost the record');
+  assert.deepEqual((await r.notices('Bob')).map((n) => [n.was, n.rank]), [[2, 3]]);
+  assert.deepEqual(await r.notices('Demon'), [], 'never about yourself');
+  now = 3000;
+  await r.record('Demon', 'isonami', 130, CAR);
+  await r.record('Andrew', 'isonami', 129, CAR);
+  assert.deepEqual((await r.notices('Demon')).map((n) => [n.track, n.by]), [['isonami', 'Andrew']]);
+  // Seen up to a point: later notices stay.
+  now = 4000;
+  await r.record('Cy', 'shiden', 117, CAR);
+  assert.deepEqual((await r.notices('Andrew')).map((n) => n.at), [4000, 2000], 'newest first');
+  await r.seen('Andrew', 2000);
+  assert.deepEqual((await r.notices('Andrew')).map((n) => n.at), [4000]);
+  await r.seen('Andrew', 4000);
+  assert.deepEqual(await r.notices('Andrew'), []);
+  // Kept to NOTICES.keep.
+  for (let i = 0; i < NOTICES.keep + 5; i++) {
+    now = 10_000 + i;
+    await r.record(`P${i}`, 'nagare', 200 - i, CAR);
+  }
+  assert.equal((await r.notices('P0')).length, NOTICES.keep);
+  assert.equal((await r.notices('P0'))[0].at, 10_000 + NOTICES.keep + 4, 'the newest kept');
+});
+
+test('stored notices are cleaned: bad entries drop out', () => {
+  const ok = { track: 'shiden', by: 'Demon', time: 118, yours: 120, was: 1, rank: 2, at: 5 };
+  assert.deepEqual(cleanNotices([ok, { ...ok, track: 'nowhere' }, { ...ok, by: '' }, { ...ok, time: NaN }, { ...ok, rank: null, at: 6 }, 'x']).map((n) => n.at), [6, 5]);
+  assert.deepEqual(cleanNotices({ not: 'a list' }), []);
 });

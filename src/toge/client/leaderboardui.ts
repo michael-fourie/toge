@@ -5,7 +5,7 @@
 
 import { CARS, decodeCar } from '../shared/cars.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
-import { BOARD, type BestTime, type BoardRow } from '../shared/records.ts';
+import { BOARD, type BestTime, type BoardRow, type MedalRow, type Notice } from '../shared/records.ts';
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { fmtTime, ordinal } from './hud.ts';
@@ -18,6 +18,10 @@ export interface BoardView {
   track: TrackId;
   /** Every track's record (null while it loads). */
   leaders: Leaders | null;
+  /** The medal table over every board's top three (null while it loads). */
+  medals: MedalRow[] | null;
+  /** Your unseen "your time was beaten" notices, newest first (none for guests). */
+  notices: Notice[];
   /** The open track's board (null while it loads). */
   rows: BoardRow[] | null;
   /** Signed in as (null: a guest). */
@@ -32,11 +36,30 @@ export interface BoardView {
 }
 
 export const boardApi = {
-  async leaders(): Promise<Leaders | null> {
+  /** Every track's record and the medal table. */
+  async leaders(): Promise<{ leaders: Leaders; medals: MedalRow[] } | null> {
     try {
-      return ((await (await fetch('/api/leaderboard')).json()) as { leaders: Leaders }).leaders ?? null;
+      const r = (await (await fetch('/api/leaderboard')).json()) as { leaders?: Leaders; medals?: MedalRow[] };
+      return r.leaders ? { leaders: r.leaders, medals: Array.isArray(r.medals) ? r.medals : [] } : null;
     } catch {
       return null;
+    }
+  },
+  /** Your unseen notices (null: a guest, or the server is out of reach). */
+  async notices(): Promise<Notice[] | null> {
+    try {
+      const r = await fetch('/api/notices');
+      return r.ok ? (((await r.json()) as { notices: Notice[] | null }).notices ?? null) : null;
+    } catch {
+      return null;
+    }
+  },
+  /** You've seen every notice up to `at`. */
+  async seen(at: number): Promise<void> {
+    try {
+      await fetch('/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seen: at }) });
+    } catch {
+      // they come back next time: no harm
     }
   },
   async board(track: TrackId): Promise<BoardRow[] | null> {
@@ -63,6 +86,9 @@ export function leaderboardTab(v: BoardView): string {
   const me = v.user?.toLowerCase();
   const myRow = rows && me ? rows.findIndex((r) => r.name.toLowerCase() === me) : -1;
   return `
+    ${noticesCard(v.notices)}
+    <h2 class="tg-h">Overall <small>Medals across every track: 1st, 2nd and 3rd on each board</small></h2>
+    ${medalsTable(v)}
     <section class="tg-hero tg-lb-hero" style="${trackStyle(v.track)}">
       <span class="tg-hero-art" aria-hidden="true"></span>
       <div class="tg-hero-map">${trackMap(v.track)}</div>
@@ -93,6 +119,72 @@ export function leaderboardTab(v: BoardView): string {
       }).join('')}
     </div>
     ${status(v.failed ? 'Could not load the leaderboard.' : v.status)}`;
+}
+
+/** How many medal rows to show before folding the rest (you're always shown). */
+const MEDAL_ROWS = 10;
+
+/** The overall table: place, racer, golds, silvers, bronzes (2026-11-10, Andrew). */
+function medalsTable(v: BoardView): string {
+  const m = v.medals;
+  if (!m) return `<p class="tg-muted">${v.failed ? 'The medal table is out of reach right now.' : 'Loading…'}</p>`;
+  if (!m.length) return '<p class="tg-muted">No medals yet. Set a time on any track to take one.</p>';
+  const me = v.user?.toLowerCase();
+  // Ties share a place (same golds, silvers and bronzes).
+  const place = (i: number) => {
+    let p = i;
+    while (p > 0 && m[p - 1].gold === m[i].gold && m[p - 1].silver === m[i].silver && m[p - 1].bronze === m[i].bronze) p--;
+    return p + 1;
+  };
+  const mine = me ? m.findIndex((r) => r.name.toLowerCase() === me) : -1;
+  const shown = m.map((_, i) => i).filter((i) => i < MEDAL_ROWS || i === mine);
+  const medal = (kind: 'g' | 's' | 'b', n: number, label: string) => `<td class="tg-medal-n"><span class="tg-medal ${kind}${n ? '' : ' none'}" aria-label="${n} ${label}">${n}</span></td>`;
+  return `<table class="tg-times tg-medals tg-cardbox">
+    <thead><tr><th scope="col"><span class="sr-only">Place</span></th><th scope="col">Racer</th><th scope="col"><span class="sr-only">Tag</span></th><th scope="col" class="tg-medal-h g">Gold</th><th scope="col" class="tg-medal-h s">Silver</th><th scope="col" class="tg-medal-h b">Bronze</th></tr></thead>
+    <tbody>${shown
+      .map((i) => {
+        const r = m[i];
+        const you = i === mine;
+        const friend = !you && v.friends.has(r.name.toLowerCase());
+        return `<tr class="${you ? 'you' : ''}${i > 0 && i === mine && mine >= MEDAL_ROWS ? ' gap' : ''}">
+          <td class="tg-lb-pos tg-num">${place(i)}</td>
+          <th scope="row"><b>${esc(r.name)}</b><small>${r.gold + r.silver + r.bronze} medal${r.gold + r.silver + r.bronze === 1 ? '' : 's'}</small></th>
+          <td class="tg-lb-tag">${you ? '<span class="tg-tag you">You</span>' : friend ? '<span class="tg-tag">Friend</span>' : ''}</td>
+          ${medal('g', r.gold, 'gold')}${medal('s', r.silver, 'silver')}${medal('b', r.bronze, 'bronze')}
+        </tr>`;
+      })
+      .join('')}</tbody></table>
+    ${m.length > shown.length ? `<p class="tg-muted tg-medals-more">${m.length} racers have medals.</p>` : ''}`;
+}
+
+/** "3 hours ago", for a notice. */
+function ago(at: number): string {
+  const s = Math.max(0, (Date.now() - at) / 1000);
+  if (s < 90) return 'just now';
+  const [n, unit] = s < 5400 ? [Math.round(s / 60), 'minute'] : s < 129600 ? [Math.round(s / 3600), 'hour'] : [Math.round(s / 86400), 'day'];
+  return `${n} ${unit}${n === 1 ? '' : 's'} ago`;
+}
+
+/** One notice as a line of text (also the popup's). */
+export function noticeText(n: Notice): string {
+  const where = n.rank === null ? `you're off the top ${BOARD.size}` : n.rank === n.was ? `you're ${ordinal(n.rank)}` : `you're now ${ordinal(n.rank)} (were ${ordinal(n.was)})`;
+  return `${n.by} beat your ${fmtTime(n.yours)} on ${TRACK_DEFS[n.track].name} with ${fmtTime(n.time)}: ${where}.`;
+}
+
+/** Your unseen "your time was beaten" notices, with Got it to clear them and each line opening that track's board. */
+function noticesCard(notices: Notice[]): string {
+  if (!notices.length) return '';
+  return `<section class="tg-notices tg-cardbox" aria-label="Your times beaten">
+    <header><h2 class="tg-h">Times beaten <small>${notices.length} new</small></h2><button class="tg-pill" data-notices-seen>Got it</button></header>
+    <ul>${notices
+      .map(
+        (n) => `<li><button class="tg-notice" data-lb-track="${n.track}">
+          <span class="tg-notice-tag">${n.was === 1 ? 'Record lost' : 'Beaten'}</span>
+          <span><b>${esc(n.by)}</b> beat your <span class="tg-num">${fmtTime(n.yours)}</span> on <b>${esc(TRACK_DEFS[n.track].name)}</b> with <span class="tg-num">${fmtTime(n.time)}</span><small>${n.rank === null ? `Off the top ${BOARD.size}` : n.rank === n.was ? `Still ${ordinal(n.rank)}` : `Now ${ordinal(n.rank)}, was ${ordinal(n.was)}`} · ${ago(n.at)}</small></span>
+        </button></li>`,
+      )
+      .join('')}</ul>
+  </section>`;
 }
 
 /** "You're 4th, +1.234 off the record", or why you're not on the board. */

@@ -244,8 +244,19 @@ a component or a page.
   before the boards are put on once (`Accounts.boardsBuilt`, flag `lb:built`). Guests never reach the board. Online,
   the room keeps finishers' times one at a time in finishing order, so two racers can't both take the record. The
   results show a red "Track record" banner + tag (`.rh-record`, `.rh-tr`) and a `#4` all-time tag (`.rh-rank`).
-  Read with `GET /api/leaderboard` (every track's record) or `?t=<track>` (its board); the page is Race → Leaderboard
-  (leaderboardui.ts).
+  Read with `GET /api/leaderboard` (every track's record and the medal table) or `?t=<track>` (its board); the page is
+  Race → Leaderboard (leaderboardui.ts).
+- **Medal table** (2026-11-10, Andrew: "who has the most #1, #2, #3 lap times of all the maps ... gold, silver,
+  bronze"): records.ts `medalTable` counts every board's top three per account and ranks them like the Olympics (golds,
+  then silvers, then bronzes, then name). It rides on `GET /api/leaderboard`'s summary (`medals`), so it's always the
+  boards' own truth, and the Leaderboard page shows it under Overall (top `MEDAL_ROWS`, plus your row).
+- **Times beaten** (same day: "if someone beats my fastest time, I want to know"): when a new best goes on a board,
+  `RecordStore.record` works out everyone it moved down or off (records.ts `overtaken`) and adds a `Notice` to each of
+  their `nt:<user>` lists (who, the track, both times, place before and after; newest first, at most `NOTICES.keep`).
+  `GET /api/notices` gives a session its own; `POST /api/notices {seen: at}` clears them up to that one. The garage
+  (hub.ts `loadNotices`) checks on arrival, when you sign in and every `NOTICE_POLL_MS`; each notice pops up once in
+  this browser (`atrous.noticePop`), the Leaderboard sub-tab shows the count, and the page lists them (each opens that
+  track's board) with Got it to clear them. Not over a lobby (the pit garage).
 - **Record ghost** (ghost.ts, client/ghostcar.ts): each track record keeps its run (`gh:<track>`, only while it's the
   record; a record set without a usable run clears it). A run is the car's pose every `GHOST.every` s from GO (compact
   ints, `cleanTape` checks it). Online runs are recorded by the room from the `state` poses (race.ts `Member.rec`,

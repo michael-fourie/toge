@@ -132,6 +132,87 @@ export function placeOnBoard(board: BoardRow[], row: BoardRow): { board: BoardRo
   return { board: next, rank, beat: rank === 1 && top ? { name: top.name, time: top.time } : null };
 }
 
+// --- Medals: who holds the most firsts, seconds and thirds across every board -------------------
+
+/** One racer's medals: how many tracks they're 1st, 2nd and 3rd on. */
+export interface MedalRow {
+  name: string;
+  gold: number;
+  silver: number;
+  bronze: number;
+}
+
+/**
+ * The overall table (2026-11-10, Andrew: "who has the most #1, #2, #3 lap times of all the maps ... gold, silver,
+ * bronze"): the top three of every track's board, counted per racer, ranked like an Olympic medal table (most
+ * golds, then silvers, then bronzes; then by name).
+ */
+export function medalTable(boards: Iterable<BoardRow[]>): MedalRow[] {
+  const by = new Map<string, MedalRow>();
+  const kinds = ['gold', 'silver', 'bronze'] as const;
+  for (const rows of boards)
+    rows.slice(0, 3).forEach((r, i) => {
+      const key = r.name.toLowerCase();
+      const row = by.get(key) ?? { name: r.name, gold: 0, silver: 0, bronze: 0 };
+      row[kinds[i]]++;
+      by.set(key, row);
+    });
+  return [...by.values()].sort((a, b) => b.gold - a.gold || b.silver - a.silver || b.bronze - a.bronze || a.name.localeCompare(b.name));
+}
+
+// --- Notices: someone beat your time -----------------------------------------------------------
+
+/**
+ * Someone's new best moved you down a track's board (2026-11-10, Andrew: "if someone beats my fastest time, I want to
+ * know"). Kept per account until they've seen it.
+ */
+export interface Notice {
+  track: TrackId;
+  /** Who beat you, and their new time. */
+  by: string;
+  time: number;
+  /** Your time there, and your place before and after (null: pushed off the board). */
+  yours: number;
+  was: number;
+  rank: number | null;
+  /** When (ms since 1970); also the notice's id. */
+  at: number;
+}
+
+export const NOTICES = {
+  /** Kept per account, newest first; older ones drop off. */
+  keep: 30,
+} as const;
+
+/** Everyone `name`'s new best moved down (or off) the board: their name, time and places before and after. */
+export function overtaken(before: BoardRow[], after: BoardRow[], name: string): { name: string; yours: number; was: number; rank: number | null }[] {
+  const me = name.toLowerCase();
+  const now = new Map(after.map((r, i) => [r.name.toLowerCase(), i + 1]));
+  const out: { name: string; yours: number; was: number; rank: number | null }[] = [];
+  before.forEach((r, i) => {
+    const key = r.name.toLowerCase();
+    if (key === me) return;
+    const rank = now.get(key) ?? null;
+    if (rank === null || rank > i + 1) out.push({ name: r.name, yours: r.time, was: i + 1, rank });
+  });
+  return out;
+}
+
+/** A stored notice list: bad entries dropped, newest first, at most NOTICES.keep. */
+export function cleanNotices(x: unknown): Notice[] {
+  if (!Array.isArray(x)) return [];
+  const out: Notice[] = [];
+  for (const n of x) {
+    if (!n || typeof n !== 'object') continue;
+    const v = n as Partial<Notice>;
+    if (typeof v.track !== 'string' || !Object.hasOwn(TRACK_DEFS, v.track) || typeof v.by !== 'string' || !v.by || v.by.length > 32) continue;
+    const num = (k: unknown) => typeof k === 'number' && Number.isFinite(k);
+    if (!num(v.time) || !num(v.yours) || !num(v.was) || !num(v.at) || (v.rank !== null && !num(v.rank))) continue;
+    out.push({ track: v.track as TrackId, by: v.by, time: v.time!, yours: v.yours!, was: v.was!, rank: v.rank ?? null, at: v.at! });
+  }
+  return out.sort((a, b) => b.at - a.at).slice(0, NOTICES.keep);
+}
+
 /** What a friend sees of your TŌGE garage: cars, driver, record and best times (not your money). */
 export interface TogeProfile {
   name: string;

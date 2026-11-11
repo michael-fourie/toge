@@ -28,7 +28,8 @@ imports the other game's (`tests/boundaries.test.ts`).
 | `POST /api/admin/reset-password` (`Authorization: Bearer <ADMIN_KEY>`, `{username}`) | Accounts `"all"` `.resetPassword` (`adminReset`; 404 unless the `ADMIN_KEY` secret is set; how-to in docs/DEPLOYMENT.md) |
 | `POST /api/admin/clear-race-records` (same key; `{"apply": true}` to wipe, otherwise a preview) | Accounts `"all"` `.clearRaceRecords` (`adminClearRecords`): wipes TŌGE bests, boards and ghosts on Kōri Pass, Saltwind and Red Mesa (`CLEAR_TRACKS`) |
 | `/api/stash`, `/api/garage` (GET reads, POST applies one action) | Accounts `"all"`. `GET /api/garage` also returns your TŌGE best times; `?u=<name>` returns a friend's TŌGE profile instead (null unless you've added them) |
-| `/api/leaderboard` (GET, open to anyone) | Accounts `"all"`: TŌGE's all-time boards. No params: every track's record; `?t=<track>`: that track's board (one row per account) |
+| `/api/leaderboard` (GET, open to anyone) | Accounts `"all"`: TŌGE's all-time boards. No params: every track's record and the medal table (`medals`); `?t=<track>`: that track's board (one row per account) |
+| `/api/notices` (GET your own; POST `{seen: <at>}`, ≤128 B) | Accounts `"all"` `.notices` / `.seenNotices`: TŌGE "your time was beaten" notices for the session's account (null / false for guests) |
 | `/api/friends` (GET your list, POST `{a: 'add' \| 'remove', name}`) | Accounts `"all"` (`friendStore.ts`; rules in `src/shared/friends.ts`) |
 | WS `/ws?game=race` | Directory `"race"` hands out a code, then RaceRoom `<code>` |
 | WS `/ws?game=party&kind=<id>` | Directory `"party:<kind>"`, then PartyRoom `<kind>:<code>` |
