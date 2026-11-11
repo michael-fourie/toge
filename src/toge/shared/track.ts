@@ -15,7 +15,7 @@ import { type World, worldSlot, worldTrack } from './world.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'toge';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'toge';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -830,6 +830,67 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [-306, 10.6, -2374], [-302, 10.6, -2380], [-298, 10.6, -2386], [-292, 10.6, -2391], [-286, 10.6, -2395], [-280, 10.6, -2399],
       [-273, 10.6, -2402], [-266, 10.6, -2403], [-258, 10.6, -2404], [-251, 10.6, -2404], [-243, 10.6, -2402], [-117, 10.5, -2371],
       [9, 10.4, -2339], [135, 10.3, -2308], [261, 10.1, -2276],
+    ],
+  },
+  // Two short sprint rings by day (Andrew, 2026-11-10: "high speed and swiftly turns ... 4 lap races but relatively
+  // shorter laps ... day-time maps"). Laid out as straights and arcs with the loop closed exactly: no corner tighter
+  // than 60 m and most 70-110 m, so they're taken fast, strung into quick left-right esses with short straights
+  // between; ~1.4 km a lap, four laps.
+  mizuumi: {
+    id: 'mizuumi',
+    name: 'Mizuumi Ring',
+    tag: 'Lakeside circuit · 4 laps · fast esses',
+    blurb: 'A quick ring on a mountain lake: a fast right off the line, a left-right esse, a flick into a long double right round the far shore, another esse on the back stretch and a sweeping right onto the straight. Short laps, no slow corners: keep it flowing.',
+    theme: 'alpine',
+    seed: 3301,
+    width: 13,
+    relief: 220,
+    tilt: [0.3, 0],
+    water: 60,
+    laps: 4,
+    points: [
+      [0, 71.0, 0], [0, 71.7, -45], [0, 71.9, -90], [0, 71.8, -136], [0, 71.5, -181], [1, 71.4, -195],
+      [4, 71.3, -208], [9, 71.2, -221], [16, 71.2, -233], [24, 71.1, -244], [34, 71.1, -254], [45, 71.1, -262],
+      [57, 71.2, -268], [70, 71.3, -273], [128, 71.9, -288], [138, 72.0, -291], [146, 72.2, -296], [154, 72.3, -301],
+      [161, 72.4, -308], [168, 72.6, -316], [174, 72.7, -323], [181, 72.8, -329], [188, 72.9, -335], [197, 73.0, -339],
+      [206, 73.1, -342], [215, 73.1, -343], [225, 73.2, -343], [234, 73.2, -342], [243, 73.2, -340], [288, 72.9, -323],
+      [334, 72.1, -307], [345, 71.8, -301], [355, 71.5, -295], [364, 71.2, -287], [372, 70.9, -277], [378, 70.6, -267],
+      [383, 70.3, -255], [385, 69.9, -244], [386, 69.7, -231], [386, 68.7, -181], [386, 68.1, -131], [386, 68.1, -81],
+      [387, 68.1, -70], [389, 68.2, -58], [393, 68.3, -47], [398, 68.4, -36], [403, 68.5, -27], [406, 68.5, -16],
+      [408, 68.6, -6], [408, 68.7, 5], [406, 68.8, 15], [402, 68.8, 25], [398, 68.8, 35], [391, 68.9, 44],
+      [379, 68.9, 56], [365, 68.8, 67], [350, 68.7, 75], [334, 68.6, 81], [317, 68.4, 85], [299, 68.2, 87],
+      [264, 67.7, 87], [229, 67.3, 87], [219, 67.2, 87], [209, 67.0, 89], [199, 67.0, 93], [190, 66.9, 98],
+      [181, 66.8, 104], [174, 66.8, 109], [166, 66.8, 113], [158, 66.8, 116], [149, 66.8, 118], [140, 66.9, 118],
+      [131, 67.0, 117], [122, 67.0, 114], [66, 68.1, 94], [52, 68.4, 88], [39, 68.8, 79], [28, 69.2, 69],
+      [18, 69.6, 57], [10, 70.0, 44], [5, 70.3, 30], [1, 70.7, 15],
+    ],
+  },
+  hibari: {
+    id: 'hibari',
+    name: 'Hibari Coast',
+    tag: 'Seaside circuit · 4 laps · flat-out flicks',
+    blurb: 'A sprint ring on the clifftops at midday: a fast left off the line, a quick left along the cliff, a right-left flick, the long left round the headland, a kink and a quick left, then a fast double left back onto the straight. Four short laps, all of them quick.',
+    theme: 'coast',
+    seed: 3307,
+    width: 13,
+    relief: 90,
+    tilt: [-0.35, 0],
+    water: 0,
+    laps: 4,
+    points: [
+      [0, 25.0, 0], [0, 25.7, -43], [0, 25.9, -85], [0, 25.8, -128], [0, 25.5, -171], [0, 25.2, -213],
+      [-1, 25.1, -228], [-4, 25.1, -243], [-9, 25.1, -257], [-16, 25.2, -271], [-25, 25.3, -283], [-35, 25.4, -294],
+      [-47, 25.6, -304], [-88, 26.3, -332], [-99, 26.5, -339], [-111, 26.7, -344], [-124, 26.8, -347], [-137, 27.0, -348],
+      [-150, 27.1, -347], [-162, 27.2, -344], [-174, 27.2, -339], [-185, 27.2, -332], [-218, 26.9, -309], [-228, 26.7, -304],
+      [-238, 26.5, -300], [-249, 26.3, -297], [-260, 26.1, -297], [-270, 25.8, -298], [-280, 25.6, -299], [-291, 25.3, -298],
+      [-300, 25.0, -296], [-310, 24.7, -292], [-318, 24.5, -287], [-326, 24.2, -281], [-333, 23.9, -273], [-339, 23.7, -265],
+      [-343, 23.4, -256], [-363, 22.3, -200], [-369, 22.1, -180], [-371, 22.1, -161], [-370, 22.1, -141], [-367, 22.1, -121],
+      [-360, 22.3, -103], [-351, 22.4, -85], [-339, 22.6, -69], [-325, 22.7, -55], [-287, 22.9, -24], [-249, 22.6, 8],
+      [-241, 22.5, 16], [-234, 22.4, 24], [-229, 22.2, 34], [-225, 22.1, 44], [-222, 21.9, 55], [-219, 21.8, 65],
+      [-216, 21.6, 74], [-210, 21.5, 83], [-204, 21.3, 91], [-196, 21.2, 98], [-188, 21.1, 104], [-179, 21.0, 108],
+      [-169, 20.9, 111], [-159, 20.8, 113], [-109, 20.9, 117], [-96, 21.1, 117], [-82, 21.3, 116], [-70, 21.5, 112],
+      [-57, 21.8, 107], [-46, 22.1, 100], [-35, 22.4, 91], [-26, 22.8, 81], [-19, 23.1, 70], [-11, 23.6, 54],
+      [-5, 24.1, 36], [-1, 24.6, 18],
     ],
   },
   toge: {

@@ -1,11 +1,11 @@
 // Grand Prix cups: four fixed tracks raced back to back, points for every place, and a cup standings table at the
 // end. Solo (you against the AI, hub.ts → racegame.ts) and online (the room runs it, toge/server/race.ts).
-// Every race track (not the hill climb) sits in a cup, and only the Velocity and Overdrive Cups borrow tracks from the others;
+// Every race track (not the hill climb) sits in a cup, and only the Velocity, Overdrive and Sprint Cups borrow tracks from the others;
 // the cups test checks it.
 
 import { TRACK_DEFS, type TrackId } from './track.ts';
 
-export type CupId = 'torii' | 'mirage' | 'lantern' | 'apex' | 'velocity' | 'rush';
+export type CupId = 'torii' | 'mirage' | 'lantern' | 'apex' | 'velocity' | 'rush' | 'sprint';
 
 export interface CupDef {
   id: CupId;
@@ -29,6 +29,8 @@ export const CUPS: Record<CupId, CupDef> = {
   // The two six-lane grand prix roads, with the city and the expressway between. (Its id is from when it was the
   // Rush Hour Cup, every road with traffic, before the grand prix roads lost theirs.)
   rush: { id: 'rush', name: 'Overdrive Cup', tag: 'Flat out, then hard on the brakes: the city, the corniche, the expressway, the boulevard', color: '#ff5ca8', tracks: ['neonbay', 'isonami', 'ryusei', 'shiden'] },
+  // The short rings: the two sprint circuits, with the Apex Cup's two short laps between them.
+  sprint: { id: 'sprint', name: 'Sprint Cup', tag: 'Short laps, quick hands: the lake, the blossom ring, the clifftops, the figure 8', color: '#ff7a59', tracks: ['mizuumi', 'kodama', 'hibari', 'hachi'] },
 };
 export const CUP_IDS = Object.keys(CUPS) as CupId[];
 export const ROUNDS = 4;
