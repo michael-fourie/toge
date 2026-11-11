@@ -12,7 +12,7 @@
 // Frame: body x = right, y = up, -z = forward (three.js). Wheels are 0 FL, 1 FR, 2 RL, 3 RR.
 
 import { type CarSpec, torqueAt } from './cars.ts';
-import { type Ground, type Loc, type Surface, type Track, groundAt, heightAt, locate, newGround, newLoc, onCut, pointAt, railAt } from './track.ts';
+import { type Ground, type Loc, SKY, type Surface, type Track, groundAt, heightAt, locate, newGround, newLoc, onCut, pointAt, railAt } from './track.ts';
 import { DRAFT } from './draft.ts';
 import { firstPropFrom, isSolid } from './props.ts';
 import { type World, wallsNear } from './world.ts';
@@ -257,6 +257,18 @@ export function newCar(spec: CarSpec, x: number, y: number, z: number, yaw: numb
 export function resetCar(car: Car, t: Track, s = car.s, d = 0) {
   const l = pointAt(t, Math.max(4, Math.min(t.length - 4, s)), d);
   placeCar(car, l.x, l.y, l.z, Math.atan2(-l.tx, -l.tz), l.i);
+}
+
+/**
+ * A `sky` road: a car that's dropped SKY.fall m below the road (it went off the edge) is put back on the middle of
+ * the road where it went off, stopped. True when it did; call after each stepCar.
+ */
+export function catchFall(car: Car, t: Track): boolean {
+  if (t.abyss === undefined) return false;
+  const l = pointAt(t, car.s, 0);
+  if (car.p.y > l.y - SKY.fall) return false;
+  resetCar(car, t);
+  return true;
 }
 
 /** Puts the car down at rest on the road at (x, y, z) facing `yaw` (`hint`: the road sample there). */
@@ -1036,9 +1048,13 @@ const SCRAPE_V = 0.6;
  */
 export const IMPACT = { from: 3, loss: 2, keep: 0.5 };
 
-/** Rails either side of the road, and the walls across both ends: the corner that went through is pushed back. */
+/**
+ * Rails either side of the road, and the walls across both ends: the corner that went through is pushed back. A sky
+ * road has no rails, only the end walls.
+ */
 function barrier(car: Car, t: Track) {
   const sp = car.spec;
+  const rails = t.abyss === undefined;
   const rx = -loc.tz;
   const rz = loc.tx;
   let worst = 0;
@@ -1052,7 +1068,7 @@ function barrier(car: Car, t: Track) {
     const pz = car.p.z + tmp.z - loc.cz;
     const d = px * rx + pz * rz;
     const along = px * loc.tx + pz * loc.tz + loc.s;
-    let pen = Math.abs(d) - railAt(t, along, d);
+    let pen = rails ? Math.abs(d) - railAt(t, along, d) : -Infinity;
     let cnx = -Math.sign(d) * rx;
     let cnz = -Math.sign(d) * rz;
     // A shortcut's turn-off: the rail has a gap here.
