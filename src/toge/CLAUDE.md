@@ -93,7 +93,14 @@ a component or a page.
   the first pass over the crossing on a bridge), and three original grand prix layouts (2026-11-06): `minato` (Minato
   Street: a night street circuit in the city theme round a harbour, open waterfront, big wheel), `akane` (Akane Sands:
   desert GP in the late sun, long straights and hairpins) and `kazeoka` (Kazeoka Dunes: coast, a rollercoaster through
-  sandy dunes above the sea), 2 laps each; city `neonbay` (Neon Bay, live
+  sandy dunes above the sea), 2 laps each; two sprint rings by day (2026-11-10, Andrew: "high speed and swiftly turns
+  ... 4 lap races but relatively shorter laps ... day-time maps"): `mizuumi` (Mizuumi Ring: alpine, on a lake, 1.45 km
+  a lap) and `hibari` (Hibari Coast: coast clifftops, 1.35 km a lap), 4 laps each, 13 m wide, laid out as straights
+  and arcs closed exactly (no corner under ~60 m, most 70-110 m, strung into left-right esses); both race at midday
+  (`TRACK_LOOKS` raises the sun; the coast theme's own is 14°) and the boost test holds the short laps, day themes,
+  no slow corners and at least two flicks a lap. Nearly every corner on a lap that short is a fast bend you brake
+  into, so runoff covers ~45-65% of the road (the runoff test allows a sprint ring, a lap under 1.5 km, up to 70%
+  instead of 40%); city `neonbay` (Neon Bay, live
   traffic); hill climb `karasu` (Karasu Peak: uphill, 4.1 km and 336 m up, narrow, `climb: true`, only in a Hill climb lobby).
   Track `Feature`s: gravel, canyon, bridge, tunnel, crest, `cut` (a gravel shortcut through gaps in the barrier) and
   `bumps` (heaved tarmac between two control points; the grade test skips them, like crests).
@@ -140,11 +147,12 @@ a component or a page.
   puts every race track in a cup of four, raced in order: Torii (nagare, sakura, momiji, koripass), Mirage
   (saltwind, kazeoka, redmesa, akane), Lantern (minato, monaco, neonbay, tsukiyo), Apex (kodama, hachi, spa, monza) and
   Velocity (hayate, seatosky, monza, ryusei: the three speed roads plus Monza) and Overdrive (id `rush`, first named Rush Hour;
-  neonbay, isonami, ryusei, shiden: the two grand prix roads with the city and the expressway). Only those two
-  borrow tracks from other cups.
+  neonbay, isonami, ryusei, shiden: the two grand prix roads with the city and the expressway) and Sprint (mizuumi,
+  kodama, hibari, hachi: the two sprint rings with the Apex Cup's two short laps). Only those three borrow tracks
+  from other cups.
   Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
   more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
-  test checks every one is in one, and only Velocity and Overdrive repeat tracks); a new cup is an append to `CupId` / `CUPS`.
+  test checks every one is in one, and only Velocity, Overdrive and Sprint repeat tracks); a new cup is an append to `CupId` / `CUPS`.
   Solo: the Race page's cup cards start round 1 (`DriveOpts.gp`, at least 3 rivals); racegame.ts `soloCup` adds the
   places to the table (you are key `me`, rivals by name: the same every round) and Next race hands `onNext` the next
   round, so each round is a fresh RaceGame with its own loading screen. Every round pays like a solo race.
@@ -455,7 +463,7 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 - Pause menu (`pause()` in racegame.ts): Restart at the top, then Resume, Settings and Quit/Leave. Settings is a second page of the same panel (camera, volume, ABS, TCS, steering assist, handling, gearbox, Back); put new in-race options there, not on the main page. Restart is solo `restart()`; online only the host sees it, and it sends `start` mid-race (the room accepts the host's `start` in every phase but `loading`), which drops the race unpaid and sends everyone a `load`. racegame.ts hands over on `load` in any phase, not only on the results.
 - **Drift bonus:** racegame.ts runs your `DriftMeter` each tick (the HUD shows the live combo over the spark readout and the banked total in the top bar). Online it sends `drift` (the total) as each combo banks and before `finish`; the room caps it by its own clock and puts `drift` + `bonus` on each `ResultRow` (`prize` includes the bonus). Solo sends `drift` with the `solo` action. Limits are in docs/SECURITY.md.
 - A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts. A time-trial pass gets `clean: true` (no props; the `clean passes` test also holds it under 7%).
-- Circuits (`laps` on the TrackDef: Monza, Spa, Monaco, Minato, Akane, Kazeoka, Kodama, Hachi) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
+- Circuits (`laps` on the TrackDef: Monza, Spa, Monaco, Minato, Akane, Kazeoka, Kodama, Hachi, Mizuumi, Hibari) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
 - **Figure 8** (`overpass: <rise m>` on a circuit's TrackDef, Hachi-no-ji): `crossing()` in track.ts finds where the lap
   crosses itself, raises the first pass over it (a raised cosine over `OVERPASS.ramp`, so the grade stays under ~10%) and
   dips the second, and flags samples in `t.cross`: `deck` (the bridge), `up` (the upper road near it) and `low` (the lower

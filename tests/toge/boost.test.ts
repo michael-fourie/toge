@@ -170,6 +170,33 @@ test('six-lane grand prix roads: nothing on the road but the racers, walls at th
   }
 });
 
+test('sprint rings: four short laps by day, no slow corners, and quick left-right flicks every lap', () => {
+  for (const id of ['mizuumi', 'hibari'] as const) {
+    const t = getTrack(id);
+    assert.equal(t.def.laps, 4);
+    assert.ok(['alpine', 'coast', 'desert', 'spring', 'autumn'].includes(t.def.theme), `${id}: a day theme`);
+    const lap = t.lap * SAMPLE;
+    assert.ok(lap > 1200 && lap < 1600, `${id}: a short lap (${lap} m)`);
+    // Corners, one lap round: the tightest radius in each, and which way it goes.
+    const turns: { sign: number; r: number; at: number }[] = [];
+    let sign = 0;
+    let peak = 0;
+    const i0 = Math.floor(t.startS / SAMPLE);
+    for (let i = i0; i < i0 + t.lap; i++) {
+      const c = t.curv[i];
+      const s = Math.abs(c) > 1 / 400 ? Math.sign(c) : 0;
+      if (s !== sign && sign !== 0) turns.push({ sign, r: 1 / peak, at: i * SAMPLE }), (peak = 0);
+      if (s) peak = Math.max(peak, Math.abs(c));
+      sign = s;
+    }
+    assert.ok(turns.every((c) => c.r > 50), `${id}: nothing slower than a 50 m corner (${Math.min(...turns.map((c) => c.r)).toFixed(0)} m)`);
+    // An esse: a corner one way flicking straight into one the other way within 30 m.
+    const flicks = turns.filter((c, k) => k > 0 && c.sign !== turns[k - 1].sign && c.at - turns[k - 1].at < 30 + 2 * Math.PI * c.r * 0.25).length;
+    assert.ok(flicks >= 2, `${id}: ${flicks} left-right flicks a lap`);
+    assert.ok(t.props.length === 0, 'a circuit: no obstacles');
+  }
+});
+
 test('Sea-to-Sky: wide sweepers, and only three corners tight enough to brake for', () => {
   const t = getTrack('seatosky');
   assert.ok(t.def.width >= 14 && t.def.clean);

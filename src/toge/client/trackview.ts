@@ -83,6 +83,10 @@ export const TRACK_LOOKS: Partial<Record<TrackId, Partial<Look>>> = {
   akane: { sun: [11, 250], turbidity: 12, rayleigh: 1.3, light: 0xffb26a, lightPower: 2.3, hemi: 0.5, skyGain: 0.6, clouds: [0.3, 0.35], exposure: 0.5, grade: grade({ contrast: 1.16, saturation: 1.05, shadows: [0.86, 0.92, 1.12], highlights: [1.14, 0.99, 0.84] }) },
   // Toge (the open world) in the late afternoon: the sun warm but well up in the west-south-west, so every way you
   // drive is lit (a golden-hour sun left half the island in shade), and greener grass for the long views.
+  // The sprint rings race at midday (Andrew: "day-time maps"): the sun high, so nothing reads as evening. The coast
+  // theme's own sun sits at 14°, which looks like late afternoon.
+  mizuumi: { sun: [38, 195] },
+  hibari: { sun: [44, 205], light: 0xfff2dc },
   toge: { sun: [24, 235], turbidity: 6, rayleigh: 1.8, light: 0xffd6a8, lightPower: 2.4, hemi: 0.85, skyGain: 0.58, clouds: [0.32, 0.38], exposure: 0.48, fogDensity: 0.00018, grass: [0.25, 0.42, 0.14], grassDry: [0.46, 0.5, 0.22], rock: [0.52, 0.48, 0.42], verge: [0.44, 0.42, 0.27], grade: grade({ contrast: 1.12, saturation: 1.06, shadows: [0.9, 0.95, 1.08], highlights: [1.1, 1.0, 0.88] }) },
 };
 
