@@ -32,6 +32,7 @@ import { LAMP_DAY, LAMP_NIGHT, setLampLevel } from './carparts.ts';
 import { type Rider, decodeRider, defaultRider, rivalRider } from '../shared/rider.ts';
 import type { GhostRun } from '../shared/ghost.ts';
 import { GhostCar } from './ghostcar.ts';
+import { HIGHLIGHT, type Moment, MomentFlag, MomentTape, type PlayPose, bestMoment, momentLine, newPlayPose } from '../shared/highlight.ts';
 import { type Cockpit, buildCockpit } from './cockpit.ts';
 import { Head, ROUGH } from './headcam.ts';
 import { Effects } from './effects.ts';
@@ -128,6 +129,24 @@ const TAG_CHECK = 6;
  */
 const RUSH = { from: 42, full: 80, boost: 0.35, cockpit: 0.5 };
 const RES = { slowMs: 22, slowFor: 1.5, fastMs: 15, fastFor: 6, step: 0.15, min: 0.55, settle: 4 };
+/**
+ * The Best Moment replay's camera (racegame.ts `replayCamera`): angles round the car from its direction of travel
+ * (0 ahead, π behind) at the start and end of the shot, distance (plus 0.4 of the car's length) and height over it.
+ * `orbit` (drifts, jumps) swings from behind to the side; `flyby` (flat out) starts ahead, low, and lets it go by.
+ */
+const REPLAY_CAM = {
+  orbit: { from: 2.65, to: 1.55, dist: 6, lowY: 1.2, highY: 2.2 },
+  flyby: { from: 0.75, to: 2.5, dist: 6.5, lowY: 0.8, highY: 1.5 },
+  fov: 52,
+  /** How fast it turns with the car (1/s). */
+  follow: 3,
+};
+/** Yaw (three.js convention) of a replay pose's nose. */
+const yawOfPose = (p: PlayPose) => {
+  const [x, y, z, w] = p.q;
+  return Math.atan2(2 * (x * z + w * y), 1 - 2 * (x * x + y * y));
+};
+const angleDiff = (a: number, b: number) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 
 const RIVAL_NAMES = CPU.names;
 
@@ -176,6 +195,20 @@ interface Remote {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+
+/** The winner's Best Moment on screen: the race clock it's at, the car it's about and how the camera moves. */
+interface Replay {
+  t: number;
+  end: number;
+  star: Racing | Remote;
+  moment: Moment;
+  /** Which way the camera swings round the car (+1 / -1), and the direction of travel it frames against (smoothed). */
+  side: number;
+  dir: THREE.Vector2;
+  fresh: boolean;
+  el: HTMLElement;
+  done: () => void;
+}
 
 /** Yaw rate (rad/s, + = turning left): angular velocity about the world's up. */
 const yawRate = (c: Car) => c.w.y;
@@ -355,6 +388,10 @@ export class RaceGame {
   private draftReady = false;
   private wallClock = 0;
   private exited = false;
+  /** Every car's run on the race clock (seconds since GO), for the winner's Best Moment replay (highlight.ts). */
+  private tapes = new Map<Racing | Remote, MomentTape>();
+  /** The Best Moment playing after the finish, before the results. */
+  private replay: Replay | null = null;
   /** Name tags hidden behind a hill, by tag id, and the frame each was last checked. */
   private tagHidden = new Map<Tag['id'], { hidden: boolean; at: number }>();
 
@@ -949,6 +986,7 @@ export class RaceGame {
         this.setup.online?.net.send({ t: 'cpufinish', id: r.netId, time: this.clock });
       }
     }
+    if (!this.roam && (live || this.phase === 'finished')) this.recordMoments();
     // Network
     if (this.setup.online && (live || this.phase === 'countdown' || this.phase === 'finished')) {
       this.pingAcc += TICK_DT;
@@ -962,6 +1000,37 @@ export class RaceGame {
         if (me.finished === null) this.send();
         this.sendCpus();
       }
+    }
+  }
+
+  /**
+   * Samples every car on the race clock for the Best Moment: ours from the physics, online racers from the pose on
+   * screen. A car's tape ends where it crossed the line.
+   */
+  private recordMoments() {
+    const t = this.ghostT;
+    const tape = (r: Racing | Remote) => {
+      let k = this.tapes.get(r);
+      if (!k) this.tapes.set(r, (k = new MomentTape()));
+      if (r.finished !== null && k.end === null) k.end = t;
+      return k;
+    };
+    for (const r of [this.me, ...this.rivals]) {
+      const c = r.car;
+      const flags =
+        (r.input.brake > 0.1 ? MomentFlag.Brake : 0) |
+        (c.drift !== 0 ? MomentFlag.Drift : 0) |
+        (c.boost > 0 ? MomentFlag.Boost : 0) |
+        (c.wheels.every((w) => !w.contact) ? MomentFlag.Air : 0) |
+        (c.driftLevel << MomentFlag.LevelShift);
+      tape(r).add(t, { p: c.p, q: c.q, v: c.v, steer: c.steer, flags });
+    }
+    for (const r of this.remotes.values()) {
+      if (!r.last) continue;
+      const f = r.last.c.f;
+      const flags = (f & CarFlag.Brake ? MomentFlag.Brake : 0) | (f & CarFlag.Drift ? MomentFlag.Drift : 0) | (f & CarFlag.Boost ? MomentFlag.Boost : 0) | (((f >> CarFlag.LevelShift) & 3) << MomentFlag.LevelShift);
+      const v = r.last.c.v;
+      tape(r).add(t, { p: r.shownP, q: r.shownQ, v: { x: v[0], y: v[1], z: v[2] }, steer: r.last.c.st, flags });
     }
   }
 
@@ -1190,7 +1259,11 @@ export class RaceGame {
     const myPlace = done.indexOf(this.me) + 1;
     const drift = this.driftMeter.total;
     const xpBefore = garage.g.xp;
-    const res = await garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift });
+    const paid = garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift });
+    // The winner's Best Moment first, then the results (the prize is settled meanwhile).
+    await this.bestMoment(done[0], done[0]?.name ?? '');
+    const res = await paid;
+    if (this.exited) return;
     this.myPrize = res.ok ? (res.paid ?? 0) : 0;
     const bonus = res.ok ? res.bonus : undefined;
     const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined }));
@@ -1237,26 +1310,36 @@ export class RaceGame {
     return next ? getTrack(next).def.name : '';
   }
 
-  private onlineResults(lines: (ResultLine & { id: number; xp?: number })[], gp?: Extract<RaceServerMsg, { t: 'results' }>['gp']) {
+  private async onlineResults(lines: (ResultLine & { id: number; xp?: number })[], gp?: Extract<RaceServerMsg, { t: 'results' }>['gp']) {
     this.phase = 'done';
     this.watching = null;
     this.hud.watching('', '');
+    const arrived = performance.now();
+    const title = gp ? `${CUPS[gp.cup].name} · ${this.track.def.name}` : this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
     const mine = lines.find((l) => l.me);
     const xpBefore = garage.g.xp;
     if (mine) garage.credit(mine.prize, mine.place === 1 && lines.filter((l) => !l.cpu).length > 1, mine.xp ?? 0);
     // A guest's best is kept here; an account's comes from the server a moment later (`records`). Only record modes
     // keep best times (recordMode): a race's drafting and bumping would make them unfair in a time trial.
     if (mine && mine.time !== null && !garage.onServer && recordMode(this.setup.online!.mode)) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
-    const title = gp ? `${CUPS[gp.cup].name} · ${this.track.def.name}` : this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
+    // Kept now, so new best times (`records`) that land during the replay still mark them.
     this.shownResults = { lines, title };
     this.gpShown = gp ?? null;
+    // The winner's Best Moment first (the room holds the results HIGHLIGHT.seconds longer for it).
+    const win = lines.find((l) => l.place === 1);
+    if (win && !this.replay) {
+      const id = win.id;
+      const star = id === this.setup.online!.net.id ? this.me : (this.rivals.find((r) => r.netId === id) ?? this.remotes.get(id));
+      await this.bestMoment(star, win.name);
+      if (this.exited) return;
+    }
     this.hud.panel(`${this.hud.resultsHtml(title, lines, this.clean)}
       <p class="rh-note">${mine ? `You earned ${money(mine.prize)}${bonusNote(mine.bonus)}${esc(xpNote(mine.xp ?? 0, xpBefore))}` : ''}${garage.onServer ? '' : ' · Sign in to keep your winnings'}<span data-best-note>${esc(bestNote(mine?.newBest, this.track.def.name))}</span></p>
       ${gp ? cupHtml(gp.cup, gp.round, gp.table, gp.final, String(this.setup.online!.net.id)) : ''}
       ${gp && !gp.final ? `<p class="rh-cup-next" data-cup-next></p>` : ''}
       <div class="rh-buttons" data-result-acts></div>`);
     setMenuNav(true);
-    if (gp && !gp.final) this.cupClock(gp, performance.now() + gp.next);
+    if (gp && !gp.final) this.cupClock(gp, arrived + gp.next);
     this.resultActs();
   }
 
@@ -1505,20 +1588,31 @@ export class RaceGame {
     for (const r of this.remotes.values()) {
       this.poseRemote(r, now, dt);
     }
+    // The Best Moment replay puts every car (and the traffic, which runs on the race clock) back where it was then.
+    const rp = this.replay;
+    if (rp) this.poseReplay(rp, dt);
     const rg = this.recordGhost;
     if (rg) {
-      rg.update(this.ghostT - (1 - alpha) * TICK_DT, dt);
+      rg.update(rp ? rp.t : this.ghostT - (1 - alpha) * TICK_DT, dt);
       if (!this.ghostLoc.s) this.ghostLoc.i = Math.round(this.track.startS / SAMPLE);
       rg.s = locate(this.track, rg.position.x, rg.position.z, this.ghostLoc.i, this.ghostLoc).s;
     }
-    this.trafficView?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera.position.x, this.camera.position.z);
-    this.worldTraffic?.update(this.trafficTime - (1 - alpha) * TICK_DT, this.camera);
-    const view = this.camTarget();
-    this.updateCamera(dt, view);
+    const clock = rp ? rp.t : this.trafficTime - (1 - alpha) * TICK_DT;
+    this.trafficView?.update(clock, this.camera.position.x, this.camera.position.z);
+    this.worldTraffic?.update(clock, this.camera);
+    let focusY: number;
+    if (rp) {
+      this.replayCamera(rp, dt);
+      focusY = rp.star.model.root.position.y;
+    } else {
+      const view = this.camTarget();
+      this.updateCamera(dt, view);
+      focusY = view.root.position.y;
+    }
     this.driversVisible();
-    this.view.follow(this.camera.position.x, view.root.position.y, this.camera.position.z, now);
+    this.view.follow(this.camera.position.x, focusY, this.camera.position.z, now);
     this.sound();
-    this.updateHud();
+    if (!rp) this.updateHud();
     this.contact.update();
     this.post.render(now);
   }
@@ -1578,6 +1672,144 @@ export class RaceGame {
         this.fx.spark(p.x, p.y, p.z, vx * FLAME.carry + (Math.random() - 0.5) * 0.6, (Math.random() - 0.3) * 0.5, vz * FLAME.carry + (Math.random() - 0.5) * 0.6, color, FLAME.life, FLAME.size, FLAME.glow);
       }
     }
+  }
+
+  // --- the Best Moment ---------------------------------------------------------------------------
+
+  /**
+   * Plays the winner's Best Moment (highlight.ts: the most exciting HIGHLIGHT.seconds of their run, from this client's
+   * own recording) under its overlay, and resolves when it's over or skipped. Resolves at once if there's nothing to
+   * show (a winner we never drew, a run too short). Never resolves if the race is torn down meanwhile.
+   */
+  private bestMoment(star: Racing | Remote | undefined, name: string): Promise<void> {
+    const tape = star && this.tapes.get(star);
+    const moment = tape && bestMoment(tape);
+    if (!star || !tape || !moment || this.exited) return Promise.resolve();
+    // Frame the side the car slides toward (its nose swings that way), or a fixed side for a straight run.
+    let slip = 0;
+    for (let i = 0; i < tape.length; i++) if (tape.time(i) >= moment.start && tape.time(i) < moment.start + HIGHLIGHT.seconds) slip += tape.slip(i);
+    const el = document.createElement('div');
+    el.className = 'rh-replay';
+    el.innerHTML = `<i class="rh-lb top"></i><i class="rh-lb bottom"></i>
+      <div class="rh-rp-tag"><i></i>Replay</div>
+      <div class="rh-rp-card">
+        <small class="rh-rp-who"><span>Winner</span><b data-who></b></small>
+        <b class="rh-rp-title">Best Moment</b>
+        <span class="rh-rp-line ${moment.kind}"></span>
+        <div class="rh-rp-bar" style="animation-duration:${HIGHLIGHT.seconds}s"><i></i></div>
+      </div>
+      <button class="rh-rp-skip" data-act="skip">Skip</button>`;
+    el.querySelector('[data-who]')!.textContent = name;
+    el.querySelector('.rh-rp-line')!.textContent = momentLine(moment);
+    this.hud.root.appendChild(el);
+    this.hud.root.classList.add('replay');
+    this.hud.watching('', '');
+    return new Promise((done) => {
+      this.replay = { t: moment.start, end: moment.start + HIGHLIGHT.seconds, star, moment, side: slip < 0 ? -1 : 1, dir: new THREE.Vector2(), fresh: true, el, done };
+      const skip = el.querySelector<HTMLButtonElement>('[data-act="skip"]')!;
+      skip.addEventListener('click', () => this.endReplay());
+      setMenuNav(true);
+      skip.focus({ preventScroll: true });
+    });
+  }
+
+  private endReplay() {
+    const rp = this.replay;
+    if (!rp) return;
+    this.replay = null;
+    rp.el.remove();
+    this.hud.root.classList.remove('replay');
+    this.post.rush = 0;
+    this.snapCamera();
+    rp.done();
+  }
+
+  /** Every recorded car as it was at the replay's moment, the winner with its sparks and smoke. */
+  private poseReplay(rp: Replay, dt: number) {
+    rp.t += dt;
+    if (rp.t >= rp.end) return this.endReplay();
+    const now = newPlayPose();
+    const then = newPlayPose();
+    for (const [r, tape] of this.tapes) {
+      if ('id' in r && this.remotes.get(r.id) !== r) continue; // left the race
+      tape.at(rp.t, now);
+      tape.at(rp.t - 0.05, then);
+      const root = r.model.root;
+      root.position.set(now.x, now.y, now.z);
+      root.quaternion.set(...now.q);
+      root.updateMatrixWorld();
+      const sp = 'car' in r ? r.car.spec : r.spec;
+      const spin = (root.userData.replaySpin = ((root.userData.replaySpin as number | undefined) ?? 0) + (now.speed / sp.radius) * dt);
+      const restY = (a: number) => sp.mountY[a] - (sp.rest - (sp.rest + sp.radius - sp.cg - sp.mountY[a]));
+      const yawRate = angleDiff(yawOfPose(now), yawOfPose(then)) / 0.05;
+      r.model.pose(
+        [0, 1, 2, 3].map((i) => ({ y: restY(i < 2 ? 0 : 1), angle: spin })),
+        now.steer,
+        (now.flags & MomentFlag.Brake) !== 0,
+        yawRate * now.speed,
+      );
+      if (r !== rp.star) continue;
+      const vx = (now.x - then.x) / 0.05;
+      const vz = (now.z - then.z) / 0.05;
+      this.driftFx(root, sp.axleR, sp.bike ? 0 : sp.track, sp.cg, (now.flags & MomentFlag.Drift) !== 0, (now.flags >> MomentFlag.LevelShift) & 3, (now.flags & MomentFlag.Boost) !== 0, vx, vz, dt);
+      if (Math.abs(now.slip) > 0.2 && now.speed > 8 && !(now.flags & MomentFlag.Air) && this.puffTick % 3 === 0) this.fx.puff(now.x, now.y - sp.cg, now.z, vx, vz, 0.6, false);
+    }
+  }
+
+  /**
+   * The replay's camera: it rides with the winner and swings slowly round them. A drift or a jump goes from behind
+   * the car round to its side; a flat-out run starts ahead of the car and lets it go by.
+   */
+  private replayCamera(rp: Replay, dt: number) {
+    // Whatever camera you raced in, the replay is filmed from outside.
+    for (const [r, c] of this.cockpits) {
+      c.root.visible = false;
+      const rider = r.userData.rider as THREE.Object3D | undefined;
+      if (rider) rider.visible = true;
+    }
+    if (this.hiddenCabin) {
+      this.hiddenCabin.visible = true;
+      this.hiddenCabin = null;
+    }
+    if (this.camera.near !== 0.2) this.camera.near = 0.2;
+    const root = rp.star.model.root;
+    const p = root.position;
+    const tape = this.tapes.get(rp.star)!;
+    const a = tape.at(rp.t - 0.1);
+    const b = tape.at(rp.t + 0.1);
+    let dx = b.x - a.x;
+    let dz = b.z - a.z;
+    let l = Math.hypot(dx, dz);
+    if (l < 0.3) {
+      // Slow: frame against the nose instead.
+      const f = new THREE.Vector3(0, 0, -1).applyQuaternion(root.quaternion);
+      dx = f.x;
+      dz = f.z;
+      l = Math.hypot(dx, dz) || 1;
+    }
+    const want = new THREE.Vector2(dx / l, dz / l);
+    if (rp.fresh) rp.dir.copy(want);
+    else rp.dir.lerp(want, 1 - Math.exp(-dt * REPLAY_CAM.follow)).normalize();
+    const k = Math.min(1, Math.max(0, 1 - (rp.end - rp.t) / HIGHLIGHT.seconds));
+    const ease = k * k * (3 - 2 * k);
+    const shot = rp.moment.kind === 'speed' ? REPLAY_CAM.flyby : REPLAY_CAM.orbit;
+    const ang = (shot.from + (shot.to - shot.from) * ease) * rp.side;
+    const spec = 'car' in rp.star ? rp.star.car.spec : rp.star.spec;
+    const len = CARS[spec.id].length;
+    const dist = shot.dist + len * 0.4;
+    // Rotate the direction of travel by `ang` (0: ahead of the car, π: behind it).
+    const cx = rp.dir.x * Math.cos(ang) - rp.dir.y * Math.sin(ang);
+    const cz = rp.dir.x * Math.sin(ang) + rp.dir.y * Math.cos(ang);
+    const pos = new THREE.Vector3(p.x + cx * dist, p.y + shot.lowY + (shot.highY - shot.lowY) * ease, p.z + cz * dist);
+    pos.y = Math.max(pos.y, heightAt(this.track, pos.x, pos.z) + 0.6, p.y - spec.cg + 0.5);
+    // Look at the car itself (a smoothed look point lags metres behind at 250 km/h); the travel direction is smoothed.
+    rp.fresh = false;
+    this.camera.position.copy(pos);
+    this.camera.lookAt(p.x + rp.dir.x * 1.5, p.y + 0.5, p.z + rp.dir.y * 1.5);
+    this.camera.fov = REPLAY_CAM.fov;
+    this.camera.updateProjectionMatrix();
+    const speed = tape.at(rp.t).speed;
+    this.post.rush = Math.min(1, Math.max(0, (speed - RUSH.from) / (RUSH.full - RUSH.from))) * 0.5;
   }
 
   /** What the camera follows: your car, or the racer you're spectating (posed from its last update). */

@@ -312,6 +312,18 @@ a component or a page.
   handed to `onResults` as `tapes`); solo runs keep none. The lobby host's Record ghost toggle (`{t:'ghost'}`, `RECORD_GHOST`) has the room fetch the track's ghost
   (`Accounts.recordGhost`); the room message says whose it is (`record`) and `load` carries it. In the race it's a
   see-through car with a "TR" name tag and a map dot, never a racer (no place, contact or prize).
+- **Best Moment** (highlight.ts; Michael 2026-11-11: "After a game show a 5 second highlight from the winner ... going
+  really fast or drifting well or something cool ... a cool overlay on it saying Best Moment"): every client records
+  every car it draws on the race clock (`MomentTape`, HIGHLIGHT.hz; racegame.ts `recordMoments`: yours and the CPUs
+  from the physics, online racers from the pose on screen), so nothing goes on the wire. When the race ends (solo:
+  you cross the line; online: `results`), `bestMoment` picks the winner's best `HIGHLIGHT.seconds` (after the launch,
+  before their line): each sample scores the best of speed² (`fast`), drift (sin(slip) × speed / `driftRef`, tuned so
+  a real drift beats a straight) and air, summed over the window. racegame.ts then replays it in the race's own scene
+  (every recorded car and the traffic put back where they were, the winner's sparks and smoke), filmed by
+  `REPLAY_CAM` (a flat-out run: from ahead, letting the car by; a drift or jump: from behind round to the side), under
+  the overlay (`.rh-replay` in race.css: letterbox, REPLAY tag, "Best Moment" card with the winner and the line from
+  `momentLine`, a cyan bar, Skip). Then the results. Online the room holds each results wait `HIGHLIGHT.seconds`
+  longer (RACE `resultsSeconds` etc.), so the table still gets 12 / 15 / 25 s. Free roam has none.
 - **Friends** (the Friends tab, friendsui.ts): add accounts by username (site-wide lists, `src/shared/friends.ts`,
   `/api/friends`), see who added you, open a friend's garage (`/api/garage?u=`, a `TogeProfile`: cars, driver, races,
   wins, best times, no money). Their car goes on the turntable with their driver beside it, and their best times sit next
@@ -383,6 +395,8 @@ src/toge/shared/
                radius, bitten into the road's edges, always leaving `ROCKFALL_GAP` of clear tarmac; solid, and the AI
                steers round them by their radius. toge/client/propview.ts draws props and the boost pads.
   ghost.ts     record ghosts: GhostRecorder, the tape encoding, cleanTape / cleanRun, unpack + poseAt (playback).
+  highlight.ts the winner's Best Moment: MomentTape (every car's run, sampled on the race clock), bestMoment (scores
+               the best HIGHLIGHT.seconds), momentLine (the overlay's line).
   records.ts   best times: Bests per track, recordTime (keeps a time only if it beats the old one and is plausible: cleanTime,
                minTime), cleanBests, the all-time boards (BoardRow, BOARD, cleanBoard, placeOnBoard), and
                TogeProfile / profileOf (what a friend sees of your garage).
@@ -569,6 +583,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in toge/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records` in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records`, `highlight` (Best Moment) in `tests/toge/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

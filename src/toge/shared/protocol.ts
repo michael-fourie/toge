@@ -9,6 +9,7 @@
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from './track.ts';
 import type { GhostRun } from './ghost.ts';
 import { CUPS, type CupId, type CupRow } from './cups.ts';
+import { HIGHLIGHT } from './highlight.ts';
 
 /** One signed-in racer's new best in `records` (NewBest in records.ts, keyed by racer id). */
 export interface RecordRow {
@@ -297,11 +298,15 @@ export const RACE = {
   snapshotHz: 20,
   /** After the first finisher, the rest have this long before they're a DNF. */
   dnfSeconds: 40,
-  resultsSeconds: 12,
+  /**
+   * The results stay up this long before the lobby. Each wait counts the winner's Best Moment replay (HIGHLIGHT.seconds),
+   * which every client plays before showing the table, so the table itself still gets 12 / 15 / 25 s.
+   */
+  resultsSeconds: 12 + HIGHLIGHT.seconds,
   /** A Grand Prix round's results (with the cup table) before the next round loads on its own. */
-  gpResultsSeconds: 15,
+  gpResultsSeconds: 15 + HIGHLIGHT.seconds,
   /** The final cup standings stay up this long before the lobby. */
-  cupResultsSeconds: 25,
+  cupResultsSeconds: 25 + HIGHLIGHT.seconds,
   /** A race can't last longer than this (everyone still out is a DNF). */
   maxSeconds: 600,
 };
