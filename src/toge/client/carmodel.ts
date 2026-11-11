@@ -9,7 +9,8 @@ import { buildBike } from './bikemodel.ts';
 import { type Rider, defaultRider } from '../shared/rider.ts';
 import { type DriverRig, arrive } from './driver.ts';
 import { bodyKit, hasWing } from './bodykits.ts';
-import { DESIGNS, type Design, type Interior, type Kit, driverEye, makeKitHelpers } from './carkits.ts';
+import { designFor } from './shells.ts';
+import { type Design, type Interior, type Kit, driverEye, makeKitHelpers } from './carkits.ts';
 import { type Section, centreTop, curve, loft, smooth, surface, zAt } from './carloft.ts';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GLASS, MAT, glowMaterial, isShared, mergeByMaterial, paintMaterial, plateMaterial, rbox, share, stripeTexture, wheel } from './carparts.ts';
@@ -388,13 +389,16 @@ export interface CarModel {
 export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()): CarModel {
   if (isBike(owned.model)) return buildBike(owned, rider);
   const b = CARS[owned.model];
-  const d = DESIGNS[owned.model as keyof typeof DESIGNS];
+  // A body kit from the Vanta Case swaps the whole design (shells.ts); the chassis and its numbers stay.
+  const d = designFor(owned);
   const sp = carSpec(owned);
   const look = owned.look;
   const L = b.length;
   const W = b.width / 2;
   const H = b.height;
   const root = new THREE.Group();
+  // The cockpit camera builds its view from the same greenhouse (cockpit.ts).
+  root.userData.design = d;
   const body = new THREE.Group();
   root.add(body);
   // Body space: ground at y = 0, mid-wheelbase at z = 0; the root is the CG.
@@ -484,6 +488,7 @@ export function buildCar(owned: OwnedCar, rider: Rider | null = defaultRider()):
     tail,
     pipe: pipeMats?.pipe ?? MAT.chrome,
     pipeHole: pipeMats?.hole ?? MAT.hole,
+    wing: hasWing(owned),
     tF: 0.5 - b.wheelbase / (2 * L),
     tR: 0.5 + b.wheelbase / (2 * L),
     ...makeKitHelpers(lower),
@@ -655,8 +660,8 @@ function common(k: Kit, d: Design, owned: OwnedCar, own: { dispose(): void }[]) 
     if (frame.fx.cover > 0) k.put(new THREE.PlaneGeometry(0.37, 0.125), coverMaterial(frame), [0, d.plateY, pz + 0.016]);
   }
 
-  // Spoilers (a cosmetic wing replaces the stock one).
-  const s = hasWing(owned) ? 0 : owned.look.spoiler;
+  // Spoilers (a cosmetic wing replaces the stock one; a body kit with its own wing has no stock one).
+  const s = hasWing(owned) || d.ownWing ? 0 : owned.look.spoiler;
   const onRoof = d.roofSpoiler;
   const baseT = onRoof ? d.roofR + 0.02 : 0.955;
   const baseY = onRoof ? H : k.top(baseT);

@@ -5,7 +5,7 @@
 
 import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, HOODS, LIPS, MIRRORS, RIMS, RIM_COLORS, RIM_COLOR_NAMES, ROOFS, SPOILERS, STRIPES, TINTS, TRIMS, type BaseCar, TUNE_RANGE, type Tune, carSpec, isBike, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
 import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, payout, tunerCost } from '../shared/garage.ts';
-import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById } from '../shared/cosmetics.ts';
+import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById, fitsModel } from '../shared/cosmetics.ts';
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
 import { type Rider, decodeRider, defaultRider, encodeRider, isRider, riderInfo } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
@@ -1021,7 +1021,11 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
         const item = cosById(drop.id);
         if (item) {
           lockerSlot = item.slot;
-          void garage.act({ a: 'equip', i: garage.g.sel, slot: item.slot, id: item.id });
+          // A body kit goes on a car it's made for: the one you drive if it fits, else your first that does.
+          const sel = garage.g.sel;
+          const i = fitsModel(item, garage.g.cars[sel].model) ? sel : garage.g.cars.findIndex((c) => fitsModel(item, c.model));
+          if (i < 0) setStatus('Body kits fit the Vanta V10: buy one at the dealer to wear it.');
+          else void garage.act({ a: 'equip', i, slot: item.slot, id: item.id });
         }
       }
       closeReel();

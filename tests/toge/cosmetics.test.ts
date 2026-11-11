@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CAR_CODE_MAX, decodeCar, encodeCar, newOwnedCar } from '../../src/toge/shared/cars.ts';
-import { CATALOG, COS_CASES, COS_ITEMS, COS_SLOTS, RARITIES, RARITY, caseItems, caseOdds, cleanKit, cleanPlate, cosById, decodeKit, encodeKit, passOnly, rollCosCase } from '../../src/toge/shared/cosmetics.ts';
+import { CAR_CODE_MAX, carSpec, decodeCar, encodeCar, newOwnedCar } from '../../src/toge/shared/cars.ts';
+import { CATALOG, COS_CASES, COS_ITEMS, COS_SLOTS, RARITIES, RARITY, caseItems, caseOdds, cleanKit, cleanPlate, cosById, decodeKit, encodeKit, fitsModel, passOnly, rollCosCase } from '../../src/toge/shared/cosmetics.ts';
 import { applyAction, cleanGarage, current, newGarage, ownedCarCode } from '../../src/toge/shared/garage.ts';
 import type { KV } from '../../src/server/accountStore.ts';
 import { GarageStore, secureRandom } from '../../src/toge/server/garageStore.ts';
@@ -179,4 +179,29 @@ test('body parts: a car wearing every slot (last item each, longest plate) still
   assert.deepEqual(decodeKit('3-1')?.kit, { paint: CATALOG.paint[3].id, decal: CATALOG.decal[1].id });
   // The Aero Case drops only body parts... and holds every rarity it weights.
   assert.ok(caseItems('aero').every((i) => ['wing', 'hood', 'roof', 'lip', 'skirts', 'flaps'].includes(i.slot)));
+});
+
+test('Vanta Case: whole body kits made for the Vanta, worn only on a Vanta, looks only', () => {
+  const kits = caseItems('vanta');
+  assert.ok(kits.length >= 5, `${kits.length} kits`);
+  assert.ok(kits.every((i) => i.slot === 'shell' && i.fx.car === 'vanta'), 'the Vanta Case holds only Vanta body kits');
+  assert.ok(CATALOG.shell.every((i) => i.cases.includes('vanta') || passOnly(i)), 'every body kit drops from the Vanta Case');
+  assert.equal(new Set(CATALOG.shell.map((i) => i.fx.style)).size, CATALOG.shell.length, 'every kit is its own body');
+  assert.ok(fitsModel(cosById('vk_kaido')!, 'vanta'));
+  assert.ok(!fitsModel(cosById('vk_kaido')!, 'pebble'));
+  assert.ok(fitsModel(cosById('p_chrome')!, 'pebble'), 'everything else fits every car');
+
+  // Equip: refused on another model, fine on the Vanta.
+  const g = { ...rich(), cars: [newOwnedCar('pebble'), newOwnedCar('vanta')], cos: ['vk_kage'] };
+  assert.deepEqual(applyAction(g, { a: 'equip', i: 0, slot: 'shell', id: 'vk_kage' }, Math.random, 0), { ok: false, error: 'That body kit is made for another car.' });
+  const on = applyAction(g, { a: 'equip', i: 1, slot: 'shell', id: 'vk_kage' }, Math.random, 0);
+  assert.ok(on.ok && on.g.cars[1].cos.shell === 'vk_kage');
+
+  // Same car underneath: a kit changes none of the numbers the physics (and the PI) run on.
+  const stock = newOwnedCar('vanta');
+  for (const it of CATALOG.shell) {
+    const kitted = { ...newOwnedCar('vanta'), cos: { shell: it.id } };
+    assert.deepEqual(carSpec(kitted), carSpec(stock), `${it.id} spec`);
+    assert.equal(decodeCar(encodeCar(kitted))?.cos.shell, it.id, `${it.id} travels in the car code`);
+  }
 });

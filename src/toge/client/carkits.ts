@@ -48,6 +48,8 @@ export interface Design {
   recline?: number;
   /** No fuel flap (something else sits on the rear quarter). */
   noFuelFlap?: boolean;
+  /** The design carries its own rear wing, so the garage's spoiler option is left off (a cosmetic wing still replaces it). */
+  ownWing?: boolean;
   /** The cabin's own trim, inside and as seen through the glass (unset: the stock dark grey). */
   interior?: Interior;
   kit(k: Kit): void;
@@ -92,6 +94,8 @@ export interface Kit {
   /** Exhaust pipe and the inside of its mouth (cosmetic exhaust tips swap these). */
   pipe: THREE.Material;
   pipeHole: THREE.Material;
+  /** A cosmetic wing is fitted (bodykits.ts): a design's own wing stays off. */
+  wing: boolean;
   /** t of the front and rear axles. */
   tF: number;
   tR: number;
@@ -130,7 +134,7 @@ const hemi = (r: number) => new THREE.SphereGeometry(r, 20, 8, 0, Math.PI * 2, 0
  * A round lamp on the nose (dir 1) or tail (dir -1) in a bezel. A headlamp is built like one: a polished
  * reflector bowl, a bulb, and a clear domed glass over them; a tail lamp is a lit red dome in a dark ring.
  */
-function roundLamp(k: Kit, x: number, y: number, r: number, lens: THREE.Material, dir: 1 | -1, bezel: THREE.Material = MAT.chrome) {
+export function roundLamp(k: Kit, x: number, y: number, r: number, lens: THREE.Material, dir: 1 | -1, bezel: THREE.Material = MAT.chrome) {
   const z = dir > 0 ? k.front(x, y) : k.rear(x, y);
   const out = -dir; // which way along z is out of the car (the nose faces -z)
   k.put(new THREE.TorusGeometry(r, r * 0.16, 8, 28), bezel, [x, y, z + dir * 0.012], [0, 0, 0], true);
@@ -156,7 +160,7 @@ function roundLamp(k: Kit, x: number, y: number, r: number, lens: THREE.Material
 }
 
 /** A projector: a chrome cup with a lit lens in it, facing along `r`'s +y (out of a lamp housing). */
-function projector(k: Kit, p: [number, number, number], r: [number, number, number], size: number) {
+export function projector(k: Kit, p: [number, number, number], r: [number, number, number], size: number) {
   k.put(new THREE.CylinderGeometry(size, size * 0.8, size * 0.6, 18, 1, true), MAT.reflector, p, r, true);
   k.put(new THREE.CylinderGeometry(size * 0.62, size * 0.62, size * 0.5, 18), MAT.head, p, r, true);
 }
@@ -165,7 +169,7 @@ function projector(k: Kit, p: [number, number, number], r: [number, number, numb
  * A slim headlight lying on the nose from (x0, t0) to (x1, t1): a dark gloss slab following the surface,
  * two projector lenses in it and a light strip along its front edge.
  */
-function slitLamp(k: Kit, x0: number, t0: number, x1: number, t1: number, depth: number) {
+export function slitLamp(k: Kit, x0: number, t0: number, x1: number, t1: number, depth: number) {
   const p = (x: number, t: number) => new THREE.Vector3(x, k.height(t, x), k.z(t));
   const p0 = p(x0, t0);
   const p1 = p(x1, t1);
@@ -196,7 +200,7 @@ function slitLamp(k: Kit, x0: number, t0: number, x1: number, t1: number, depth:
  * A modern tail lamp on the rear face at (x, y): a dark red lens, a lit bar across it and a thinner one
  * under it, in a black surround.
  */
-function tailLamp(k: Kit, x: number, y: number, w: number, h: number) {
+export function tailLamp(k: Kit, x: number, y: number, w: number, h: number) {
   const z = k.rear(x, y);
   k.put(rbox(w + 0.02, h + 0.02, 0.04, 0.012), MAT.gloss, [x, y, z - 0.012], [0, 0, 0], true);
   k.put(rbox(w, h, 0.04, 0.01), MAT.redLens, [x, y, z - 0.004], [0, 0, 0], true);
@@ -205,7 +209,7 @@ function tailLamp(k: Kit, x: number, y: number, w: number, h: number) {
 }
 
 /** A run of slats (louvres) across the top between t0 and t1, following `height`. */
-function louvres(k: Kit, t0: number, t1: number, n: number, width: (t: number) => number, height: (t: number) => number, mat: THREE.Material) {
+export function louvres(k: Kit, t0: number, t1: number, n: number, width: (t: number) => number, height: (t: number) => number, mat: THREE.Material) {
   for (let i = 0; i < n; i++) {
     const t = t0 + ((i + 0.5) / n) * (t1 - t0);
     const dz = 0.01 * k.L;
@@ -218,7 +222,7 @@ function louvres(k: Kit, t0: number, t1: number, n: number, width: (t: number) =
  * A fin along the roof's spine from t0 to t1, `w` wide, standing h(t) proud of the roof: a rounded hump that
  * follows the greenhouse (a box laid on a curved roof floats off it at one end).
  */
-function spine(k: Kit, t0: number, t1: number, w: number, h: (t: number) => number, mat: THREE.Material) {
+export function spine(k: Kit, t0: number, t1: number, w: number, h: (t: number) => number, mat: THREE.Material) {
   const N = 20;
   const P = 11;
   const pos: number[] = [];
@@ -256,7 +260,7 @@ function spine(k: Kit, t0: number, t1: number, w: number, h: (t: number) => numb
  * straight box stood off the paint at the corners. They stay upright: tilted to the face, a lamp lens caught the
  * sky and went white.
  */
-function rearCurve(k: Kit, y: number, w: number) {
+export function rearCurve(k: Kit, y: number, w: number) {
   // Least squares for z = a + b·x² + c·x⁴ on samples across the band.
   const n = 25;
   const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
@@ -286,7 +290,7 @@ function solve3(A: number[][], r: number[]): [number, number, number] {
 }
 
 /** A band across the tail on `curve`, out to ±w, h tall, its face `out` off the paint and its back `depth` behind that. */
-function rearBand(k: Kit, curve: ReturnType<typeof rearCurve>, y: number, w: number, h: number, mat: THREE.Material, out: number, depth: number) {
+export function rearBand(k: Kit, curve: ReturnType<typeof rearCurve>, y: number, w: number, h: number, mat: THREE.Material, out: number, depth: number) {
   const n = 16;
   const seg = (2 * w) / n;
   for (let i = 0; i < n; i++) {
@@ -297,14 +301,31 @@ function rearBand(k: Kit, curve: ReturnType<typeof rearCurve>, y: number, w: num
 }
 
 /** A dark grille slab on the nose. */
-function grille(k: Kit, w: number, h: number, y: number, r = 0.03, mat: THREE.Material = MAT.grille) {
+export function grille(k: Kit, w: number, h: number, y: number, r = 0.03, mat: THREE.Material = MAT.grille) {
   k.put(rbox(w, h, 0.12, r), mat, [0, y, k.front(0, y) + 0.05]);
 }
 
-function exhaust(k: Kit, x: number, y: number, r: number, mirror: boolean, sides = 20) {
+export function exhaust(k: Kit, x: number, y: number, r: number, mirror: boolean, sides = 20) {
   const z = k.rear(x, y);
   k.put(new THREE.CylinderGeometry(r, r * 0.92, 0.16, sides, 1, true), k.pipe, [x, y, z + 0.02], [Math.PI / 2, 0, 0], mirror);
   k.put(new THREE.CircleGeometry(r * 0.85, sides), k.pipeHole, [x, y, z + 0.06], [0, 0, 0], mirror);
+}
+
+/** The Vanta's roof airbox scoop: a carbon fin down the spine from just behind the header, fading into the rear glass. */
+export function vantaRoofScoop(k: Kit, mat: THREE.Material = MAT.carbon) {
+  const s0 = 0.45;
+  const s1 = 0.62;
+  spine(k, s0, s1, 0.26, (t) => 0.06 * (1 - smooth(0.57, s1, t)) * smooth(s0 - 0.01, s0 + 0.02, t), mat);
+  k.put(rbox(0.22, 0.05, 0.02, 0.012), MAT.hole, [0, k.cabin.top(s0 + 0.008) + 0.035, k.z(s0 + 0.008)]);
+}
+
+/** The Vanta's V10 under the rear glass: two red cam covers either side of a carbon plenum and its intake trumpets. */
+export function vantaEngine(k: Kit, cams: THREE.Material = MAT.red) {
+  const et = 0.715;
+  const ey = k.top(et);
+  for (const s of [-1, 1]) k.put(rbox(0.16, 0.08, 0.58, 0.03), cams, [s * 0.2, ey + 0.05, k.z(et)], [0, 0, s * -0.35]);
+  k.put(rbox(0.22, 0.1, 0.5, 0.04), MAT.carbon, [0, ey + 0.08, k.z(et)]);
+  for (let i = 0; i < 5; i++) k.put(new THREE.CylinderGeometry(0.028, 0.034, 0.06, 12), MAT.chrome, [0, ey + 0.15, k.z(et) - 0.2 + i * 0.1]);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -544,17 +565,8 @@ export const DESIGNS: Record<Exclude<CarId, BikeId>, Design> = {
       const flank = Math.atan2(k.side(it + 0.02, 0.5).x - k.side(it - 0.02, 0.5).x, 0.04 * k.L);
       k.put(rbox(0.1, 0.22, 0.36, 0.05), MAT.grille, [p.x - 0.035, p.y, p.z], [0, flank, 0], true);
       k.put(rbox(0.03, 0.025, 0.42, 0.01), MAT.carbon, [p.x - 0.005, p.y + 0.13, p.z], [0, flank, 0], true);
-      // Roof airbox scoop: a carbon fin down the spine from just behind the header, fading into the rear glass.
-      const s0 = 0.45;
-      const s1 = 0.62;
-      spine(k, s0, s1, 0.26, (t) => 0.06 * (1 - smooth(0.57, s1, t)) * smooth(s0 - 0.01, s0 + 0.02, t), MAT.carbon);
-      k.put(rbox(0.22, 0.05, 0.02, 0.012), MAT.hole, [0, k.cabin.top(s0 + 0.008) + 0.035, k.z(s0 + 0.008)]);
-      // The V10 under the rear glass: two red cam covers either side of a carbon plenum and its intake trumpets.
-      const et = 0.715;
-      const ey = k.top(et);
-      for (const s of [-1, 1]) k.put(rbox(0.16, 0.08, 0.58, 0.03), MAT.red, [s * 0.2, ey + 0.05, k.z(et)], [0, 0, s * -0.35]);
-      k.put(rbox(0.22, 0.1, 0.5, 0.04), MAT.carbon, [0, ey + 0.08, k.z(et)]);
-      for (let i = 0; i < 5; i++) k.put(new THREE.CylinderGeometry(0.028, 0.034, 0.06, 12), MAT.chrome, [0, ey + 0.15, k.z(et) - 0.2 + i * 0.1]);
+      vantaRoofScoop(k);
+      vantaEngine(k);
       // Louvred engine cover.
       louvres(k, 0.74, 0.92, 7, () => k.W * 1.0, (t) => k.top(t), MAT.carbon);
       // Light bar across the tail with arrow ends, in a dark red lens band that wraps the tail's curve (a straight

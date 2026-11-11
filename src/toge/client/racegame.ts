@@ -1921,7 +1921,7 @@ export class RaceGame {
     const seat = (root.userData.lean as THREE.Object3D | undefined) ?? root;
     let pit = this.cockpits.get(root);
     if (!pit) {
-      pit = buildCockpit(t.id, t.spec);
+      pit = buildCockpit(t.id, t.spec, root.userData.design);
       seat.add(pit.root);
       this.cockpits.set(root, pit);
     }
