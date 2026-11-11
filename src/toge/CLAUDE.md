@@ -46,6 +46,11 @@ car it was passing at 250 km/h; Hayate is now clean) and steers onto boost pads 
 beats full throttle (racephysics "CPUs" test; Monaco is the closest, about a second); the three speed roads are flat
 out for everyone.
 
+Reversing (2026-11-10, Garrett: "when reversing the turning is opposite to real life"): the arcade layer yawed toward
+the stick whichever way the car was going, so backing up with the wheel right swung the nose right. Its yaw now flips
+with the direction of travel (`backing` in `arcade()`, eased in over the first 2 m/s backwards), so wheel right in
+reverse swings the tail right and the nose left, as in the simulation underneath (racephysics "reversing steers").
+
 **CPU difficulty** (driver.ts `CPU_LEVELS`, `rivalAi`; the Race page's CPU pills, saved as `atrous.cpu`, read by
 racegame.ts `cpuLevel()`): Easy (pace 0.66, about where the CPUs were before), Normal (0.86, the default; its slowest
 CPUs about match full throttle) and Hard (1: skills 0.84-0.94). The host's level also drives an online lobby's CPU racers.
