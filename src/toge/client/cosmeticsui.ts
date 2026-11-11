@@ -3,7 +3,7 @@
 // things on in the showroom and equip them on the car you drive. hub.ts hosts both tabs.
 
 import { type OwnedCar } from '../shared/cars.ts';
-import { COS_CASES, COS_ITEMS, COS_SLOTS, CATALOG, type CosCase, type CosItem, type CosSlot, RARITIES, RARITY, SLOT_INFO, caseItems, caseOdds, cosById, PLATE_MAX, passOnly, rollCosCase } from '../shared/cosmetics.ts';
+import { COS_CASES, COS_ITEMS, COS_SLOTS, CATALOG, type CosCase, type CosItem, type CosSlot, RARITIES, type ShellStyle, RARITY, SLOT_INFO, caseItems, caseOdds, cosById, PLATE_MAX, passOnly, rollCosCase } from '../shared/cosmetics.ts';
 import { tierFor } from '../shared/pass.ts';
 import type { CaseDrop, Garage } from '../shared/garage.ts';
 import { $, esc } from '../../client/menu/ui.ts';
@@ -49,6 +49,8 @@ function swatch(it: CosItem): { bg: string; glyph?: string; glow?: string } {
       return { bg: `linear-gradient(rgba(5,6,8,${it.fx.cover}), rgba(5,6,8,${it.fx.cover})), #f4f1e8`, glyph: 'ABC', glow: it.fx.glow ? hex(it.fx.color) : undefined };
     case 'exhaust':
       return { bg: `radial-gradient(circle, ${it.fx.heat ? hex(it.fx.heat) : '#050505'} 0 30%, ${hex(it.fx.color)} 34% 58%, #0b0e14 62%)`, glow: it.fx.heat ? hex(it.fx.heat) : undefined };
+    case 'shell':
+      return { bg: `url('${shellArt(it.fx.style)}') center / 92% no-repeat, radial-gradient(circle at 50% 70%, #3a1418, #0b0e14 70%)`, glow: it.fx.style === 'kage' ? '#22e6ff' : undefined };
     default: {
       // Body parts: the material as the background, a glyph for the part.
       const fx = it.fx;
@@ -64,6 +66,21 @@ function swatch(it: CosItem): { bg: string; glyph?: string; glow?: string } {
     }
   }
 }
+
+/** Side views of the body kits (nose left) for cards: the shell in white, wheels, and each kit's tell. */
+const SHELL_ART: Record<ShellStyle, string> = {
+  kaido: '<path d="M4 29 L8 22 L30 19 L42 12 L58 11 L70 17 L94 19 L96 29 Z"/><path d="M80 18 L82 6 M88 18 L88 6" stroke="#f2f2f0" stroke-width="2"/><path d="M74 6 L98 5" stroke="#f2f2f0" stroke-width="3"/><path d="M90 26 L99 9" stroke="#d9dde4" stroke-width="2.5"/>',
+  safari: '<path d="M5 28 L7 20 L30 17 L42 10 L60 10 L72 16 L93 18 L95 28 Z"/><rect x="44" y="6" width="14" height="3" rx="1"/><path d="M38 18 L40 8 L46 8" stroke="#2a2d33" stroke-width="2.5" fill="none"/><ellipse cx="82" cy="16" rx="9" ry="2.5" fill="#2a2d33"/>',
+  wedge: '<path d="M3 27 L50 13 L64 12 L96 15 L96 28 Z"/><path d="M80 14 L82 8 M92 14 L92 8" stroke="#f2f2f0" stroke-width="1.5"/><path d="M74 7 L99 9" stroke="#f2f2f0" stroke-width="2.5"/>',
+  gt: '<path d="M3 29 L8 23 L22 18 L42 12 L58 11 L72 17 L95 19 L96 29 Z"/><path d="M84 18 C 84 10, 88 8, 88 8" stroke="#9aa3ad" stroke-width="1.6" fill="none"/><path d="M78 8 L99 7" stroke="#2c2f36" stroke-width="3"/><path d="M2 30 L14 30" stroke="#2c2f36" stroke-width="1.5"/>',
+  longtail: '<path d="M3 28 L10 22 L26 18 L42 12 L58 11 L72 17 L90 18 L99 24 L98 28 Z"/><path d="M60 11 L90 8 L94 18" fill="#f2f2f0"/><path d="M90 9 L99 9" stroke="#2c2f36" stroke-width="2.5"/>',
+  kage: '<path d="M2 28 L18 21 L40 12 L58 11 L70 16 L96 18 L97 28 Z" fill="#14161b" stroke="#22e6ff" stroke-width="1"/><path d="M76 11 L98 11" stroke="#22e6ff" stroke-width="1.6"/><path d="M8 25 L30 18" stroke="#22e6ff" stroke-width="1"/>',
+};
+const shellArt = (style: ShellStyle) =>
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40"><g fill="#f2f2f0">${SHELL_ART[style]}</g><circle cx="24" cy="29" r="6" fill="#0b0e14" stroke="#9aa3ad" stroke-width="1.5"/><circle cx="78" cy="29" r="6" fill="#0b0e14" stroke="#9aa3ad" stroke-width="1.5"/></svg>`,
+  );
 
 /** Glyphs for body parts on cards (by style; mudflaps by slot). */
 const PART_GLYPH: Record<string, string> = {
@@ -173,6 +190,7 @@ export function lockerTab(g: Garage, car: OwnedCar, carName: string, slot: CosSl
       <span class="tg-label">${esc(SLOT_INFO[slot].name)}: ${on ? esc(cosById(on)!.name) : 'stock'}</span>
       ${on ? `<button class="tg-pill" data-unequip="${slot}">Back to stock</button>` : ''}
     </div>
+    ${slot === 'shell' && car.model !== 'vanta' ? `<p class="tg-muted">Body kits are made for the Vanta V10: pick your Vanta in the garage to wear or try one on.</p>` : ''}
     ${tryItem ? `<p class="cz-trying" style="--r:${rarityCss(tryItem)}">Trying on <b>${esc(tryItem.name)}</b>. Not yours yet: ${passOnly(tryItem) ? `it's a battle pass reward (tier ${tierFor('cos', tryItem.id)})` : `find it in the ${esc(where(tryItem))}`}.</p>` : ''}
     ${
       slot === 'plate' || slot === 'frame'

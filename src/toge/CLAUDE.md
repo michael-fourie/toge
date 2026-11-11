@@ -252,10 +252,19 @@ a component or a page.
   (window seals and door handles), `mirrors` and front `lip`. Every list is append-only (codes store indexes). A car
   code always carries the first eight look values; the body options go on the end only when one is off its default,
   so a car without them keeps its old code (`decodeCar` takes either; the 8-digit upgrades segment marks the end).
-- **Cosmetics** (cosmetics.ts): 200 items in 17 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
+- **Cosmetics** (cosmetics.ts): 206 items in 18 slots (paint jobs, decals, window tints, head/tail lamps, rims, calipers,
   underglow, plates, plate frames/covers, exhaust tips, and bolt-on body parts: rear wing, hood, roof, front lip, sides,
-  mudflaps), 5 rarities, won from 6 cases (Street, Night Run, Livery, Chrome, Aero, Legend) bought with garage money;
-  equipped per car, plus free custom plate text. No effect on physics.
+  mudflaps, and whole body kits), 5 rarities, won from 7 cases (Street, Night Run, Livery, Chrome, Aero, Vanta, Legend)
+  bought with garage money; equipped per car, plus free custom plate text. No effect on physics.
+- **Body kits** (slot `shell`, the Vanta Case; Michael asked 2026-11-11: "change the complete look ... keep the same exact
+  specs and driving"): a whole new body for one model (`ShellFx.car`; only the Vanta has kits). `fitsModel` says what
+  fits: the garage refuses to equip a kit on another model, and the renderer ignores one that doesn't fit. Each kit is a
+  full `Design` in toge/client/shells.ts spread from the Vanta's (`designFor(owned)` picks it in carmodel.ts): its own
+  curves and parts, the Vanta's greenhouse, interior, eye point and chassis, so the cockpit (`buildCockpit(..., design)`,
+  from the model's `root.userData.design`), the driver and every number stay the Vanta's (cosmetics.test.ts checks the
+  spec). Kits with their own wing set `ownWing` (no garage spoiler) and skip it when a cosmetic wing is on (`k.wing`).
+  A new kit: a `ShellStyle`, an item appended to `CATALOG.shell`, a `SHELLS` entry, a card silhouette (`SHELL_ART` in
+  cosmeticsui.ts); check it with `lab.show('vanta'); lab.cos({ shell: 'vk_kaido' })` in `/dev/cars.html`.
 - **Drivers** (rider.ts): four realistic characters, steampunk crossed with cyberpunk (Marlowe, Kirika, Okonkwo,
   Inès), GLBs built in Blender by `tools/drivers` (docs/DRIVERS.md). Free, saved in the garage (`rider`, the `rider`
   action; a rider's code is its id). Your driver sits in your car (seen through the tinted glass, hands on their own

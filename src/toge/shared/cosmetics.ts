@@ -18,9 +18,9 @@ export const RARITY: Record<Rarity, { name: string; color: number; refund: numbe
   mythic: { name: 'Mythic', color: 0xff3d6e, refund: 10000 },
 };
 
-export type CosSlot = 'paint' | 'decal' | 'window' | 'head' | 'tail' | 'rims' | 'caliper' | 'glow' | 'plate' | 'frame' | 'exhaust' | 'wing' | 'hood' | 'roof' | 'lip' | 'skirts' | 'flaps';
+export type CosSlot = 'paint' | 'decal' | 'window' | 'head' | 'tail' | 'rims' | 'caliper' | 'glow' | 'plate' | 'frame' | 'exhaust' | 'wing' | 'hood' | 'roof' | 'lip' | 'skirts' | 'flaps' | 'shell';
 /** Wire order: append only. */
-export const COS_SLOTS: readonly CosSlot[] = ['paint', 'decal', 'window', 'head', 'tail', 'rims', 'caliper', 'glow', 'plate', 'frame', 'exhaust', 'wing', 'hood', 'roof', 'lip', 'skirts', 'flaps'];
+export const COS_SLOTS: readonly CosSlot[] = ['paint', 'decal', 'window', 'head', 'tail', 'rims', 'caliper', 'glow', 'plate', 'frame', 'exhaust', 'wing', 'hood', 'roof', 'lip', 'skirts', 'flaps', 'shell'];
 
 export const SLOT_INFO: Record<CosSlot, { name: string; icon: string }> = {
   paint: { name: 'Paint job', icon: '🎨' },
@@ -40,6 +40,7 @@ export const SLOT_INFO: Record<CosSlot, { name: string; icon: string }> = {
   lip: { name: 'Front lip', icon: '⌣' },
   skirts: { name: 'Sides', icon: '▬' },
   flaps: { name: 'Mudflaps', icon: '▮' },
+  shell: { name: 'Body kit', icon: '◭' },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -79,6 +80,12 @@ export interface RoofFx extends PartLook { style: 'fin' | 'rack' | 'lightbar' | 
 export interface LipFx extends PartLook { style: 'lip' | 'splitter' | 'canards' | 'tow' | 'bullbar' }
 export interface SkirtFx extends PartLook { style: 'skirts' | 'flares' | 'rivets' | 'sidepipes' }
 export interface FlapFx extends PartLook { mark?: 'stripe' | 'chevron' }
+/**
+ * A whole new body for one model (`car`): the shell is redrawn from new curves with its own lamps, intakes and
+ * aero (toge/client/shells.ts), in the car's own paint. Same chassis, same numbers: physics never sees it.
+ */
+export type ShellStyle = 'kaido' | 'safari' | 'wedge' | 'gt' | 'longtail' | 'kage';
+export interface ShellFx { car: 'vanta'; style: ShellStyle }
 
 export interface FxBySlot {
   paint: PaintFx;
@@ -98,9 +105,10 @@ export interface FxBySlot {
   lip: LipFx;
   skirts: SkirtFx;
   flaps: FlapFx;
+  shell: ShellFx;
 }
 
-export type CaseId = 'street' | 'night' | 'chrome' | 'livery' | 'legend' | 'aero';
+export type CaseId = 'street' | 'night' | 'chrome' | 'livery' | 'legend' | 'aero' | 'vanta';
 
 export type CosItem = { [S in CosSlot]: { id: string; name: string; slot: S; rarity: Rarity; cases: readonly CaseId[]; fx: FxBySlot[S] } }[CosSlot];
 export type ItemOf<S extends CosSlot> = Extract<CosItem, { slot: S }>;
@@ -125,6 +133,7 @@ const AS: CaseId[] = ['aero', 'street'];
 const AN: CaseId[] = ['aero', 'night'];
 const AC: CaseId[] = ['aero', 'chrome'];
 const AV: CaseId[] = ['aero', 'livery'];
+const VK: CaseId[] = ['vanta'];
 /** Battle pass exclusives (pass.ts): in no case, so only the pass gives them. */
 const PASS: CaseId[] = [];
 
@@ -146,6 +155,8 @@ const ro = make('roof');
 const li = make('lip');
 const sk = make('skirts');
 const fl = make('flaps');
+const sh = make('shell');
+const vanta = (style: ShellStyle): ShellFx => ({ car: 'vanta', style });
 const PAINT = { mat: 'paint' } as const;
 const CARBON = { mat: 'carbon' } as const;
 const CHROME = { mat: 'chrome' } as const;
@@ -410,6 +421,14 @@ export const CATALOG: { [K in CosSlot]: readonly ItemOf<K>[] } = {
     fl('mf_gold', 'Gold Rush Flaps', 'rare', AC, { ...tint(0xd4a017), mark: 'stripe' }),
     fl('mf_neon', 'Neon Flaps', 'epic', AN, { ...tint(0x111317, 0x39ff88), mark: 'chevron' }),
   ],
+  shell: [
+    sh('vk_kaido', 'Kaidō Widebody', 'rare', VK, vanta('kaido')),
+    sh('vk_safari', 'Safari Raid', 'rare', VK, vanta('safari')),
+    sh('vk_wedge', 'Wedge \'74', 'epic', VK, vanta('wedge')),
+    sh('vk_gt', 'GT Works', 'epic', VK, vanta('gt')),
+    sh('vk_longtail', 'Longtail LM', 'legendary', VK, vanta('longtail')),
+    sh('vk_kage', 'Kage', 'mythic', VK, vanta('kage')),
+  ],
 };
 
 export const COS_ITEMS: readonly CosItem[] = COS_SLOTS.flatMap((s) => CATALOG[s] as readonly CosItem[]);
@@ -438,6 +457,7 @@ export const COS_CASES: readonly CosCase[] = [
   { id: 'livery', name: 'Livery Case', blurb: 'Paint jobs with a story: stripes, flames, camo, kanji and race numbers.', price: 2500, color: 0xff8a00, weights: { common: 48, rare: 32, epic: 14, legendary: 5, mythic: 1 } },
   { id: 'chrome', name: 'Chrome Case', blurb: 'Shiny things: chrome paint, mirror tints, gold rims, frames and tips.', price: 3000, color: 0xd9dde4, weights: { common: 40, rare: 34, epic: 18, legendary: 6.5, mythic: 1.5 } },
   { id: 'aero', name: 'Aero Case', blurb: 'Bolt-ons: wings, scoops, splitters, skirts, roof gear and mudflaps.', price: 2800, color: 0x7cff6b, weights: { common: 46, rare: 32, epic: 15, legendary: 5.5, mythic: 1.5 } },
+  { id: 'vanta', name: 'Vanta Case', blurb: 'Whole new bodies for the Vanta V10: widebody, wedge, longtail and more. Looks only: same car underneath.', price: 6000, color: 0xe0281e, weights: { rare: 62, epic: 28, legendary: 8, mythic: 2 } },
   { id: 'legend', name: 'Legend Case', blurb: 'Epic or better, from every case. The big one.', price: 8000, color: 0xffb020, weights: { epic: 72, legendary: 23, mythic: 5 } },
 ];
 
@@ -484,6 +504,9 @@ export function equipped<K extends CosSlot>(kit: CosKit | undefined, slot: K): I
   const it = cosById(kit?.[slot]);
   return it && it.slot === slot ? (it as ItemOf<K>) : undefined;
 }
+
+/** Whether an item can go on this model: body kits are made for one car, everything else fits all. */
+export const fitsModel = (it: CosItem, model: string): boolean => it.slot !== 'shell' || it.fx.car === model;
 
 /** Anything to a kit of existing items, each in its own slot. */
 export function cleanKit(x: unknown): CosKit {

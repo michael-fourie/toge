@@ -65,7 +65,7 @@ The rules that bite most often in this folder:
   v round the section, so each flank needs its own transform to read the right way (`onFlanks`).
 - Body parts (wings, hoods, roof gear, lips, sides, mudflaps): bodykits.ts builds them from the Kit helpers (`k.top`,
   `k.height`, `k.side`, `k.front`, `k.cabin`) inside carmodel.ts's `common()`, before the merge; a cosmetic wing replaces
-  the stock spoiler. Bikes don't wear them. Glowing edges are MeshBasicMaterial brighter than white (bloom) and marked `userData.glow` (no shadow).
+  the stock spoiler. Bikes don't wear them. Whole body kits (the Vanta Case) are designs, not bolt-ons: shells.ts. Glowing edges are MeshBasicMaterial brighter than white (bloom) and marked `userData.glow` (no shadow).
 - Dev hooks: `window.__race` (the running race), `/dev/race.html?track=…&car=…` + `window.rl` (a solo race the AI drives, stepped
   by hand: `rl.drive(s)`, `rl.sun(at)` to face the sun, `rl.cost(n)` for ms per frame, draw calls and triangles: shoot and measure before and after a visual change), `/dev/cars.html` + `window.lab` for car models (`lab.cos({...})` dresses them), `/dev/cosmetics.html` +
   `window.cz` for any cosmetic kit on any car in the real garage showroom (and every Locker card).

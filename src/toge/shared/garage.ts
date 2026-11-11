@@ -4,7 +4,7 @@
 // same code against localStorage for guests.
 
 import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part, type Tune, cleanCar, cleanLook, cleanTune, decodeCar, encodeCar, isCarId, newOwnedCar } from './cars.ts';
-import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, passOnly, rollCosCase } from './cosmetics.ts';
+import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, fitsModel, passOnly, rollCosCase } from './cosmetics.ts';
 import { clampDrift, driftPay } from './drift.ts';
 import { decodeLook, encodeLook } from './look.ts';
 import { type BgId, PASS, type PassState, STAGES, TIERS, TITLES, type TitleId, lockedLookParts, ownedLook, owns, raceXp, tierFor, tierOf, unlocked } from './pass.ts';
@@ -312,6 +312,7 @@ export function applyAction(g: Garage, act: GarageAction, rnd: () => number, now
       if (act.id !== null) {
         if (cosById(act.id)?.slot !== act.slot) return { ok: false, error: 'That doesn\'t go there.' };
         if (!g.cos.includes(act.id)) return { ok: false, error: 'You don\'t own that yet.' };
+        if (!fitsModel(cosById(act.id)!, g.cars[act.i].model)) return { ok: false, error: 'That body kit is made for another car.' };
       }
       const next = structuredClone(g);
       if (act.id === null) delete next.cars[act.i].cos[act.slot];

@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { CARS, type CarId, type CarSpec, isBike } from '../shared/cars.ts';
-import { DESIGNS, driverEye } from './carkits.ts';
+import { DESIGNS, type Design, driverEye } from './carkits.ts';
 import { MAT } from './carparts.ts';
 import { curve } from './carloft.ts';
 
@@ -264,10 +264,11 @@ function buildBikeCockpit(id: CarId, spec: CarSpec): Cockpit {
   };
 }
 
-export function buildCockpit(id: CarId, spec: CarSpec): Cockpit {
+/** `design`: the car's own when it wears a body kit (the built model's `userData.design`), else the stock one. */
+export function buildCockpit(id: CarId, spec: CarSpec, design?: Design): Cockpit {
   if (isBike(id)) return buildBikeCockpit(id, spec);
   const b = CARS[id];
-  const d = DESIGNS[id];
+  const d = design ?? DESIGNS[id];
   const L = b.length;
   const H = b.height;
   const W = b.width / 2;

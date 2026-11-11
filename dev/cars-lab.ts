@@ -161,7 +161,7 @@ requestAnimationFrame(frame);
     if (current === 'all') return;
     const m = models[0];
     const seat = (m.root.userData.lean as THREE.Object3D | undefined) ?? m.root;
-    const pit = buildCockpit(current, carSpec(newOwnedCar(current)));
+    const pit = buildCockpit(current, carSpec(newOwnedCar(current)), m.root.userData.design);
     seat.add(pit.root);
     const rider = m.root.userData.rider as THREE.Object3D | undefined;
     if (rider) rider.visible = false;

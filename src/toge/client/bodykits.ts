@@ -25,15 +25,15 @@ function partMat(look: PartLook, k: Kit): THREE.Material {
 }
 
 /** An edge light: brighter than white so the race's bloom catches it. */
-const glowMat = (c: number) => cached(`glow:${c}`, () => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(6) }));
+export const glowMat = (c: number) => cached(`glow:${c}`, () => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(6) }));
 
 /** Marks a mesh as a light (no shadow), like the car's own lamps. */
-function lit(m: THREE.Mesh): THREE.Mesh {
+export function lit(m: THREE.Mesh): THREE.Mesh {
   m.userData.glow = true;
   return m;
 }
 
-const tube = (pts: [number, number, number][], r: number) =>
+export const tube = (pts: [number, number, number][], r: number) =>
   new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(...p))), 20, r, 8);
 
 /** Where the deck (or a hatch's roof edge) carries a wing: the same spot the stock spoilers use. */
