@@ -56,6 +56,14 @@ The rules that bite most often in this folder:
   instanced sets per material) cast shadows: the traffic was ~1.5 M of the island's 2.65 M triangles a frame. Road
   meshes face up (their triangles are wound left to right across the road): a downward winding made the roads invisible
   from above. The HUD's roam mode (`.rh.roam`) hides place, clock, board and strip.
+- Building walls (facades.ts, 2026-11-11: Michael wanted the background buildings less blocky and plain, at no frame
+  cost): towers, flats and village houses share one shader patch (`facadeMaterial`) that reads two array textures
+  (colour with glass in alpha, glow) of four layers: three wall styles and a shopfront strip. Geometry carries `uv` in
+  facade tiles and a `fac` attribute (`pushFac`: style, street height, roof height): the bottom `FAC_SHOP` m read the
+  shops, the top 0.9 m is a dark parapet. Same draw calls and texture reads as before (measured on Neon Bay and the
+  open world). Use array layers, not an atlas: an atlas needed `textureGrad` across its seams, which cost ~20% of the
+  frame in SwiftShader. Round the style in the shader (an interpolated 2.0 can arrive as 1.999 and pick the wrong layer).
+  Roofs use `roofDeck` with planar `roofUv`.
 - Driving physics is shared (`src/toge/shared/vehicle.ts`); don't put handling logic in this folder.
 - Menus (hub.ts, lobby.ts, cosmeticsui.ts) follow `src/toge/DESIGN.md`; tokens and components are in hub.css. race.css is
   only the in-race HUD. Page ids (`dtab`) are restored on reload: keep them stable.

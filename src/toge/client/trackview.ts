@@ -12,7 +12,8 @@ import { decor, type Site } from './scenery.ts';
 import { TOWNS } from './towns.ts';
 import { BUSH_COLOURS, WIND, bushGeometry, farTree, farTwin, speciesFor, sway } from './trees.ts';
 import { LOD, LodTiles, ShadowOnly, shadowCasters } from './lod.ts';
-import { FACADE_H, FACADE_W, NEON_SIGNS, ROAD_TILE, TOWER_H, TOWER_W, asphalt, banner, facade, gravel, ground, mulberry, neonSigns, roofTiles, stone, towerFacade, vendingFront } from './tracktextures.ts';
+import { NEON_SIGNS, ROAD_TILE, asphalt, banner, gravel, ground, mulberry, neonSigns, roofTiles, stone, vendingFront } from './tracktextures.ts';
+import { FACADE_H, FACADE_W, FAC_STYLES, NO_SHOPS, TOWER_H, TOWER_W, facade, facadeMaterial, pushFac, roofDeck, roofUv, towerFacade } from './facades.ts';
 
 /** The barrier's distance from the centreline at sample i on one side (-1 left, +1 right), runoff included. */
 const railOf = (t: Track, i: number, side: number) => t.rail + (side < 0 ? t.runL[i] : t.runR[i]);
@@ -1002,8 +1003,8 @@ function city(scene: THREE.Scene, t: Track, rng: () => number, area: { x0: numbe
   const fac = towerFacade(t.def.seed);
   keep(fac.map);
   keep(fac.glow);
-  const wallMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, map: fac.map, emissive: 0xffffff, emissiveMap: fac.glow, emissiveIntensity: 1.3, roughness: 0.3, metalness: 0.45, envMapIntensity: 1.3 }));
-  const roofMat = keep(new THREE.MeshStandardMaterial({ color: 0x26272b, roughness: 0.9 }));
+  const wallMat = keep(facadeMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0xffffff, emissiveIntensity: 1.3, roughness: 0.3, metalness: 0.45, envMapIntensity: 1.3 }), fac));
+  const roofMat = keep(new THREE.MeshStandardMaterial({ color: 0x4a4b50, map: keep(roofDeck(t.def.seed)), roughness: 0.9 }));
   const signTex = keep(neonSigns());
   // Brighter than white: they bloom.
   const signMat = keep(new THREE.MeshBasicMaterial({ map: signTex, color: new THREE.Color(5, 5, 5), side: THREE.DoubleSide }));
@@ -1025,7 +1026,7 @@ function city(scene: THREE.Scene, t: Track, rng: () => number, area: { x0: numbe
   const col = new THREE.Color();
   for (let tx = area.x0; tx < area.x1; tx += TILE)
     for (let tz = area.z0; tz < area.z1; tz += TILE) {
-      const wall = { pos: [] as number[], nor: [] as number[], uv: [] as number[], col: [] as number[] };
+      const wall = { pos: [] as number[], nor: [] as number[], uv: [] as number[], col: [] as number[], fac: [] as number[] };
       const roof: number[] = [];
       const signs = { pos: [] as number[], uv: [] as number[] };
       const beacons: THREE.Vector3[] = [];
@@ -1056,6 +1057,8 @@ function city(scene: THREE.Scene, t: Track, rng: () => number, area: { x0: numbe
           const x1 = cx + w / 2;
           const z0 = cz - d / 2;
           const z1 = cz + d / 2;
+          // Its wall style from where it stands (not the rng: everything placed after it stays put).
+          const style = Math.abs(Math.floor(cx * 7.13 + cz * 3.71)) % FAC_STYLES;
           // Four walls, counter-clockwise from outside, the facade at its real size in metres.
           const faces: [number, number, number, number, number, number][] = [
             [x0, z1, x1, z1, 0, 1],
@@ -1075,6 +1078,7 @@ function city(scene: THREE.Scene, t: Track, rng: () => number, area: { x0: numbe
               wall.nor.push(nx, 0, nz);
               wall.col.push(col.r, col.g, col.b);
             }
+            pushFac(wall.fac, 6, style, floor, y1);
           }
           roof.push(x0, y1, z0, x0, y1, z1, x1, y1, z1, x0, y1, z0, x1, y1, z1, x1, y1, z0);
           if (h > 70) beacons.push(new THREE.Vector3(cx, y1 + 0.6, cz));
@@ -1104,12 +1108,14 @@ function city(scene: THREE.Scene, t: Track, rng: () => number, area: { x0: numbe
         g.setAttribute('normal', new THREE.Float32BufferAttribute(wall.nor, 3));
         g.setAttribute('uv', new THREE.Float32BufferAttribute(wall.uv, 2));
         g.setAttribute('color', new THREE.Float32BufferAttribute(wall.col, 3));
+        g.setAttribute('fac', new THREE.Float32BufferAttribute(wall.fac, 3));
         const m = new THREE.Mesh(g, wallMat);
         m.castShadow = true;
         m.receiveShadow = true;
         scene.add(m);
         const rg = keep(new THREE.BufferGeometry());
         rg.setAttribute('position', new THREE.Float32BufferAttribute(roof, 3));
+        rg.setAttribute('uv', new THREE.BufferAttribute(roofUv(roof), 2));
         rg.computeVertexNormals();
         scene.add(new THREE.Mesh(rg, roofMat));
       }
@@ -1214,6 +1220,10 @@ function village(scene: THREE.Scene, t: Track, rng: () => number, keep: <T exten
       const [su, sv] = size[Math.floor(i / 4)];
       uv.setXY(i, off + (uv.getX(i) * su) / FACADE_W, (uv.getY(i) * sv) / FACADE_H);
     }
+    // Houses take the first wall style (plaster, shoji on the passes) or the third (timber, or tiles and shutters), no shops.
+    const fac: number[] = [];
+    pushFac(fac, uv.count, Math.round(w * 13) % 2 ? 0 : 2, NO_SHOPS, h / 2 + 100);
+    geo.setAttribute('fac', new THREE.Float32BufferAttribute(fac, 3));
     return geo;
   };
   const spots = [t.finishS - 60, t.finishS - 20, t.finishS + 30, t.finishS + 80, t.finishS + 140, t.startS - 30, t.startS + 40];
@@ -1229,7 +1239,7 @@ function village(scene: THREE.Scene, t: Track, rng: () => number, keep: <T exten
       const g = new THREE.Group();
       g.position.set(p.x, h, p.z);
       g.rotation.y = Math.atan2(-p.tx, -p.tz) + (rng() < 0.5 ? 0 : Math.PI / 2);
-      const wallMat = keep(new THREE.MeshStandardMaterial({ color: walls[Math.floor(rng() * walls.length)], map: fac.map, emissive: 0xffffff, emissiveMap: fac.glow, emissiveIntensity: night ? 2.2 : 0, roughness: 0.85 }));
+      const wallMat = keep(facadeMaterial(new THREE.MeshStandardMaterial({ color: walls[Math.floor(rng() * walls.length)], emissive: 0xffffff, emissiveIntensity: night ? 2.2 : 0, roughness: 0.3 }), fac));
       const wall = new THREE.Mesh(wallGeo(w, ht + 3, dpt), wallMat);
       wall.position.y = (ht + 3) / 2 - 3;
       const roof = new THREE.Mesh(roofGeo, roofMat);

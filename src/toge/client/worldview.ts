@@ -12,7 +12,8 @@ import * as THREE from 'three';
 import { SAMPLE, SHOULDER, type Track, fbm } from '../shared/track.ts';
 import { CITY, RAIL_H, type Road, type World, WORLD, cityAt, coveredBy, roadGap, worldHeight } from '../shared/world.ts';
 import { HORIZON_FADE, LOOKS, type Look, TRACK_LOOKS, type TrackView, atmosphere, matteGround, noiseNormal, rockGeometry } from './trackview.ts';
-import { FACADE_H, FACADE_W, TARMAC_TILE, TOWER_H, TOWER_W, facade, ground, mulberry, tarmac, towerFacade } from './tracktextures.ts';
+import { TARMAC_TILE, ground, mulberry, tarmac } from './tracktextures.ts';
+import { FACADE_H, FACADE_W, FAC_STYLES, TOWER_H, TOWER_W, facade, facadeMaterial, pushFac, roofDeck, roofUv, towerFacade } from './facades.ts';
 import { WIND, farTree, farTwin, speciesFor, sway } from './trees.ts';
 import { LOD, LodTiles, ShadowOnly, shadowCasters } from './lod.ts';
 
@@ -641,11 +642,11 @@ function city(scene: THREE.Scene, w: World, keep: Keep, low: boolean) {
   const flats = facade(WORLD.seed, 'coast');
   for (const x of [tower.map, tower.glow, flats.map, flats.glow]) keep(x);
   const glowK = 0.35;
-  const towerMat = keep(new THREE.MeshStandardMaterial({ map: tower.map, emissive: 0xffffff, emissiveMap: tower.glow, emissiveIntensity: glowK, vertexColors: true, roughness: 0.35, metalness: 0.3, envMapIntensity: 1.3 }));
-  const flatsMat = keep(new THREE.MeshStandardMaterial({ map: flats.map, emissive: 0xffffff, emissiveMap: flats.glow, emissiveIntensity: glowK * 0.8, vertexColors: true, roughness: 0.85 }));
-  const roofMat = keep(new THREE.MeshStandardMaterial({ color: 0x55534f, roughness: 0.95 }));
-  const T: number[][] = [[], [], []]; // pos, uv, colour for towers
-  const F: number[][] = [[], [], []];
+  const towerMat = keep(facadeMaterial(new THREE.MeshStandardMaterial({ emissive: 0xffffff, emissiveIntensity: glowK, vertexColors: true, roughness: 0.35, metalness: 0.3, envMapIntensity: 1.3 }), tower));
+  const flatsMat = keep(facadeMaterial(new THREE.MeshStandardMaterial({ emissive: 0xffffff, emissiveIntensity: glowK * 0.8, vertexColors: true, roughness: 0.3 }), flats));
+  const roofMat = keep(new THREE.MeshStandardMaterial({ color: 0x9a978f, map: keep(roofDeck(WORLD.seed)), roughness: 0.95 }));
+  const T: number[][] = [[], [], [], []]; // pos, uv, colour, fac for towers
+  const F: number[][] = [[], [], [], []];
   const R: number[] = [];
   const beacons: THREE.Vector3[] = [];
   const rnd = mulberry(WORLD.seed + 77);
@@ -691,6 +692,7 @@ function city(scene: THREE.Scene, w: World, keep: Keep, low: boolean) {
         out[0].push(...p[k]);
         out[1].push(...t[k]);
         out[2].push(c.r, c.g, c.b);
+        pushFac(out[3], 1, (b.seed >> 3) % FAC_STYLES, y0, y1);
       }
     }
     // Flat roof, and a smaller box on top (plant room) for the taller ones.
@@ -712,6 +714,7 @@ function city(scene: THREE.Scene, w: World, keep: Keep, low: boolean) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(arr[0], 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(arr[1], 2));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(arr[2], 3));
+    geo.setAttribute('fac', new THREE.Float32BufferAttribute(arr[3], 3));
     geo.computeVertexNormals();
     const m = new THREE.Mesh(geo, mat);
     m.castShadow = !low;
@@ -720,6 +723,7 @@ function city(scene: THREE.Scene, w: World, keep: Keep, low: boolean) {
   }
   const roof = keep(new THREE.BufferGeometry());
   roof.setAttribute('position', new THREE.Float32BufferAttribute(R, 3));
+  roof.setAttribute('uv', new THREE.BufferAttribute(roofUv(R), 2));
   roof.computeVertexNormals();
   const rm = new THREE.Mesh(roof, roofMat);
   rm.castShadow = !low;

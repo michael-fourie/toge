@@ -16,7 +16,7 @@ export function mulberry(seed: number) {
 }
 
 /** Value noise that wraps every `p` cells, so a texture built from it tiles. */
-function tileNoise(seed: number) {
+export function tileNoise(seed: number) {
   const rnd = mulberry(seed);
   const T = new Float32Array(1024).map(() => rnd());
   const at = (x: number, y: number) => T[((x & 31) + ((y & 31) << 5)) & 1023];
@@ -568,78 +568,6 @@ export function stone(seed: number): Surface {
   return finish(L, 3, true, 4);
 }
 
-/**
- * House walls: 4 bays by 4 storeys (16 x 12 m) of plaster with windows. Returns the colour map (near
- * white plaster, so each house's colour tints it) and an emissive map with a random few windows lit.
- */
-export const FACADE_W = 16;
-export const FACADE_H = 12;
-export function facade(seed: number, theme: Theme): { map: THREE.CanvasTexture; glow: THREE.CanvasTexture } {
-  const W = 512;
-  const H = 384;
-  const rnd = mulberry(seed + 31);
-  const c = canvas(W, H);
-  const e = canvas(W, H);
-  const img = c.createImageData(W, H);
-  const noise = tileNoise(seed + 3);
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++) {
-      // Plaster, streaked by rain from the top of each storey down.
-      const streak = noise(x / 3, (y % 96) / 48, 64) * ((y % 96) / 96) * 0.15;
-      const v = 232 - streak * 255 + (noise(x / 16, y / 16, 32) - 0.5) * 18 + (rnd() - 0.5) * 10;
-      img.data.set([v, v * 0.98, v * 0.95, 255], (y * W + x) * 4);
-    }
-  c.putImageData(img, 0, 0);
-  e.fillStyle = '#000';
-  e.fillRect(0, 0, W, H);
-  const bayW = W / 4;
-  const stH = H / 4;
-  const shoji = theme !== 'coast' && theme !== 'desert';
-  for (let sy = 0; sy < 4; sy++) {
-    // A band between storeys.
-    c.fillStyle = 'rgba(60,50,40,0.25)';
-    c.fillRect(0, sy * stH, W, 4);
-    for (let bx = 0; bx < 4; bx++) {
-      if (rnd() < 0.15) continue;
-      const wx = bx * bayW + bayW * 0.22;
-      const wy = sy * stH + stH * 0.25;
-      const ww = bayW * 0.56;
-      const wh = stH * 0.5;
-      c.fillStyle = '#3a3229';
-      c.fillRect(wx - 3, wy - 3, ww + 6, wh + 6);
-      const glass = c.createLinearGradient(wx, wy, wx + ww, wy + wh);
-      glass.addColorStop(0, '#2a3440');
-      glass.addColorStop(0.5, '#46525e');
-      glass.addColorStop(1, '#1b2128');
-      c.fillStyle = glass;
-      c.fillRect(wx, wy, ww, wh);
-      c.fillStyle = '#3a3229';
-      c.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
-      c.fillStyle = 'rgba(255,255,255,0.5)';
-      c.fillRect(wx - 4, wy + wh + 3, ww + 8, 3); // sill
-      if (rnd() < 0.45) {
-        // Lit: warm lamplight, through shoji grids on the Japanese passes.
-        const warm = rnd() < 0.7 ? '#ffb45a' : '#fff1c9';
-        e.fillStyle = warm;
-        e.fillRect(wx, wy, ww, wh);
-        if (shoji) {
-          e.fillStyle = 'rgba(40,20,0,0.85)';
-          for (let k = 1; k < 4; k++) e.fillRect(wx + (ww * k) / 4 - 1, wy, 2, wh);
-          for (let k = 1; k < 3; k++) e.fillRect(wx, wy + (wh * k) / 3 - 1, ww, 2);
-        }
-        e.fillStyle = 'rgba(0,0,0,0.5)';
-        e.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
-      }
-    }
-  }
-  const map = new THREE.CanvasTexture(c.canvas);
-  map.colorSpace = THREE.SRGBColorSpace;
-  const glow = new THREE.CanvasTexture(e.canvas);
-  glow.colorSpace = THREE.SRGBColorSpace;
-  for (const t of [map, glow]) t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  return { map, glow };
-}
-
 /** Roof tiles: rows of rounded tiles running along the ridge (u round the prism, v along it). */
 export function roofTiles(): THREE.CanvasTexture {
   const W = 256;
@@ -732,70 +660,6 @@ export function vendingFront(seed: number, brand: string): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(g.canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
-}
-
-/**
- * City towers: a curtain wall, 4 bays by 4 floors (TOWER_W x TOWER_H m) of glass between mullions and
- * spandrels. The colour map is near white (each tower's colour tints it); the emissive map lights about
- * half the offices, whole floors at a time now and then, in cool and warm whites.
- */
-export const TOWER_W = 14;
-export const TOWER_H = 14;
-export function towerFacade(seed: number): { map: THREE.CanvasTexture; glow: THREE.CanvasTexture } {
-  const W = 512;
-  const H = 512;
-  const rnd = mulberry(seed + 77);
-  const c = canvas(W, H);
-  const e = canvas(W, H);
-  c.fillStyle = '#d8d8d8';
-  c.fillRect(0, 0, W, H);
-  e.fillStyle = '#000';
-  e.fillRect(0, 0, W, H);
-  const bay = W / 8;
-  const floor = H / 4;
-  // Each floor is let to someone: how many of its windows are lit and the light's colour (office white, warm lamps,
-  // the odd blue-green screen glow), so whole floors read as offices rather than a random speckle.
-  const TONES = ['#dfe9ff', '#dfe9ff', '#ffd9a0', '#ffe6c2', '#bfefff'];
-  for (let f = 0; f < 4; f++) {
-    const lit = rnd() < 0.25 ? 0.95 : rnd() < 0.3 ? 0.08 : 0.55;
-    const tone = TONES[Math.floor(rnd() * TONES.length)];
-    for (let b = 0; b < 8; b++) {
-      const x = b * bay + 3;
-      const y = f * floor + floor * 0.2;
-      const w = bay - 6;
-      const h = floor * 0.72;
-      const glass = c.createLinearGradient(x, y, x + w, y + h);
-      glass.addColorStop(0, '#2c3846');
-      glass.addColorStop(0.6, '#4a5a6c');
-      glass.addColorStop(1, '#1c242e');
-      c.fillStyle = glass;
-      c.fillRect(x, y, w, h);
-      if (rnd() < lit) {
-        // The room's light falls off from the ceiling panels at the top of the window to the desks below.
-        const fall = e.createLinearGradient(x, y, x, y + h);
-        fall.addColorStop(0, tone);
-        fall.addColorStop(0.18, tone);
-        fall.addColorStop(1, 'rgba(40,40,48,0.6)');
-        e.fillStyle = fall;
-        e.globalAlpha = 0.5 + rnd() * 0.5;
-        e.fillRect(x, y, w, h);
-        e.globalAlpha = 1;
-        // Blinds part way down, and now and then someone standing at the glass or a plant on the sill.
-        e.fillStyle = 'rgba(0,0,0,0.6)';
-        e.fillRect(x, y, w, h * rnd() * 0.45);
-        if (rnd() < 0.2) e.fillRect(x + w * (0.2 + rnd() * 0.5), y + h * 0.45, w * 0.14, h * 0.55);
-      }
-    }
-  }
-  const map = new THREE.CanvasTexture(c.canvas);
-  map.colorSpace = THREE.SRGBColorSpace;
-  const glow = new THREE.CanvasTexture(e.canvas);
-  glow.colorSpace = THREE.SRGBColorSpace;
-  for (const t of [map, glow]) {
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.anisotropy = 8;
-  }
-  return { map, glow };
 }
 
 /** Upright neon signs, NEON_SIGNS of them side by side: glowing letters stacked down a dark board with a coloured rim. */

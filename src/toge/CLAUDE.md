@@ -432,8 +432,8 @@ src/toge/shared/
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`), recordStore.ts (accounts' best times, `b:<user>`, and the all-time boards, `lb:<track>`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.
-src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), trees.ts (tree and bush shapes, wind sway, far stand-ins), lod.ts (distance swaps for tiled scenery), scenery.ts (props outside the barriers), towns.ts (the Postcard towns' buildings and extras), tracktextures.ts
-  (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
+src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), trees.ts (tree and bush shapes, wind sway, far stand-ins), lod.ts (distance swaps for tiled scenery), scenery.ts (props outside the barriers), towns.ts (the Postcard towns' buildings and extras), facades.ts (building walls: wall styles, shopfronts and prints, roofs; one shader patch), tracktextures.ts
+  (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; signs), post.ts (HDR
   post chain: bloom (into its own texture), then one pass that adds it, grades per theme (`Look.grade`) and tone maps), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
   textures in carparts.ts, merged by material; bikes in bikemodel.ts; tune them in `/dev/cars.html`, `window.lab`, `lab.info()` for draw
