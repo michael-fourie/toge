@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CUPS, CUP_IDS, GP_POINTS, ROUNDS, addRound, pointsFor } from '../../src/toge/shared/cups.ts';
+import { CUPS, CUP_IDS, GP_POINTS, addRound, pointsFor, roundLabel, roundsOf } from '../../src/toge/shared/cups.ts';
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../../src/toge/shared/track.ts';
 import { MODE_TRACK, cleanMode, recordMode } from '../../src/toge/shared/protocol.ts';
 
-test('every race track is in a cup of four, only the Velocity and Overdrive Cups borrow; the hill climb is in none', () => {
+test('every race track is in a cup of four (the Postcard Cup has five), only the Velocity and Overdrive Cups borrow; the hill climb is in none', () => {
   const seen = new Map<TrackId, string>();
   for (const id of CUP_IDS) {
     const c = CUPS[id];
     assert.equal(c.id, id);
-    assert.equal(c.tracks.length, ROUNDS);
-    assert.equal(new Set(c.tracks).size, ROUNDS, `${id} races four different tracks`);
+    assert.equal(c.tracks.length, id === 'postcard' ? 5 : 4);
+    assert.equal(roundsOf(id), c.tracks.length);
+    assert.equal(new Set(c.tracks).size, c.tracks.length, `${id} races different tracks`);
     for (const t of c.tracks) {
       assert.ok(Object.hasOwn(TRACK_DEFS, t), `${id}: ${t} is a track`);
       assert.ok(!TRACK_DEFS[t].climb, `${id}: ${t} is not a hill climb`);
@@ -22,6 +23,8 @@ test('every race track is in a cup of four, only the Velocity and Overdrive Cups
   assert.deepEqual(CUPS.rush.tracks.filter((t) => seen.get(t) === 'rush'), ['isonami', 'shiden'], 'the six-lane grand prix roads live in Overdrive');
   assert.deepEqual(CUPS.sprint.tracks, ['mizuumi', 'hibari', 'kamome', 'shiokaze'], 'Sprint is the four sprint rings, easiest first, all its own');
   assert.ok(CUPS.sprint.tracks.every((t) => TRACK_DEFS[t].laps === 4), 'Sprint is all short 4-lap circuits');
+  assert.deepEqual(CUPS.postcard.tracks, ['taketomi', 'hallstatt', 'goreme', 'oia', 'chefchaouen'], 'Postcard is the five town circuits, easiest first, all its own');
+  assert.equal(roundLabel('postcard', 4), 'Round 5 of 5 · Chefchaouen Medina');
   // (Kumo Skyway, the sky road, isn't in a Grand Prix yet.)
   const races = RACE_TRACKS.filter((t) => !TRACK_DEFS[t].climb && t !== 'kumo');
   assert.deepEqual(races.filter((t) => !seen.has(t)), [], 'a new race track needs a cup');

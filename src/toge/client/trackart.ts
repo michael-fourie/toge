@@ -95,7 +95,7 @@ export function trackTile(id: TrackId, attrs: string): string {
 }
 
 /**
- * A Grand Prix cup card (a button): the cup's colour and name, its line, and its four rounds as little track strips
+ * A Grand Prix cup card (a button): the cup's colour and name, its line, and its rounds as little track strips
  * (art, map, name) in order. `at`: the round under way, marked (and the ones before it dimmed as raced).
  */
 export function cupCard(id: CupId, attrs: string, at = -1): string {
@@ -103,7 +103,7 @@ export function cupCard(id: CupId, attrs: string, at = -1): string {
   const rounds = c.tracks
     .map((t, i) => `<li class="${i === at ? 'now' : i < at ? 'done' : ''}" style="${trackStyle(t)}"><span class="tg-track-art" aria-hidden="true"></span><i class="tg-num">${i + 1}</i>${trackMap(t)}<b>${esc(TRACK_DEFS[t].name)}</b></li>`)
     .join('');
-  return `<button class="tg-cup" style="--cup:${c.color}" ${attrs}>
+  return `<button class="tg-cup${c.tracks.length > 4 ? ' wide' : ''}" style="--cup:${c.color}" ${attrs}>
     <span class="tg-cup-head"><b>${esc(c.name)}</b><small>${esc(c.tag)} · ${cupKm(id, TRACK_LENGTH_KM)} km</small></span>
     <ol class="tg-cup-rounds">${rounds}</ol></button>`;
 }

@@ -138,6 +138,14 @@ a component or a page.
   traffic/cars from Shiden Boulevard and Isonami Corniche": no `traffic` now, and `clean`, so no bales, barrels or cones
   either, only the racers. Each has 4+ braking zones (a corner under 70 m after 300 m of straight); the boost test
   checks walls, the empty road and the zones. Their cup is Overdrive (below).
+  Five town circuits (2026-11-10, Michael: "5 new maps ... all under the same cup ... based on unique cities like
+  Taketomi Island in Okinawa"), 2 laps each, laid out as straights and arcs closed exactly with hills as sine waves
+  round the lap, easiest first: `taketomi` (Taketomi Island: coast, flat coral island, square village corners and a
+  fast beach sweep, 10 m wide, pale lanes), `hallstatt` (Hallstatt Shore: alpine, along the lake, a hairpin pair up the
+  slope behind the village, evening), `goreme` (Göreme Valley: desert, flowing, one hairpin, sunrise, no trees, hot-air
+  balloons), `oia` (Oia Caldera: coast, clifftop esses and a switchback, sunset, the caldera to the west) and
+  `chefchaouen` (Chefchaouen Medina: coast theme for its pines and cypress, no sea, a stack of hairpins up the
+  mountainside, 10 m wide). Each is lined with its own town instead of the theme's farmhouses (client/towns.ts, below).
   A sky road (2026-11-10: "a new map that doesn't have walls ... just like a floating road, and if you fall off the
   side, you lose all your speed and respawn in the middle of the road"): `kumo` (Kumo Skyway: alpine look at noon,
   3 laps of 1.94 km, 14 m wide, ~620 m up), `sky: true` on the TrackDef. The road ends at a `SKY.lip` of paved
@@ -168,8 +176,9 @@ a component or a page.
   (saltwind, kazeoka, redmesa, akane), Lantern (minato, monaco, neonbay, tsukiyo), Apex (kodama, hachi, spa, monza) and
   Velocity (hayate, seatosky, monza, ryusei: the three speed roads plus Monza) and Overdrive (id `rush`, first named Rush Hour;
   neonbay, isonami, ryusei, shiden: the two grand prix roads with the city and the expressway) and Sprint (mizuumi,
-  hibari, kamome, shiokaze: the four 4-lap sprint rings, easiest first). Only Velocity and Overdrive borrow tracks
-  from other cups.
+  hibari, kamome, shiokaze: the four 4-lap sprint rings, easiest first) and Postcard (taketomi, hallstatt, goreme, oia,
+  chefchaouen: the five town circuits, the only cup of five; `roundsOf(cup)` is a cup's round count, so every
+  "Round 2 of 4" reads it). Only Velocity and Overdrive borrow tracks from other cups.
   Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
   more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
   test checks every one is in one, and only Velocity and Overdrive repeat tracks); a new cup is an append to `CupId` / `CUPS`.
@@ -375,13 +384,13 @@ src/toge/shared/
   cardstats.ts the player card's numbers: Highs (best drift race, top speed; toge/client/highs.ts keeps them in this
                browser as `atrous.highs`, racegame.ts `finish()` writes them, solo and online), noteHighs, bestBuild,
                winRate, cardBests (the newest few of your best times from records.ts).
-  cups.ts      Grand Prix cups (CUPS: four tracks each), GP_POINTS, addRound / rankCup (the cup table).
+  cups.ts      Grand Prix cups (CUPS: four tracks each, the Postcard Cup five; roundsOf), GP_POINTS, addRound / rankCup (the cup table).
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
                climb / Grand Prix), ghostMode (time trial only), cleanMode (the host's car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`), recordStore.ts (accounts' best times, `b:<user>`, and the all-time boards, `lb:<track>`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.
-src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), trees.ts (tree and bush shapes, wind sway, far stand-ins), lod.ts (distance swaps for tiled scenery), scenery.ts (props outside the barriers), tracktextures.ts
+src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, rails, forests, villages, sea), trees.ts (tree and bush shapes, wind sway, far stand-ins), lod.ts (distance swaps for tiled scenery), scenery.ts (props outside the barriers), towns.ts (the Postcard towns' buildings and extras), tracktextures.ts
   (canvas-drawn surfaces as colour + roughness + normal sets: asphalt, gravel, ground, stone; facades, signs), post.ts (HDR
   post chain: bloom (into its own texture), then one pass that adds it, grades per theme (`Look.grade`) and tone maps), carmodel.ts
   (procedural cars: lofted bodies from carloft.ts, each car's curves and kit of parts in carkits.ts, wheels/materials/
@@ -458,7 +467,13 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   passes, wayside shrines (torii, lanterns) on the Japanese passes, curve and speed signs, a landmark per theme (pagoda,
   radio mast, lighthouse, hoodoos, windmill and water tower), boats, and grandstands + sponsor boards on circuits. All of
   it is merged into one mesh per 1.6 km chunk per material (windows glow through a `glow` vertex attribute at night), so
-  it's a handful of draw calls. `/dev/scenery.html` (`window.scn`) shows any track from any spot, with draw calls and a
+  it's a handful of draw calls. The Postcard Cup's tracks swap the farmhouses for a town (client/towns.ts `TOWNS`):
+  rows of the town's own houses facing the road all round the lap (a few colour variants, plinths that sink into
+  slopes, kept clear of the pits and stands by the line), its landmarks (the Nagomi tower, a spire church, the rock
+  castle and fairy chimneys, blue domes and windmills, minarets and a kasbah) and extras (`wall`: coral-stone walls
+  outside the barrier; `sky`: Göreme's balloons; `shore`: Hallstatt's boathouses), all in the same merged batches; no
+  big wheel, lighthouse or generic village there. `TRACK_LOOKS` gives each its hour of the day, and `tar` (a Look's
+  asphalt colour, passed to `asphalt()`) Taketomi its pale lanes. `/dev/scenery.html` (`window.scn`) shows any track from any spot, with draw calls and a
   triangle budget (`scn.budget()`, `scn.props()`).
 - **Circuit dressing** (every `laps` track): red-and-white kerbs over the shoulder on the bends (`kerbs()` in
   trackview.ts, drawn only; the physics' road is the plane under them), asphalt with edge lines and no centre line
@@ -483,7 +498,7 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 - Pause menu (`pause()` in racegame.ts): Restart at the top, then Resume, Settings and Quit/Leave. Settings is a second page of the same panel (camera, volume, ABS, TCS, steering assist, handling, gearbox, Back); put new in-race options there, not on the main page. Restart is solo `restart()`; online only the host sees it, and it sends `start` mid-race (the room accepts the host's `start` in every phase but `loading`), which drops the race unpaid and sends everyone a `load`. racegame.ts hands over on `load` in any phase, not only on the results.
 - **Drift bonus:** racegame.ts runs your `DriftMeter` each tick (the HUD shows the live combo over the spark readout and the banked total in the top bar). Online it sends `drift` (the total) as each combo banks and before `finish`; the room caps it by its own clock and puts `drift` + `bonus` on each `ResultRow` (`prize` includes the bonus). Solo sends `drift` with the `solo` action. Limits are in docs/SECURITY.md.
 - A new track = a TrackDef (keep legs > 2·edge + 40 m apart, grades < 12%; the track test checks both) + its TRACK_LENGTH_KM in garage.ts. A time-trial pass gets `clean: true` (no props; the `clean passes` test also holds it under 7%).
-- Circuits (`laps` on the TrackDef: Monza, Spa, Monaco, Minato, Akane, Kazeoka, Kodama, Hachi, Mizuumi, Hibari, Kamome, Shiokaze, Kumo) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
+- Circuits (`laps` on the TrackDef: Monza, Spa, Monaco, Minato, Akane, Kazeoka, Kodama, Hachi, Mizuumi, Hibari, Kamome, Shiokaze, Kumo and the five Postcard towns) are closed loops unrolled once per lap, so `car.s` is the distance raced and `finishS` is after the last lap; `t.lap` = samples per lap, `lapOf(t, s)`, the renderer draws `lapView(t)`. No features or props on circuits. TRACK_LENGTH_KM is the whole race distance (it sets the prize), so keep it near the passes' 3-6 km.
 - **Figure 8** (`overpass: <rise m>` on a circuit's TrackDef, Hachi-no-ji): `crossing()` in track.ts finds where the lap
   crosses itself, raises the first pass over it (a raised cosine over `OVERPASS.ramp`, so the grade stays under ~10%) and
   dips the second, and flags samples in `t.cross`: `deck` (the bridge), `up` (the upper road near it) and `low` (the lower

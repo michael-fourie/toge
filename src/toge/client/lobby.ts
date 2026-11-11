@@ -15,7 +15,7 @@ import { fmtTime } from './hud.ts';
 import { ICON, LOGO } from './brand.ts';
 import { pitGarage } from './hub.ts';
 import { cupCard, trackClimb, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
-import { CUP_IDS, CUPS, ROUNDS, type CupId } from '../shared/cups.ts';
+import { CUP_IDS, CUPS, roundsOf, type CupId } from '../shared/cups.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { encodeRider } from '../shared/rider.ts';
 import { PORTRAIT, releasePortraits, riderPortrait } from './riderportrait.ts';
@@ -142,7 +142,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         : roam
           ? `<span class="tg-muted">Free roam is on. Driving in…</span>`
           : room.gp
-          ? `<span class="tg-muted">The ${esc(CUPS[room.gp.cup].name)} is under way (round ${room.gp.round + 1} of ${ROUNDS}). You'll line up for the next round.</span>`
+          ? `<span class="tg-muted">The ${esc(CUPS[room.gp.cup].name)} is under way (round ${room.gp.round + 1} of ${roundsOf(room.gp.cup)}). You'll line up for the next round.</span>`
           : `<span class="tg-muted">A race is under way. You'll line up for the next one.</span>`;
     const d = TRACK_DEFS[room.track];
     crewShown = new Set(room.racers.map((r) => r.id));
@@ -159,7 +159,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
               <span class="tg-hero-art" aria-hidden="true"></span>
               <div class="tg-hero-map">${trackMap(room.track)}</div>
               <div class="tg-hero-copy">
-                <small class="tg-eyebrow">${gp ? esc(`${CUPS[room.cup].name} · round ${(room.gp?.cup === room.cup ? room.gp.round : 0) + 1} of ${ROUNDS}`) : esc(trackKind(room.track))}</small>
+                <small class="tg-eyebrow">${gp ? esc(`${CUPS[room.cup].name} · round ${(room.gp?.cup === room.cup ? room.gp.round : 0) + 1} of ${roundsOf(room.cup)}`) : esc(trackKind(room.track))}</small>
                 <h1 class="tg-display">${esc(d.name)}</h1>
                 <p>${esc(d.tag)}</p>
               </div>
