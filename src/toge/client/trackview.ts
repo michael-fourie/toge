@@ -68,9 +68,9 @@ export const LOOKS: Record<Theme, Look> = {
   alpine: { skyGain: 0.5, clouds: [0.45, 0.45], backdrop: 'alpine', sun: [22, 215], turbidity: 4, rayleigh: 1.4, fog: 0xa9bfd6, fogDensity: 0.00038, exposure: 0.42, grass: [0.16, 0.28, 0.09], grassDry: [0.34, 0.36, 0.16], rock: [0.36, 0.35, 0.34], verge: [0.28, 0.31, 0.17], snowline: 470, treeline: 440, grade: grade() },
   coast: { skyGain: 0.5, clouds: [0.35, 0.4], backdrop: 'coast', sun: [14, 250], turbidity: 6, rayleigh: 2.2, fog: 0xd8c8b4, fogDensity: 0.00034, exposure: 0.42, grass: [0.42, 0.45, 0.2], grassDry: [0.62, 0.55, 0.32], rock: [0.72, 0.66, 0.55], verge: [0.55, 0.5, 0.3], snowline: 1e9, treeline: 1e9, grade: grade({ highlights: [1.1, 1.0, 0.86] }) },
   desert: { skyGain: 0.48, clouds: [0.15, 0.3], backdrop: 'desert', sun: [30, 140], turbidity: 8, rayleigh: 1.2, fog: 0xe0b48a, fogDensity: 0.0003, exposure: 0.4, grass: [0.66, 0.42, 0.24], grassDry: [0.78, 0.55, 0.32], rock: [0.62, 0.3, 0.18], verge: [0.7, 0.5, 0.32], snowline: 1e9, treeline: 1e9, forest: -0.35, grade: grade({ contrast: 1.16, shadows: [0.86, 0.98, 1.14], highlights: [1.08, 0.99, 0.88] }) },
-  night: { backdrop: 'night', sun: [-5, 230], moon: [38, 120], turbidity: 2, rayleigh: 3, fog: 0x0b1120, fogDensity: 0.0006, exposure: 0.9, grass: [0.12, 0.2, 0.08], grassDry: [0.22, 0.25, 0.12], rock: [0.3, 0.3, 0.32], verge: [0.22, 0.24, 0.16], snowline: 520, treeline: 500, light: 0x9db5ff, lightPower: 0.55, hemi: 0.12, forest: 0.2, whiteRail: true, grade: grade({ bloom: 0.45, threshold: 4.5, contrast: 1.12, saturation: 1.08, shadows: [0.82, 0.94, 1.22], highlights: [1.1, 0.98, 0.92], vignette: 0.55, flare: 0 }) },
+  night: { backdrop: 'night', sun: [-5, 230], moon: [38, 120], turbidity: 2, rayleigh: 3, fog: 0x0b1120, fogDensity: 0.0006, exposure: 1.0, grass: [0.12, 0.2, 0.08], grassDry: [0.22, 0.25, 0.12], rock: [0.3, 0.3, 0.32], verge: [0.22, 0.24, 0.16], snowline: 520, treeline: 500, light: 0x9db5ff, lightPower: 0.8, hemi: 0.35, forest: 0.2, whiteRail: true, grade: grade({ bloom: 0.45, threshold: 4.5, contrast: 1.12, saturation: 1.08, shadows: [0.82, 0.94, 1.22], highlights: [1.1, 0.98, 0.92], vignette: 0.55, flare: 0 }) },
   autumn: { skyGain: 0.5, clouds: [0.4, 0.4], backdrop: 'autumn', sun: [18, 200], turbidity: 5, rayleigh: 1.6, fog: 0xd9c7a8, fogDensity: 0.00036, exposure: 0.42, grass: [0.42, 0.4, 0.14], grassDry: [0.58, 0.46, 0.18], rock: [0.45, 0.42, 0.38], verge: [0.42, 0.36, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.2, whiteRail: true, grade: grade({ highlights: [1.1, 1.0, 0.85] }) },
-  city: { backdrop: 'city', sun: [-6, 200], moon: [30, 150], turbidity: 2, rayleigh: 3, fog: 0x1b1730, fogDensity: 0.0009, exposure: 0.9, grass: [0.1, 0.1, 0.11], grassDry: [0.16, 0.15, 0.15], rock: [0.2, 0.2, 0.21], verge: [0.18, 0.18, 0.19], snowline: 1e9, treeline: 1e9, light: 0xb4c2ff, lightPower: 0.5, hemi: 0.3, grade: grade({ bloom: 0.6, threshold: 4, contrast: 1.12, saturation: 1.15, shadows: [0.84, 0.9, 1.2], highlights: [1.1, 0.98, 0.95], vignette: 0.5, flare: 0 }) },
+  city: { backdrop: 'city', sun: [-6, 200], moon: [30, 150], turbidity: 2, rayleigh: 3, fog: 0x1b1730, fogDensity: 0.0009, exposure: 1.0, grass: [0.1, 0.1, 0.11], grassDry: [0.16, 0.15, 0.15], rock: [0.2, 0.2, 0.21], verge: [0.18, 0.18, 0.19], snowline: 1e9, treeline: 1e9, light: 0xb4c2ff, lightPower: 0.7, hemi: 0.5, grade: grade({ bloom: 0.6, threshold: 4, contrast: 1.12, saturation: 1.15, shadows: [0.84, 0.9, 1.2], highlights: [1.1, 0.98, 0.95], vignette: 0.5, flare: 0 }) },
   spring: { skyGain: 0.5, clouds: [0.35, 0.35], backdrop: 'spring', sun: [28, 160], turbidity: 3, rayleigh: 1.8, fog: 0xdcdfec, fogDensity: 0.00034, exposure: 0.44, grass: [0.22, 0.38, 0.12], grassDry: [0.38, 0.44, 0.2], rock: [0.5, 0.48, 0.46], verge: [0.32, 0.4, 0.2], snowline: 1e9, treeline: 1e9, forest: 0.1, whiteRail: true, grade: grade({ saturation: 0.98, shadows: [0.93, 0.95, 1.08], highlights: [1.05, 1.0, 0.97] }) },
 };
 
@@ -136,6 +136,8 @@ export function matteGround(sh: { fragmentShader: string }) {
 /** `low`: Low graphics (src/client/graphics.ts): no shadow casting, no clouds, half the forest, brighter fill light. */
 /** How much brighter the fill light is on Low, standing in for the environment light Lambert doesn't get. */
 export const LOW_FILL = 2.4;
+/** How strongly the guardrails glow at night (emissive), so the road's edge shows in the dark. */
+const NIGHT_RAIL = 0.22;
 /** The terrain fades fully into the fog between these view depths (m), well before the far ring's edge (4.2 km past the track). */
 export const HORIZON_FADE = [3200, 5200];
 
@@ -498,6 +500,12 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
         ? new THREE.MeshStandardMaterial({ color: 0xe9ecee, metalness: 0.05, roughness: 0.42, side: THREE.DoubleSide })
         : new THREE.MeshStandardMaterial({ color: 0xb4b9bf, metalness: 0.9, roughness: 0.34, envMapIntensity: 1.4, side: THREE.DoubleSide }),
     );
+    // At night the rails glow faintly (as if caught by the headlights), so the edge of the road reads from far off
+    // without real lights. Well under the bloom threshold.
+    if (look.moon) {
+      railMat.emissive.setHex(0x9aa6bc);
+      railMat.emissiveIntensity = NIGHT_RAIL;
+    }
     // Where a shortcut leaves the road the rail has a gap.
     const gap = (i: number, side: number) => t.cuts.length > 0 && onCut(t, t.x[i] - t.tz[i] * side * t.rail, t.z[i] + t.tx[i] * side * t.rail, 2.5);
     for (const side of [-1, 1]) {
@@ -536,7 +544,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     }
     const postEvery = 2; // samples (4 m)
     const nPosts = Math.ceil(t.n / postEvery) * 2;
-    const postMat = look.whiteRail ? railMat : keep(new THREE.MeshStandardMaterial({ color: 0x8e9399, metalness: 0.7, roughness: 0.5 }));
+    const postMat = look.whiteRail ? railMat : keep(new THREE.MeshStandardMaterial({ color: 0x8e9399, metalness: 0.7, roughness: 0.5, emissive: 0x9aa6bc, emissiveIntensity: look.moon ? NIGHT_RAIL : 0 }));
     const posts = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(0.12, 0.85, 0.08)), postMat, nPosts);
     const m4 = new THREE.Matrix4();
     const q = new THREE.Quaternion();

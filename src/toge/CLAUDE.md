@@ -486,6 +486,10 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   desert and the plastic look off far mountains; day asphalt is a sun-faded mid grey (`tar` in tracktextures.ts
   `asphalt()`; night and city stay dark for the wet look); city towers' windows are let floor by floor in a few light
   colours with a ceiling-to-desk falloff; the flare's ghosts are two small faint ones; and `Post.rush` blurs the frame's edges at speed.
+- **Night brightness** (2026-11-12, Michael: "on the night maps make the walls a bit brighter and add a bit more light"):
+  the night and city looks have more moon light, hemisphere fill and exposure (night 0.8 / 0.35 / 1.0, city 0.7 / 0.5 / 1.0),
+  and the guardrails and their posts glow faintly at night (`NIGHT_RAIL` emissive in trackview.ts, under the bloom
+  threshold). No extra lights, so no frame cost. Keep it reading as night: don't push these further without asking.
 - **Performance** (2026-11-10, Michael: "improve performance"): far forest tiles, bushes and fine terrain swap to
   cheaper versions by distance (lod.ts `LodTiles` / `LOD`, trees.ts `farTree`), the post chain has two full-size passes
   after the scene (bloom added in the grade), every shader compiles at load (racegame.ts `warmShaders`), tree shadows
