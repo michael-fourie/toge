@@ -312,7 +312,7 @@ a component or a page.
   the room keeps finishers' times one at a time in finishing order, so two racers can't both take the record. The
   results show a red "Track record" banner + tag (`.rh-record`, `.rh-tr`) and a `#4` all-time tag (`.rh-rank`).
   Read with `GET /api/leaderboard` (every track's record and the medal table) or `?t=<track>` (its board); the page is
-  Race → Leaderboard (leaderboardui.ts).
+  Race → Leaderboard (leaderboardui.ts), and the race lobby shows the picked track's top 5 (`lobbyBoard`).
 - **Medal table** (2026-11-10, Andrew: "who has the most #1, #2, #3 lap times of all the maps ... gold, silver,
   bronze"): records.ts `medalTable` counts every board's top three per account and ranks them like the Olympics (golds,
   then silvers, then bronzes, then name). It rides on `GET /api/leaderboard`'s summary (`medals`), so it's always the
@@ -468,7 +468,7 @@ src/toge/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road, 
   a single offscreen 3D shot of your car and driver, is both what you see and the PNG you download or share), settingsui.ts
   (the Settings page: graphics), friendsui.ts (the Friends page: list, add, a friend's
   profile and best times), leaderboardui.ts (Race → Leaderboard: a track's all-time board and every track's record), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
-  styled by hub.css), lobby.ts (`drivelobby`; its Your car card switches cars, and Edit car mounts the garage over the lobby with `pitGarage(root, ctx, { close })`: hub.ts with a `Pit`, only the car and driver tabs, a lobby strip in the top bar; the room shows `Racer.pit` as a Garage tag, and the lobby re-sends your car and driver whenever the room's copy is stale), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
+  styled by hub.css), lobby.ts (`drivelobby`; the picked track's all-time top 5 under its hero (leaderboardui.ts `lobbyBoard`, refetched on a track change, after a race and once a minute); its Your car card switches cars, and Edit car mounts the garage over the lobby with `pitGarage(root, ctx, { close })`: hub.ts with a `Pit`, only the car and driver tabs, a lobby strip in the top bar; the room shows `Racer.pit` as a Garage tag, and the lobby re-sends your car and driver whenever the room's copy is stale), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
   garageStore.ts, racenet.ts, race.css, propview.ts (props, boost pads), trafficview.ts (instanced city traffic),

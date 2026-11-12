@@ -1948,6 +1948,17 @@ html:not(.pad) .tg-bumper {
   font-size: 13px;
 }
 
+/* The race lobby's leaderboard (lobby.ts, leaderboardui.ts lobbyBoard): the picked track's top five under its hero,
+   your row after a dashed rule when you're further down, a Here tag on racers in the lobby. */
+.tg-lobby-lb tr.gap > * {
+  border-top: 1px dashed var(--tg-line-2);
+}
+.tg-lobby-lb-more,
+.tg-lobby-lb-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
 /* Times beaten (Leaderboard, top): someone's new best moved you down a board. Each line opens that board. */
 .tg-notices {
   margin: 0 0 6px;

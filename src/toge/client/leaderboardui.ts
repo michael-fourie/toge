@@ -215,3 +215,51 @@ function boardTable(v: BoardView, myRow: number): string {
     })
     .join('')}</tbody></table>`;
 }
+
+/** How many of the board's rows the lobby shows (yours is added under them when you're further down). */
+const LOBBY_ROWS = 5;
+
+export interface LobbyBoardView {
+  /** The lobby's track. */
+  track: TrackId;
+  /** Its board (null while it loads). */
+  rows: BoardRow[] | null;
+  failed: boolean;
+  /** Signed in as (null: a guest). */
+  user: string | null;
+  /** Who's in the lobby, lower-cased, for a Here tag on their rows. */
+  here: Set<string>;
+  /** The lobby's mode sets times on this board (a time trial or a hill climb). */
+  counts: boolean;
+}
+
+/** The race lobby's leaderboard (2026-11-12, Michael: "show the leaderboard in the hosting lobby"): the picked
+ *  track's all-time top few, your row, and who in the lobby is on it, so everyone sees what there is to beat. */
+export function lobbyBoard(v: LobbyBoardView): string {
+  const d = TRACK_DEFS[v.track];
+  const rows = v.rows;
+  const me = v.user?.toLowerCase();
+  const mine = rows && me ? rows.findIndex((r) => r.name.toLowerCase() === me) : -1;
+  const head = `<h2 class="tg-h">Leaderboard <small>${esc(d.name)} · ${d.climb ? 'hill climbs' : 'time trials'} · all-time</small></h2>`;
+  const note = v.counts ? '' : `<p class="tg-muted tg-lobby-lb-note">This mode doesn't set times. Switch to ${d.climb ? 'Hill climb' : 'Time trial'} to race for the board.</p>`;
+  if (!rows) return `${head}<p class="tg-muted">${v.failed ? 'The board is out of reach right now.' : 'Loading the board…'}</p>`;
+  if (!rows.length) return `${head}<p class="tg-muted">No times here yet. The first finish in a ${d.climb ? 'hill climb' : 'time trial'} takes the record.</p>${note}`;
+  const top = rows[0].time;
+  const shown = rows.map((_, i) => i).filter((i) => i < LOBBY_ROWS || i === mine);
+  return `${head}
+    <table class="tg-times tg-lb tg-lobby-lb tg-cardbox"><tbody>${shown
+      .map((i) => {
+        const r = rows[i];
+        const you = i === mine;
+        const here = !you && v.here.has(r.name.toLowerCase());
+        return `<tr class="${you ? 'you' : ''}${i === 0 ? ' p1' : ''}${i === mine && mine >= LOBBY_ROWS ? ' gap' : ''}">
+          <td class="tg-lb-pos tg-num">${i + 1}</td>
+          <th scope="row"><b>${esc(r.name)}</b><small>${esc(carName(r.car))}</small></th>
+          <td class="tg-lb-tag">${you ? '<span class="tg-tag you">You</span>' : here ? '<span class="tg-tag">Here</span>' : ''}</td>
+          <td class="tg-num"><b>${fmtTime(r.time)}</b><small>${i === 0 ? 'Record' : `+${(r.time - top).toFixed(3)}`}</small></td>
+        </tr>`;
+      })
+      .join('')}</tbody></table>
+    ${rows.length > shown.length ? `<p class="tg-muted tg-lobby-lb-more">${rows.length} racers on the board · Race → Leaderboard for all of it.</p>` : ''}
+    ${note}`;
+}

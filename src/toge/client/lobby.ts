@@ -1,11 +1,12 @@
 // The race lobby: the code to share, the host's track pick, who's in and what they drive (and the crew: every
-// racer's driver, standing in a row), your car (switch it, or open the garage over the lobby to edit it), and Start.
+// racer's driver, standing in a row), the picked track's leaderboard (leaderboardui.ts lobbyBoard), your car
+// (switch it, or open the garage over the lobby to edit it), and Start.
 // When the host starts, everyone drops into the race together (even from the garage); the race itself waits for
 // every racer to load.
 
 import { CARS, CLASS_COLORS, PAINTS, PAINT_NAMES, carSpec, decodeCar, encodeCar, isBike, peakPower, rating } from '../shared/cars.ts';
 import { current } from '../shared/garage.ts';
-import { CAR_RULES, PHYSICS, RACE, RECORD_GHOST, RACE_MODES, TEAMS, cleanMode, isGp, modeTracks, type CarRule, type RaceMode, type RaceServerMsg, type Team } from '../shared/protocol.ts';
+import { CAR_RULES, PHYSICS, RACE, RECORD_GHOST, RACE_MODES, TEAMS, cleanMode, isGp, modeTracks, recordMode, type CarRule, type RaceMode, type RaceServerMsg, type Team } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { copy, esc, playerName } from '../../client/menu/ui.ts';
@@ -14,6 +15,9 @@ import { raceNet, roomRace } from './racenet.ts';
 import { fmtTime } from './hud.ts';
 import { ICON, LOGO } from './brand.ts';
 import { pitGarage } from './hub.ts';
+import { boardApi, lobbyBoard } from './leaderboardui.ts';
+import type { BoardRow } from '../shared/records.ts';
+import { account } from '../../client/account.ts';
 import { cupCard, trackClimb, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
 import { CUP_IDS, CUPS, roundsOf, type CupId } from '../shared/cups.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
@@ -31,6 +35,9 @@ const face = (rider: string, ready: () => void) => {
 };
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
+
+/** How long a fetched board stays fresh in the lobby before the next redraw asks again (a lobby can sit a while). */
+const BOARD_FRESH_MS = 60_000;
 
 export const driveLobby: Render = (root, ctx, screen) => {
   let starting = false;
@@ -59,6 +66,24 @@ export const driveLobby: Render = (root, ctx, screen) => {
   };
   /** Racers already in the crew row: only newcomers slide in, not everyone on every update. */
   let crewShown = new Set<number>();
+
+  // The leaderboard of the picked track, fetched when the track changes and again when it's gone stale or the lobby
+  // comes back from a race (a time trial there may have moved it).
+  const boards = new Map<TrackId, { rows: BoardRow[] | null; at: number }>();
+  const fetching = new Set<TrackId>();
+  let lastPhase = '';
+  const boardFor = (track: TrackId) => {
+    const have = boards.get(track);
+    if (!fetching.has(track) && (!have || Date.now() - have.at > BOARD_FRESH_MS)) {
+      fetching.add(track);
+      void boardApi.board(track).then((rows) => {
+        fetching.delete(track);
+        boards.set(track, { rows, at: Date.now() });
+        if (raceNet.room?.track === track) redraw();
+      });
+    }
+    return have;
+  };
   const draw = () => {
     const room = raceNet.room;
     if (!room) {
@@ -156,6 +181,20 @@ export const driveLobby: Render = (root, ctx, screen) => {
           ? `<span class="tg-muted">The ${esc(CUPS[room.gp.cup].name)} is under way (round ${room.gp.round + 1} of ${roundsOf(room.gp.cup)}). You'll line up for the next round.</span>`
           : `<span class="tg-muted">A race is under way. You'll line up for the next one.</span>`;
     const d = TRACK_DEFS[room.track];
+    if (room.phase === 'lobby' && lastPhase && lastPhase !== 'lobby') boards.delete(room.track);
+    lastPhase = room.phase;
+    // Free roam's open world keeps no times, so it has no board.
+    const board = d.world ? null : boardFor(room.track);
+    const leaderboard = d.world
+      ? ''
+      : lobbyBoard({
+          track: room.track,
+          rows: board?.rows ?? null,
+          failed: !!board && !board.rows,
+          user: account.user,
+          here: new Set(room.racers.filter((r) => !r.cpu).map((r) => r.name.toLowerCase())),
+          counts: recordMode(room.mode),
+        });
     crewShown = new Set(room.racers.map((r) => r.id));
     view.innerHTML = `
         <header class="tg-top">
@@ -176,6 +215,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
               </div>
               <dl class="tg-hero-facts"><div><dt>${d.world ? 'Roads' : 'Distance'}</dt><dd class="tg-num">${TRACK_LENGTH_KM[room.track]}<small>km</small></dd></div>${d.climb ? `<div><dt>Climb</dt><dd class="tg-num">${trackClimb(room.track)}<small>m</small></dd></div>` : ''}</dl>
             </section>
+            ${leaderboard}
             <h2 class="tg-h">Mode ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${modes}</div>
             ${rules}
