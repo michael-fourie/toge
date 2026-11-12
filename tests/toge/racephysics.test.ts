@@ -6,6 +6,7 @@ import { padKick } from '../../src/toge/shared/boost.ts';
 import { TRACK_LENGTH_KM } from '../../src/toge/shared/garage.ts';
 import { RACE_TRACKS, SAMPLE, SKY, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/toge/shared/track.ts';
 import { LANES, type Obstacle, TRAFFIC_KINDS, collideTraffic, getTraffic, newPose, trafficBetween, trafficPose, trafficS } from '../../src/toge/shared/traffic.ts';
+import { skyFall } from '../../src/toge/shared/skyfall.ts';
 import { ARCADE, type Car, arcadeMaxYaw, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, catchFall, collideCars, forwardSpeed, newCar, speedOf, spinOut, stepCar, yawOf } from '../../src/toge/shared/vehicle.ts';
 
 // Race tracks only: the open world (world.ts) has its own tests in world.test.ts.
@@ -392,7 +393,7 @@ test('AI drivers get every car down every track, with no NaNs and few big crashe
       while (car.s < t.finishS && time < 400 * Math.max(1, TRACK_LENGTH_KM[id] / 5)) {
         aiDrive(car, t, ai, TICK_DT, inp);
         stepCar(car, inp, t);
-        if (catchFall(car, t)) falls++;
+        if (skyFall(car, t)) falls++;
         assert.ok(Number.isFinite(car.p.x + car.p.y + car.p.z), `${model} on ${id}: NaN at ${time}`);
         // One crash can land a few hard hits in a row (nose, then the side swinging in): count it once.
         if (car.hit > 12) {
@@ -947,6 +948,42 @@ test('sky road (Kumo Skyway): no barriers, nothing under the edge, and a car tha
   const other = carOn(getTrack('monza'));
   other.p.y -= 50;
   assert.ok(!catchFall(other, getTrack('monza')));
+});
+
+test('falling off a sky road never launches the car: it goes back where it left the road', () => {
+  // Michael (2026-11-12): "going off the edges launches you in the sky". Waiting for the 9 m drop, a car whose wheels
+  // had sunk off the edge got kicked up as the road came back under them, and one that flew off a Shura hairpin
+  // reached the next stretch of road from below and was shot up at 200 m/s. skyFall catches the fall first.
+  for (const id of ['kumo', 'shura'] as const) {
+    const t = getTrack(id);
+    let up = 0;
+    for (let s0 = t.startS; s0 < t.startS + t.lap * SAMPLE; s0 += 17) {
+      for (const turn of [-1.2, -0.5, 0.5, 1.2]) {
+        for (const v of [25, 55]) {
+          const l = pointAt(t, s0, 0);
+          const yaw = Math.atan2(-l.tx, -l.tz) + turn;
+          const car = newCar(carSpec(newOwnedCar('vanta')), l.x, l.y, l.z, yaw);
+          car.s = s0;
+          car.hint = l.i;
+          car.v = { x: -Math.sin(yaw) * v, y: 0, z: -Math.cos(yaw) * v };
+          let onS = s0;
+          for (let k = 0; k < 5 * TICK_HZ; k++) {
+            stepCar(car, gas, t);
+            if (Math.abs(car.d) <= t.half + SKY.lip) onS = car.s;
+            if (skyFall(car, t)) {
+              assert.equal(speedOf(car), 0, `${id} s=${s0}: stopped`);
+              const back = pointAt(t, onS, 0);
+              assert.ok(Math.hypot(car.p.x - back.x, car.p.z - back.z) < 15, `${id} s=${s0} ${turn} ${v}: back where it went off`);
+              break;
+            }
+            if (Math.abs(car.d) > t.half) up = Math.max(up, car.v.y);
+          }
+        }
+      }
+    }
+    // (About what a crest throws a car up at; the launches were 12 to 200 m/s.)
+    assert.ok(up < 6, `${id}: off the road the car rose at ${up.toFixed(1)} m/s`);
+  }
 });
 
 test('reversing steers like a real car: wheel right swings the nose left, as in the full simulation', () => {

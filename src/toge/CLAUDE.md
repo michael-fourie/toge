@@ -160,9 +160,14 @@ a component or a page.
   3 laps of 1.94 km, 14 m wide, ~620 m up), `sky: true` on the TrackDef. The road ends at a `SKY.lip` of paved
   shoulder: no verge, no rails (vehicle.ts `barrier()` keeps only the end walls), no runoff, and off the edge
   heightAt is `t.abyss` (SKY.abyss under the lowest of the road), so a wheel over the edge finds nothing and the car
-  tips off. `catchFall(car, t)` (vehicle.ts, after each stepCar: racegame.ts `falls()` for you and the AI, and the AI
-  tests) puts a car that's dropped `SKY.fall` m below the road back on the middle of the road at its `s`, stopped
-  (`resetCar`); yours also loses its drift combo (`dropCombo`) and gets a "Fell off!" banner. The AI plans corners at
+  tips off. `skyFall(car, t)` (skyfall.ts, after each stepCar: racegame.ts `falls()` for you and the AI, and the AI
+  tests) puts a car that's going over back on the middle of the road where it last was on it, stopped (`resetCar`):
+  wheels off the edge and sunk `SKYFALL.drop` (0.2 m) under where it would ride, or under another stretch of road, or
+  vehicle.ts `catchFall`'s `SKY.fall` m down. (2026-11-12, Michael: "going off the edges launches you in the sky".
+  Waiting for the 9 m drop, a car dangling off the edge whose wheels came back under the road was kicked 6-20 m up,
+  and one that flew off a Shura hairpin reached the next stretch a few metres *under* it and was shot up at 200 m/s.
+  That's the suspension meeting a road from below, so it's caught in the fall handling; vehicle.ts is locked.) Yours
+  also loses its drift combo (`dropCombo`) and gets a "Fell off!" banner. The AI plans corners at
   `SKY_LINE_GRIP` (1.05) instead of `LINE_GRIP` (1.3) there: at 1.3 every fast CPU ran wide off the hairpin's exit,
   where a rail would have caught it; the AI test asserts no CPU falls. trackview.ts draws no terrain, rails,
   chevrons, poles or scenery: `skyDeck()` hangs a slab under the road (`SKY_DECK`) with glowing cyan edge strips and
@@ -171,11 +176,11 @@ a component or a page.
   into a 35 m hairpin, back beside it with 70 m of air between, a left,
   two rights onto the back straight, a flick, a right onto the line. Not in a cup yet (the cups test leaves it out).
   A battle royale arena (2026-11-12, below): `shura` (Shura Sky Arena), `royale: true`, a sky road at night like Kumo:
-  7 laps of 1.01 km, 14 m wide, ~640 m up under a huge blood moon (`TRACK_LOOKS.shura`: `moonColor` / `moonSize`, the
+  7 laps of 1.03 km, 14 m wide, ~640 m up under a huge blood moon (`TRACK_LOOKS.shura`: `moonColor` / `moonSize`, the
   cloud sea tinted by it, `edge` turns the deck's glowing strips red), red torii gates over the road with pillars
   hanging into the void and a ring of floating lanterns round it (trackview.ts `arena()`, `ARENA`: one merged mesh
-  per material). Laid out as straights and arcs like Kumo; its hairpin is 44 m (at 34-38 m the Kitsune ran wide off
-  the exit and fell every lap in the AI test) and its last straight 185 m, because `placeBoosts` drops a pad whose
+  per material). Laid out as straights and arcs like Kumo; its hairpin is 48 m (at 34-38 m the Kitsune ran wide off
+  the exit and fell every lap in the AI test; at 44 m it still hung two wheels off, which `skyFall` now counts) and its last straight 185 m, because `placeBoosts` drops a pad whose
   lap position is within `startS` of the lap's end (the grid): at 170 m the last corner's pad was lost and the lap
   had one.
 - **Battle royale** (mode `royale`, royale.ts; Michael, 2026-11-12: "a battle royale type in Toge where each lap the
@@ -191,7 +196,9 @@ a component or a page.
   (`maybeRoyaleOver`: the winner timed, the rest by place, `ResultRow.out` = the lap they went out on; paid like a race
   by place, CPU racers never). Solo (the Race page's Battle royale tiles, at least `ROYALE.minRivals` rivals) the
   client judges it the same way (racegame.ts `judgeRoyale`, you are key 0). Either way racegame.ts `knockOut` blows
-  the car up (the Physics mode's `Blasts`, built for a royale too), hides it and takes it out of contact, slipstream,
+  the car up (the Physics mode's `Blasts`, built for a royale too), hides it (`stowCar`: its meshes, never its night
+  headlight and tail glow, which go dark but stay in the scene: hiding the whole car took two lights out, recompiled
+  every shader and froze the race for seconds at each elimination) and takes it out of contact, slipstream,
   the board and the place readout (`Lap 3 · 4 left`); a solo rival or the host's CPU racer leaves `rivals` for
   `fallen`. Yours: an "Eliminated" banner and you spectate the cars still in (the spectate list then includes the
   cars this client drives); solo the results follow 4 s later. While you're last among the cars still in, the HUD

@@ -16,7 +16,8 @@ import type { NewBest } from '../shared/records.ts';
 import { ROYALE, Royale } from '../shared/royale.ts';
 import { standings } from '../shared/standings.ts';
 import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc } from '../shared/track.ts';
-import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, catchFall, collideCars, forwardSpeed, newCar, placeCar, resetCar, speedOf, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
+import { skyFall } from '../shared/skyfall.ts';
+import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, placeCar, resetCar, speedOf, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
 import { WORLD, respawnAt, trapCrossed } from '../shared/world.ts';
 import { collideWorldTraffic, newNearMisses, roamClock, stepNearMisses } from '../shared/worldtraffic.ts';
 import { WorldTrafficView } from './worldtrafficview.ts';
@@ -721,7 +722,7 @@ export class RaceGame {
       for (const id of [...this.remotes.keys()])
         if (!m.racers.some((r) => r.id === id)) {
           const r = this.remotes.get(id)!;
-          this.view.scene.remove(r.model.root);
+          this.stowCar(r.model.root);
           this.contact.remove(r.model.root);
           this.cockpits.get(r.model.root)?.dispose();
           this.cockpits.delete(r.model.root);
@@ -1063,12 +1064,12 @@ export class RaceGame {
   }
 
   /**
-   * A sky road: every car we drive that's gone off the edge and dropped is put back on the middle of the road where it
-   * went off, stopped (vehicle.ts `catchFall`). Online, the others just see it jump back (racenet snaps a big gap).
+   * A sky road: every car we drive that's going over the edge is put back on the middle of the road where it went
+   * off, stopped (skyfall.ts `skyFall`). Online, the others just see it jump back (racenet snaps a big gap).
    */
   private falls() {
     for (const r of [this.me, ...this.rivals]) {
-      if (!catchFall(r.car, this.track)) continue;
+      if (!skyFall(r.car, this.track)) continue;
       if (r.ai) r.ai = newAi(r.ai.skill, r.ai.lane);
       r.prevP.set(r.car.p.x, r.car.p.y, r.car.p.z);
       r.prevQ.set(r.car.q.x, r.car.q.y, r.car.q.z, r.car.q.w);
@@ -1324,7 +1325,7 @@ export class RaceGame {
     this.blasts?.boom(p.x, p.y, p.z, v.x, v.z, PAINTS[decodeCar(r.code)?.look.paint ?? 0]);
     const mine = r === this.me;
     this.boomSound(mine ? 0 : Math.hypot(p.x - this.me.car.p.x, p.z - this.me.car.p.z));
-    root.visible = false;
+    this.stowCar(root);
     this.contact.remove(root);
     r.engine?.stop();
     r.engine = null;
@@ -1352,6 +1353,19 @@ export class RaceGame {
       r.finished = this.clock;
       if (this.watching === r.id) this.spectateNext();
     }
+  }
+
+  /**
+   * Takes a car off the road mid-race without a freeze: at night its headlight and tail glow are lights, and a light
+   * leaving the scene (hiding or removing the whole car) recompiles every lit shader, a stall of seconds (2026-11-12,
+   * Michael: "When player elims It freezes the match"). So the car's meshes go and its lights stay, turned off. (Each
+   * mesh is hidden, not its groups: the driver and rider groups are shown and hidden every frame.)
+   */
+  private stowCar(root: THREE.Object3D) {
+    root.traverse((o) => {
+      if (o instanceof THREE.Light) o.intensity = 0;
+      else if ((o as THREE.Mesh).isMesh || (o as THREE.Points).isPoints || (o as THREE.Line).isLine || (o as THREE.Sprite).isSprite) o.visible = false;
+    });
   }
 
   private async soloResults() {
