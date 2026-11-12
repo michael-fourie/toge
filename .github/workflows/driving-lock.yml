@@ -1,0 +1,24 @@
+# TŌGE's driving mechanics are locked (Michael, 2026-11-12). This runs tests/toge/drivinglock.test.ts on every PR
+# and every push to master, so a change to how the cars drive shows up as a red check on GitHub.
+# See "Driving mechanics are locked" in CLAUDE.md.
+name: Driving lock
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  driving-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsx --test tests/toge/drivinglock.test.ts

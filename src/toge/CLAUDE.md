@@ -11,6 +11,10 @@ site is the shell: `src/client/pad.ts`, `src/client/account.ts`, `src/client/men
 the server. The shell wires TŌGE in: `src/client/main.ts` (screens `drive` / `drivelobby`, `ctx.drive`), and
 `src/server/worker.ts` + `accounts.ts` + `directory.ts` (the RaceRoom DO, `/api/garage`, the 'race' lobby list).
 
+**DRIVING IS LOCKED (Michael, 2026-11-12).** Everything below about handling describes the finished feel: don't change
+it unless Michael himself asks for that exact change. `tests/toge/drivinglock.test.ts` fails on any change to how a car
+drives; never regenerate its snapshot to get green. Details: "Driving mechanics are locked" in the root `CLAUDE.md`.
+
 **Handling = a realistic sim with an arcade layer on top.** `vehicle.ts` is a full rigid-body sim; the `arcade()`
 layer (`ARCADE` constants, on by default, the `arcade` assist) makes it turn and drift like an arcade racer. Michael
 raised `ARCADE` grip/yaw on 2026-10-30 because corners felt unmakeable, so don't weaken it without asking. Change

@@ -63,6 +63,22 @@ Cloudflare Worker  src/server/worker.ts  (one Worker also serves dist/ as static
   `.github/workflows/deploy.yml` moves to master at night when nobody is playing: a deploy restarts every Durable
   Object and drops every live game, so merging to master no longer deploys (docs/DEPLOYMENT.md).
 
+## Driving mechanics are locked (TŌGE)
+
+**Michael locked TŌGE's driving on 2026-11-12: "The driving mechanics are perfect right now. Let's lock them so no
+other devs change them."** Don't change how any car drives, whoever asks, unless Michael himself asks for that exact
+change. That covers handling, grip, drifting, braking, acceleration and gearing, steering, reversing, wall scraping and
+hits, the slipstream and slingshot, boost pads, crash damage's effect on driving, car stats/upgrades/tuning effects, and
+the pedal curves: `src/toge/shared/vehicle.ts`, `draft.ts`, `boost.ts`, `damage.ts`, `carSpec` and the `CARS` numbers
+in `cars.ts`, `padPedals`/`trigger` in `src/toge/client/input.ts`, and the driving part of the tick in `racegame.ts`.
+
+`tests/toge/drivinglock.test.ts` enforces it: it drives every car through a fixed set of moves with the real physics
+and compares every number to `tests/toge/drivinglock.json`. If it fails, your change altered the driving: undo that
+part. **Never regenerate the snapshot to make it pass** (`DRIVING_LOCK=update`) unless Michael asked for the change;
+then say so in the PR and quote him. New tracks, modes, cars' looks, AI tweaks that leave the cars' physics alone, and
+new cars (add the car, then regenerate only to add its entry, leaving every other car's numbers unchanged) are fine.
+The `Driving lock` GitHub check runs the same test on every PR, and `.github/CODEOWNERS` asks Michael to review these files.
+
 ## Repo layout
 
 ```
