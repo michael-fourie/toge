@@ -1,7 +1,7 @@
 // Every sound is synthesised (no audio files): paintball pops, splats, the bus horn, the engine's drone, zombie
 // groans, YEET whooshes, the slot machine and the golf swing.
 
-export type Sound = 'pop' | 'splat' | 'horn' | 'yeet' | 'fore' | 'groan' | 'cash' | 'fix' | 'reels' | 'win' | 'swing' | 'thunk' | 'bump' | 'jingle' | 'reload' | 'lose' | 'thunder' | 'bell';
+export type Sound = 'pop' | 'splat' | 'horn' | 'yeet' | 'fore' | 'groan' | 'cash' | 'fix' | 'reels' | 'win' | 'swing' | 'thunk' | 'bump' | 'jingle' | 'reload' | 'lose' | 'thunder' | 'bell' | 'cough' | 'burp' | 'boom' | 'bite' | 'whoosh';
 
 export class Audio {
   private ctx: AudioContext | null = null;
@@ -145,6 +145,27 @@ export class Audio {
       case 'reload':
         this.noise(t, 0.05, 2400, 3, 0.25 * v);
         this.noise(t + 0.25, 0.05, 1800, 3, 0.25 * v);
+        break;
+      case 'cough':
+        for (let k = 0; k < 3; k++) this.noise(t + 0.5 + k * 0.22, 0.12, 700 + k * 120, 1.2, 0.35 * v);
+        this.noise(t, 0.5, 300, 0.6, 0.18 * v);
+        break;
+      case 'burp':
+        this.tone(t, 0.5, 'sawtooth', 95, 60, 0.3 * v);
+        this.noise(t, 0.4, 180, 2, 0.25 * v);
+        break;
+      case 'boom':
+        this.noise(t, 0.5, 120, 0.5, 0.9 * v);
+        this.tone(t, 0.4, 'sine', 80, 30, 0.6 * v);
+        this.noise(t, 0.2, 900, 0.8, 0.4 * v);
+        break;
+      case 'bite':
+        this.noise(t, 0.08, 1400, 2, 0.5 * v);
+        this.tone(t, 0.15, 'square', 180, 90, 0.2 * v);
+        break;
+      case 'whoosh':
+        this.noise(t, 1.2, 500, 0.5, 0.5 * v);
+        this.tone(t, 1.2, 'sine', 120, 700, 0.2 * v);
         break;
       case 'bell':
         // A new round: a low, doomy two-note bell.

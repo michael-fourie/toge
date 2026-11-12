@@ -1,96 +1,106 @@
 # BOYS DAY (agent instructions)
 
-A co-op zombie road trip for 1–8 players, in the spirit of RV There Yet, PEAK, CoD Zombies' Transit and The Big
-Walk. A group of Queen's students (Kingston, Ontario) wake up in a paintball arena in the next town over after a huge
-night out. The apocalypse started while they were blacked out. They drive a battered city bus home, painting zombies
-out of its windows, to take bong tokes with the boys. Cartoony and silly, spooky but never grim: a moonlit night,
-fog, jack-o'-lanterns, dead trees, graveyards, lightning, zombies with glowing eyes.
+An endless co-op zombie road trip for 1–8 players, in the spirit of RV There Yet, PEAK, CoD Zombies and The Big Walk.
+A group of Queen's students (Kingston, Ontario) wake up in a paintball arena after a huge night out. The apocalypse
+started while they were blacked out. They drive a battered city bus from checkpoint to checkpoint, each one a new
+world, painting zombies as they go. There is no finish line: the run ends when the bus is wrecked, and the score is
+how many checkpoints you cleared. Cartoony and silly, spooky but never grim.
 
 Read `src/games/CLAUDE.md` first (the plug-in rules: stay in this folder, `three` only, scoped CSS under `.boys-day`,
 controllers, cleanup, names via `textContent`).
 
 ## The run
 
-1. **Paintball arena** (the start): you wake up holding paintball markers.
-2. **Tee Time Driving Range**: park in the yellow ring; anyone presses E/Ⓐ (a big prompt says so) for **Zombie Tee-Off**
-   (zombies shamble up the floodlit range at you: aim across, hold to wind up the power, let go to swing; land it on one
-   to tee it off; let one reach the tee and it grabs you). `run.tees` between you (it grows with the crew, `goals`, so
-   everyone gets a go) wins the **golf club**: V/RB swings it and tees off zombies in reach ("FORE!").
-3. **Lucky Limestone Casino**: **Reel Stopper** (pull the lever, then stop each reel yourself, each faster than the
-   last) pays into the shared bail fund until it reaches `run.bail` (also from `goals`).
-4. **Kingston Holding Cells**: the bail is paid on arrival, then hold the horde off for `RUN.jailHold` s while Gordie
-   is processed. **Gordie** then stands in the aisle in his orange jumpsuit and shoots on his own.
-5. **The boys' house** (near a limestone Queen's tower): park there and you win.
+**A run is a chain of legs.** Each leg is its own map (`makeRoute(seed, leg)`): a road over the hills to a
+**checkpoint** arena, then a **gate**. Park in the ring, **hop off the bus** (E/Ⓐ) and do the checkpoint's **job** on
+foot; that opens the gate; climb back aboard and drive through it into the next leg, where every screen rebuilds the
+world (`Session.enterLeg`). Zombies get tougher and more numerous with every leg and round; nothing caps it.
 
-Everyone rides **in first person**. One player **drives** from the cab (the windscreen, a turning wheel; C/View swaps
-to a chase camera). Everyone else is **on foot about the bus** (`Spot`: side, along, level): WASD or the left stick
-walks the aisle (`walk`, `walkBounds`), and at the **hatch** by the back (`WALK.hatch`, a ladder under it) Space/Ⓑ
-climbs up to the **roof deck** (railed, the whole length of the bus) or back down. Inside you shoot out of the
-windows; paintballs that hit a wall, the roof or the floor splat on it (`wallHit`). The wheel is first come: walk up to
-it and press F/Ⓨ (`atCab`, `takeWheel`); F/Ⓨ again gets you up (`OFF_CAB`). Nobody at the wheel and the bus rolls to a
-stop.
+**Checkpoints are generated** (`checkpoints.ts`, `checkpointOf(seed, leg)`): a place (its name decides the job) × a
+biome × a twist, about 2,700 combinations (`CHECKPOINT_COUNT`). The first four legs are the story: the driving range
+(golf, wins the **club**), a scavenge, the casino (slots), the holding cells (a holdout that frees **Gordie**, who
+then shoots from the aisle on his own).
 
-**The drive is rough, like RV There Yet**: the land is rolling hills (`terrain.ts`: seeded value noise; the road
-follows them, smoothed and never steeper than `TERRAIN.maxGrade`, flat where you park). Uphill slows the bus and a
-stalled climb rolls back; downhill runs it on (to `BUS.runaway` of top speed). The road has **hazards** (`route.ts`
-`Hazard`): fallen trees and boulders across a lane (solid: steer round), potholes (a jolt and `HAZARD.potholeDamage`)
-and mud (slow, and the wheel barely bites). **Fuel**: the tank burns `RUN.burn` a metre and won't last the whole way
-home; **gas cans** by the road (shoot them or drive over them) top it up. Empty, the bus splutters at `BUS.fumes`.
+| Job | What you do |
+| --- | --- |
+| `scavenge` | grab the crates scattered round the arena (each pays you scrap; sometimes a grenade) |
+| `fuel` | lug jerry cans from the pump to the bus, one at a time, slower while carrying (fills the tank) |
+| `beacon` | stand in the beacon's ring to crank it (a siege: the horde doesn't let up) |
+| `holdout` | kill enough zombies while parked (a siege) |
+| `golf` | the tee box: Zombie Tee-Off (`minigames.ts`) |
+| `slots` | the slot machine: Reel Stopper |
 
-**Zombies come in rounds** (`ROUNDS`): a calm (`first`, then `calm` between), then "ROUND n" sends `ROUNDS.size`
-zombies, a few at a time and never more than `ROUNDS.alive` at once; kill them all and the next calm starts. Both
-grow with the round, the stage and the crew (`HORDE.crewScale`). The HUD shows the round and how many are left. The
-bus at speed **yeets** zombies; slow or parked, they climb up the sides and chew it until shot off. Cash bags, repair
-kits and gas cans by the road are collected by shooting them or driving over them. The bus at 0 hp loses the run.
-**Every run is a new map** (a fresh seed): the road, the hills, the hazards, the scenery and the pickups all come from
-`makeRoute(seed)`.
+**Biomes** (`BIOMES`, with a look each in `sky.ts` `LOOKS`): the sky, sun or moon, fog, weather, ground colours, scenery
+and the post grade all change. **Twists** (`TWISTS`): a bigger horde, better pay, a storm, and so on, with a note on
+the leg's title card.
 
-**Looks**: a moonlit night with fog, lightning, and (by default, "Fancy" in the pause menu) bloom and moonlight
-shadows that follow the camera (`post.ts`; "Fast" turns both off and is remembered per browser). The ground is a
-grid draped on `groundAt` and tinted by height; buildings run on down into the slopes (`FOOTING`).
+**On the bus**, everyone is in first person. One player drives from the cab (C/View: chase camera); the wheel is
+first come (F/Ⓨ at the front). The rest walk the aisle (`Spot`), climb the hatch to the roof deck (Space/Ⓑ) and shoot
+out of the windows (`wallHit`). At the back: the **bong** and the **cooler** (E/Ⓐ: heal a bit; the bong warps the
+picture, beers sway the camera) and the **card table** (`HANG`, `hangAt`). B/D-pad↑ opens the **store**.
+
+**On foot** (`FOOT`, `stepFoot`, `hopOff`, `hopOn`, `canBoard`): zombies within `HORDE.chase` go for walkers and
+bite. Your health is yours (kept on your own screen); it comes back on the bus. At zero you're **knocked out**: hauled
+aboard, out for `FOOT.ko` s, and you drop `RUN.koLoss` of your scrap. Stray too far (`FOOT.left`) and you're hauled
+aboard too. Everyone on foot when the bus goes through the gate comes with it.
+
+**Scrap is personal** (`run.cash[place]`, by place in the crew): kills, crates, minigames, pickups and clearing a
+checkpoint pay it. Spend it at the store (`UPGRADES`: armor, plow, engine, tank, hopper, for the whole bus; `BUY`: a
+bus repair, a paint grenade, a bandage) or gamble it at the card table: **blackjack** against the dealer (`cards.ts`,
+`BLACKJACK`, `bjPay`) or **heads-up five-card draw** against a friend (`duel.ts`, refereed by the host: ante, one
+draw, one betting round with a single raise).
+
+**Guns unlock as checkpoints clear** (`GUNS`, `gunsUnlocked`; Q/D-pad→ switches): the Marker, the Splatter Shotty
+(pellets), the Paint Minigun, the Long Tom (slow, hits hard, flat) and the Balloon Launcher (lobbed, splash).
+**Paint grenades** (G/D-pad↓, `NADE`): you start with a few, get more per checkpoint, from crates and the store.
+
+**The drive is rough**: hills (`terrain.ts`), fallen trees, boulders, potholes and mud (`Hazard`), and a tank that
+burns `RUN.burn` a metre; gas cans by the road and `fuel` checkpoints top it up. The bus at speed **yeets** zombies;
+slow or parked they climb it and chew. **Zombies come in rounds** (`ROUNDS`), growing with the round, the leg and the crew.
 
 ## Files
 
 | File | What |
 | --- | --- |
 | `channel.ts` | the channel (id `boys-day`, order 35) |
-| `game.ts` | the app: menu (solo / host / join), lobby, starting runs (`start` carries the seed and the first driver), leaving |
-| `session.ts` | one run on this screen: driving, walking the bus and the roof, the bus on the hills, shooting, the club, the wheel, minigames, HUD, pause, the end |
-| `director.ts` | the host's referee, pure: zombie rounds (spawn, chase, climb, yeet), stops, money, fuel, potholes, Gordie, pickups |
-| `rules.ts` | pure rules and every tunable: `BUS`, `stepBus` (with the `Ground` under it), `collideBus`, walking (`WALK`, `walk`, `wallHit`), `STOP_ORDER`, `RUN`, `goals`, `ZOMBIE`, `ROUNDS`, `HORDE`, `GUN`, `CLUB`, `GORDIE`, `GOLF`, `SLOTS` |
-| `route.ts` | the map generator, pure: the road (bus-drivable bends, never crosses itself, heights from the hills), stops, props, obstacles, hazards, pickups; `groundAt`, `hazardAt` |
-| `terrain.ts` | the hills, pure: `TERRAIN`, seeded noise, the road's heights (grade-clamped, flat at stops), `wildness` |
+| `game.ts` | the app: menu (solo / host / join), lobby, starting runs, leaving |
+| `session.ts` | one run on this screen: legs, the bus, walking on and off it, the jobs, guns and grenades, the hangout, the store, the card table, HUD, pause, the end |
+| `director.ts` | the host's referee, pure: checkpoints and legs, rounds and sieges, zombies (chasing the bus or walkers), wallets, the store, fuel, potholes, Gordie, pickups |
+| `duel.ts` | heads-up five-card draw, pure: the host's referee and the views it sends |
+| `rules.ts` | pure rules and every tunable: the bus, walking on it and on foot, `JOBS`, `RUN`, `UPGRADES`/`BUY`, `GUNS`, `NADE`, `HANG`, cards (`pokerScore`, `bjTotal`), zombies, rounds |
+| `checkpoints.ts` | the checkpoint generator, pure: `BIOMES`, `PLACES`, `TWISTS`, `checkpointOf` |
+| `route.ts` | a leg's map, pure: road, checkpoint arena and its sites, gate, props, obstacles, hazards, pickups; `groundAt`, `hazardAt`, `solids` |
+| `terrain.ts` | the hills, pure |
 | `net.ts` | the messages and `readMsg` (checks every message's shape), `takeWheel` |
-| `world.ts` / `models.ts` | three.js: the night (`World.dress`: sky, moon, fog, lightning, the shadow-casting moonlight), the hilly ground, road ribbon, hazards, stop buildings and signs, instanced scenery and jack-o'-lanterns, gas cans; the bus (a walled shell with a cab, a cabin, a hatch and ladder, a railed roof deck, headlights), beans, the instanced horde, paintballs and splats |
-| `post.ts` | bloom and shadows ("Fancy") or straight to the screen ("Fast") |
-| `hud.ts`, `minigames.ts`, `input.ts`, `audio.ts`, `banner.ts`, `boys.css` | HUD and minimap; golf and slots; keyboard/mouse/pad; synthesised sound; the channel art; styles |
+| `sky.ts` | the sky that outlives the legs: shader dome (stars, aurora), sun/moon, lights, fog, weather; a `Look` per biome |
+| `world.ts` / `models.ts` | three.js: a leg's ground, road, arena, gate and scenery; the bus (with the bong, cooler and card table), beans, guns, the horde, paintballs and splats |
+| `post.ts` | bloom, shadows and the grade ("Fancy") or straight to the screen ("Fast") |
+| `cards.ts` | the card table's screens (blackjack, heads-up poker): DOM with real buttons |
+| `hud.ts`, `minigames.ts`, `input.ts`, `audio.ts`, `banner.ts`, `boys.css` | HUD, minimap and the leg title card; golf and slots; keyboard/mouse/pad; synthesised sound; the channel art; styles |
 
-Tests: `tests/boys-day.test.ts` (maps are deterministic and drivable: an autopilot bus drives 12 seeds end to end over
-the hills and through the mud; bus physics on slopes and in mud; terrain grades and flat stops; hazards; fuel and gas;
-walking, the hatch, the cab and window/wall hits; rounds; every stop's rules; zombies; crew scaling of the horde and the
-goals; pickups by driving; the wire format, including every seed the host can roll; minigame maths).
+Tests: `tests/boys-day.test.ts` (legs are deterministic and drivable; checkpoints; every job; on-foot movement and
+boarding; bites and knock-outs; wallets and the store; guns and grenades; blackjack, poker hands and the duel; bus
+physics; rounds; the wire format).
 
-Lights: the bus brings its headlight spot and a cabin light, and the sky its hemisphere and moonlight, all added once
-at the start. Never add or remove a light mid-run (every lit shader recompiles); lightning changes an intensity. The
-Fancy/Fast switch recompiles once, from the pause menu, which is fine.
-Everything else that glows (lamps, windows, pumpkins, eyes) is an unlit or emissive material. In dev, `window.__boys` is the app and
-`__boys.session` the run (`__boys.session.director` on the host).
+Lights: the bus's headlight and cabin light and the sky's lights are added once at the start and live for the whole
+run (`Sky` is never rebuilt; a new leg changes colours and intensities). Never add or remove a light mid-run (every
+lit shader recompiles). Every gun's viewmodel is built at the start and shown in turn for the same reason. In dev,
+`window.__boys` is the app and `__boys.session` the run (`__boys.session.director` on the host).
 
 ## Netcode
 
-The party relay only forwards messages, so the **host's browser referees** (like Royal Degeneracy). The **driver's
-browser moves the bus** (`bus` at 15 Hz; everyone else smooths toward it); with nobody driving the host lets it roll
-to a stop. Who drives is the host's call (`drive` asks, `driver` tells everyone). Everyone sends where they stand on
-the bus with their aim (`aim`, 8 Hz). The host sends zombies plus the effects since last time (`z`, 10 Hz) and the run state (`run`, 3 Hz and on
-every change). Players batch a tenth of a second's shots, hits, pickups and swings into one `act`. Batching keeps
-everyone under the relay's 60 messages a second. Hits are claimed by the shooter (what you see is what you hit) and
-checked by the director (alive, in reach for the club). It's co-op among friends: the checks stop a broken client,
-not a cheat.
+The party relay only forwards messages, so the **host's browser referees** (`Director`, and `Duel` for the card
+table). The **driver's browser moves the bus** (`bus` at 15 Hz, tagged with its leg `l`; a pose from another leg is
+dropped); with nobody driving the host lets it roll to a stop. Everyone sends where they are with their aim (`aim`,
+8 Hz: on the bus a `Spot`, off it `l: 2` with world x/z). The host sends zombies plus effects (`z`, 10 Hz) and the
+run with this leg's taken pickups and crates (`run`, 3 Hz and on change). Players batch shots, hits, grenade hits,
+pickups and swings into one `act` a tenth of a second; `do` (crate, can, knocked out, toke, drink), `mini`, `bj`,
+`buy` and `duel` go to the host. Poker hands are sent to their owner alone (`party.send(data, toId)`); the table
+(`table`) to everyone. Hits and blackjack results are claimed by the player and sanity-checked by the director
+(bounds, alive, in reach): it's co-op among friends, the checks stop a broken client, not a cheat.
 
-## Next iterations (ideas agreed with the user, not built yet)
+## Next iterations (ideas, not built yet)
 
-- **The longboard ride**: a downhill longboard section through the Queen's campus area on the way home.
-- **More Big Walk-style minigames** at stops and along the road (the user wants "as many as possible").
-- Kingston landmarks along the route (limestone buildings, the lake), more stop variety per run.
-- Late joining mid-run; a ready check in the lobby.
-- Touch controls (phones): not in v1.
+- More jobs and Big Walk-style minigames at checkpoints; Texas Hold'em at the table for more than two.
+- The longboard ride: a downhill section through the Queen's campus.
+- Late joining mid-run; a ready check in the lobby; touch controls.

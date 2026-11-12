@@ -1,4 +1,5 @@
-// BOYS DAY's rules, pure (no three.js, no DOM): the bus, the stops, the zombies' numbers, the minigames' maths.
+// BOYS DAY's rules, pure (no three.js, no DOM): the bus, walking (on it and off it), the run and its checkpoints' jobs,
+// upgrades, the zombies' numbers, the minigames' maths.
 // Units are metres and seconds, Y up, yaw 0 faces -Z.
 
 /** Seeded random in [0, 1) (mulberry32): the same seed builds the same run on every screen. */
@@ -74,6 +75,8 @@ export interface Ground {
   mud: boolean;
   /** No fuel left. */
   fumes: boolean;
+  /** The engine's pull (1: stock; the engine upgrade raises it). */
+  power?: number;
 }
 
 export const FLAT: Ground = { grade: 0, onRoad: true, mud: false, fumes: false };
@@ -113,10 +116,11 @@ export function stepBus(b: Bus, d: Drive, dt: number, g: Ground = FLAT): void {
   const ds = want - b.steer;
   b.steer += Math.sign(ds) * Math.min(Math.abs(ds), BUS.steerRate * dt);
 
-  let top = onRoad ? BUS.maxSpeed : BUS.maxSpeed * BUS.grass;
+  const power = g.power ?? 1;
+  let top = (onRoad ? BUS.maxSpeed : BUS.maxSpeed * BUS.grass) * power;
   if (g.fumes) top = Math.min(top, BUS.fumes);
   let a = 0;
-  if (d.throttle > 0) a += d.throttle * BUS.accel * (b.v < 0 ? 2.5 : 1);
+  if (d.throttle > 0) a += d.throttle * BUS.accel * power * (b.v < 0 ? 2.5 : 1);
   // Going forward the brake pedal brakes; stopped (or rolling back) it reverses.
   const braking = d.brake > 0 && b.v > 0;
   if (braking) a -= d.brake * BUS.brake;
@@ -286,155 +290,270 @@ export function wallHit(a: { x: number; y: number; z: number }, b: { x: number; 
 }
 
 // ---------------------------------------------------------------------------------------------
-// The run: the stops in order, what each needs
+// On foot: off the bus at a checkpoint
 
-export type StopKind = 'arena' | 'golf' | 'casino' | 'jail' | 'home';
-export const STOP_ORDER: readonly StopKind[] = ['arena', 'golf', 'casino', 'jail', 'home'];
-
-export const STOP_INFO: Record<StopKind, { name: string; sign: string; goal: string }> = {
-  arena: { name: 'the paintball arena', sign: 'SPLAT ZONE PAINTBALL', goal: 'Wake up. Grab the markers.' },
-  golf: { name: 'the driving range', sign: 'TEE TIME DRIVING RANGE', goal: 'Tee off zombies on the range to win the golf club.' },
-  casino: { name: 'the casino', sign: 'LUCKY LIMESTONE CASINO', goal: 'Win Gordie’s bail money on the slots.' },
-  jail: { name: 'the jail', sign: 'KINGSTON HOLDING CELLS', goal: 'Pay the bail, then hold them off while Gordie’s released.' },
-  home: { name: 'the house', sign: 'THE BOYS’ HOUSE', goal: 'Get home. Bong tokes with the boys.' },
-};
-
-export const RUN = {
-  /** Stop when the bus is this close to a stop's marker, going slower than `parkSpeed`. */
-  parkRadius: 16,
-  parkSpeed: 4,
-  /** Money you wake up with (whatever's left in your pockets). */
-  startMoney: 40,
-  /** How long the jail takes to release Gordie (s), while you hold them off. */
-  jailHold: 40,
-  /** A repair kit's worth of bus. */
-  repair: 250,
-  /** A cash bag. */
-  cash: 25,
-  /** Each finished stop patches the bus up this much (duct tape). */
-  patch: 150,
-  /** A full tank, what a metre of driving burns, and a gas can's worth. */
-  fuel: 100,
-  burn: 0.045,
-  gas: 35,
+export const FOOT = {
+  speed: 6,
+  /** Lugging a jerry can, you walk at this share of your speed (and can't shoot). */
+  carry: 0.65,
+  r: 0.4,
+  eye: 1.6,
+  hp: 100,
+  /** Health back per second while you're on the bus. */
+  regen: 6,
+  /** How close you have to be to use something, and to the bus's side to climb aboard (m). */
+  reach: 2.8,
+  board: 2.8,
+  /** How far from the parking spot you can wander. */
+  leash: 62,
+  /** Bitten down to nothing: the boys drag you back aboard and you sit out this long (s), then wake on this much. */
+  ko: 6,
+  wake: 50,
+  /** Left behind this far from the bus, you sprint back aboard (m). */
+  left: 95,
 } as const;
 
 /**
- * The stops' goals grow with the crew, so everyone gets a go before the job's done: zombies to tee off at the range,
- * and Gordie's bail.
+ * Walks you over the ground: `fwd` and `strafe` input (−1..1), looking `yaw` (world: 0 faces −Z). Pushed out of
+ * obstacles and of the bus, and kept within `leash` of `centre`.
  */
-export const goals = (crew: number) => {
-  const n = Math.max(1, Math.min(8, crew));
-  return { tees: 2 + 2 * n, bail: 250 + 100 * n };
+export function stepFoot(p: { x: number; z: number }, fwd: number, strafe: number, yaw: number, dt: number, obstacles: readonly Obstacle[], bus: Pick<Bus, 'x' | 'z' | 'h'>, centre: { x: number; z: number }, slow = 1) {
+  const l = Math.hypot(fwd, strafe);
+  if (l > 0) {
+    const k = (FOOT.speed * slow * dt) / Math.max(1, l);
+    const f = fwdOf(yaw);
+    const r = rightOf(yaw);
+    p.x += (f.x * fwd + r.x * strafe) * k;
+    p.z += (f.z * fwd + r.z * strafe) * k;
+  }
+  for (const o of obstacles) {
+    const dx = p.x - o.x;
+    const dz = p.z - o.z;
+    const min = o.r + FOOT.r;
+    if (Math.abs(dx) >= min || Math.abs(dz) >= min) continue;
+    const d = Math.hypot(dx, dz);
+    if (d >= min) continue;
+    const k = d > 1e-6 ? min / d : 0;
+    p.x = o.x + (d > 1e-6 ? dx * k : min);
+    p.z = o.z + dz * k;
+  }
+  // The bus is a solid box: out through its nearest side.
+  const q = toBus(bus, p.x, p.z);
+  const W = BUS.width / 2 + FOOT.r;
+  const L = BUS.length / 2 + FOOT.r;
+  if (Math.abs(q.side) < W && Math.abs(q.along) < L) {
+    if (W - Math.abs(q.side) < L - Math.abs(q.along)) q.side = Math.sign(q.side || 1) * W;
+    else q.along = Math.sign(q.along || 1) * L;
+    const w = fromBus(bus, q.side, q.along);
+    p.x = w.x;
+    p.z = w.z;
+  }
+  const dx = p.x - centre.x;
+  const dz = p.z - centre.z;
+  const d = Math.hypot(dx, dz);
+  if (d > FOOT.leash) {
+    p.x = centre.x + (dx / d) * FOOT.leash;
+    p.z = centre.z + (dz / d) * FOOT.leash;
+  }
+}
+
+/** Where you land when you hop off the bus from `spot`: just outside the nearer side. */
+export function hopOff(bus: Pick<Bus, 'x' | 'z' | 'h'>, spot: Spot) {
+  const side = (spot.side >= 0 ? 1 : -1) * (BUS.width / 2 + FOOT.r + 0.5);
+  return fromBus(bus, side, Math.max(-BUS.length / 2 + 1, Math.min(BUS.length / 2 - 1, spot.along)));
+}
+
+/** Where you stand inside once you climb back aboard from (x, z). */
+export function hopOn(bus: Pick<Bus, 'x' | 'z' | 'h'>, x: number, z: number): Spot {
+  const q = toBus(bus, x, z);
+  const b = walkBounds(0);
+  return { side: Math.max(-b.side, Math.min(b.side, q.side * 0.3)), along: Math.max(b.back, Math.min(b.front, q.along)), level: 0 };
+}
+
+/** Close enough to the bus's side to climb aboard? */
+export const canBoard = (bus: Pick<Bus, 'x' | 'z' | 'h'>, x: number, z: number) => onBus(bus, x, z, FOOT.board);
+
+// ---------------------------------------------------------------------------------------------
+// The run: an endless road of checkpoints. Each has a job to do on foot; the bus dies when its health runs out.
+
+/** What a checkpoint asks of you (see checkpoints.ts for where and with what twist). */
+export type Job = 'scavenge' | 'fuel' | 'beacon' | 'holdout' | 'golf' | 'slots';
+
+export const JOBS: Record<Job, { need: (crew: number, stage: number) => number; goal: string }> = {
+  /** Supply crates lying about: walk up and grab them. */
+  scavenge: { need: (c, s) => 3 + c + Math.min(4, Math.floor(s / 3)), goal: 'Get off the bus and scavenge supply crates' },
+  /** Jerry cans from the pump, lugged back to the bus one at a time. */
+  fuel: { need: (c, s) => 2 + c + Math.min(3, Math.floor(s / 4)), goal: 'Lug jerry cans from the pump to the bus' },
+  /** Seconds with somebody standing in the beacon's ring. */
+  beacon: { need: (_, s) => 30 + Math.min(40, s * 3), goal: 'Stand in the ring to crank the beacon' },
+  /** Zombies to put down while parked. */
+  holdout: { need: (c, s) => Math.round((10 + s * 2) * HORDE.crewScale(c)), goal: 'Hold them off' },
+  /** Zombies teed off at the tee box. */
+  golf: { need: (c) => 2 + 2 * c, goal: 'Walk to the tee box and tee off zombies' },
+  /** Scrap won on the machine. */
+  slots: { need: (c) => 100 + 60 * c, goal: 'Walk to the slot machine and win scrap' },
 };
 
-export type Phase = 'drive' | 'stop' | 'won' | 'lost';
+export const RUN = {
+  /** Stop when the bus is this close to the checkpoint's marker, going slower than `parkSpeed`. */
+  parkRadius: 16,
+  parkSpeed: 4,
+  /** Scrap in each of your pockets when you wake up. */
+  startScrap: 20,
+  /** A repair kit's worth of bus; then what everyone gets for a scrap pile, a crate, and a cleared checkpoint
+   *  (plus `clearPer` a leg). */
+  repair: 250,
+  scrap: 15,
+  crate: 12,
+  /** Paint a zombie dead and it's a little scrap in your own pocket (a chonk's worth more). */
+  kill: 1,
+  chonk: 3,
+  clear: 40,
+  clearPer: 6,
+  /** Each cleared checkpoint patches the bus up this much (duct tape); a teed-off zombie this much. */
+  patch: 150,
+  teeHeal: 20,
+  /** A full tank, what a metre of driving burns, a gas can by the road, and a jerry can lugged from the pump. */
+  fuel: 100,
+  burn: 0.045,
+  gas: 35,
+  jerry: 20,
+  /** Getting knocked out costs you this share of your scrap (dropped in the scramble). */
+  koLoss: 0.1,
+  /** Seconds of calm at the start of each leg. */
+  legCalm: 7,
+} as const;
+
+/** What scrap buys at the bus's store (B / D-pad up), out of your own pocket. Upgrades cost more a level at a time. */
+export const UPGRADES = [
+  { id: 'armor', name: 'Scrap armour', what: '+250 max bus health (and fills it)', max: 6, cost: 50 },
+  { id: 'plow', name: 'Cow-catcher', what: 'Zombies bounce off at lower speed and chew slower', max: 4, cost: 45 },
+  { id: 'engine', name: 'Engine swap', what: '+8% speed, pulls harder up hills', max: 5, cost: 40 },
+  { id: 'tank', name: 'Jerry-rigged tank', what: '+25 fuel and sips less', max: 4, cost: 35 },
+  { id: 'hopper', name: 'Big hoppers', what: '+20 paintballs, quicker reloads for everyone', max: 4, cost: 30 },
+] as const;
+export const REPAIR = { cost: 30, hp: 200 } as const;
+/** For yourself: a paint grenade, and a bandage (back to full health). */
+export const STORE = { nade: 15, bandage: 10 } as const;
+/** What `buy` takes: an upgrade's index, then these. */
+export const BUY = { repair: UPGRADES.length, nade: UPGRADES.length + 1, bandage: UPGRADES.length + 2 } as const;
+/** Index of each upgrade in `RunState.up`. */
+export const UP = { armor: 0, plow: 1, engine: 2, tank: 3, hopper: 4 } as const;
+export const upCost = (k: number, level: number) => UPGRADES[k].cost * (level + 1);
+
+export type Phase = 'drive' | 'stop' | 'lost';
 
 export interface RunState {
   seed: number;
-  /** The stop you're heading to (index into STOP_ORDER). Starts at 1: you wake up at the arena. */
+  /** The leg you're on, from 0: its checkpoint is `checkpointOf(seed, stage)`. */
   stage: number;
   phase: Phase;
   busHp: number;
-  money: number;
-  teed: number;
-  /** Seconds of the jail hold done. */
-  hold: number;
-  bailPaid: boolean;
+  /** Everyone's own scrap, by their place in the crew (join order). Yours to spend at the store, or to bet. */
+  cash: number[];
+  /** The checkpoint's job: how far along, how much it needs, and whether it's done (the gate's open). */
+  prog: number;
+  need: number;
+  done: boolean;
   club: boolean;
   gordie: boolean;
   kills: number;
   yeets: number;
-  /** Seconds since waking up. */
+  /** Seconds since waking up, and metres driven. */
   time: number;
-  /** This crew's goals (see `goals`). */
-  tees: number;
-  bail: number;
+  dist: number;
   fuel: number;
   /** The zombie round: which one, how many are left in it, and the seconds of calm before the next. */
   round: number;
   left: number;
   calm: number;
+  /** Upgrade levels, in UPGRADES' order. */
+  up: number[];
 }
 
 export function newRun(seed: number, crew = 1): RunState {
   return {
-    ...goals(crew),
-    fuel: RUN.fuel,
-    round: 0,
-    left: 0,
-    calm: ROUNDS.first,
     seed,
-    stage: 1,
+    stage: 0,
     phase: 'drive',
     busHp: BUS.hp,
-    money: RUN.startMoney,
-    teed: 0,
-    hold: 0,
-    bailPaid: false,
+    cash: Array.from({ length: MAX_PLAYERS }, (_, i) => (i < Math.max(1, crew) ? RUN.startScrap : 0)),
+    prog: 0,
+    need: 1,
+    done: false,
     club: false,
     gordie: false,
     kills: 0,
     yeets: 0,
     time: 0,
+    dist: 0,
+    fuel: RUN.fuel,
+    round: 0,
+    left: 0,
+    calm: ROUNDS.first,
+    up: UPGRADES.map(() => 0),
   };
 }
 
-export const stopOf = (r: RunState): StopKind => STOP_ORDER[Math.min(r.stage, STOP_ORDER.length - 1)];
+export const maxHp = (r: Pick<RunState, 'up'>) => BUS.hp + r.up[UP.armor] * 250;
+export const maxFuel = (r: Pick<RunState, 'up'>) => RUN.fuel + r.up[UP.tank] * 25;
+export const burnOf = (r: Pick<RunState, 'up'>) => RUN.burn * (1 - r.up[UP.tank] * 0.08);
+export const hopperOf = (r: Pick<RunState, 'up'>) => GUN.hopper + r.up[UP.hopper] * 20;
+export const reloadOf = (r: Pick<RunState, 'up'>) => GUN.reload * (1 - r.up[UP.hopper] * 0.12);
+/** The engine's pull (top speed, acceleration and climbing), from the engine upgrade. */
+export const powerOf = (r: Pick<RunState, 'up'>) => 1 + r.up[UP.engine] * 0.08;
+export const yeetSpeedOf = (r: Pick<RunState, 'up'>) => HORDE.yeetSpeed - r.up[UP.plow] * 0.9;
+export const chewOf = (r: Pick<RunState, 'up'>) => 1 - r.up[UP.plow] * 0.12;
 
-/** Is this stop's job done? (Then the bus can go on to the next one.) */
-export function stopDone(r: RunState): boolean {
-  const k = stopOf(r);
-  if (k === 'golf') return r.teed >= r.tees;
-  if (k === 'casino') return r.money >= r.bail;
-  if (k === 'jail') return r.hold >= RUN.jailHold;
-  return k === 'home';
+/** What `k` costs right now (Infinity: it can't be bought, e.g. maxed out or the bus is already whole). */
+export function priceOf(r: RunState, k: number): number {
+  if (k === BUY.repair) return r.busHp >= maxHp(r) ? Infinity : REPAIR.cost;
+  if (k === BUY.nade) return STORE.nade;
+  if (k === BUY.bandage) return STORE.bandage;
+  const u = UPGRADES[k];
+  return !u || r.up[k] >= u.max ? Infinity : upCost(k, r.up[k]);
 }
 
-/** Moves on once the stop is done: the prize, then the next stage (or the win). Returns what to announce. */
-export function finishStop(r: RunState): string {
-  const k = stopOf(r);
-  r.phase = 'drive';
-  r.busHp = Math.min(BUS.hp, r.busHp + RUN.patch);
-  if (k === 'golf') {
-    r.club = true;
-    r.stage++;
-    return 'GOLF CLUB GET! Swing it at zombies: FORE!';
+/** Crew member `who` buys `k` (see BUY) if they can afford it. Grenades and bandages are theirs: their screen hands them over. */
+export function buy(r: RunState, k: number, who: number): boolean {
+  const cost = priceOf(r, k);
+  if (!(r.cash[who] >= cost)) return false;
+  r.cash[who] -= cost;
+  if (k === BUY.repair) r.busHp = Math.min(maxHp(r), r.busHp + REPAIR.hp);
+  else if (k < UPGRADES.length) {
+    r.up[k]++;
+    if (k === UP.armor) r.busHp = maxHp(r);
+    if (k === UP.tank) r.fuel = Math.min(maxFuel(r), r.fuel + 25);
   }
-  if (k === 'casino') {
-    r.stage++;
-    return `Bail money: $${r.money}. To the jail!`;
-  }
-  if (k === 'jail') {
-    r.gordie = true;
-    r.stage++;
-    return 'GORDIE IS FREE! He’s on the bus. Home time.';
-  }
-  r.phase = 'won';
-  return 'HOME! Bong tokes with the boys.';
+  return true;
 }
 
 /** A short line for the HUD: what to do now. */
-export function objective(r: RunState): string {
-  const k = stopOf(r);
-  if (r.phase === 'won') return 'Home. Pack the bong.';
+export function objective(r: RunState, job: Job, place: string): string {
   if (r.phase === 'lost') return 'The bus is done.';
-  if (r.phase === 'drive') return `Drive to ${STOP_INFO[k].name}`;
-  if (k === 'golf') return `Tee off zombies on the range: ${r.teed}/${r.tees}`;
-  if (k === 'casino') return `Win bail on the slots: $${r.money}/$${r.bail}`;
-  if (k === 'jail') return r.bailPaid ? `Hold them off: Gordie’s out in ${Math.ceil(RUN.jailHold - r.hold)} s` : 'Paying bail…';
-  return STOP_INFO[k].goal;
+  if (r.phase === 'drive') return r.done ? 'Checkpoint cleared! Drive on through the gate' : `Drive to ${place}`;
+  if (r.done) return 'Cleared! Everyone aboard, then drive on through the gate';
+  const n = `${Math.floor(r.prog)}/${r.need}`;
+  if (job === 'scavenge') return `Scavenge supply crates: ${n}`;
+  if (job === 'fuel') return `Lug jerry cans from the pump to the bus: ${n}`;
+  if (job === 'beacon') return `Stand in the ring to crank the beacon: ${Math.ceil(r.need - r.prog)} s`;
+  if (job === 'holdout') return `Hold them off: ${n}`;
+  if (job === 'golf') return `Tee off zombies at the tee box: ${n}`;
+  return `Win scrap on the slot machine: ${n}`;
 }
 
 // ---------------------------------------------------------------------------------------------
 // Zombies and guns
 
 export type ZKind = 0 | 1 | 2;
-export const ZOMBIE: Record<ZKind, { name: string; speed: number; hp: number; r: number; damage: number }> = {
-  0: { name: 'shambler', speed: 4.5, hp: 3, r: 0.45, damage: 2 },
-  1: { name: 'sprinter', speed: 7.5, hp: 2, r: 0.4, damage: 1.5 },
-  2: { name: 'chonk', speed: 3.2, hp: 7, r: 0.75, damage: 4 },
+/** `damage`: bus health a second while it hangs on. `bite`: what one bite takes off a player on foot. */
+export const ZOMBIE: Record<ZKind, { name: string; speed: number; hp: number; r: number; damage: number; bite: number }> = {
+  0: { name: 'shambler', speed: 4.5, hp: 3, r: 0.45, damage: 2, bite: 12 },
+  1: { name: 'sprinter', speed: 7.5, hp: 2, r: 0.4, damage: 1.5, bite: 9 },
+  2: { name: 'chonk', speed: 3.2, hp: 7, r: 0.75, damage: 4, bite: 24 },
 };
+/** The further you get, the faster they come (a share on top per leg, capped). */
+export const zSpeed = (stage: number) => 1 + Math.min(0.45, stage * 0.025);
 
 /**
  * Rounds, like CoD Zombies: each round sends a set number of zombies (no more than `alive` at once), and when every
@@ -462,6 +581,10 @@ export const HORDE = {
   yeetSpeed: 5,
   /** Hanging on the bus, they hurt it (hp/s, by kind) until shot off. */
   climbReach: 0.9,
+  /** They go for someone on foot within this (m) rather than the bus, and bite every `bite` s within `biteReach`. */
+  chase: 40,
+  bite: 0.9,
+  biteReach: 0.7,
 } as const;
 
 export const GUN = {
@@ -476,8 +599,26 @@ export const GUN = {
   damage: 1,
 } as const;
 
+/**
+ * The guns, unlocked for the whole crew as checkpoints are cleared (`unlock`: how many). Each fires `pellets`
+ * paintballs a shot inside `spread`, `rate` shots a second, each doing `damage`; `hopper` scales the hopper; `splash`
+ * (m) paints everything round where it lands; `speed` and `gravity` scale the ball's flight.
+ */
+export const GUNS = [
+  { name: 'Marker', unlock: 0, rate: 9, pellets: 1, spread: 0.025, damage: 1, hopper: 1, splash: 0, speed: 1, gravity: 1 },
+  { name: 'Splatter Shotty', unlock: 2, rate: 1.7, pellets: 7, spread: 0.11, damage: 1, hopper: 0.3, splash: 0, speed: 0.9, gravity: 1 },
+  { name: 'Paint Minigun', unlock: 4, rate: 22, pellets: 1, spread: 0.06, damage: 1, hopper: 3, splash: 0, speed: 1, gravity: 1 },
+  { name: 'Long Tom', unlock: 6, rate: 1.1, pellets: 1, spread: 0.002, damage: 8, hopper: 0.2, splash: 0, speed: 2.2, gravity: 0.3 },
+  { name: 'Balloon Launcher', unlock: 9, rate: 0.9, pellets: 1, spread: 0.01, damage: 4, hopper: 0.15, splash: 5.5, speed: 0.5, gravity: 2.2 },
+] as const;
+/** How many guns the crew has after clearing `cleared` checkpoints. */
+export const gunsUnlocked = (cleared: number) => GUNS.filter((g) => g.unlock <= cleared).length;
+
+/** Paint grenades (G / D-pad down): lobbed, they burst where they land. You carry a few; clearing a checkpoint restocks. */
+export const NADE = { start: 2, max: 5, perClear: 2, splash: 7, damage: 6, speed: 24, lob: 0.35, gravity: 22, cooldown: 0.8 } as const;
+
 export const CLUB = {
-  /** A swing reaches this far from the bus's side, in a cone this wide, and launches them. */
+  /** A swing reaches this far from the bus's side (or from you, on foot), in a cone this wide, and launches them. */
   reach: 4.5,
   cone: 1.1,
   cooldown: 0.7,
@@ -540,3 +681,109 @@ export function slotPay(reels: readonly number[]): number {
 
 /** The most one pull can pay (the host clamps what it's told). */
 export const SLOT_MAX = SLOT_PAY.triple7;
+
+// ---------------------------------------------------------------------------------------------
+// Hanging out on the bus: the bong, the cooler, the card table
+
+/** Stations inside the bus (bus-local, like a Spot) and what they do for you. */
+export const HANG = {
+  bong: { side: 0.75, along: -4.4, heal: 30, high: 12 },
+  cooler: { side: -0.75, along: -4.4, heal: 15, tipsy: 14 },
+  table: { side: 0.7, along: 0.5 },
+  /** How close you have to stand (m). */
+  reach: 1.1,
+} as const;
+
+export type HangKind = 'bong' | 'cooler' | 'table';
+/** Which station you're standing at inside the bus, if any. */
+export function hangAt(p: Spot): HangKind | null {
+  if (p.level !== 0) return null;
+  for (const k of ['bong', 'cooler', 'table'] as const) if (Math.hypot(p.side - HANG[k].side, p.along - HANG[k].along) < HANG.reach) return k;
+  return null;
+}
+
+/** Cards are 0-51: rank c % 13 (0 is a two, 12 an ace), suit ⌊c / 13⌋. */
+export const rankOf = (c: number) => c % 13;
+export const suitOf = (c: number) => Math.floor(c / 13);
+
+export const HANDS = ['High card', 'Pair', 'Two pair', 'Three of a kind', 'Straight', 'Flush', 'Full house', 'Four of a kind', 'Straight flush'] as const;
+
+/**
+ * A five-card poker hand as a list to compare (bigger wins, entry by entry): the kind (index into HANDS), then the
+ * ranks that break ties.
+ */
+export function pokerScore(hand: readonly number[]): number[] {
+  const ranks = hand.map(rankOf).sort((a, b) => b - a);
+  const flush = hand.every((c) => suitOf(c) === suitOf(hand[0]));
+  const counts = new Map<number, number>();
+  for (const r of ranks) counts.set(r, (counts.get(r) ?? 0) + 1);
+  // Groups first (fours, threes, pairs), each by rank.
+  const groups = [...counts].sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+  const order = groups.map(([r]) => r);
+  const wheel = ranks.join() === '12,3,2,1,0';
+  const straight = counts.size === 5 && (ranks[0] - ranks[4] === 4 || wheel);
+  const top = wheel ? [3] : [ranks[0]];
+  if (straight && flush) return [8, ...top];
+  if (groups[0][1] === 4) return [7, ...order];
+  if (groups[0][1] === 3 && groups[1][1] === 2) return [6, ...order];
+  if (flush) return [5, ...ranks];
+  if (straight) return [4, ...top];
+  if (groups[0][1] === 3) return [3, ...order];
+  if (groups[0][1] === 2 && groups[1][1] === 2) return [2, ...order];
+  if (groups[0][1] === 2) return [1, ...order];
+  return [0, ...ranks];
+}
+
+/** > 0 if hand `a` beats `b`, < 0 if it loses, 0 for a split pot. */
+export function pokerCompare(a: readonly number[], b: readonly number[]) {
+  const x = pokerScore(a);
+  const y = pokerScore(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0);
+  return 0;
+}
+export const handName = (hand: readonly number[]) => HANDS[pokerScore(hand)[0]];
+
+/** Blackjack at the card table, against the dealer (who draws to 17). A natural pays 3:2. */
+export const BLACKJACK = { bets: [10, 25, 50], dealerStands: 17, natural: 1.5 } as const;
+/** The most one hand can win or lose (a doubled top bet), which the host holds results to. */
+export const BJ_MAX = BLACKJACK.bets[BLACKJACK.bets.length - 1] * 2;
+
+/** A blackjack hand's best total (aces as 11 while that doesn't bust). */
+export function bjTotal(hand: readonly number[]) {
+  let t = 0;
+  let aces = 0;
+  for (const c of hand) {
+    const r = rankOf(c);
+    if (r === 12) {
+      aces++;
+      t += 11;
+    } else t += r >= 8 ? 10 : r + 2;
+  }
+  while (t > 21 && aces-- > 0) t -= 10;
+  return t;
+}
+
+/** What a finished blackjack hand pays on `bet` (negative: lost). The dealer's hand is already drawn out. */
+export function bjPay(player: readonly number[], dealer: readonly number[], bet: number) {
+  const p = bjTotal(player);
+  const d = bjTotal(dealer);
+  const natural = (h: readonly number[]) => h.length === 2 && bjTotal(h) === 21;
+  if (p > 21) return -bet;
+  if (natural(player)) return natural(dealer) ? 0 : Math.round(bet * BLACKJACK.natural);
+  if (natural(dealer)) return -bet;
+  if (d > 21 || p > d) return bet;
+  return p === d ? 0 : -bet;
+}
+
+/** Heads-up poker at the card table (five-card draw, one draw, one round of betting). See duel.ts. */
+export const DUEL = { antes: [10, 25, 50], seats: 2 } as const;
+
+/** A shuffled deck (Fisher-Yates on `rand`). */
+export function shuffled(rand: () => number): number[] {
+  const d = Array.from({ length: 52 }, (_, i) => i);
+  for (let i = 51; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [d[i], d[j]] = [d[j], d[i]];
+  }
+  return d;
+}

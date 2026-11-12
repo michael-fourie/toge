@@ -8,6 +8,8 @@ import { GOLF, REEL_SPEED, SLOTS, SLOT_PAY, reelAt, slotPay, sweep, teesOff } fr
 
 export interface Minigame {
   el: HTMLElement;
+  /** A menu of real buttons (the card table): the session frees the pointer and turns the pad's menu moves on. */
+  readonly menu?: boolean;
   update(dt: number, f: Frame): void;
 }
 
@@ -26,7 +28,7 @@ function frame(title: string, how: string, w: number, h: number) {
   note.className = 'bd-mini-note';
   const out = document.createElement('p');
   out.className = 'bd-mini-out';
-  out.textContent = 'E / Ⓑ: back on the bus';
+  out.textContent = 'E / Ⓑ: step away';
   el.append(t, p, c, note, out);
   return { el, c, g: c.getContext('2d')!, note };
 }
@@ -467,7 +469,7 @@ export class Slots implements Minigame {
     private bank: () => number,
     private goal: number,
   ) {
-    const f = frame('REEL STOPPER', 'Space / click / Ⓐ pulls the lever, then stops each reel in turn. Pairs pay $50, three of a kind $120, 💰💰💰 $250, 777 $400.', 560, 380);
+    const f = frame('REEL STOPPER', 'Space / click / Ⓐ pulls the lever, then stops each reel in turn. Pairs pay 50 scrap, three of a kind 120, 💰💰💰 250, 777 400.', 560, 380);
     this.el = f.el;
     this.c = f.c;
     this.g = f.g;

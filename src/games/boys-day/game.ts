@@ -73,7 +73,7 @@ class App {
   private menu() {
     const card = el('div', 'bd-card');
     card.append(el('h1', 'bd-title', 'BOYS DAY'));
-    card.append(el('p', 'bd-blurb', 'You wake up in the paintball arena after the biggest night of your lives. The world ended while you were blacked out. Drive the bus home, paint the zombies, win Gordie’s bail, and get back to the house for bong tokes with the boys.'));
+    card.append(el('p', 'bd-blurb', 'You wake up in the paintball arena after the biggest night of your lives. The world ended while you were blacked out. Drive the bus from checkpoint to checkpoint, each one a new world: hop off, do the job, unlock guns, win scrap at the card table, fix up the bus. There’s no finish line. How far can the boys get?'));
     if (this.note) card.append(el('p', 'bd-note', this.note));
     const solo = el('button', 'bd-btn big', '🚌  Play solo');
     solo.dataset.autofocus = '';
@@ -206,7 +206,7 @@ class App {
         hostId: p?.hostId ?? 0,
         crew,
         solo: !p,
-        send: (m) => p?.send(m),
+        send: (m, to) => p?.send(m, to),
       },
       seed,
       driver,
