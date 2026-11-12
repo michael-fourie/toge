@@ -793,6 +793,43 @@
     transform-origin: top left;
   }
 }
+/* Battle royale: you're last, so you're out at the line unless you pass someone. A red pulse round the edge, a tag under the top bar. */
+.rh.danger::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 120px 24px rgba(255, 40, 60, 0.55);
+  animation: rh-danger 0.9s ease-in-out infinite alternate;
+}
+.rh.danger .rh-top::after {
+  content: 'LAST PLACE · OUT AT THE LINE';
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: #ff283c;
+  font: 800 18px 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.08em;
+  animation: blink 0.8s steps(1) infinite;
+}
+.rh.danger .rh-pos b {
+  color: #ff5a68;
+}
+@keyframes rh-danger {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.rh-results .rh-out {
+  color: #ff6b78;
+  font-weight: 700;
+}
 .rh-results .rh-cpu {
   margin-left: 6px;
   font-size: 11px;

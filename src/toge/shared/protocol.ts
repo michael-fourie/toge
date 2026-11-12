@@ -30,9 +30,11 @@ export type RacePhase = 'lobby' | 'loading' | 'countdown' | 'racing' | 'results'
  * (cups.ts) raced back to back with race rules, points for every place, a cup table at the end), a `team` (Team
  * Grand Prix: the same cup, with every racer on Red or Blue; teammates drive through each other, rivals bump, and
  * each team scores its racers' points), or `roam` (free roam: the open world (a TrackDef with `world`, world.ts), no
- * start, finish or prizes, friends can drive in while it's on, and it runs until the host ends it).
+ * start, finish or prizes, friends can drive in while it's on, and it runs until the host ends it), or `royale`
+ * (battle royale, royale.ts: on a royale arena (`royale` on its TrackDef), the last car to finish each lap is
+ * destroyed, and it goes on until one is left).
  */
-export type RaceMode = 'race' | 'trial' | 'climb' | 'gp' | 'team' | 'roam';
+export type RaceMode = 'race' | 'trial' | 'climb' | 'gp' | 'team' | 'roam' | 'royale';
 export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
   race: { name: 'Race', blurb: 'Bump, block, draft and hit the boost pads. First to the line wins.' },
   trial: { name: 'Time trial', blurb: 'Ghost cars, no contact. Fastest clean time wins.' },
@@ -40,6 +42,7 @@ export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
   gp: { name: 'Grand Prix', blurb: 'A cup of four tracks back to back. Points for every place; most points takes the trophy.' },
   team: { name: 'Team Grand Prix', blurb: 'Red against Blue over a cup of four tracks. Bump the rivals, drive through your teammates; every place scores for your team.' },
   roam: { name: 'Free roam', blurb: 'The open world: no race, no clock. Cruise, hang out, and thread the highway traffic. Friends can drive in any time.' },
+  royale: { name: 'Battle royale', blurb: 'Every lap, the last car across the line is destroyed. Laps go on until one is left standing.' },
 };
 
 /** Modes that run a cup of four tracks with points (cups.ts): the Grand Prix and the Team Grand Prix. */
@@ -71,12 +74,15 @@ export const cleanMode = (m: RaceMode) => m === 'trial' || m === 'climb';
  */
 export const recordMode = (m: RaceMode) => cleanMode(m);
 
-/** The tracks a mode can run: free roam only the open worlds, a hill climb only hill-climb roads, the rest only the others. */
+/**
+ * The tracks a mode can run: free roam only the open worlds, a hill climb only hill-climb roads, a battle royale only
+ * its arenas, the rest only the others.
+ */
 export const modeTracks = (m: RaceMode): TrackId[] =>
-  m === 'roam' ? (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => TRACK_DEFS[id].world) : RACE_TRACKS.filter((id) => !!TRACK_DEFS[id].climb === (m === 'climb'));
+  m === 'roam' ? (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => TRACK_DEFS[id].world) : RACE_TRACKS.filter((id) => !!TRACK_DEFS[id].climb === (m === 'climb') && !!TRACK_DEFS[id].royale === (m === 'royale'));
 
 /** The track a mode starts on when the host switches to it (they can still pick another the mode allows). */
-export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0], team: CUPS.torii.tracks[0], roam: 'toge' };
+export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0], team: CUPS.torii.tracks[0], roam: 'toge', royale: 'shura' };
 
 /** A Grand Prix under way: the round being raced (from 0) and the cup table so far (keyed by racer id). */
 export interface GpState {
@@ -176,6 +182,8 @@ export interface ResultRow {
   cpu?: boolean;
   /** Battle pass XP the race earned (pass.ts `raceXp`; 0 for CPU racers). */
   xp: number;
+  /** A battle royale: the lap this racer was knocked out on (the winner has none). */
+  out?: number;
 }
 
 export interface RaceLobbyInfo {
@@ -214,6 +222,8 @@ export type RaceServerMsg =
   | { t: 'go' }
   | { t: 'snap'; cars: NetCar[] }
   | { t: 'finished'; id: number; time: number }
+  /** A battle royale: racer `id` was last over the line on `lap` and is out, finishing `place`; `left` cars remain. */
+  | { t: 'out'; id: number; lap: number; place: number; left: number }
   /**
    * `gp`: a Grand Prix round: the cup table after it, whether it was the last round, and how long until the next
    * round loads on its own (`next` ms; 0 after the last).

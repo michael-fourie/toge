@@ -170,6 +170,32 @@ a component or a page.
   the sprint rings' generator: the line 120 m up a 410 m straight (so the pad off the last corner isn't on the grid)
   into a 35 m hairpin, back beside it with 70 m of air between, a left,
   two rights onto the back straight, a flick, a right onto the line. Not in a cup yet (the cups test leaves it out).
+  A battle royale arena (2026-11-12, below): `shura` (Shura Sky Arena), `royale: true`, a sky road at night like Kumo:
+  7 laps of 1.01 km, 14 m wide, ~640 m up under a huge blood moon (`TRACK_LOOKS.shura`: `moonColor` / `moonSize`, the
+  cloud sea tinted by it, `edge` turns the deck's glowing strips red), red torii gates over the road with pillars
+  hanging into the void and a ring of floating lanterns round it (trackview.ts `arena()`, `ARENA`: one merged mesh
+  per material). Laid out as straights and arcs like Kumo; its hairpin is 44 m (at 34-38 m the Kitsune ran wide off
+  the exit and fell every lap in the AI test) and its last straight 185 m, because `placeBoosts` drops a pad whose
+  lap position is within `startS` of the lap's end (the grid): at 170 m the last corner's pad was lost and the lap
+  had one.
+- **Battle royale** (mode `royale`, royale.ts; Michael, 2026-11-12: "a battle royale type in Toge where each lap the
+  last person gets killed. Do laps til one left. Make a cool custom map for it"): an elimination race on a `royale`
+  arena (only this mode runs them: `modeTracks`; they're out of the solo track list, the other modes and the cups).
+  `Royale.step(progress, clock)` takes every car still in with its distance raced: once all but one have crossed the
+  line for the lap being decided, the last is out (`Knockout`: lap, place = the cars left counting it); if anyone
+  stalls, `ROYALE.grace` s after the first car crossed, everyone still behind is out, slowest first; when one is left
+  they're the `winner`. A lone racer with nobody to outlast just drives the distance. The arena's `laps` is
+  `RACE.maxPlayers - 1`, one elimination per lap for a full grid.
+  Online the room judges it (race.ts `stepRoyale` every tick, from the `state` / `cpus` poses' `s`), sends `out` (id,
+  lap, place, left) and stops relaying or counting a knocked-out car; the race ends when one is left
+  (`maybeRoyaleOver`: the winner timed, the rest by place, `ResultRow.out` = the lap they went out on; paid like a race
+  by place, CPU racers never). Solo (the Race page's Battle royale tiles, at least `ROYALE.minRivals` rivals) the
+  client judges it the same way (racegame.ts `judgeRoyale`, you are key 0). Either way racegame.ts `knockOut` blows
+  the car up (the Physics mode's `Blasts`, built for a royale too), hides it and takes it out of contact, slipstream,
+  the board and the place readout (`Lap 3 · 4 left`); a solo rival or the host's CPU racer leaves `rivals` for
+  `fallen`. Yours: an "Eliminated" banner and you spectate the cars still in (the spectate list then includes the
+  cars this client drives); solo the results follow 4 s later. While you're last among the cars still in, the HUD
+  pulses red with LAST PLACE · OUT AT THE LINE (`.rh.danger`). No record ghost and no best times (not a record mode).
 - **No items** (2026-11-08, Devlin: "remove items from all maps"): mystery boxes, the item slot, the turbo/oil/shield/
   shockwave/comet items, the `item`/`used` messages and the item bonus money are gone. In their place, **boost pads**
   (boost.ts; same request: "a few mini rainbow speed boosters but it doesn't cover the whole lane and is only in
@@ -430,6 +456,7 @@ src/toge/shared/
   cardstats.ts the player card's numbers: Highs (best drift race, top speed; toge/client/highs.ts keeps them in this
                browser as `atrous.highs`, racegame.ts `finish()` writes them, solo and online), noteHighs, bestBuild,
                winRate, cardBests (the newest few of your best times from records.ts).
+  royale.ts    battle royale: ROYALE (grace, minRivals), Royale (who's knocked out each lap, the winner), Knockout.
   cups.ts      Grand Prix cups (CUPS: four tracks each, the Postcard Cup five; roundsOf), GP_POINTS, addRound / rankCup (the cup table).
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
                climb / Grand Prix), ghostMode (time trial only), cleanMode (the host's car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
@@ -593,6 +620,8 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
 - **A road in the open world:** a `RoadDef` in world.ts `layout()` (order matters: a `'snap'` point reads the roads before
   it); keep `tests/toge/world.test.ts` green (grades, ground under every road, traffic on its lanes, top speed). A new `Theme` also needs `LOOKS` (toge/client/trackview.ts) and `LITTER` (tracktextures.ts).
 - **A track in a Grand Prix:** every race track sits in one cup (cups.ts); a new one goes in a new cup or swaps into one.
+- **A battle royale arena:** a circuit TrackDef with `royale: true`, `laps: RACE.maxPlayers - 1` and a lap under
+  1.1 km (tests/toge/royale.test.ts), plus everything a track needs; it shows up in the mode and the Race page.
 - **A mode:** a `RaceMode` + `RACE_MODES` entry + `MODE_TRACK` (protocol.ts); the server's `mode` / `track` handling in
   race.ts, the lobby's labels (lobby.ts `START`, hub.ts open-lobby list) and `RaceSetup.online.mode` in racegame.ts. The
   Physics switch (`physics` on the room, `PHYSICS` in protocol.ts) is separate and works with every mode.
@@ -607,6 +636,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in toge/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records`, `highlight` (Best Moment) in `tests/toge/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records`, `highlight` (Best Moment), `royale` (battle royale) in `tests/toge/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

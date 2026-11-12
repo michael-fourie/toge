@@ -26,7 +26,7 @@ import { PORTRAIT, releasePortraits, riderPortrait } from './riderportrait.ts';
 import './race.css';
 import './hub.css';
 
-const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb', gp: 'Start Grand Prix', team: 'Start Team Grand Prix', roam: 'Start free roam' };
+const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb', gp: 'Start Grand Prix', team: 'Start Team Grand Prix', roam: 'Start free roam', royale: 'Start battle royale' };
 
 /** A racer's face for the grid list: their portrait, cropped to the head (`ready`: redraw once it's drawn). */
 const face = (rider: string, ready: () => void) => {
@@ -163,17 +163,19 @@ export const driveLobby: Render = (root, ctx, screen) => {
       .map((k) => `<button class="tg-mode" data-physics="${k}" aria-pressed="${(k === 'on') === room.physics}" ${canPick ? '' : 'disabled'}><b>${esc(PHYSICS[k].name)}</b><small>${esc(PHYSICS[k].blurb)}</small></button>`)
       .join('');
     // The record ghost: the track record's run rides along (the host's pick); say whose it'd be.
-    const ghost = gp || roam ? '' : (['off', 'on'] as const)
+    // (Not in a battle royale: a ghost can't be knocked out.)
+    const royale = room.mode === 'royale';
+    const ghost = gp || roam || royale ? '' : (['off', 'on'] as const)
       .map((k) => `<button class="tg-mode" data-ghost="${k}" aria-pressed="${(k === 'on') === !!room.ghost}" ${canPick ? '' : 'disabled'}><b>${esc(RECORD_GHOST[k].name)}</b><small>${esc(RECORD_GHOST[k].blurb)}</small></button>`)
       .join('');
-    const ghostNote = gp || roam || !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
+    const ghostNote = gp || roam || royale || !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
     // Who's still in the garage (the host can wait for them, or not).
     const tuning = room.racers.filter((r) => r.pit && r.id !== raceNet.id).map((r) => r.name);
     const tuningLine = tuning.length ? ` ${tuning.length === 1 ? `${esc(tuning[0])} is` : `${tuning.length} racers are`} in the garage.` : '';
     const state =
       room.phase === 'lobby'
         ? isHost
-          ? `<button class="tg-go" data-start data-autofocus>${ICON.flag}${START[room.mode]}</button><span class="tg-muted">${roam ? 'Share the code: friends can drive in any time while it’s on.' : room.racers.length < 2 ? 'Share the code, add CPU racers, or start now and race the clock.' : `${room.racers.length} racers on the grid.`}${tuningLine}</span>`
+          ? `<button class="tg-go" data-start data-autofocus>${ICON.flag}${START[room.mode]}</button><span class="tg-muted">${roam ? 'Share the code: friends can drive in any time while it’s on.' : room.racers.length < 2 ? (royale ? 'Share the code or add CPU racers: a battle royale needs someone to outlast.' : 'Share the code, add CPU racers, or start now and race the clock.') : `${room.racers.length} racers on the grid.`}${tuningLine}</span>`
           : `<span class="tg-muted">Waiting for the host to start…</span>`
         : roam
           ? `<span class="tg-muted">Free roam is on. Driving in…</span>`
@@ -200,7 +202,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
-          <div class="tg-lobby-title">${gp ? `${teamMode ? 'Team Grand Prix · ' : ''}${esc(CUPS[room.cup].name)}` : `${RACE_MODES[room.mode].name} lobby`}${room.physics ? ' · Physics' : ''}${room.ghost && !gp && !roam ? ' · Record ghost' : ''}</div>
+          <div class="tg-lobby-title">${gp ? `${teamMode ? 'Team Grand Prix · ' : ''}${esc(CUPS[room.cup].name)}` : `${RACE_MODES[room.mode].name} lobby`}${room.physics ? ' · Physics' : ''}${room.ghost && !gp && !roam && !royale ? ' · Record ghost' : ''}</div>
           <div class="tg-roomcode"><small>Race<br />code</small><b class="tg-bigcode">${esc(room.code)}</b></div>
         </header>
         <section class="tg-lobby-body${isHost ? '' : ' guest'}">

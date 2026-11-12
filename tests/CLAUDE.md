@@ -32,6 +32,7 @@ Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs
 | koth, teams, royale, bot, spawn, weapons, grenade | match modes, bots, guns |
 | accounts, security, loot, casino, levels, skin | accounts, server-side economy, input validation, stash rules |
 | drivinglock | TŌGE's driving, LOCKED by Michael (2026-11-12): every car's launch, braking, steering, drifts, reverse, sim handling, walls, slipstream, boost pads, damage, specs and pedals against `toge/drivinglock.json`. Never regenerate the snapshot (`DRIVING_LOCK=update`) unless Michael asked for that driving change |
+| royale (`tests/toge/`) | TŌGE battle royale: the elimination rules, the arena's place in the modes, an online royale room with a CPU racer |
 | racephysics, garage, raceroom, standings, raceinput, pad, headcam, cosmetics, records | TŌGE: every car down every track with the AI, economy, cosmetics and cases, race server, cockpit camera head, best times and friend profiles |
 | drivers, hands | TŌGE drivers: every GLB has what the game needs; hands hold the wheel from outside the rim, fingers round it |
 | friends | friend lists (one-way adds, "added you", caps, bad names) |

@@ -15,7 +15,7 @@ import { type World, worldSlot, worldTrack } from './world.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'kamome' | 'shiokaze' | 'taketomi' | 'hallstatt' | 'goreme' | 'oia' | 'chefchaouen' | 'toge' | 'kumo';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'kamome' | 'shiokaze' | 'taketomi' | 'hallstatt' | 'goreme' | 'oia' | 'chefchaouen' | 'toge' | 'kumo' | 'shura';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -114,6 +114,12 @@ export interface TrackDef {
    * road where it went off, stopped (vehicle.ts `catchFall`).
    */
   sky?: true;
+  /**
+   * A battle royale arena (circuits only): only the Battle royale mode races it (protocol.ts `modeTracks`), and it keeps
+   * out of the other modes' lists, the solo track list and the cups. Its `laps` are the most eliminations a full grid
+   * needs (RACE.maxPlayers - 1): the race ends when one car is left (royale.ts).
+   */
+  royale?: true;
   /**
    * The open world (world.ts): not a race track but an island of roads to drive round freely (the lobby's Free
    * roam mode). `points` only frame its menu map; the roads are world.ts's.
@@ -1211,6 +1217,44 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [46, 610.8, 66], [35, 611.6, 61], [25, 612.4, 54], [16, 613.2, 45], [9, 614, 35], [4, 614.8, 24],
       [1, 615.6, 12], [0, 616.3, 0], [0, 617, -12], [0, 617.7, -24], [0, 618.4, -36], [0, 619.1, -48],
       [0, 619.7, -61], [0, 620.3, -73], [0, 620.9, -85], [0, 621.4, -97], [0, 621.9, -109],
+    ],
+  },
+  // The battle royale's arena (2026-11-12, Michael: "a battle royale type in Toge where each lap the last person gets
+  // killed. Do laps til one left. Make a cool custom map for it"). A short sky road at night under a red moon, so a lap
+  // is ~35 s and every mistake is a fall: the line 110 m up the main straight into a 44 m hairpin, a left-right onto
+  // the far side, a flick, two fast rights round the back and the long run to the line (185 m, so the boost pad off
+  // the last corner comes after the grid; see boost.ts). `royale`: only the Battle
+  // royale mode runs it (protocol.ts modeTracks), 7 laps so a full grid of 8 has a lap for every elimination.
+  // Laid out as straights and arcs closed exactly (like Kumo), hills as two sine waves round the lap.
+  shura: {
+    id: 'shura',
+    name: 'Shura Sky Arena',
+    tag: 'Battle royale · sky road · last place out every lap',
+    blurb: 'A neon ring of road hung in the night sky under a red moon. No walls, no mercy: every lap the car in last place is destroyed, until one is left. Fall off and you lose everything you had on the pack.',
+    theme: 'night',
+    seed: 6661,
+    width: 14,
+    relief: 0,
+    laps: 7,
+    sky: true,
+    royale: true,
+    points: [
+      [0, 642.1, 0], [0, 643, -12.2], [0, 643.8, -24.4], [0, 644.6, -36.7], [0, 645.3, -48.9], [0, 645.9, -61.1],
+      [0, 646.4, -73.3], [0, 646.9, -85.6], [0, 647.2, -97.8], [0, 647.4, -110], [1.1, 647.4, -119.8], [4.4, 647.4, -129.1],
+      [9.6, 647.3, -137.4], [16.6, 647.1, -144.4], [24.9, 646.9, -149.6], [34.2, 646.5, -152.9], [44, 646.1, -154], [53.8, 645.6, -152.9],
+      [63.1, 645, -149.6], [71.4, 644.4, -144.4], [78.4, 643.8, -137.4], [83.6, 643.1, -129.1], [86.9, 642.4, -119.8], [88, 641.6, -110],
+      [88, 640.7, -97.5], [88, 639.8, -85], [88, 638.9, -72.5], [88, 638, -60], [88, 637.2, -47.5], [88, 636.4, -35],
+      [89.1, 635.9, -25.2], [92.4, 635.5, -15.9], [97.6, 635.1, -7.6], [104.6, 634.8, -0.6], [112.9, 634.6, 4.6], [122.2, 634.4, 7.9],
+      [132, 634.3, 9], [141.8, 634.3, 10.3], [151, 634.4, 14.1], [158.9, 634.6, 20.1], [164.9, 634.8, 28], [168.7, 635.1, 37.2],
+      [170, 635.4, 47], [170, 635.8, 57], [170, 636.3, 67], [170, 636.7, 77], [170.8, 637.2, 86.7], [173.2, 637.8, 96.2],
+      [177, 638.3, 105.2], [180.9, 638.8, 114.1], [183.3, 639.3, 123.6], [184, 639.8, 133.3], [184, 640.5, 147.2], [184, 641.1, 161.1],
+      [184, 641.6, 175], [183.2, 641.9, 184.6], [180.7, 642.2, 193.8], [176.7, 642.4, 202.5], [171.2, 642.5, 210.4], [164.4, 642.6, 217.1],
+      [156.5, 642.6, 222.6], [147.9, 642.5, 226.7], [138.6, 642.4, 229.2], [129, 642.2, 230], [117, 641.9, 230], [105, 641.5, 230],
+      [93, 641.1, 230], [81, 640.5, 230], [69, 640, 230], [57, 639.4, 230], [45, 638.8, 230], [35, 638.3, 228.9],
+      [25.5, 637.8, 225.5], [16.9, 637.4, 220.2], [9.8, 636.9, 213.1], [4.5, 636.6, 204.5], [1.1, 636.2, 195], [0, 635.9, 185],
+      [0, 635.6, 172.7], [0, 635.5, 160.3], [0, 635.4, 148], [0, 635.4, 135.7], [0, 635.6, 123.3], [0, 635.8, 111],
+      [0, 636.2, 98.7], [0, 636.7, 86.3], [0, 637.3, 74], [0, 638, 61.7], [0, 638.7, 49.3], [0, 639.5, 37],
+      [0, 640.4, 24.7], [0, 641.2, 12.3],
     ],
   },
   toge: {

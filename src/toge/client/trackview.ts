@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CUT_HALF, type Crossing, SAMPLE, type Theme, type Track, type TrackId, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
 import type { Grade } from './post.ts';
 import { envLevel } from './envlevel.ts';
@@ -33,6 +34,11 @@ export interface Look {
   treeline: number;
   /** Night: the sky's sun sits below the horizon and the light comes from the moon instead. */
   moon?: [number, number];
+  /** The moon's colour and how much bigger than usual it hangs (Shura's blood moon). */
+  moonColor?: number;
+  moonSize?: number;
+  /** A sky road's glowing edge strips (cyan unless a track says otherwise). */
+  edge?: number;
   light?: number; // light colour
   lightPower?: number;
   hemi?: number;
@@ -87,6 +93,9 @@ export const TRACK_LOOKS: Partial<Record<TrackId, Partial<Look>>> = {
   akane: { sun: [11, 250], turbidity: 12, rayleigh: 1.3, light: 0xffb26a, lightPower: 2.3, hemi: 0.5, skyGain: 0.6, clouds: [0.3, 0.35], exposure: 0.5, grade: grade({ contrast: 1.16, saturation: 1.05, shadows: [0.86, 0.92, 1.12], highlights: [1.14, 0.99, 0.84] }) },
   // Kumo Skyway: high noon over the cloud sea, a clear sky above and a thin haze so the far road still shows.
   kumo: { sun: [36, 200], clouds: [0.2, 0.3], fogDensity: 0.00022, exposure: 0.44 },
+  // Shura Sky Arena (the battle royale): night over the cloud sea under a huge blood moon, the road's edges and its
+  // torii glowing red, a warmer, harder grade. The moon sits low ahead down the main straight.
+  shura: { moon: [16, 175], moonColor: 0xff5238, moonSize: 3.2, light: 0xff9a8a, lightPower: 0.7, hemi: 0.2, edge: 0xff1e44, fogDensity: 0.00035, grade: grade({ bloom: 0.55, threshold: 4, contrast: 1.18, saturation: 1.15, shadows: [0.92, 0.84, 1.12], highlights: [1.16, 0.95, 0.9], vignette: 0.6, flare: 0 }) },
   // Toge (the open world) in the late afternoon: the sun warm but well up in the west-south-west, so every way you
   // drive is lit (a golden-hour sun left half the island in shade), and greener grass for the long views.
   // The sprint rings race at midday (Andrew: "day-time maps"): the sun high, so nothing reads as evening. The coast
@@ -614,6 +623,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   // --- Start and finish gantries, with a chequered line across the road at the finish (one line on a circuit).
   if (!t.lap) gantry(scene, t, t.startS, 'START', false, keep);
   gantry(scene, t, t.finishS, 'FINISH', true, keep);
+  if (t.def.royale) arena(scene, t, keep);
 
   // --- Forests and rocks, villages, and the houses, poles, shrines, signs and landmarks outside the barriers
   const forestAt = (x: number, z: number) => fbm(x / 140, z / 140, t.def.seed + 11, 3) + (look.forest ?? (t.def.theme === 'alpine' ? 0.15 : -0.05)) + (t.def.climb ? 0.2 : 0);
@@ -687,7 +697,7 @@ export const SKY_DECK = { depth: 1.6, taper: 0.5, glow: 0.22, clouds: [150, 210]
 function skyDeck(scene: THREE.Scene, t: Track, look: Look, keep: <T extends { dispose(): void }>(x: T) => T): THREE.Mesh[] {
   const night = !!look.moon;
   const deckMat = keep(new THREE.MeshStandardMaterial({ color: 0x8a919c, roughness: 0.75, metalness: 0.15, side: THREE.DoubleSide }));
-  const glowMat = keep(new THREE.MeshStandardMaterial({ color: 0x0b2a33, emissive: 0x38e8ff, emissiveIntensity: night ? 6 : 3.2, roughness: 0.4, side: THREE.DoubleSide }));
+  const glowMat = keep(new THREE.MeshStandardMaterial({ color: 0x0b2a33, emissive: look.edge ?? 0x38e8ff, emissiveIntensity: night ? 6 : 3.2, roughness: 0.4, side: THREE.DoubleSide }));
   const { depth, taper, glow } = SKY_DECK;
   const CHUNK = 100;
   for (let i0 = 0; i0 < t.n - 1; i0 += CHUNK) {
@@ -743,6 +753,8 @@ function skyDeck(scene: THREE.Scene, t: Track, look: Look, keep: <T extends { di
     // Brighter than white: the sky above is ~10 before exposure, and white cloud under it should read as lit.
     const mat = keep(new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, opacity: k ? 1 : 0.85 }));
     mat.color.setScalar(night ? 0.35 : k ? 2.3 : 2.7);
+    // (Under a coloured moon the cloud sea takes its light: Shura's goes a dark blood red.)
+    if (night && look.moonColor !== undefined) mat.color.lerp(new THREE.Color(look.moonColor).multiplyScalar(0.35), 0.45);
     const m = new THREE.Mesh(keep(new THREE.PlaneGeometry(16000, 16000)), mat);
     m.rotation.x = -Math.PI / 2;
     m.position.set((x0 + x1) / 2, low - below, (z0 + z1) / 2);
@@ -778,6 +790,71 @@ function cloudTexture(seed: number): THREE.CanvasTexture {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.anisotropy = 4;
   return tex;
+}
+
+/**
+ * A battle royale arena's dressing: red torii gates over the road round the lap (their pillars hang down into the
+ * void), the beam under each one's top glowing, and a ring of floating lanterns round the whole arena. Every gate
+ * goes into one merged mesh per material, so it's three draw calls.
+ */
+export const ARENA = { gates: 9, lanterns: 64, ring: 140, hang: 26 };
+
+function arena(scene: THREE.Scene, t: Track, keep: <T extends { dispose(): void }>(x: T) => T) {
+  const lap = lapView(t);
+  const lacquer: THREE.BufferGeometry[] = [];
+  const glow: THREE.BufferGeometry[] = [];
+  const span = t.rail - 0.2;
+  const box = (w: number, h: number, d: number, x: number, y: number, z: number, into: THREE.BufferGeometry[], m: THREE.Matrix4) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    g.translate(x, y, z);
+    g.applyMatrix4(m);
+    into.push(g);
+  };
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const up = new THREE.Vector3(0, 1, 0);
+  // Evenly round the lap, but not on the start line's gantry or in the tightest bends (the gate would lean off them).
+  const len = lap.lap * SAMPLE;
+  for (let k = 0; k < ARENA.gates; k++) {
+    let s = t.startS + ((k + 0.5) / ARENA.gates) * len;
+    for (let tries = 0; tries < 12 && Math.abs(t.curv[Math.round(s / SAMPLE)]) > 1 / 60; tries++) s += 8;
+    const c = pointAt(t, s, 0);
+    q.setFromAxisAngle(up, Math.atan2(-c.tx, -c.tz));
+    m.compose(new THREE.Vector3(c.x, c.y, c.z), q, new THREE.Vector3(1, 1, 1));
+    for (const side of [-1, 1]) {
+      // Pillars from 7 m up down past the deck into the void, with a black foot ring where they pass the road.
+      box(0.7, 7 + ARENA.hang, 0.7, side * span, (7 - ARENA.hang) / 2, 0, lacquer, m);
+      box(0.95, 0.5, 0.95, side * span, 0.25, 0, glow, m);
+    }
+    box(span * 2 + 3.4, 0.55, 0.9, 0, 7.2, 0, lacquer, m); // kasagi (the top beam)
+    box(span * 2 + 2.4, 0.18, 0.6, 0, 6.85, 0, glow, m); // its glowing underside
+    box(span * 2 + 1, 0.4, 0.5, 0, 5.6, 0, lacquer, m); // nuki (the tie beam)
+    box(0.5, 1.2, 0.3, 0, 6.3, 0, lacquer, m); // gakuzuka (the strut between)
+  }
+  // Lanterns: a slow ring of paper lights hanging round the arena, a little below the road.
+  let lo = Infinity;
+  for (let i = 0; i < lap.n; i++) lo = Math.min(lo, t.y[i]);
+  const { x0, x1, z0, z1 } = t.bounds;
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  const rx = (x1 - x0) / 2 + ARENA.ring;
+  const rz = (z1 - z0) / 2 + ARENA.ring;
+  const rng = mulberry(t.def.seed + 5);
+  for (let k = 0; k < ARENA.lanterns; k++) {
+    const a = (k / ARENA.lanterns) * Math.PI * 2 + rng() * 0.05;
+    const r = 0.85 + rng() * 0.3;
+    m.makeTranslation(cx + Math.cos(a) * rx * r, lo - 20 + rng() * 40, cz + Math.sin(a) * rz * r);
+    box(1.6, 2.2, 1.6, 0, 0, 0, glow, m);
+  }
+  const lacquerMat = keep(new THREE.MeshStandardMaterial({ color: 0x9c1018, emissive: 0x400408, roughness: 0.45, metalness: 0.1 }));
+  const glowMat = keep(new THREE.MeshStandardMaterial({ color: 0x2a0408, emissive: 0xff2a3c, emissiveIntensity: 6, roughness: 0.5 }));
+  for (const [parts, mat] of [[lacquer, lacquerMat], [glow, glowMat]] as const) {
+    const geo = keep(mergeGeometries(parts)!);
+    for (const g of parts) g.dispose();
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = mat === lacquerMat;
+    scene.add(mesh);
+  }
 }
 
 function gantry(scene: THREE.Scene, t: Track, s: number, text: string, chequer: boolean, keep: <T extends { dispose(): void }>(x: T) => T) {
@@ -1515,7 +1592,7 @@ export function atmosphere(scene: THREE.Scene, look: Look, renderer: THREE.WebGL
   scene.add(sun, sun.target);
   // Low's simple materials don't see the sky environment (scene.environment), so more fill light stands in for it.
   scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x4a4030, (look.hemi ?? 0.35) * (low ? LOW_FILL : 1)));
-  if (look.moon) scene.add(stars(lightDir, keep));
+  if (look.moon) scene.add(stars(lightDir, keep, look));
   scene.add(backdrop(look.backdrop, keep));
   return { sky, envSky, sun, sunDir, lightDir };
 }
@@ -1561,7 +1638,7 @@ export function backdrop(image: string, keep: <T extends { dispose(): void }>(x:
 }
 
 /** Stars and a moon for night tracks. */
-function stars(moonDir: THREE.Vector3, keep: <T extends { dispose(): void }>(x: T) => T): THREE.Group {
+function stars(moonDir: THREE.Vector3, keep: <T extends { dispose(): void }>(x: T) => T, look: Look): THREE.Group {
   const g = new THREE.Group();
   const n = 1800;
   const pos = new Float32Array(n * 3);
@@ -1573,7 +1650,7 @@ function stars(moonDir: THREE.Vector3, keep: <T extends { dispose(): void }>(x: 
   const geo = keep(new THREE.BufferGeometry());
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.add(new THREE.Points(geo, keep(new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, fog: false }))));
-  const moon = new THREE.Mesh(keep(new THREE.SphereGeometry(220, 24, 16)), keep(new THREE.MeshBasicMaterial({ color: 0xf4f1e2, fog: false })));
+  const moon = new THREE.Mesh(keep(new THREE.SphereGeometry(220 * (look.moonSize ?? 1), 24, 16)), keep(new THREE.MeshBasicMaterial({ color: look.moonColor ?? 0xf4f1e2, fog: false })));
   moon.position.copy(moonDir).multiplyScalar(8500);
   g.add(moon);
   return g;

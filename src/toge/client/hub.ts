@@ -11,6 +11,7 @@ import { type Rider, decodeRider, defaultRider, encodeRider, isRider, riderInfo 
 import { driverCard, driverTab } from './riderui.ts';
 import { cardData, openPlayerCard } from './playercard.ts';
 import { PHYSICS } from '../shared/protocol.ts';
+import { ROYALE } from '../shared/royale.ts';
 import { CPU_LEVELS, CPU_LEVEL_IDS, type CpuLevel } from '../shared/driver.ts';
 import { cpuLevel, setCpuLevel } from './racegame.ts';
 import { settingsTab } from './settingsui.ts';
@@ -32,7 +33,7 @@ import { money } from './hud.ts';
 import { raceNet, roomRace } from './racenet.ts';
 import { Showroom } from './showroom.ts';
 import { ICON, LOGO } from './brand.ts';
-import { TRACK_IDS, cupCard, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
+import { ROYALE_IDS, TRACK_IDS, cupCard, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
 import { CUP_IDS, CUPS, GP_POINTS, type CupId } from '../shared/cups.ts';
 import './race.css';
 import './hub.css';
@@ -356,6 +357,10 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     <div class="tg-cups">
       ${CUP_IDS.map((id) => cupCard(id, `data-gp="${id}" aria-label="Race the ${esc(CUPS[id].name)}"`)).join('')}
     </div>
+    <h2 class="tg-h">Battle royale <small>last car over the line each lap is destroyed · the last one left wins · pick an arena to start</small></h2>
+    <div class="tg-tracks">
+      ${ROYALE_IDS.map((id) => trackTile(id, `data-royale="${id}" aria-label="Battle royale on ${esc(TRACK_DEFS[id].name)}"`)).join('')}
+    </div>
     <h2 class="tg-h">Online <small>up to 8 racers</small></h2>
     <div class="tg-online tg-cardbox">
       <div class="tg-online-row">
@@ -670,6 +675,10 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
         const cup = b.dataset.gp as CupId;
         ctx.drive({ track: CUPS[cup].tracks[0], rivals: Math.max(3, rivals), physics, gp: { cup, round: 0, table: [] } });
       }),
+    );
+    // A solo battle royale: you against your rivals (at least ROYALE.minRivals: someone has to be outlasted).
+    panel.querySelectorAll<HTMLElement>('[data-royale]').forEach((b) =>
+      b.addEventListener('click', () => ctx.drive({ track: b.dataset.royale as TrackId, rivals: Math.max(ROYALE.minRivals, rivals), physics })),
     );
     panel.querySelectorAll<HTMLElement>('[data-lb-track]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -1105,7 +1114,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       if (!root.querySelector('[data-lobbies]')) return;
       list.innerHTML = lobbies.length
         ? lobbies
-            .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s ${l.mode === 'trial' ? 'time trial' : l.mode === 'climb' ? 'hill climb' : l.mode === 'roam' ? 'free roam' : l.mode === 'gp' || l.mode === 'team' ? `${l.mode === 'team' ? 'Team ' : ''}Grand Prix (${esc(CUPS[l.cup ?? 'torii']?.name ?? 'cup')})` : 'race'}${l.physics ? ' · physics' : ''} · ${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${l.phase === 'lobby' ? '' : l.mode === 'roam' ? ' · driving, drop in' : ' · racing'}</span><button class="tg-pill" data-joincode="${esc(l.code)}" ${l.players >= l.max ? 'disabled' : ''}>${l.players >= l.max ? 'Full' : 'Join'}</button></li>`)
+            .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s ${l.mode === 'trial' ? 'time trial' : l.mode === 'climb' ? 'hill climb' : l.mode === 'roam' ? 'free roam' : l.mode === 'royale' ? 'battle royale' : l.mode === 'gp' || l.mode === 'team' ? `${l.mode === 'team' ? 'Team ' : ''}Grand Prix (${esc(CUPS[l.cup ?? 'torii']?.name ?? 'cup')})` : 'race'}${l.physics ? ' · physics' : ''} · ${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${l.phase === 'lobby' ? '' : l.mode === 'roam' ? ' · driving, drop in' : ' · racing'}</span><button class="tg-pill" data-joincode="${esc(l.code)}" ${l.players >= l.max ? 'disabled' : ''}>${l.players >= l.max ? 'Full' : 'Join'}</button></li>`)
             .join('')
         : `<li class="muted">No open races right now. Host one and share the code.</li>`;
       list.querySelectorAll<HTMLElement>('[data-joincode]').forEach((b) => b.addEventListener('click', () => connect(b.dataset.joincode!)));
@@ -1204,7 +1213,7 @@ function focusId(el: Element | null): string | null {
   const dl = el.getAttribute('data-dl');
   if (dl) return el.hasAttribute('data-pick') ? `input[data-dl="${dl}"]` : `button[data-dl="${dl}"][data-v="${el.getAttribute('data-v')}"]`;
   if (el.hasAttribute('data-dl-random')) return '[data-dl-random]';
-  for (const attr of ['data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-track', 'data-gp', 'data-rivals', 'data-cpu', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
+  for (const attr of ['data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-track', 'data-gp', 'data-royale', 'data-rivals', 'data-cpu', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }

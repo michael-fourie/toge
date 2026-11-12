@@ -6,7 +6,8 @@ import { cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } fr
 import { CUPS, addRound, isCup, roundsOf, type CupId } from '../shared/cups.ts';
 import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, isGp, isTeam, modeTracks, type CarRule, type GpState, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow, type Team } from '../shared/protocol.ts';
 import { GhostRecorder, type GhostRun, type GhostTape } from '../shared/ghost.ts';
-import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
+import { SAMPLE, TRACK_DEFS, getTrack, type TrackId } from '../shared/track.ts';
+import { Royale } from '../shared/royale.ts';
 import { guarded, type Socket } from '../../server/rooms.ts';
 
 const OPEN = 1;
@@ -104,6 +105,8 @@ export class Race {
   private wreckAt = new Map<number, number>();
   /** The next CPU racer's id (they count down from -1, so they never clash with a socket's). */
   private nextCpu = -1;
+  /** A battle royale under way: who's out (royale.ts), stepped every tick from the racers' poses. */
+  private royale: Royale | null = null;
 
   constructor(
     readonly code: string,
@@ -238,7 +241,7 @@ export class Race {
         const cars: NetCar[] = [];
         for (const s of msg.cars) {
           const bot = s && typeof s === 'object' ? this.members.get(s.id) : undefined;
-          if (!bot?.cpu || !bot.racing || bot.time !== null) continue;
+          if (!bot?.cpu || !bot.racing || bot.time !== null || this.isOut(bot)) continue;
           const st = this.pose(bot, s);
           if (st) cars.push(st);
         }
@@ -371,7 +374,7 @@ export class Race {
         }
         break;
       case 'state': {
-        if (!m.racing || m.time !== null || (this.phase !== 'racing' && this.phase !== 'countdown' && this.phase !== 'loading')) return;
+        if (!m.racing || m.time !== null || this.isOut(m) || (this.phase !== 'racing' && this.phase !== 'countdown' && this.phase !== 'loading')) return;
         const st = this.pose(m, { ...msg, id: c.id });
         // Relay straight away (no waiting for a tick): every millisecond here is a millisecond of lag.
         if (st) this.relay({ t: 'snap', cars: [st] }, c.id);
@@ -379,7 +382,7 @@ export class Race {
       }
       case 'drift': {
         // Client-scored, so the most it can be is what the fastest possible drifting would score since GO.
-        if (this.phase !== 'racing' || !m.racing || m.time !== null) return;
+        if (this.phase !== 'racing' || !m.racing || m.time !== null || this.isOut(m)) return;
         m.drift = Math.max(m.drift, clampDrift(msg.pts, (this.now() - this.goAt) / 1000));
         break;
       }
@@ -405,7 +408,7 @@ export class Race {
 
   /** Racer `m`'s car blew up at `p`: relayed so everyone sees the fireball (at most once a second per car). */
   private wrecked(m: Member, p: unknown, from: number) {
-    if (this.phase !== 'racing' || !this.physics || !m.racing || m.time !== null) return;
+    if (this.phase !== 'racing' || !this.physics || !m.racing || m.time !== null || this.isOut(m)) return;
     if (!(Array.isArray(p) && p.length === 3 && p.every((x) => finite(x, 1e5)))) return;
     const id = m.client.id;
     const now = this.now();
@@ -416,7 +419,7 @@ export class Race {
 
   /** Racer `m` crossed the line at `time` by their client's clock. */
   private crossLine(m: Member, time: unknown, best: unknown) {
-    if (this.phase !== 'racing' || !m.racing || m.time !== null || !finite(time, 1e4)) return;
+    if (this.phase !== 'racing' || !m.racing || m.time !== null || this.isOut(m) || !finite(time, 1e4)) return;
     const elapsed = (this.now() - this.goAt) / 1000;
     if (elapsed < MIN_RACE_SECONDS) return;
     // Trust the client's own clock (it started on `go`) within a little latency either way.
@@ -440,6 +443,7 @@ export class Race {
     this.phase = 'loading';
     this.phaseEnds = this.now() + RACE.loadTimeoutMs;
     this.firstFinish = 0;
+    this.royale = null;
     const grid: Record<number, number> = {};
     let slot = 0;
     for (const m of this.members.values()) {
@@ -458,7 +462,7 @@ export class Race {
     const rule: CarRule = cleanMode(this.mode) ? this.cars : 'own';
     const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })));
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
-    const ghost = this.ghost && !isGp(this.mode) && this.mode !== 'roam' && this.ghostOf === this.track ? this.ghostRun : null;
+    const ghost = this.ghost && !isGp(this.mode) && this.mode !== 'roam' && this.mode !== 'royale' && this.ghostOf === this.track ? this.ghostRun : null;
     this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics, ghost, ...(this.gp ? { gp: this.gp } : {}) });
     this.broadcastRoom();
     this.onChange(this);
@@ -495,6 +499,7 @@ export class Race {
   private maybeFinish() {
     // Free roam never finishes by itself: it runs until the host ends it (or everyone's gone).
     if (this.mode === 'roam') return;
+    if (this.royale) return this.maybeRoyaleOver(this.royale);
     // The race is over when every person is home: CPU racers still out are a DNF, like a solo race's stragglers.
     const out = [...this.members.values()].filter((m) => m.racing && !m.cpu && m.time === null);
     const now = this.now();
@@ -553,9 +558,16 @@ export class Race {
     else if (this.phase === 'countdown' && now >= this.phaseEnds) {
       this.phase = 'racing';
       this.goAt = now;
+      if (this.mode === 'royale') {
+        const t = getTrack(this.track);
+        this.royale = new Royale(t.startS, t.lap * SAMPLE);
+      }
       this.broadcast({ t: 'go' });
       this.broadcastRoom();
-    } else if (this.phase === 'racing') this.maybeFinish();
+    } else if (this.phase === 'racing') {
+      if (this.royale) this.stepRoyale(this.royale);
+      this.maybeFinish();
+    }
     else if (this.phase === 'results' && now >= this.phaseEnds) {
       // A Grand Prix rolls on to its next round with whoever's in the room.
       if (isGp(this.mode) && this.gp && !this.gpFinal) {
@@ -570,6 +582,60 @@ export class Race {
       // The race may have set a new record: race that one next.
       this.fetchGhost();
     }
+  }
+
+  /** A battle royale: knocked out (their car is gone; they watch the rest). */
+  private isOut(m: Member) {
+    return !!this.royale?.out.has(m.client.id);
+  }
+
+  /**
+   * A battle royale's tick: everyone still in, by how far their last pose says they've raced (racers who left are no
+   * longer in it), through the elimination rules. Each car knocked out is told to the room.
+   */
+  private stepRoyale(r: Royale) {
+    const progress = new Map<number, number>();
+    for (const m of this.members.values()) if (m.racing && m.time === null && !r.out.has(m.client.id)) progress.set(m.client.id, m.state?.s ?? 0);
+    const elapsed = (this.now() - this.goAt) / 1000;
+    for (const k of r.step(progress, elapsed)) this.broadcast({ t: 'out', id: k.id, lap: k.lap, place: k.place, left: k.place - 1 });
+    const win = r.winner !== null ? this.members.get(r.winner) : undefined;
+    if (win && win.time === null) win.time = Math.round(elapsed * 1000) / 1000;
+  }
+
+  /**
+   * A battle royale is over when one car is left (or one went the whole distance, or the race ran too long, or nobody's
+   * left in it). Places: the winner, anyone still in by distance, then the knocked out in the order they'd finish.
+   */
+  private maybeRoyaleOver(r: Royale) {
+    const field = [...this.members.values()].filter((m) => m.racing);
+    const alive = field.filter((m) => !r.out.has(m.client.id));
+    const tooLong = this.now() - this.goAt > RACE.maxSeconds * 1000;
+    // (A lone racer has no one to outlast: they just drive the distance.)
+    if (alive.length > 1 && !tooLong && !alive.some((m) => m.time !== null)) return;
+    if (alive.length === 1 && r.out.size === 0 && alive[0].time === null && !tooLong) return;
+    const standing = alive.sort((a, b) => (a.time ?? Infinity) - (b.time ?? Infinity) || (b.state?.s ?? 0) - (a.state?.s ?? 0));
+    const gone = field.filter((m) => r.out.has(m.client.id)).sort((a, b) => r.out.get(a.client.id)!.place - r.out.get(b.client.id)!.place);
+    const order = [...standing, ...gone];
+    const people = field.filter((m) => !m.cpu);
+    const cpus = field.length - people.length;
+    const rows: ResultRow[] = order.map((m, i) => {
+      const place = i + 1;
+      const out = r.out.get(m.client.id)?.lap;
+      const base = { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: null, place, ...(out ? { out } : {}) };
+      if (m.cpu) return { ...base, prize: 0, drift: 0, bonus: { drift: 0 }, cpu: true, xp: 0 };
+      // Paid like a race (CPU racers like a solo race's rivals, never less than the people alone would earn).
+      const bonus = raceBonus(m.drift, this.track, false);
+      const among = order.filter((o) => !o.cpu).indexOf(m) + 1;
+      const prize = (cpus ? Math.max(payout(among, people.length, this.track, false), payout(place, field.length, this.track, true)) : payout(place, field.length, this.track, false)) + bonus.drift;
+      return { ...base, prize, drift: m.drift, bonus, xp: raceXp(place, field.length, m.drift, false) };
+    });
+    this.royale = null;
+    this.phase = 'results';
+    this.phaseEnds = this.now() + RACE.resultsSeconds * 1000;
+    for (const m of field) m.racing = false;
+    this.broadcast({ t: 'results', track: this.track, mode: this.mode, rows });
+    this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track, new Map(), this.mode);
+    this.onChange(this);
   }
 
   /** Free roam: someone who joined while it's on (or came back from the lobby) drives in from the meet's next slot. */

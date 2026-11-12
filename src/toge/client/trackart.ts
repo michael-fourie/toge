@@ -17,8 +17,13 @@ export const THEME_ART: Record<Theme, { sky: [string, string]; accent: string }>
   city: { sky: ['#0a0718', '#3a1748'], accent: '#ff3d9a' },
 };
 
-/** The tracks you race solo or in a race / time trial lobby (hill-climb roads only run in a lobby's Hill climb). */
-export const TRACK_IDS = RACE_TRACKS.filter((id) => !TRACK_DEFS[id].climb);
+/**
+ * The tracks you race solo or in a race / time trial lobby (hill-climb roads only run in a lobby's Hill climb, and
+ * battle royale arenas only in a battle royale: ROYALE_IDS).
+ */
+export const TRACK_IDS = RACE_TRACKS.filter((id) => !TRACK_DEFS[id].climb && !TRACK_DEFS[id].royale);
+/** Battle royale arenas (the Race page's Battle royale row, and a lobby's Battle royale mode). */
+export const ROYALE_IDS = RACE_TRACKS.filter((id) => TRACK_DEFS[id].royale);
 
 /** How far a road climbs from start to finish (m; negative = a descent). */
 export const trackClimb = (id: TrackId) => {
@@ -30,6 +35,7 @@ export const trackClimb = (id: TrackId) => {
 export function trackKind(id: TrackId): string {
   const d = TRACK_DEFS[id];
   if (d.world) return 'Open world · free roam';
+  if (d.royale) return `Battle royale arena · ${d.laps} laps`;
   if (d.traffic) return 'City · live traffic';
   if (d.laps) return `Circuit · ${d.laps} laps`;
   if (d.climb) return `Hill climb · ${trackClimb(id)} m up`;

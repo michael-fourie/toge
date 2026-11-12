@@ -73,6 +73,8 @@ export interface HudState {
   board: BoardLine[];
   /** Free roam: the road you're on (the top bar shows it in place of the place and clock). */
   where?: string;
+  /** A battle royale: cars left in, and whether you're last (out at the line if nothing changes). */
+  royale?: { left: number; danger: boolean };
 }
 
 export interface ResultLine {
@@ -82,6 +84,8 @@ export interface ResultLine {
   time: number | null;
   /** Quickest lap (circuits), when known. */
   best?: number | null;
+  /** A battle royale: the lap this racer was knocked out on. */
+  out?: number;
   prize: number;
   me: boolean;
   /** A CPU racer in an online lobby. */
@@ -244,7 +248,8 @@ export class RaceHud {
     this.el.field.textContent = `/ ${h.field}`;
     this.el.time.textContent = fmtTime(Math.max(0, h.time));
     this.el.lap.hidden = !h.laps;
-    if (h.laps) this.el.lap.textContent = `Lap ${h.lap}/${h.laps}`;
+    if (h.laps) this.el.lap.textContent = h.royale ? `Lap ${h.lap} · ${h.royale.left} left` : `Lap ${h.lap}/${h.laps}`;
+    this.root.classList.toggle('danger', !!h.royale?.danger);
     this.el.speed.textContent = String(Math.round(h.speed * 3.6));
     this.el.gear.textContent = h.gear < 0 ? 'R' : h.gear === 0 ? 'N' : String(h.gear);
     this.el.gear.classList.toggle('shift', h.rpm > h.redline * 0.93);
@@ -565,7 +570,7 @@ export class RaceHud {
           <td class="pl">${l.place ? ordinal(l.place) : 'DNF'}</td>
           <td><i class="swatch" style="background:${color}"></i>${esc(l.name)}${l.cpu ? ' <small class="rh-cpu">CPU</small>' : ''}</td>
           <td class="car">${car ? esc(CARS[car.model].name) : ''}</td>
-          <td class="tm">${bestTag(l.newBest)}${l.time !== null ? fmtTime(l.time) : '—'}</td>
+          <td class="tm">${bestTag(l.newBest)}${l.out ? `<span class="rh-out">Out · lap ${l.out}</span>` : l.time !== null ? fmtTime(l.time) : '—'}</td>
           ${trial ? `<td class="gap">${l.time !== null && win !== null && l.place > 1 ? '+' + (l.time - win).toFixed(3) : ''}</td><td class="best">${l.best ? `<small>best lap</small> ${fmtTime(l.best)}` : ''}</td>` : ''}
           ${drifts ? `<td class="dr">${l.drift ? `${pts(l.drift)} <small>drift</small>` : ''}</td>` : ''}
           <td class="pz">+${money(l.prize)}</td></tr>`;

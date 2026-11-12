@@ -25,8 +25,8 @@ test('every race track is in a cup of four (the Postcard Cup has five), only the
   assert.ok(CUPS.sprint.tracks.every((t) => TRACK_DEFS[t].laps === 4), 'Sprint is all short 4-lap circuits');
   assert.deepEqual(CUPS.postcard.tracks, ['taketomi', 'hallstatt', 'goreme', 'oia', 'chefchaouen'], 'Postcard is the five town circuits, easiest first, all its own');
   assert.equal(roundLabel('postcard', 4), 'Round 5 of 5 · Chefchaouen Medina');
-  // (Kumo Skyway, the sky road, isn't in a Grand Prix yet.)
-  const races = RACE_TRACKS.filter((t) => !TRACK_DEFS[t].climb && t !== 'kumo');
+  // (Kumo Skyway, the sky road, isn't in a Grand Prix yet; battle royale arenas only run in a battle royale.)
+  const races = RACE_TRACKS.filter((t) => !TRACK_DEFS[t].climb && !TRACK_DEFS[t].royale && t !== 'kumo');
   assert.deepEqual(races.filter((t) => !seen.has(t)), [], 'a new race track needs a cup');
 });
 

@@ -13,6 +13,7 @@ import { tierOf } from '../shared/pass.ts';
 import { CUPS, addRound, roundLabel, roundsOf } from '../shared/cups.ts';
 import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, TEAMS, cleanMode, ghostMode, recordMode, teammates, type CarRule, type GpState, type NetCar, type RaceMode, type RaceServerMsg, type Racer, type RecordRow, type Team } from '../shared/protocol.ts';
 import type { NewBest } from '../shared/records.ts';
+import { ROYALE, Royale } from '../shared/royale.ts';
 import { standings } from '../shared/standings.ts';
 import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc } from '../shared/track.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, catchFall, collideCars, forwardSpeed, newCar, placeCar, resetCar, speedOf, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
@@ -167,6 +168,8 @@ interface Racing {
   /** Physics mode: how damaged the car is, and its body's dents. */
   dmg: Damage;
   dents: CarDents;
+  /** A battle royale: knocked out on `lap`, finishing `place` (its car is destroyed and off the road). */
+  out?: { place: number; lap: number };
 }
 
 interface Remote {
@@ -192,6 +195,8 @@ interface Remote {
   /** Physics mode: the damage it last reported (packed zones) and its body's dents. */
   dm: number;
   dents: CarDents;
+  /** A battle royale: knocked out on `lap`, finishing `place`. */
+  out?: { place: number; lap: number };
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -407,6 +412,18 @@ export class RaceGame {
   /** Physics mode: crash damage, wrecks and respawns (damage.ts). Explosions only exist when it's on. */
   private readonly physics: boolean;
   private blasts: Blasts | null = null;
+  /**
+   * A battle royale (royale.ts; any race on a `royale` arena, which only that mode runs): the last car over the line
+   * each lap is destroyed. Solo this client judges it (`royale`); online the room does and says `out`.
+   */
+  private readonly royaleOn: boolean;
+  private royale: Royale | null = null;
+  /** Solo battle royale: each car's key in `royale`. */
+  private royaleKeys = new Map<number, Racing>();
+  /** Solo rivals knocked out (taken off the road, kept for the results). */
+  private fallen: Racing[] = [];
+  /** Spectating one of the cars this client drives (a solo rival, or the host's CPU racer) instead of a remote. */
+  private watchCar: Racing | null = null;
   /** The input a damaged car actually gets (reused every tick). */
   private driven: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
 
@@ -418,6 +435,7 @@ export class RaceGame {
     this.clean = !!setup.online && cleanMode(setup.online.mode);
     this.climb = setup.online?.mode === 'climb';
     this.physics = setup.online ? !!setup.online.physics : !!setup.physics;
+    this.royaleOn = !!this.track.def.royale;
     // Low graphics (the Settings tab): no MSAA, native pixels at most, no shadow map, no post chain, simple
     // materials, a thinner forest and a 60 fps cap. Read once here, so a change applies from the next race.
     this.renderer = new THREE.WebGLRenderer({ antialias: !this.low, powerPreference: this.low ? 'default' : 'high-performance' });
@@ -439,7 +457,8 @@ export class RaceGame {
     this.fx = new Effects(this.view.scene);
     this.contact = new ContactShadows(this.view.scene);
     this.propView = new PropView(this.view.scene, this.track);
-    if (this.physics) this.blasts = new Blasts(this.view.scene, this.track, this.fx);
+    // (A battle royale's knockouts blow up too: built now, so its flash light is in the scene from the start.)
+    if (this.physics || this.royaleOn) this.blasts = new Blasts(this.view.scene, this.track, this.fx);
     this.traffic = getTraffic(this.track);
     if (this.traffic) this.trafficView = new TrafficView(this.view.scene, this.track, this.traffic);
     if (this.track.world) {
@@ -450,7 +469,8 @@ export class RaceGame {
     this.audio = new RaceAudio();
 
     const online = setup.online;
-    const rivals = online || this.roam ? 0 : Math.max(0, Math.min(7, setup.rivals ?? 5));
+    // (A solo battle royale needs someone to outlast.)
+    const rivals = online || this.roam ? 0 : Math.max(this.royaleOn ? ROYALE.minRivals : 0, Math.min(7, setup.rivals ?? 5));
     // Solo, you start mid-pack.
     const mySlot = online ? (online.grid[online.net.id] ?? 0) : Math.floor(rivals / 2);
     // Online, the server says what you drive (a maxed Vanta, or your car maxed out, in a time trial).
@@ -686,11 +706,15 @@ export class RaceGame {
         if (this.phase !== 'done') this.hud.banner(`${r.name} finished`, fmtTime(m.time), 2000);
         if (this.watching === m.id) this.spectateNext();
       }
+    } else if (m.t === 'out') {
+      const net = this.setup.online!.net;
+      const who = m.id === net.id ? this.me : (this.rivals.find((r) => r.netId === m.id) ?? this.remotes.get(m.id));
+      if (who) this.knockOut(who, m.lap, m.place, m.left);
     } else if (m.t === 'load') {
       // The host raced again from the results, or restarted from the pause menu mid-race: straight to the next start.
       this.dispose();
       this.setup.onNext?.(roomRace(m));
-    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id, cpu: r.cpu, xp: r.xp })), m.gp);
+    } else if (m.t === 'results') this.onlineResults(m.rows.map((r) => ({ id: r.id, place: r.place, name: r.name, car: r.car, time: r.time, best: r.best, prize: r.prize, drift: r.drift, bonus: r.bonus, me: r.id === this.setup.online!.net.id, cpu: r.cpu, xp: r.xp, out: r.out })), m.gp);
     else if (m.t === 'records') this.records(m.rows);
     else if (m.t === 'room') {
       // Someone left mid-race: drop their car.
@@ -840,7 +864,8 @@ export class RaceGame {
       this.resetAt = this.wallClock + 2;
       this.hud.banner('Back on the road', '', 1200);
     } else if (a === 'spectate') {
-      if (this.phase === 'finished' && this.setup.online) this.spectateNext();
+      // (Solo too once you're out of a battle royale: watch the rivals still in.)
+      if (this.phase === 'finished' && (this.setup.online || this.me.out)) this.spectateNext();
     } else if (a === 'shiftUp' || a === 'shiftDown') {
       if (!this.assists.auto && this.phase !== 'countdown') this.me.input[a] = true;
     }
@@ -852,8 +877,8 @@ export class RaceGame {
    */
   private slipstream(live: boolean) {
     const drivers = [this.me, ...this.rivals];
-    const bodies: Body[] = drivers.map((r) => r.car);
-    for (const r of this.remotes.values()) if (r.last && r.finished === null) bodies.push(r.ghost);
+    const bodies: Body[] = drivers.filter((r) => !r.out).map((r) => r.car);
+    for (const r of this.remotes.values()) if (r.last && r.finished === null && !r.out) bodies.push(r.ghost);
     for (const r of drivers) {
       const wake = live && !this.trial && r.finished === null ? strongestWake(r.car, bodies) : 0;
       const slung = stepDraft(r.car, wake, r.input.throttle, TICK_DT);
@@ -932,8 +957,9 @@ export class RaceGame {
     // Grand Prix only teammates are: rivals bump.
     if (!this.trial) {
       const team = (x: Racing) => this.teams.get(x === me ? this.setup.online?.net.id ?? 0 : (x.netId ?? 0));
-      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) if (!teammates(team(all[i]), team(all[j]))) collideCars(all[i].car, all[j].car, true);
-      for (const r of this.remotes.values()) for (const x of all) if ((x === me || x.finished === null) && !teammates(team(x), this.teams.get(r.id))) collideCars(x.car, r.ghost, false);
+      // (A car knocked out of a battle royale is gone: nothing touches it.)
+      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) if (!all[i].out && !all[j].out && !teammates(team(all[i]), team(all[j]))) collideCars(all[i].car, all[j].car, true);
+      for (const r of this.remotes.values()) for (const x of all) if (!r.out && !x.out && (x === me || x.finished === null) && !teammates(team(x), this.teams.get(r.id))) collideCars(x.car, r.ghost, false);
     }
     if (traffic) for (const r of all) collideTraffic(t, traffic, r.car, this.trafficTime);
     if (t.world) {
@@ -973,10 +999,12 @@ export class RaceGame {
       const lapTime = this.time - this.lapStart;
       const best = lapTime < this.bestLap;
       this.bestLap = Math.min(this.bestLap, lapTime);
-      this.hud.banner(this.lap === t.def.laps ? 'Final lap' : `Lap ${this.lap}/${t.def.laps}`, `${best && this.lap > 2 ? 'Best lap' : 'Last lap'} ${fmtTime(lapTime)}`, 2200);
+      if (this.royaleOn) this.hud.banner(`Lap ${this.lap}`, `${this.alive()} left · last place is out`, 2200);
+      else this.hud.banner(this.lap === t.def.laps ? 'Final lap' : `Lap ${this.lap}/${t.def.laps}`, `${best && this.lap > 2 ? 'Best lap' : 'Last lap'} ${fmtTime(lapTime)}`, 2200);
       this.lapStart = this.time;
     }
     if (live || this.phase === 'finished') this.clock += TICK_DT;
+    if (this.royale && (live || this.phase === 'finished')) this.judgeRoyale(this.royale);
     for (const r of this.rivals) {
       if (r.finished !== null || r.car.s < t.finishS) continue;
       // Solo the race ends when you cross the line; online the host's CPU racers race on after you.
@@ -1026,7 +1054,7 @@ export class RaceGame {
       tape(r).add(t, { p: c.p, q: c.q, v: c.v, steer: c.steer, flags });
     }
     for (const r of this.remotes.values()) {
-      if (!r.last) continue;
+      if (!r.last || r.out) continue;
       const f = r.last.c.f;
       const flags = (f & CarFlag.Brake ? MomentFlag.Brake : 0) | (f & CarFlag.Drift ? MomentFlag.Drift : 0) | (f & CarFlag.Boost ? MomentFlag.Boost : 0) | (((f >> CarFlag.LevelShift) & 3) << MomentFlag.LevelShift);
       const v = r.last.c.v;
@@ -1207,7 +1235,10 @@ export class RaceGame {
     this.audio.beep(true);
     this.hud.countdown('GO!');
     setTimeout(() => this.hud.countdown(null), 900);
-    if (this.climb) this.hud.banner('Hill climb', this.carNote ? `${this.carNote} · first to the summit` : 'Watch for rockfall · first to the summit', 2600);
+    if (this.royaleOn) {
+      this.hud.banner('Battle royale', 'Last car over the line each lap is destroyed', 3000);
+      if (!this.setup.online) this.royale = new Royale(this.track.startS, this.track.lap * SAMPLE);
+    } else if (this.climb) this.hud.banner('Hill climb', this.carNote ? `${this.carNote} · first to the summit` : 'Watch for rockfall · first to the summit', 2600);
     else if (this.trial) this.hud.banner('Time trial', this.carNote ? `${this.carNote} · ghosts: drive straight through` : 'Ghost cars: drive straight through them', 2600);
     else if (this.recordGhost) this.hud.banner('Record ghost', `${this.recordGhost.run.name} · ${fmtTime(this.recordGhost.run.time)}`, 2600);
     for (const r of [this.me, ...this.rivals]) r.car.gear = 1;
@@ -1240,37 +1271,113 @@ export class RaceGame {
     return [...this.remotes.values()].filter((r) => r.finished === null && r.last);
   }
 
-  /** Follow the next racer still out (after the last, back to your own car). */
+  /**
+   * Follow the next racer still out (after the last, back to your own car). In a battle royale that includes the cars
+   * this client drives (solo rivals, the host's CPU racers), and once you're knocked out there's no car to come back to.
+   */
   private spectateNext() {
-    const out = this.stillRacing();
-    const next = out[out.findIndex((r) => r.id === this.watching) + 1] ?? null;
+    const list: { id: number | null; car: Racing | null; name: string }[] = [
+      ...this.stillRacing().map((r) => ({ id: r.id, car: null, name: r.name })),
+      ...(this.royaleOn ? this.rivals.filter((r) => !r.out && r.finished === null).map((r) => ({ id: null, car: r, name: r.name })) : []),
+    ];
+    const at = list.findIndex((w) => (w.id !== null && w.id === this.watching) || (w.car !== null && w.car === this.watchCar));
+    const next = list[at + 1] ?? (this.me.out ? list[0] : null) ?? null;
     this.watching = next?.id ?? null;
-    if (next) this.hud.watching(`Spectating ${next.name}`, `${this.spectateKey()}: next`);
-    else this.hud.watching('', out.length ? `${this.spectateKey()}: spectate` : '');
+    this.watchCar = next?.car ?? null;
+    if (next) this.hud.watching(`Spectating ${next.name}`, list.length > 1 ? `${this.spectateKey()}: next` : '');
+    else this.hud.watching('', list.length ? `${this.spectateKey()}: spectate` : '');
     this.snapCamera();
   }
 
+  // --- battle royale -----------------------------------------------------------------------------
+
+  /** Cars still in the race (a battle royale's knocked-out ones aren't). */
+  private alive() {
+    return [this.me, ...this.rivals].filter((r) => !r.out).length + [...this.remotes.values()].filter((r) => !r.out).length;
+  }
+
+  /**
+   * Solo battle royale: you (key 0) and the rivals (1..., their places in the field at GO: knocked-out rivals leave
+   * `rivals`, so keys can't be array indexes) through the elimination rules each tick.
+   */
+  private judgeRoyale(r: Royale) {
+    if (!this.royaleKeys.size) [this.me, ...this.rivals].forEach((x, k) => this.royaleKeys.set(k, x));
+    const progress = new Map<number, number>();
+    for (const [k, x] of this.royaleKeys) if (!x.out && (x !== this.me || x.finished === null)) progress.set(k, x.car.s);
+    for (const k of r.step(progress, this.clock)) this.knockOut(this.royaleKeys.get(k.id)!, k.lap, k.place, k.place - 1);
+    if (r.winner === 0 && this.me.finished === null) {
+      this.finish();
+      this.hud.banner('Last one standing', 'You win the battle royale', 0);
+    }
+  }
+
+  /**
+   * A car is knocked out of the battle royale: it blows up and is taken off the road. Yours: you watch the rest (solo,
+   * the results come a few seconds later, with the rivals still in placed by how far they've got).
+   */
+  private knockOut(r: Racing | Remote, lap: number, place: number, left: number) {
+    if (r.out) return;
+    r.out = { place, lap };
+    const root = r.model.root;
+    const p = 'car' in r ? r.car.p : root.position;
+    const v = 'car' in r ? r.car.v : r.last ? { x: r.last.c.v[0], z: r.last.c.v[2] } : { x: 0, z: 0 };
+    this.blasts?.boom(p.x, p.y, p.z, v.x, v.z, PAINTS[decodeCar(r.code)?.look.paint ?? 0]);
+    const mine = r === this.me;
+    this.boomSound(mine ? 0 : Math.hypot(p.x - this.me.car.p.x, p.z - this.me.car.p.z));
+    root.visible = false;
+    this.contact.remove(root);
+    r.engine?.stop();
+    r.engine = null;
+    if (mine) {
+      const me = this.me;
+      rumble(1, 1, 900);
+      this.hud.banner('Eliminated', `${ordinal(place)} · last over the line on lap ${lap}`, 0);
+      if (me.finished === null) me.finished = this.time;
+      if (comboPoints(this.driftMeter) > 0) this.hud.driftBanked(bankCombo(this.driftMeter), this.driftMeter.total);
+      saveHighs({ drift: this.driftMeter.total, topKmh: this.topSpeed * 3.6 });
+      this.phase = 'finished';
+      this.setup.online?.net.send({ t: 'drift', pts: this.driftMeter.total });
+      this.spectateNext();
+      // Solo: a few seconds of the carnage you left behind, then the results.
+      if (!this.setup.online) setTimeout(() => void this.soloResults(), 4000);
+      return;
+    }
+    this.hud.banner(`${r.name} eliminated`, left > 1 ? `${left} left` : 'One left standing', 2200);
+    if ('car' in r) {
+      // A car this client drove (a solo rival, the host's CPU racer): off the road for good.
+      this.rivals = this.rivals.filter((x) => x !== r);
+      this.fallen.push(r);
+      if (this.watchCar === r) this.spectateNext();
+    } else {
+      r.finished = this.clock;
+      if (this.watching === r.id) this.spectateNext();
+    }
+  }
+
   private async soloResults() {
-    if (this.phase === 'done') return;
+    if (this.phase === 'done' || this.exited) return;
     this.phase = 'done';
-    const field = [this.me, ...this.rivals];
-    const done = field.filter((r) => r.finished !== null).sort((a, b) => a.finished! - b.finished!);
-    const behind = field.filter((r) => r.finished === null).sort((a, b) => b.car.s - a.car.s);
-    const myPlace = done.indexOf(this.me) + 1;
+    const field = [this.me, ...this.rivals, ...this.fallen];
+    const done = field.filter((r) => r.finished !== null && !r.out).sort((a, b) => a.finished! - b.finished!);
+    const behind = field.filter((r) => r.finished === null && !r.out).sort((a, b) => b.car.s - a.car.s);
+    // A battle royale: the cars still in (by how far they've got), then the knocked out, last out first.
+    const gone = field.filter((r) => r.out).sort((a, b) => a.out!.place - b.out!.place);
+    const order = [...done, ...behind, ...gone];
+    const myPlace = order.indexOf(this.me) + 1;
     const drift = this.driftMeter.total;
     const xpBefore = garage.g.xp;
     const paid = garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift });
     // The winner's Best Moment first, then the results (the prize is settled meanwhile).
-    await this.bestMoment(done[0], done[0]?.name ?? '');
+    await this.bestMoment(order[0], order[0]?.name ?? '');
     const res = await paid;
     if (this.exited) return;
     this.myPrize = res.ok ? (res.paid ?? 0) : 0;
     const bonus = res.ok ? res.bonus : undefined;
-    const lines: ResultLine[] = [...done, ...behind].map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.finished, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined }));
+    const lines: ResultLine[] = order.map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.out ? null : r.finished, out: r.out?.lap, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined }));
     const note = (res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}${xpNote(res.xp ?? 0, xpBefore)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`);
     const gp = this.setup.gp;
     if (gp) return this.soloCup(gp, lines, note);
-    const p = this.hud.panel(`${this.hud.resultsHtml(this.track.def.name, lines)}
+    const p = this.hud.panel(`${this.hud.resultsHtml(this.royaleOn ? `Battle royale · ${this.track.def.name}` : this.track.def.name, lines)}
       <p class="rh-note">${esc(note)}</p>
       <div class="rh-buttons"><button data-act="again" data-autofocus>Rerace</button><button data-act="garage">Garage</button></div>`);
     setMenuNav(true);
@@ -1315,7 +1422,7 @@ export class RaceGame {
     this.watching = null;
     this.hud.watching('', '');
     const arrived = performance.now();
-    const title = gp ? `${CUPS[gp.cup].name} · ${this.track.def.name}` : this.clean ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
+    const title = gp ? `${CUPS[gp.cup].name} · ${this.track.def.name}` : this.clean || this.royaleOn ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
     const mine = lines.find((l) => l.me);
     const xpBefore = garage.g.xp;
     if (mine) garage.credit(mine.prize, mine.place === 1 && lines.filter((l) => !l.cpu).length > 1, mine.xp ?? 0);
@@ -1816,10 +1923,11 @@ export class RaceGame {
   private camTarget(): CamTarget {
     const r = this.watching !== null ? this.remotes.get(this.watching) : undefined;
     if (!r?.last) {
-      const c = this.me.car;
+      const self = this.watchCar && !this.watchCar.out ? this.watchCar : this.me;
+      const c = self.car;
       const on = c.wheels.filter((w) => w.contact);
       const rough = on.reduce((a, w) => a + (ROUGH[w.surf] ?? 1), 0) / 4;
-      return { root: this.me.model.root, id: c.spec.id, cg: c.spec.cg, v: c.v, yaw: yawOf(c), fwd: forwardSpeed(c), hit: c.hit, boost: c.boost > 0, spec: c.spec, steer: c.steer, rpm: c.rpm, land: c.land, rough };
+      return { root: self.model.root, id: c.spec.id, cg: c.spec.cg, v: c.v, yaw: yawOf(c), fwd: forwardSpeed(c), hit: c.hit, boost: c.boost > 0, spec: c.spec, steer: c.steer, rpm: c.rpm, land: c.land, rough };
     }
     const root = r.model.root;
     const f = new THREE.Vector3(0, 0, -1).applyQuaternion(root.quaternion);
@@ -2014,19 +2122,21 @@ export class RaceGame {
     const c = me.car;
     const yaw = yawOf(c);
     const tangentDot = -Math.sin(yaw) * this.track.tx[c.hint] + -Math.cos(yaw) * this.track.tz[c.hint];
-    const dots: Dot[] = [{ s: c.s, me: true, color: me.color, x: c.p.x, z: c.p.z }];
+    const dots: Dot[] = me.out ? [] : [{ s: c.s, me: true, color: me.color, x: c.p.x, z: c.p.z }];
     for (const r of this.rivals) dots.push({ s: r.car.s, me: false, color: r.color, x: r.car.p.x, z: r.car.p.z });
-    for (const r of this.remotes.values()) dots.push({ s: r.s, me: false, color: r.color, x: r.model.root.position.x, z: r.model.root.position.z });
+    for (const r of this.remotes.values()) if (!r.out) dots.push({ s: r.s, me: false, color: r.color, x: r.model.root.position.x, z: r.model.root.position.z });
     const rg = this.recordGhost;
     if (rg) dots.push({ s: rg.s, me: false, color: rg.color, x: rg.position.x, z: rg.position.z });
     // Everyone in race order (finishers by time, then by distance down the road): your place, the board, the tags.
     type Who = { name: string; color: string; me: boolean; tag: Tag['id']; root: THREE.Object3D; height: number };
+    // (A battle royale's knocked-out cars are off the board: the place is among the cars still in.)
     const order = standings<Who>([
-      { who: { name: me.name, color: me.color, me: true, tag: 'me', root: me.model.root, height: CARS[c.spec.id].height - c.spec.cg }, finished: me.finished, progress: c.s },
-      ...this.rivals.map((r, i) => ({ who: { name: r.name, color: r.color, me: false, tag: 'ai' + i, root: r.model.root, height: CARS[r.car.spec.id].height - r.car.spec.cg }, finished: r.finished, progress: r.car.s })),
-      ...[...this.remotes.values()].map((r) => ({ who: { name: r.name, color: r.color, me: false, tag: r.id, root: r.model.root, height: CARS[r.spec.id].height - r.spec.cg }, finished: r.finished, progress: r.s })),
+      ...(me.out ? [] : [{ who: { name: me.name, color: me.color, me: true, tag: 'me', root: me.model.root, height: CARS[c.spec.id].height - c.spec.cg }, finished: me.finished, progress: c.s }]),
+      ...this.rivals.map((r) => ({ who: { name: r.name, color: r.color, me: false, tag: 'ai' + r.name, root: r.model.root, height: CARS[r.car.spec.id].height - r.car.spec.cg }, finished: r.finished, progress: r.car.s })),
+      ...[...this.remotes.values()].filter((r) => !r.out).map((r) => ({ who: { name: r.name, color: r.color, me: false, tag: r.id, root: r.model.root, height: CARS[r.spec.id].height - r.spec.cg }, finished: r.finished, progress: r.s })),
     ]);
-    const followed = this.watching !== null && this.remotes.get(this.watching)?.last ? this.watching : 'me';
+    const followed = this.watching !== null && this.remotes.get(this.watching)?.last ? this.watching : this.watchCar && !this.watchCar.out ? 'ai' + this.watchCar.name : 'me';
+    const myPlace = order.findIndex((e) => e.who.me) + 1;
     const tags: Tag[] = order.filter((e) => e.who.tag !== followed).map((e) => ({ id: e.who.tag, name: e.who.name, color: e.who.color, place: this.roam ? '' : order.indexOf(e) + 1, at: this.tagAt(e.who.tag, e.who.root, e.who.height) }));
     if (rg) tags.push({ id: 'record', name: `${rg.run.name} · ${fmtTime(rg.run.time)}`, color: rg.color, place: 'TR', at: this.tagAt('record', rg.model.root, rg.height) });
     this.hud.tags(tags);
@@ -2036,10 +2146,13 @@ export class RaceGame {
       redline: c.spec.redline,
       gear: c.gear,
       shifting: c.shift > 0,
-      place: order.findIndex((e) => e.who.me) + 1,
+      place: myPlace,
       field: order.length,
+      // A battle royale: how many are left, and whether you're the one who'd go out at the line.
+      royale: this.royaleOn && !this.roam ? { left: order.length, danger: this.phase === 'racing' && myPlace > 0 && myPlace === order.length && order.length > 1 && me.finished === null } : undefined,
       time: me.finished ?? this.time,
-      lap: me.finished !== null ? this.track.def.laps ?? 0 : lapOf(this.track, c.s),
+      // (Knocked out of a battle royale: the lap the leader is on.)
+      lap: me.out ? lapOf(this.track, order[0]?.progress ?? c.s) : me.finished !== null ? this.track.def.laps ?? 0 : lapOf(this.track, c.s),
       laps: this.track.def.laps ?? 0,
       abs: c.absOn,
       tcs: c.tcsOn,
@@ -2120,7 +2233,7 @@ export class RaceGame {
     this.offNet?.();
     this.controls.dispose();
     this.hud.dispose();
-    for (const r of [this.me, ...this.rivals]) r.model.dispose();
+    for (const r of [this.me, ...this.rivals, ...this.fallen]) r.model.dispose();
     for (const r of this.remotes.values()) r.model.dispose();
     this.recordGhost?.dispose();
     for (const c of this.cockpits.values()) c.dispose();
