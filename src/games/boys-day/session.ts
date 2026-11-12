@@ -754,8 +754,9 @@ export class Session {
       const s = this.siteNear();
       if (s && active) {
         if (s.kind === 'crate') {
-          this.got.add(s.id);
+          // The host's `got` is the director's own set: ask first, then mark it.
           this.did('crate', s.id);
+          this.got.add(s.id);
           this.audio.play('cash');
           // Now and then there's a paint grenade in the crate.
           if (this.nades < NADE.max && Math.random() < 0.35) {
@@ -1330,7 +1331,6 @@ export class Session {
       this.api.rumble(1, 0.5, 180);
       if (this.hp <= 0) this.knockedOut();
     } else if (f.k === 'crate') {
-      this.got.add(this.route.sites.findIndex((s) => s.x === f.x && s.z === f.z));
       if (mine || onScreen) this.hud.pop(`+${f.n} 🔩`, sx, sy, '#ffe14a', mine);
     } else if (f.k === 'can') {
       this.hud.pop(`+${f.n} FUEL ⛽`, sx, sy, '#ffb03a', true);
