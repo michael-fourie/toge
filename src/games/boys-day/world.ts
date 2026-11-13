@@ -37,6 +37,7 @@ export class World {
     this.ground();
     this.road();
     this.stop();
+    this.pond();
     this.sites();
     this.gate();
     this.props();
@@ -182,8 +183,8 @@ export class World {
     g.position.set(s.bx, s.y, s.bz);
     g.rotation.y = s.bh;
     const look: Record<Job, { wall: string; roof: string; sign: [string, string]; h: number }> = {
-      golf: { wall: '#e8e0c8', roof: '#2e7d4a', sign: ['#1d5c33', '#ffffff'], h: 6 },
-      slots: { wall: '#6b1d4f', roof: '#2a0c22', sign: ['#1a0610', '#ffd23f'], h: 9 },
+      rest: { wall: '#6b1d4f', roof: '#2e7d4a', sign: ['#1a0610', '#ffd23f'], h: 9 },
+      boss: { wall: '#7a5a46', roof: '#3a2a22', sign: ['#2a1008', '#ff6a4a'], h: 10 },
       holdout: { wall: '#9a9ca3', roof: '#55575e', sign: ['#1c2a4a', '#ffffff'], h: 6 },
       scavenge: { wall: '#b8643a', roof: '#4a2a1a', sign: ['#2a1608', '#ffe14a'], h: 7 },
       fuel: { wall: '#e8e8ee', roof: '#c8261c', sign: ['#8a1410', '#ffffff'], h: 5 },
@@ -254,7 +255,7 @@ export class World {
       g.add(m);
       return m;
     };
-    if (job === 'golf') {
+    if (job === 'rest') {
       // Tall net poles, a putting green and a flag.
       for (const x of [-s.w / 2, s.w / 2]) add(new THREE.CylinderGeometry(0.15, 0.15, 14, 6), '#ddd', x, 7, s.d / 2 + 4);
       add(new THREE.PlaneGeometry(s.w, 12), '#ffffff', 0, 7, s.d / 2 + 4, { transparent: true, opacity: 0.25, side: THREE.DoubleSide });
@@ -262,7 +263,7 @@ export class World {
       green.rotation.x = -Math.PI / 2;
       add(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6), '#eee', 8, 1.2, -s.d / 2 - 9);
       add(new THREE.PlaneGeometry(0.9, 0.55), '#ff3030', 8.45, 2.1, -s.d / 2 - 9, { side: THREE.DoubleSide }).rotation.y = Math.PI / 2;
-    } else if (job === 'slots') {
+      // …and the casino's marquee, because a pit stop has everything.
       // Marquee bulbs round the sign, and a giant die on the roof.
       for (let k = 0; k < 24; k++)
         add(new THREE.SphereGeometry(0.16, 8, 6), k % 2 ? '#fff5b0' : '#ff9df0', -s.w * 0.44 + (k * s.w * 0.88) / 23, h + 3.3, -s.d / 2 - 0.1, { emissive: k % 2 ? '#fff0a0' : '#ff60e0', emissiveIntensity: 1.6 });
@@ -302,6 +303,45 @@ export class World {
   }
 
   /** The job's things out in the arena, each under a beam of light so you can find it. */
+  /** A pit stop's pond, with a dock out to the fishing spot. */
+  private pond() {
+    const p = this.route.pond;
+    if (!p) return;
+    const y = this.y(p.x, p.z);
+    const water = new THREE.Mesh(
+      new THREE.CircleGeometry(p.r, 40),
+      // Pond water, pulled toward whatever this world's air is doing.
+      new THREE.MeshBasicMaterial({ color: new THREE.Color('#2f6ea8').lerp(new THREE.Color(this.look.fog[0]), 0.3), transparent: true, opacity: 0.85 }),
+    );
+    water.rotation.x = -Math.PI / 2;
+    water.position.set(p.x, y + 0.06, p.z);
+    this.group.add(water);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(p.r, p.r + 1.6, 40), toon('#c8b27a'));
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.set(p.x, y + 0.04, p.z);
+    rim.receiveShadow = true;
+    this.group.add(rim);
+    // Planks from the bank out to the rod.
+    const rod = this.route.sites.find((s) => s.kind === 'rod');
+    if (!rod) return;
+    const dx = rod.x - p.x;
+    const dz = rod.z - p.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const dock = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.16, len + 3.2), toon('#8a6238'));
+    dock.position.set(p.x + dx / 2, y + 0.35, p.z + dz / 2);
+    dock.rotation.y = Math.atan2(dx, dz);
+    dock.receiveShadow = true;
+    this.group.add(dock);
+    for (let k = 0; k <= 4; k++) {
+      for (const sx of [-0.75, 0.75]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.2, 6), toon('#6a4a32'));
+        const t = k / 4;
+        post.position.set(p.x + dx * t + Math.cos(Math.atan2(dx, dz)) * sx, y - 0.1, p.z + dz * t - Math.sin(Math.atan2(dx, dz)) * sx);
+        this.group.add(post);
+      }
+    }
+  }
+
   private sites() {
     const beamGeo = new THREE.CylinderGeometry(0.12, 0.12, 14, 6, 1, true).translate(0, 7, 0);
     const beam = (color: THREE.Color) => new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
@@ -357,6 +397,28 @@ export class World {
         tag.scale.set(2.4, 0.6, 1);
         tag.position.y = 2.4;
         g.add(tag, beam(new THREE.Color(0.5, 1.8, 0.6)));
+      } else if (s.kind === 'rod') {
+        // The end of the dock: a bucket, a spare rod and a folding chair.
+        g.rotation.y = this.route.stop.bh;
+        add(new THREE.CylinderGeometry(0.3, 0.26, 0.5, 10), toon('#3a7ad8'), -0.7, 0.25, 0.3);
+        add(new THREE.CylinderGeometry(0.03, 0.02, 2.6, 5), toon('#6a4a32'), 0.5, 0.9, 0).rotation.set(0, 0, -0.5);
+        add(new THREE.BoxGeometry(0.7, 0.08, 0.7), toon('#c83a3a'), 0.9, 0.45, 0.6);
+        add(new THREE.BoxGeometry(0.7, 0.7, 0.08), toon('#c83a3a'), 0.9, 0.8, 0.95);
+        const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('FISH', 'rgba(0,0,0,0)', '#9fe4ff', 256, 64, 'bold 44px system-ui'), transparent: true, depthTest: false }));
+        tag.scale.set(2.2, 0.55, 1);
+        tag.position.y = 2.3;
+        g.add(tag, beam(new THREE.Color(0.4, 1.3, 1.8)));
+      } else if (s.kind === 'keg') {
+        // The keg the big one wants.
+        g.rotation.y = 0;
+        add(new THREE.CylinderGeometry(1, 1, 1.9, 16), toon('#c9c9d2'), 0, 0.95, 0);
+        add(new THREE.CylinderGeometry(1.06, 1.06, 0.18, 16), toon('#8a8a96'), 0, 0.5, 0);
+        add(new THREE.CylinderGeometry(1.06, 1.06, 0.18, 16), toon('#8a8a96'), 0, 1.4, 0);
+        add(new THREE.CylinderGeometry(0.22, 0.22, 0.4, 8), toon('#ffd23f', { emissive: '#ffd23f', emissiveIntensity: 0.6 }), 0, 2.05, 0);
+        const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('THE KEG', 'rgba(0,0,0,0)', '#ffe9a0', 256, 64, 'bold 44px system-ui'), transparent: true, depthTest: false }));
+        tag.scale.set(2.8, 0.7, 1);
+        tag.position.y = 3.2;
+        g.add(tag, beam(new THREE.Color(1.8, 1.4, 0.3)));
       } else {
         g.rotation.y = this.route.stop.bh;
         add(new THREE.BoxGeometry(1.1, 2, 0.9), toon('#6b1d4f'), 0, 1, 0);

@@ -5,7 +5,7 @@
 
 import type { ZView } from './director.ts';
 import type { Route } from './route.ts';
-import { maxFuel, maxHp, type Bus, type RunState } from './rules.ts';
+import { CLING, KEG, tipOf, maxFuel, maxHp, type Bus, type RunState } from './rules.ts';
 
 
 const div = (cls: string, parent: HTMLElement, text = '') => {
@@ -30,6 +30,10 @@ export class Hud {
   private speed: HTMLElement;
   private hints: HTMLElement;
   private crew: HTMLElement;
+  private keg!: HTMLElement;
+  private kegText!: HTMLElement;
+  private kegBar!: HTMLElement;
+  private rolls!: HTMLElement;
   private fuel: HTMLElement;
   private fuelText: HTMLElement;
   private round: HTMLElement;
@@ -58,6 +62,11 @@ export class Hud {
     this.fuel = div('bd-bar-fill', fuelBar);
     this.fuelText = div('bd-bar-text', fuelBar);
     div('bd-label', bus, '❤ YOU');
+    const kegBar = div('bd-bar keg', bus);
+    this.keg = div('bd-bar-fill', kegBar);
+    this.kegText = div('bd-bar-text', kegBar);
+    this.kegBar = kegBar;
+    this.rolls = div('bd-rolls', bus);
     const meBar = div('bd-bar me', bus);
     this.me = div('bd-bar-fill', meBar);
     this.meText = div('bd-bar-text', meBar);
@@ -133,6 +142,8 @@ export class Hud {
       toStop: number;
       /** Arrow angle on screen (radians, 0 = straight up). */
       arrow: number;
+      /** How far over the bus is leaning (radians), for the warning. */
+      lean: number;
       gunner: boolean;
       driver: boolean;
       chase: boolean;
@@ -167,6 +178,15 @@ export class Hud {
     this.me.style.background = o.hp > 0.5 ? '#ff6b8a' : o.hp > 0.25 ? '#ffc23f' : '#ff4a4a';
     this.meText.textContent = o.ko > 0 ? `KNOCKED OUT ${Math.ceil(o.ko)}` : `${Math.ceil(o.hp * 100)}`;
     this.place.textContent = o.place;
+    // The rolls you've used up, and a warning while the weight on one side has the bus up on two wheels.
+    this.kegBar.hidden = run.keg <= 0;
+    if (run.keg > 0) {
+      this.keg.style.width = `${Math.max(0, (run.keg / KEG.hp) * 100)}%`;
+      this.kegText.textContent = `🍺 THE KEG ${Math.ceil(run.keg)}`;
+    }
+    const tipping = Math.abs(o.lean) > tipOf(run) * 0.55;
+    this.rolls.textContent = run.rolls > 0 || tipping ? `${'🛞'.repeat(run.rolls)}${'·'.repeat(Math.max(0, CLING.rolls - run.rolls))}${tipping ? '  ⚠ TIPPING!' : ''}` : '';
+    this.rolls.classList.toggle('warn', tipping);
     const fk = run.fuel / maxFuel(run);
     this.fuel.style.width = `${fk * 100}%`;
     this.fuel.style.background = fk > 0.3 ? '#ffb03a' : '#ff4a4a';

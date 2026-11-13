@@ -2,6 +2,8 @@
 // upgrades, the zombies' numbers, the minigames' maths.
 // Units are metres and seconds, Y up, yaw 0 faces -Z.
 
+import { FITS } from './roster.ts';
+
 /** Seeded random in [0, 1) (mulberry32): the same seed builds the same run on every screen. */
 export function rng(seed: number): () => number {
   let a = seed >>> 0;
@@ -77,6 +79,8 @@ export interface Ground {
   fumes: boolean;
   /** The engine's pull (1: stock; the engine upgrade raises it). */
   power?: number;
+  /** The horde hanging off one side dragging the wheel that way (-1 to 1: see `pullOf`). */
+  pull?: number;
 }
 
 export const FLAT: Ground = { grade: 0, onRoad: true, mud: false, fumes: false };
@@ -112,7 +116,8 @@ export function stepBus(b: Bus, d: Drive, dt: number, g: Ground = FLAT): void {
   const onRoad = g.onRoad;
   const speedK = Math.min(1, Math.abs(b.v) / BUS.maxSpeed);
   const maxSteer = BUS.steerMax * (1 - (1 - BUS.steerAtSpeed) * speedK);
-  const want = Math.max(-1, Math.min(1, d.steer)) * maxSteer * (g.mud ? BUS.mudGrip : 1);
+  // Zombies hanging off one side haul the wheel that way: you can still steer out of it, from further over.
+  const want = Math.max(-1, Math.min(1, d.steer + (g.pull ?? 0))) * maxSteer * (g.mud ? BUS.mudGrip : 1);
   const ds = want - b.steer;
   b.steer += Math.sign(ds) * Math.min(Math.abs(ds), BUS.steerRate * dt);
 
@@ -311,7 +316,18 @@ export const FOOT = {
   wake: 50,
   /** Left behind this far from the bus, you sprint back aboard (m). */
   left: 95,
+  /** A jump: how fast you leave the ground (m/s) and what pulls you back down. */
+  jump: 5.4,
+  gravity: 18,
 } as const;
+
+/** One tick of a jump: how high you are above the ground and how fast, and whether you've just landed. */
+export function stepJump(y: number, vy: number, dt: number): { y: number; vy: number; landed: boolean } {
+  if (y <= 0 && vy <= 0) return { y: 0, vy: 0, landed: false };
+  const nvy = vy - FOOT.gravity * dt;
+  const ny = y + nvy * dt;
+  return ny <= 0 ? { y: 0, vy: 0, landed: true } : { y: ny, vy: nvy, landed: false };
+}
 
 /**
  * Walks you over the ground: `fwd` and `strafe` input (−1..1), looking `yaw` (world: 0 faces −Z). Pushed out of
@@ -377,7 +393,11 @@ export const canBoard = (bus: Pick<Bus, 'x' | 'z' | 'h'>, x: number, z: number) 
 // The run: an endless road of checkpoints. Each has a job to do on foot; the bus dies when its health runs out.
 
 /** What a checkpoint asks of you (see checkpoints.ts for where and with what twist). */
-export type Job = 'scavenge' | 'fuel' | 'beacon' | 'holdout' | 'golf' | 'slots';
+/**
+ * What a checkpoint wants of you. The minigames aren't jobs any more: golf, the slots and the rod are what you do
+ * at a pit stop, for scrap, when you feel like it.
+ */
+export type Job = 'scavenge' | 'fuel' | 'beacon' | 'holdout' | 'boss' | 'rest';
 
 export const JOBS: Record<Job, { need: (crew: number, stage: number) => number; goal: string }> = {
   /** Supply crates lying about: walk up and grab them. */
@@ -388,11 +408,66 @@ export const JOBS: Record<Job, { need: (crew: number, stage: number) => number; 
   beacon: { need: (_, s) => 30 + Math.min(40, s * 3), goal: 'Stand in the ring to crank the beacon' },
   /** Zombies to put down while parked. */
   holdout: { need: (c, s) => Math.round((10 + s * 2) * HORDE.crewScale(c)), goal: 'Hold them off' },
-  /** Zombies teed off at the tee box. */
-  golf: { need: (c) => 2 + 2 * c, goal: 'Walk to the tee box and tee off zombies' },
-  /** Scrap won on the machine. */
-  slots: { need: (c) => 100 + 60 * c, goal: 'Walk to the slot machine and win scrap' },
+  /** One big one to put down, while it tries to make off with the keg. */
+  boss: { need: () => 1, goal: 'Defend the keg: put the big one down' },
+  /** A pit stop: nothing to do but enjoy it. */
+  rest: { need: () => 0, goal: 'Pit stop: fish, hit a bucket of balls, hang out' },
 };
+
+/** The big one at a boss stop, and the keg it's after. */
+export const BOSS = {
+  /** It grows with the run and the crew. */
+  hp: (stage: number, crew: number) => Math.round((260 + stage * 45) * (0.6 + 0.2 * Math.max(1, Math.min(8, crew)))),
+  speed: 3.4,
+  r: 1.6,
+  /** Keg health a second while it's smashing, and how close it has to be. */
+  smash: 26,
+  reach: 3.2,
+  /** What putting it down pays everyone. */
+  pay: 120,
+  /** How hard it swats someone on foot who gets in the way. */
+  bite: 34,
+};
+
+export const KEG = { hp: 300, r: 1.1 };
+
+/** Off the dock: how long the fish takes to bite, how long you have to set the hook, and the fight. */
+export const FISH = {
+  /** Seconds before a bite, and how long the window to strike is. */
+  waitMin: 1.2,
+  waitVar: 3.5,
+  window: 0.9,
+  /** How far out it starts, and how fast reeling brings it in. */
+  far: 1,
+  reel: 0.3,
+  /** The fish pulls back: tension climbs while you reel and falls when you don't; over 1 the line snaps. */
+  tension: 0.85,
+  ease: 0.75,
+  /** How hard it fights, by size, and how the fight wanders. */
+  fight: 0.55,
+  /** What the biggest one is worth on top of the flat pay. */
+  prize: 40,
+};
+
+/** How hard a fish of this size pulls at moment `t` (0…1, a wandering surge). */
+export const fishPull = (t: number, size: number) => FISH.fight * (0.55 + size * 0.75) * (0.75 + 0.45 * Math.sin(t * 2.3) * Math.sin(t * 0.7 + 1.3));
+
+/** One tick of the fight: reeling raises the tension and brings it in; letting go eases both. */
+export function fishStep(far: number, tension: number, size: number, t: number, reeling: boolean, dt: number) {
+  const pull = fishPull(t, size);
+  const next = Math.max(0, Math.min(1.2, tension + (reeling ? pull : -FISH.ease) * dt));
+  return {
+    far: Math.max(0, far - (reeling ? FISH.reel * dt : -FISH.reel * 0.35 * dt)),
+    tension: next,
+    snapped: next >= 1,
+  };
+}
+
+/** What you can play at a pit stop. */
+export type MiniKind = 'golf' | 'slots' | 'fish';
+
+/** What the pit stop's own amusements pay. */
+export const PIT = { fish: 14, golf: 10, slots: 1 };
 
 export const RUN = {
   /** Stop when the bus is this close to the checkpoint's marker, going slower than `parkSpeed`. */
@@ -433,11 +508,43 @@ export const UPGRADES = [
   { id: 'hopper', name: 'Big hoppers', what: '+20 paintballs, quicker reloads for everyone', max: 4, cost: 30 },
   { id: 'forks', name: 'Pitchforks', what: 'Spikes down both sides: zombies chew the bus slower', max: 4, cost: 40 },
 ] as const;
+/** Comforts bolted to the bus: everyone's, and you can sit on them. */
+export const COMFORTS = [
+  { id: 'couch', name: 'Roof couch', what: 'A couch on the roof deck. Sit down, feel better, watch the world go by', cost: 80 },
+  { id: 'boombox', name: 'Boombox', what: 'Tunes on the roof. Everyone aboard heals a little quicker', cost: 60 },
+  { id: 'bbq', name: 'Rooftop BBQ', what: 'Burgers up top: a bite back to full health whenever it’s hot', cost: 90 },
+] as const;
+
 export const REPAIR = { cost: 30, hp: 200 } as const;
 /** For yourself: a paint grenade, and a bandage (back to full health). */
 export const STORE = { nade: 15, bandage: 10 } as const;
-/** What `buy` takes: an upgrade's index, then these. */
-export const BUY = { repair: UPGRADES.length, nade: UPGRADES.length + 1, bandage: UPGRADES.length + 2 } as const;
+
+/** Guns on the rack: what they cost before the run hands them out for free. */
+export const GUN_COST = [0, 70, 130, 180, 240] as const;
+
+/** Bolted to your own marker, for the rest of the run. */
+export const KITS = [
+  { id: 'scope', name: 'Red dot', what: 'Tighter shots with every gun', cost: 55 },
+  { id: 'barrel', name: 'Long barrel', what: 'Every paintball hits harder', cost: 75 },
+  { id: 'loader', name: 'Speed loader', what: 'Reload in half the time', cost: 50 },
+] as const;
+export const KIT = { scope: 0, barrel: 1, loader: 2 } as const;
+
+/**
+ * What `buy` takes: the bus upgrades first, then the one-offs, then the comforts, the guns, the kit and the
+ * costumes, so a client's number always means the same thing.
+ */
+export const BUY = {
+  repair: UPGRADES.length,
+  nade: UPGRADES.length + 1,
+  bandage: UPGRADES.length + 2,
+  comfort: UPGRADES.length + 3,
+  gun: UPGRADES.length + 3 + COMFORTS.length,
+  kit: UPGRADES.length + 3 + COMFORTS.length + GUN_COST.length,
+  fit: UPGRADES.length + 3 + COMFORTS.length + GUN_COST.length + KITS.length,
+} as const;
+/** How many different things the store sells (the highest `k` a client may send). */
+export const BUY_MAX = BUY.fit + FITS.length;
 /** Index of each upgrade in `RunState.up`. */
 export const UP = { armor: 0, plow: 1, engine: 2, tank: 3, hopper: 4, forks: 5 } as const;
 export const upCost = (k: number, level: number) => UPGRADES[k].cost * (level + 1);
@@ -470,6 +577,17 @@ export interface RunState {
   calm: number;
   /** Upgrade levels, in UPGRADES' order. */
   up: number[];
+  /** How many times the bus has gone over (CLING.rolls ends the run), and how long it's lying on its side. */
+  rolls: number;
+  /** A boss stop's keg, while it's standing (0: no keg, or it's been smashed). */
+  keg: number;
+  /** Bought by each player, by their place: the guns and the kit they own, and the costume they're wearing. */
+  guns: number[];
+  kit: number[];
+  fit: number[];
+  /** The comforts bolted to the bus, for everyone (a bit each, COMFORTS). */
+  comfort: number;
+  down: number;
 }
 
 export function newRun(seed: number, crew = 1): RunState {
@@ -493,6 +611,13 @@ export function newRun(seed: number, crew = 1): RunState {
     left: 0,
     calm: ROUNDS.first,
     up: UPGRADES.map(() => 0),
+    rolls: 0,
+    keg: 0,
+    guns: new Array(MAX_PLAYERS).fill(0),
+    kit: new Array(MAX_PLAYERS).fill(0),
+    fit: new Array(MAX_PLAYERS).fill(0),
+    comfort: 0,
+    down: 0,
   };
 }
 
@@ -500,6 +625,7 @@ export const maxHp = (r: Pick<RunState, 'up'>) => BUS.hp + r.up[UP.armor] * 250;
 export const maxFuel = (r: Pick<RunState, 'up'>) => RUN.fuel + r.up[UP.tank] * 25;
 export const burnOf = (r: Pick<RunState, 'up'>) => RUN.burn * (1 - r.up[UP.tank] * 0.08);
 export const hopperOf = (r: Pick<RunState, 'up'>) => GUN.hopper + r.up[UP.hopper] * 20;
+export const reloadKit = (r: Pick<RunState, 'kit'>, who: number) => (hasKit(r, who, KIT.loader) ? 0.5 : 1);
 export const reloadOf = (r: Pick<RunState, 'up'>) => GUN.reload * (1 - r.up[UP.hopper] * 0.12);
 /** The engine's pull (top speed, acceleration and climbing), from the engine upgrade. */
 export const powerOf = (r: Pick<RunState, 'up'>) => 1 + r.up[UP.engine] * 0.08;
@@ -507,20 +633,46 @@ export const yeetSpeedOf = (r: Pick<RunState, 'up'>) => HORDE.yeetSpeed - r.up[U
 export const chewOf = (r: Pick<RunState, 'up'>) => 1 - r.up[UP.forks] * 0.15;
 
 /** What `k` costs right now (Infinity: it can't be bought, e.g. maxed out or the bus is already whole). */
-export function priceOf(r: RunState, k: number): number {
+export function priceOf(r: RunState, k: number, who = 0): number {
   if (k === BUY.repair) return r.busHp >= maxHp(r) ? Infinity : REPAIR.cost;
   if (k === BUY.nade) return STORE.nade;
   if (k === BUY.bandage) return STORE.bandage;
+  if (k >= BUY.fit) {
+    const f = FITS[k - BUY.fit];
+    return !f || (r.fit[who] ?? 0) === k - BUY.fit ? Infinity : f.cost;
+  }
+  if (k >= BUY.kit) {
+    const i = k - BUY.kit;
+    return !KITS[i] || hasKit(r, who, i) ? Infinity : KITS[i].cost;
+  }
+  if (k >= BUY.gun) {
+    const i = k - BUY.gun;
+    return !GUNS[i] || ownsGun(r, who, i) ? Infinity : GUN_COST[i];
+  }
+  if (k >= BUY.comfort) {
+    const i = k - BUY.comfort;
+    return !COMFORTS[i] || hasComfort(r, i) ? Infinity : COMFORTS[i].cost;
+  }
   const u = UPGRADES[k];
   return !u || r.up[k] >= u.max ? Infinity : upCost(k, r.up[k]);
 }
 
+/** Whether `who` can pick gun `g` up: the run hands them out as you clear stops, or you buy them early. */
+export const ownsGun = (r: Pick<RunState, 'stage' | 'done' | 'guns'>, who: number, g: number) =>
+  g < gunsUnlocked(r.stage + (r.done ? 1 : 0)) || (((r.guns[who] ?? 0) >> g) & 1) === 1;
+export const hasKit = (r: Pick<RunState, 'kit'>, who: number, i: number) => (((r.kit[who] ?? 0) >> i) & 1) === 1;
+export const hasComfort = (r: Pick<RunState, 'comfort'>, i: number) => ((r.comfort >> i) & 1) === 1;
+
 /** Crew member `who` buys `k` (see BUY) if they can afford it. Grenades and bandages are theirs: their screen hands them over. */
 export function buy(r: RunState, k: number, who: number): boolean {
-  const cost = priceOf(r, k);
+  const cost = priceOf(r, k, who);
   if (!(r.cash[who] >= cost)) return false;
   r.cash[who] -= cost;
   if (k === BUY.repair) r.busHp = Math.min(maxHp(r), r.busHp + REPAIR.hp);
+  else if (k >= BUY.fit) r.fit[who] = k - BUY.fit;
+  else if (k >= BUY.kit) r.kit[who] |= 1 << (k - BUY.kit);
+  else if (k >= BUY.gun) r.guns[who] |= 1 << (k - BUY.gun);
+  else if (k >= BUY.comfort) r.comfort |= 1 << (k - BUY.comfort);
   else if (k < UPGRADES.length) {
     r.up[k]++;
     if (k === UP.armor) r.busHp = maxHp(r);
@@ -539,19 +691,21 @@ export function objective(r: RunState, job: Job, place: string): string {
   if (job === 'fuel') return `Lug jerry cans from the pump to the bus: ${n}`;
   if (job === 'beacon') return `Stand in the ring to crank the beacon: ${Math.ceil(r.need - r.prog)} s`;
   if (job === 'holdout') return `Hold them off: ${n}`;
-  if (job === 'golf') return `Tee off zombies at the tee box: ${n}`;
-  return `Win scrap on the slot machine: ${n}`;
+  if (job === 'boss') return `Defend the keg from the big one${r.keg > 0 ? '' : ' (the keg’s gone)'}`;
+  return 'Pit stop: fish, hit some balls, hang out';
 }
 
 // ---------------------------------------------------------------------------------------------
 // Zombies and guns
 
-export type ZKind = 0 | 1 | 2;
+export type ZKind = 0 | 1 | 2 | 3 | 4;
 /** `damage`: bus health a second while it hangs on. `bite`: what one bite takes off a player on foot. */
 export const ZOMBIE: Record<ZKind, { name: string; speed: number; hp: number; r: number; damage: number; bite: number }> = {
   0: { name: 'shambler', speed: 4.5, hp: 3, r: 0.45, damage: 2, bite: 12 },
   1: { name: 'sprinter', speed: 7.5, hp: 2, r: 0.4, damage: 1.5, bite: 9 },
   2: { name: 'chonk', speed: 3.2, hp: 7, r: 0.75, damage: 4, bite: 24 },
+  3: { name: 'leaper', speed: 6.5, hp: 2, r: 0.38, damage: 1.5, bite: 10 },
+  4: { name: 'the big one', speed: 3.4, hp: 300, r: 1.6, damage: 9, bite: 34 },
 };
 /** The further you get, the faster they come (a share on top per leg, capped). */
 export const zSpeed = (stage: number) => 1 + Math.min(0.45, stage * 0.025);
@@ -582,11 +736,85 @@ export const HORDE = {
   yeetSpeed: 5,
   /** Hanging on the bus, they hurt it (hp/s, by kind) until shot off. */
   climbReach: 0.9,
+  /** A leaper jumps for the side from this far out, so speed alone won't keep them off. */
+  leapReach: 4.2,
   /** They go for someone on foot within this (m) rather than the bus, and bite every `bite` s within `biteReach`. */
   chase: 40,
   bite: 0.9,
   biteReach: 0.7,
 } as const;
+
+/**
+ * Zombies hanging off the sides, like Zombie Highway: their weight hauls the wheel their way and leans the bus,
+ * and far enough over it rolls. Scrape them along something solid (a wreck, a boulder, a gate post) and they come
+ * off — cheaper than paint, and the whole point of the plow and the pitchforks.
+ */
+export const CLING = {
+  /** What one of each kind weighs on the side it's hanging from. */
+  weight: [1, 0.8, 2.3, 0.9, 4] as const,
+  /** How hard a zombie of weight 1 pulls the wheel, and how far it leans the bus (radians). */
+  pull: 0.085,
+  lean: 0.05,
+  /** Cornering at speed with a load on leans it further. */
+  corner: 0.5,
+  /** How fast the lean follows what's hanging on (rad/s). */
+  settle: 1.6,
+  /** Over this far (radians) and the bus goes over; armour plate lowers the bus and buys you a bit more. */
+  tip: 0.68,
+  tipPerArmor: 0.035,
+  /** A roll: the damage, how long the bus lies there, and how many the run survives. */
+  rollDamage: 260,
+  rollTime: 3,
+  rolls: 3,
+  /** Scraping: how close the side has to pass something solid, and how fast you have to be going. */
+  scrape: 1.1,
+  scrapeSpeed: 5,
+  /** Scraping one off pays the driver this. */
+  scrapePay: 2,
+} as const;
+
+/** The net weight hanging off the sides: negative to the left, positive to the right. */
+export function clingLoad(on: readonly { side: number; k: ZKind }[]): number {
+  let load = 0;
+  for (const z of on) load += Math.sign(z.side) * (CLING.weight[z.k] ?? 1);
+  return load;
+}
+
+/** What that load does to the wheel (-1 to 1), given the bus's upgrades. */
+export const pullOf = (load: number, r: Pick<RunState, 'up'>) => Math.max(-1, Math.min(1, (load * CLING.pull) / (1 + r.up[UP.armor] * 0.12)));
+
+/** How far over the bus can go before it rolls. */
+export const tipOf = (r: Pick<RunState, 'up'>) => CLING.tip + r.up[UP.armor] * CLING.tipPerArmor;
+
+/** One tick of the lean: where it settles with that load, plus the cornering, and whether it just went over. */
+export function stepLean(lean: number, load: number, b: Bus, dt: number, tip: number): { lean: number; rolled: boolean } {
+  const speedK = Math.min(1, Math.abs(b.v) / BUS.maxSpeed);
+  const want = load * CLING.lean + Math.sign(load || 1) * Math.abs(b.steer * speedK * CLING.corner * load * CLING.lean);
+  const next = lean + (want - lean) * Math.min(1, CLING.settle * dt);
+  return Math.abs(next) > tip ? { lean: 0, rolled: true } : { lean: next, rolled: false };
+}
+
+/** Which side of the bus is scraping something solid right now (-1 left, 1 right, 0 neither). */
+export function scrapeSide(b: Bus, obstacles: readonly Obstacle[]): number {
+  if (Math.abs(b.v) < CLING.scrapeSpeed) return 0;
+  const f = fwdOf(b.h);
+  const rt = rightOf(b.h);
+  for (const off of BUS.hull) {
+    const cx = b.x + f.x * off;
+    const cz = b.z + f.z * off;
+    for (const o of obstacles) {
+      const dx = o.x - cx;
+      const dz = o.z - cz;
+      const reach = BUS.hullR + o.r + CLING.scrape;
+      if (dx * dx + dz * dz >= reach * reach) continue;
+      const lat = rt.x * dx + rt.z * dz;
+      const along = f.x * dx + f.z * dz;
+      // Beside the bus rather than straight ahead of it: that's a scrape, not a crash.
+      if (Math.abs(lat) > Math.abs(along)) return Math.sign(lat) || 1;
+    }
+  }
+  return 0;
+}
 
 export const GUN = {
   /** Paintballs per second (held), hopper, reload (s), ball speed (m/s), gravity on the ball. */
@@ -691,17 +919,31 @@ export const HANG = {
   bong: { side: 0.75, along: -4.4, heal: 30, high: 12 },
   cooler: { side: -0.75, along: -4.4, heal: 15, tipsy: 14 },
   table: { side: 0.7, along: 0.5 },
+  /** Bought and bolted to the roof deck (COMFORTS): a couch to sit on and a BBQ to eat off. */
+  couch: { side: -0.55, along: -2.4, heal: 22 },
+  bbq: { side: 0.75, along: -4.2, heal: 100 },
   /** How close you have to stand (m). */
   reach: 1.1,
 } as const;
 
-export type HangKind = 'bong' | 'cooler' | 'table';
-/** Which station you're standing at inside the bus, if any. */
-export function hangAt(p: Spot): HangKind | null {
-  if (p.level !== 0) return null;
-  for (const k of ['bong', 'cooler', 'table'] as const) if (Math.hypot(p.side - HANG[k].side, p.along - HANG[k].along) < HANG.reach) return k;
+export type HangKind = 'bong' | 'cooler' | 'table' | 'couch' | 'bbq';
+/** Which station you're standing at, if any: the bong, the cooler and the cards inside, the comforts up top. */
+export function hangAt(p: Spot, comfort = 0): HangKind | null {
+  const near = (k: HangKind) => Math.hypot(p.side - HANG[k].side, p.along - HANG[k].along) < HANG.reach;
+  if (p.level !== 0) {
+    if (((comfort >> 0) & 1) === 1 && near('couch')) return 'couch';
+    if (((comfort >> 2) & 1) === 1 && near('bbq')) return 'bbq';
+    return null;
+  }
+  for (const k of ['bong', 'cooler', 'table'] as const) if (near(k)) return k;
   return null;
 }
+
+/** Your own gear: the red dot tightens every gun, the long barrel hits harder, the speed loader halves reloads. */
+export const spreadOf = (r: Pick<RunState, 'kit'>, who: number, g: number) => (GUNS[g]?.spread ?? 0) * (hasKit(r, who, KIT.scope) ? 0.45 : 1);
+export const kitDamage = (r: Pick<RunState, 'kit'>, who: number) => (hasKit(r, who, KIT.barrel) ? 1 : 0);
+/** The boombox has everyone aboard pulling themselves together quicker. */
+export const regenOf = (r: Pick<RunState, 'comfort'>) => FOOT.regen * (hasComfort(r, 1) ? 1.7 : 1);
 
 /** Cards are 0-51: rank c % 13 (0 is a two, 12 an ace), suit ⌊c / 13⌋. */
 export const rankOf = (c: number) => c % 13;

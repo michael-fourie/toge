@@ -4,7 +4,7 @@
 
 import type { Audio } from './audio.ts';
 import type { Frame } from './input.ts';
-import { GOLF, REEL_SPEED, SLOTS, SLOT_PAY, reelAt, slotPay, sweep, teesOff } from './rules.ts';
+import { FISH, GOLF, REEL_SPEED, SLOTS, SLOT_PAY, fishStep, reelAt, slotPay, sweep, teesOff } from './rules.ts';
 
 export interface Minigame {
   el: HTMLElement;
@@ -634,5 +634,164 @@ export class Slots implements Minigame {
     g.fillStyle = '#d8b46a';
     g.fillRect(lx - 16, 222, 32, 26);
     this.bits.update(1 / 60, g);
+  }
+}
+
+/**
+ * Off the end of the dock at a pit stop: cast, wait for the bobber to go under, strike in time, then reel it in
+ * without snapping the line (hold to reel, let go to let it run). The bigger it is, the harder it pulls and the
+ * more it pays.
+ */
+export class Fishing implements Minigame {
+  el: HTMLElement;
+  private c: HTMLCanvasElement;
+  private g: CanvasRenderingContext2D;
+  private note: HTMLElement;
+  private state: 'cast' | 'wait' | 'bite' | 'fight' | 'done' = 'cast';
+  private t = 0;
+  private clock = 0;
+  private power = 0;
+  private held = false;
+  private cast = 0;
+  private size = 0;
+  private far = FISH.far;
+  private tension = 0;
+  private caught = 0;
+  private result = '';
+  private bits = new Bits();
+
+  constructor(
+    private onCatch: (size: number) => void,
+    private audio: Audio,
+  ) {
+    const f = frame('OFF THE DOCK', 'Hold Space / click / Ⓐ to cast, let go. When it goes under, press to set the hook — then hold to reel and let go when the line’s tight.', 640, 360);
+    this.el = f.el;
+    this.c = f.c;
+    this.g = f.g;
+    this.note = f.note;
+  }
+
+  update(dt: number, f: Frame) {
+    this.clock += dt;
+    this.t += dt;
+    const press = f.fire && !this.held;
+    this.held = f.fire;
+    if (this.state === 'cast') {
+      if (f.fire) this.power = Math.min(1, this.power + dt * 1.4);
+      else if (this.power > 0.05) {
+        this.cast = this.power;
+        this.power = 0;
+        this.state = 'wait';
+        this.t = 0;
+        this.size = Math.random();
+        this.audio.play('whoosh', 0.5);
+      }
+    } else if (this.state === 'wait') {
+      // A better cast finds one sooner.
+      if (this.t > FISH.waitMin + (1 - this.cast) * FISH.waitVar * Math.random()) {
+        this.state = 'bite';
+        this.t = 0;
+        this.audio.play('thunk', 0.5);
+      } else if (press) {
+        this.state = 'cast';
+        this.note.textContent = 'Too early — nothing there yet.';
+      }
+    } else if (this.state === 'bite') {
+      if (press) {
+        this.state = 'fight';
+        this.far = FISH.far;
+        this.tension = 0.2;
+        this.t = 0;
+        this.audio.play('reload', 0.6);
+      } else if (this.t > FISH.window) {
+        this.state = 'cast';
+        this.note.textContent = 'It spat the hook. Cast again.';
+        this.audio.play('splat', 0.4);
+      }
+    } else if (this.state === 'fight') {
+      const out = fishStep(this.far, this.tension, this.size, this.t, f.fire, dt);
+      this.far = out.far;
+      this.tension = out.tension;
+      if (out.snapped) {
+        this.state = 'cast';
+        this.note.textContent = 'SNAP! The line’s gone. Cast again.';
+        this.audio.play('bump', 0.7);
+      } else if (this.far <= 0) {
+        const prize = Math.round(this.size * FISH.prize);
+        this.caught++;
+        this.result = `${this.size > 0.8 ? 'A MONSTER' : this.size > 0.45 ? 'A good one' : 'A tiddler'}! +${prize} on top`;
+        this.note.textContent = `${this.result}. ${this.caught} in the bucket.`;
+        this.onCatch(prize);
+        this.audio.play('win', 0.6);
+        this.bits.burst(320, 150, 18, ['#9fe4ff', '#ffe9a0', '#ffffff']);
+        this.bits.word(320, 120, this.result, '#9fe4ff');
+        this.state = 'cast';
+      }
+    }
+    this.draw(dt);
+  }
+
+  private draw(dt: number) {
+    const g = this.g;
+    const w = this.c.width;
+    const h = this.c.height;
+    g.fillStyle = '#16243a';
+    g.fillRect(0, 0, w, h);
+    // The water, with a little chop.
+    g.fillStyle = '#1d4a72';
+    g.beginPath();
+    g.moveTo(0, h * 0.45);
+    for (let x = 0; x <= w; x += 16) g.lineTo(x, h * 0.45 + Math.sin(x * 0.03 + this.clock * 1.4) * 4);
+    g.lineTo(w, h);
+    g.lineTo(0, h);
+    g.fill();
+    // The dock and the rod.
+    g.fillStyle = '#6a4a32';
+    g.fillRect(0, h * 0.62, 120, 18);
+    g.strokeStyle = '#d8d8e0';
+    g.lineWidth = 3;
+    g.beginPath();
+    g.moveTo(40, h * 0.62);
+    g.lineTo(150, h * 0.2);
+    g.stroke();
+    const bob = { x: 180 + this.cast * 380, y: h * 0.45 + Math.sin(this.clock * 2) * 3 };
+    if (this.state === 'fight') bob.x = 180 + this.far * 380;
+    if (this.state !== 'cast') {
+      g.lineWidth = 1.5;
+      g.strokeStyle = this.state === 'fight' ? `rgb(${120 + this.tension * 135}, ${200 - this.tension * 160}, 140)` : '#cfd8e8';
+      g.beginPath();
+      g.moveTo(150, h * 0.2);
+      g.lineTo(bob.x, this.state === 'bite' ? bob.y + 10 : bob.y);
+      g.stroke();
+      g.fillStyle = this.state === 'bite' ? '#ff4a4a' : '#ffffff';
+      g.beginPath();
+      g.arc(bob.x, this.state === 'bite' ? bob.y + 10 : bob.y, 7, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.font = 'bold 22px system-ui';
+    g.fillStyle = '#ffe9a0';
+    g.textAlign = 'center';
+    if (this.state === 'cast') {
+      g.fillText('HOLD TO CAST', w / 2, h * 0.84);
+      g.fillStyle = '#3a4a62';
+      g.fillRect(w / 2 - 120, h * 0.88, 240, 14);
+      g.fillStyle = '#7cff5b';
+      g.fillRect(w / 2 - 120, h * 0.88, 240 * this.power, 14);
+    } else if (this.state === 'wait') g.fillText('…waiting…', w / 2, h * 0.84);
+    else if (this.state === 'bite') {
+      g.fillStyle = '#ff6a6a';
+      g.fillText('BITE! PRESS NOW', w / 2, h * 0.84);
+    } else {
+      // The tension bar: keep it out of the red.
+      g.fillText(this.far > 0.6 ? 'REEL IT IN' : 'ALMOST THERE', w / 2, h * 0.8);
+      g.fillStyle = '#3a4a62';
+      g.fillRect(w / 2 - 140, h * 0.86, 280, 16);
+      g.fillStyle = this.tension > 0.8 ? '#ff4a4a' : this.tension > 0.6 ? '#ffc23f' : '#7cff5b';
+      g.fillRect(w / 2 - 140, h * 0.86, 280 * Math.min(1, this.tension), 16);
+      g.fillStyle = '#ffffff';
+      g.fillRect(w / 2 + 84, h * 0.86, 2, 16);
+    }
+    g.textAlign = 'left';
+    this.bits.update(dt, g);
   }
 }

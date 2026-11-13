@@ -818,3 +818,41 @@
   border-style: dashed;
   box-shadow: none;
 }
+
+/* How many times the bus has gone over, and a warning while it's up on two wheels. */
+.boys-day .bd-rolls {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  min-height: 15px;
+}
+.boys-day .bd-rolls.warn {
+  color: #ff5a5a;
+  animation: bd-blink 0.4s steps(2) infinite;
+}
+@keyframes bd-blink {
+  to {
+    opacity: 0.35;
+  }
+}
+
+/* The keg's health while the big one is after it. */
+.boys-day .bd-bar.keg .bd-bar-fill {
+  background: linear-gradient(90deg, #ffd23f, #ff9a3f);
+}
+
+/* The store's shelves. */
+.boys-day .bd-shelf {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  opacity: 0.7;
+}
+
+/* The store is a long list: let it scroll inside the panel. */
+.boys-day .bd-cards-body {
+  max-height: min(62vh, 560px);
+  overflow-y: auto;
+  width: 100%;
+}
