@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BOARD, NOTICES, RECORDS, cleanBests, cleanBoard, cleanNotices, medalTable, minTime, overtaken, placeOnBoard, profileOf, recordTime } from '../../src/toge/shared/records.ts';
+import { BOARD, BOARD_TRACKS, NOTICES, RECORDS, cleanBests, cleanBoard, cleanNotices, medalTable, minTime, overtaken, placeOnBoard, profileOf, recordTime } from '../../src/toge/shared/records.ts';
 import { RecordStore } from '../../src/toge/server/recordStore.ts';
 import { TRACK_LENGTH_KM, applyAction, newGarage } from '../../src/toge/shared/garage.ts';
 import { CAR_IDS, TUNE_RANGE, carSpec, decodeCar, encodeCar, maxedUpgrades, newOwnedCar, topSpeed } from '../../src/toge/shared/cars.ts';
@@ -9,7 +9,7 @@ import { getTrack, gridSlot } from '../../src/toge/shared/track.ts';
 import { type DriveInput, TICK_DT, newCar, stepCar } from '../../src/toge/shared/vehicle.ts';
 import { decodeRider } from '../../src/toge/shared/rider.ts';
 import { Race, type RaceClient } from '../../src/toge/server/race.ts';
-import { type RaceMode, recordMode } from '../../src/toge/shared/protocol.ts';
+import { type RaceMode, modeTracks, recordMode } from '../../src/toge/shared/protocol.ts';
 import type { TrackId } from '../../src/toge/shared/track.ts';
 import type { KV } from '../../src/server/accountStore.ts';
 
@@ -224,6 +224,13 @@ test('a full board drops its slowest; a finish too slow for it gets no rank', ()
   assert.ok(!board.some((r) => r.name === `r${BOARD.size - 1}`));
 });
 
+test('the Leaderboard lists only playable tracks: every track you can time-trial from the Race page, no hill climb, arena or open world', () => {
+  assert.ok(!BOARD_TRACKS.includes('karasu'), 'Karasu Peak (2026-11-13, Andrew: "isn\'t available")');
+  assert.ok(!BOARD_TRACKS.includes('shura'), 'a battle royale keeps no times');
+  assert.ok(!BOARD_TRACKS.includes('toge'));
+  assert.deepEqual(BOARD_TRACKS, modeTracks('trial'), 'exactly the time trial\'s tracks');
+});
+
 test('stored boards are cleaned: bad rows, duplicates and impossible times drop out', () => {
   const b = cleanBoard('koripass', [row('Ann', 210), row('ann', 200), row('Bob', 5), { name: 7, time: 220 }, row('', 230), 'x', row('Cy', 205)]);
   assert.deepEqual(b.map((r) => [r.name, r.time]), [['ann', 200], ['Cy', 205]]);
@@ -243,6 +250,12 @@ test("RecordStore keeps each track's board beside the bests, and can rebuild the
   // Cy: 1st on Saltwind and 2nd on Kōri; Bob 1st on Kōri; Ann 3rd on Kōri.
   assert.deepEqual(medals.map((m) => [m.name, m.gold, m.silver, m.bronze]), [['Cy', 1, 1, 0], ['Bob', 1, 0, 0], ['Ann', 0, 0, 1]]);
   assert.deepEqual(await r.board('nowhere'), []);
+  // A board the Leaderboard doesn't list (the hill climb) is kept but neither listed nor counted for medals.
+  await r.record('Dee', 'karasu', 300, CAR);
+  assert.equal((await r.board('karasu'))[0]?.name, 'Dee', 'still stored');
+  const after = await r.leaders();
+  assert.equal(after.leaders.karasu, undefined);
+  assert.ok(!after.medals.some((m) => m.name === 'Dee'));
 
   const fresh = new RecordStore(kv().store);
   await fresh.rebuild([

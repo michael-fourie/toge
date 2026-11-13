@@ -94,6 +94,14 @@ export const BOARD = {
   size: 50,
 } as const;
 
+/**
+ * The tracks the Leaderboard shows and the medal table counts: the ones you can pick for a time trial from the Race
+ * page (2026-11-13, Andrew: "remove maps from the Leaderboard that are not playable ... Karasu Peak isn't available").
+ * Not the hill climb (it runs only in a lobby's Hill climb mode) or battle royale arenas (a royale keeps no times).
+ * Their boards stay stored; they're just not listed or counted.
+ */
+export const BOARD_TRACKS = (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => !TRACK_DEFS[id].world && !TRACK_DEFS[id].climb && !TRACK_DEFS[id].royale);
+
 /** A board as stored: bad rows dropped, one row per racer (their quickest), quickest first, at most BOARD.size. */
 export function cleanBoard(track: TrackId, x: unknown): BoardRow[] {
   if (!Array.isArray(x)) return [];

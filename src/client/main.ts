@@ -148,7 +148,7 @@ async function drive(opts: DriveOpts, again = false) {
     track: opts.track,
     rivals: opts.rivals,
     physics: opts.online ? opts.online.physics : opts.physics,
-    online: opts.online && { mode: opts.online.mode, racers: opts.online.racers.length },
+    online: opts.online && { mode: opts.online.mode, racers: opts.online.racers.length, ...(opts.online.laps ? { laps: opts.online.laps } : {}) },
     gp: opts.gp && { cup: opts.gp.cup, round: opts.gp.round },
   });
   await nextPaint();

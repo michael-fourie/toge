@@ -246,6 +246,21 @@ a component or a page.
   and the board take the team's colour. Points: `addRound` keeps each row's `team`, `teamTable` adds the racers' points
   per team (most points, then round wins), and the results' cup table opens with the two teams' totals (hud.ts
   `teamsHtml`; after the last round the winner's trophy and "Red wins the cup"). Tests: tests/toge/teamgp.test.ts.
+- **Endurance** (mode `endurance`, online only; 2026-11-12, Andrew: "a new game mode in Host a Race, where you can race
+  a map that is a complete lap, and you can increase the number of laps ... between 1 to 100 laps"): any circuit
+  (`modeTracks`: a track with `laps`, not a royale arena) raced the host's number of laps, `ENDURANCE.min`..`max`
+  (1-100, `start` 10). The host sends `{t:'laps', laps}` in the lobby (`cleanLaps` rounds and clamps); the room keeps
+  `Race.laps` (kept across mode changes), puts it on `room` and on `load`, and the directory entry. Clients build the
+  circuit with `getTrack(id, laps)` (track.ts: a cached build per id × laps; the road is the same every lap, a 1-lap
+  build still unrolls three laps' worth so `retile` has a lap to copy; runoff caps are worked out on one lap against
+  one lap, so 100 laps build in ~0.1 s), so the HUD, standings, pads and finish all follow. Race rules otherwise: own
+  cars, contact, drafting, CPU racers; no record ghost and no best times (not a record mode); it pays like a race on
+  that circuit whatever the distance (`TRACK_LENGTH_KM` sets the prize, so 100 laps can't farm money). The room's
+  minimum finish is the distance at `RECORDS.maxAvgSpeed` (a lap of Hachi-no-ji takes ~30 s, under MIN_RACE_SECONDS)
+  and its time limit is the distance at `ENDURANCE.slowest` m/s plus `spare` (at least `RACE.maxSeconds`). Highlight
+  and ghost tapes stay capped at 10 minutes. The lobby's Laps block (lobby.ts: − [n laps] +, the distance, quick
+  picks 1/5/10/25/50/100; `.tg-laps` in hub.css); the loading screen and results say "Endurance · n laps".
+  Tests: tests/toge/endurance.test.ts.
 - **Toge, the open world** (`toge` in TRACK_DEFS with `world: true`; world.ts; Michael asked for it 2026-11-08: "a free
   play map of its own... players can just drive around and hang out... great spots to go fast, and cool cutting between
   cars on the highway"). An island: a 470 m mountain, a harbour city, and 37 km of roads built as data (`layout()`): the
@@ -466,7 +481,7 @@ src/toge/shared/
   royale.ts    battle royale: ROYALE (grace, minRivals), Royale (who's knocked out each lap, the winner), Knockout.
   cups.ts      Grand Prix cups (CUPS: four tracks each, the Postcard Cup five; roundsOf), GP_POINTS, addRound / rankCup (the cup table).
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
-               climb / Grand Prix), ghostMode (time trial only), cleanMode (the host's car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
+               climb / Grand Prix / Team Grand Prix / free roam / battle royale / Endurance; ENDURANCE, cleanLaps), ghostMode (time trial only), cleanMode (the host's car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/toge/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
   garageStore.ts (accounts' garages in the Accounts DO; `/api/garage`), recordStore.ts (accounts' best times, `b:<user>`, and the all-time boards, `lb:<track>`). Race lobbies use the Directory instance 'race'
   (`/api/races`); sockets are `/ws?game=race`.

@@ -84,5 +84,5 @@ export const raceNet = new RaceNet();
  * results when the host races again). */
 export function roomRace(m: Extract<RaceServerMsg, { t: 'load' }>): DriveOpts {
   const solo = !!raceNet.room?.solo;
-  return { track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, racers: raceNet.room?.racers ?? [], rule: m.rule, cars: m.cars, physics: m.physics, ghost: m.ghost, ...(solo ? { solo } : {}) }, ...(m.gp ? { gp: m.gp } : {}) };
+  return { track: m.track, online: { net: raceNet, mode: m.mode, grid: m.grid, racers: raceNet.room?.racers ?? [], rule: m.rule, cars: m.cars, physics: m.physics, ghost: m.ghost, ...(solo ? { solo } : {}), ...(m.laps ? { laps: m.laps } : {}) }, ...(m.gp ? { gp: m.gp } : {}) };
 }

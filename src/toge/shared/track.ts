@@ -1429,12 +1429,20 @@ export function smooth(a: Float64Array, radius: number, passes: number) {
   }
 }
 
-const cache = new Map<TrackId, Track>();
+const cache = new Map<string, Track>();
 
-/** Builds (once per id) the sampled road, its spatial hash and the far-terrain field. */
-export function getTrack(id: TrackId): Track {
-  let t = cache.get(id);
-  if (!t) cache.set(id, (t = TRACK_DEFS[id].world ? worldTrack(TRACK_DEFS[id]) : buildTrack(TRACK_DEFS[id])));
+/**
+ * Builds (once per id) the sampled road, its spatial hash and the far-terrain field. `laps`: a circuit raced some
+ * other number of laps than its own (an Endurance race, protocol.ts ENDURANCE), built and kept apart; `t.def.laps`
+ * then says how many, so the lap counter, the finish and the standings follow it. Ignored for a road that isn't a
+ * circuit, and the track's own count is the same track.
+ */
+export function getTrack(id: TrackId, laps?: number): Track {
+  const def = TRACK_DEFS[id];
+  const own = laps === undefined || !def.laps || laps === def.laps;
+  const key = own ? id : `${id}×${laps}`;
+  let t = cache.get(key);
+  if (!t) cache.set(key, (t = def.world ? worldTrack(def) : buildTrack(own ? def : { ...def, laps })));
   return t;
 }
 
@@ -1451,10 +1459,12 @@ export function buildTrack(def: TrackDef): Track {
   let lap = 0;
   const pre = Math.ceil(LAP_PRE / SAMPLE);
   if (laps) {
-    if (laps < 2 || def.features?.length) throw new Error(`${def.id}: a circuit needs 2+ laps and no features`);
+    if (laps < 1 || !Number.isInteger(laps) || def.features?.length) throw new Error(`${def.id}: a circuit needs whole laps and no features`);
     const one = ring(spline(pts, true));
     lap = one.length;
-    const total = pre + laps * lap + Math.ceil(RUNOFF / SAMPLE) + 1;
+    // A one-lap race (Endurance) still gets three laps' worth of road: `retile` copies every lap from the second,
+    // which must sit clear of the road's far end (with one more lap after it, it's the same as a 3-lap circuit's).
+    const total = pre + (laps === 1 ? 3 : laps) * lap + Math.ceil(RUNOFF / SAMPLE) + 1;
     for (let i = 0; i < total; i++) {
       const p = one[(((i - pre) % lap) + lap) % lap];
       xs.push(p[0]);
@@ -1818,7 +1828,8 @@ function runoff(
   };
   for (const sp of spans) if (sp.kind !== 'gravel') clear(sp.s0 - 10, sp.s1 + 10);
   for (const f of def.features ?? []) if (f.kind === 'cut') for (const e of [f.s0, f.s1]) clear(e - 10, e + 10);
-  if (lap) for (let s = startS; s <= finishS; s += lap * SAMPLE) clear(s - 20, s + 30); // the line, every lap
+  // The line, every lap (and at least both ends of the second lap, the one `retile` copies, for a one-lap race).
+  if (lap) for (let s = startS; s <= Math.max(finishS, startS + 2 * lap * SAMPLE); s += lap * SAMPLE) clear(s - 20, s + 30);
   else {
     clear(0, startS + 30);
     clear(finishS - 20, n * SAMPLE);
@@ -1831,11 +1842,16 @@ function runoff(
     return (lap ? Math.min(k % lap, lap - (k % lap)) : k) > 50;
   };
   const cap = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
+  // On a circuit every lap is the same road, so one lap against one lap is every pair there is: the second lap
+  // (the one `retile` copies), then copied. Comparing every sample with every other grew with the square of the laps
+  // and made a 100-lap Endurance race take minutes to build.
+  const [from, to, jFrom, jTo] = lap ? [pre + lap, pre + 2 * lap, pre, pre + lap] : [0, n, 0, n];
+  for (let i = from; i < to; i++) {
     let c = Infinity;
-    for (let j = 0; j < n; j++) if (apart(i, j)) c = Math.min(c, (x[i] - x[j]) ** 2 + (z[i] - z[j]) ** 2);
+    for (let j = jFrom; j < jTo; j++) if (apart(i, j)) c = Math.min(c, (x[i] - x[j]) ** 2 + (z[i] - z[j]) ** 2);
     cap[i] = Math.max(0, (Math.sqrt(c) - 40) / 2 - edge - 1);
   }
+  if (lap) retile(cap, lap, pre);
   for (const a of [L, R]) {
     for (let i = 0; i < n; i++) a[i] = Math.min(a[i], cap[i]);
     // Ease in and out over ~60 m, so the barrier never kinks toward a car.

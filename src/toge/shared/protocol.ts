@@ -34,7 +34,7 @@ export type RacePhase = 'lobby' | 'loading' | 'countdown' | 'racing' | 'results'
  * (battle royale, royale.ts: on a royale arena (`royale` on its TrackDef), the last car to finish each lap is
  * destroyed, and it goes on until one is left).
  */
-export type RaceMode = 'race' | 'trial' | 'climb' | 'gp' | 'team' | 'roam' | 'royale';
+export type RaceMode = 'race' | 'trial' | 'climb' | 'gp' | 'team' | 'roam' | 'royale' | 'endurance';
 export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
   race: { name: 'Race', blurb: 'Bump, block, draft and hit the boost pads. First to the line wins.' },
   trial: { name: 'Time trial', blurb: 'Ghost cars, no contact. Fastest clean time wins.' },
@@ -43,6 +43,7 @@ export const RACE_MODES: Record<RaceMode, { name: string; blurb: string }> = {
   team: { name: 'Team Grand Prix', blurb: 'Red against Blue over a cup of four tracks. Bump the rivals, drive through your teammates; every place scores for your team.' },
   roam: { name: 'Free roam', blurb: 'The open world: no race, no clock. Cruise, hang out, and thread the highway traffic. Friends can drive in any time.' },
   royale: { name: 'Battle royale', blurb: 'Every lap, the last car across the line is destroyed. Laps go on until one is left standing.' },
+  endurance: { name: 'Endurance', blurb: 'Pick a circuit and the distance, from a 1-lap sprint to 100 laps. Bump, draft and pace yourself: first across the line after the last lap wins.' },
 };
 
 /** Modes that run a cup of four tracks with points (cups.ts): the Grand Prix and the Team Grand Prix. */
@@ -79,10 +80,25 @@ export const recordMode = (m: RaceMode) => cleanMode(m);
  * its arenas, the rest only the others.
  */
 export const modeTracks = (m: RaceMode): TrackId[] =>
-  m === 'roam' ? (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => TRACK_DEFS[id].world) : RACE_TRACKS.filter((id) => !!TRACK_DEFS[id].climb === (m === 'climb') && !!TRACK_DEFS[id].royale === (m === 'royale'));
+  m === 'roam'
+    ? (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => TRACK_DEFS[id].world)
+    : m === 'endurance'
+      ? RACE_TRACKS.filter((id) => TRACK_DEFS[id].laps && !TRACK_DEFS[id].royale)
+      : RACE_TRACKS.filter((id) => !!TRACK_DEFS[id].climb === (m === 'climb') && !!TRACK_DEFS[id].royale === (m === 'royale'));
+
+/**
+ * Endurance (2026-11-12, Andrew: "a new game mode in Host a Race, where you can race a map that is a complete lap,
+ * and you can increase the number of laps ... between 1 to 100 laps"): any circuit (a track with `laps`, not a royale
+ * arena), raced the host's number of laps (track.ts `getTrack(id, laps)`). Race rules otherwise; it pays like a race
+ * on that circuit, whatever the distance. The race's time limit grows with it: at least RACE.maxSeconds, or the
+ * distance at `slowest` m/s plus `spare` seconds.
+ */
+export const ENDURANCE = { min: 1, max: 100, start: 10, slowest: 12, spare: 120 } as const;
+/** A lap count the host asked for, as a whole number of laps in range (null: not a number at all). */
+export const cleanLaps = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? Math.max(ENDURANCE.min, Math.min(ENDURANCE.max, Math.round(x))) : null);
 
 /** The track a mode starts on when the host switches to it (they can still pick another the mode allows). */
-export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0], team: CUPS.torii.tracks[0], roam: 'toge', royale: 'shura' };
+export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0], team: CUPS.torii.tracks[0], roam: 'toge', royale: 'shura', endurance: 'monza' };
 
 /** A Grand Prix under way: the round being raced (from 0) and the cup table so far (keyed by racer id). */
 export interface GpState {
@@ -200,6 +216,8 @@ export interface RaceLobbyInfo {
   max: number;
   /** A solo time trial: counted (the nightly deploy waits for it) but never shown or joinable. */
   solo?: boolean;
+  /** An Endurance lobby's lap count. */
+  laps?: number;
 }
 
 export type RaceServerMsg =
@@ -209,12 +227,12 @@ export type RaceServerMsg =
    * not fetched yet).
    */
   /** `cup`: the Grand Prix cup the host picked; `gp`: the cup under way (null between cups). */
-  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; ghost: boolean; record: { name: string; time: number } | null; phase: RacePhase; racers: Racer[]; cup: CupId; gp: GpState | null; solo?: true }
+  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; ghost: boolean; record: { name: string; time: number } | null; phase: RacePhase; racers: Racer[]; cup: CupId; gp: GpState | null; solo?: true; laps: number }
   /**
    * The race is on: build the track and say `ready`. Nobody moves until `countdown` then `go`. `rule` and `cars`
    * (each racer's car code for this race) settle what everyone drives; see raceCars().
    */
-  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost: GhostRun | null; gp?: GpState }
+  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost: GhostRun | null; gp?: GpState; laps?: number }
   /** Who in the field has loaded so far (ids), sent whenever that changes. */
   | { t: 'loading'; ready: number[]; field: number[] }
   /** Everyone's loaded: `go` comes in `ms`. A racer who loads late hears the time that's left. */
@@ -267,6 +285,8 @@ export type RaceClientMsg =
    * (not while one is under way), so a team's points stay its own.
    */
   | { t: 'team'; team: Team; id?: number }
+  /** Host, Endurance lobby: how many laps (cleaned to ENDURANCE.min..max). */
+  | { t: 'laps'; laps: number }
   | ({ t: 'state' } & Omit<NetCar, 'id'>)
   | { t: 'finish'; time: number; best?: number }
   /** Your drift total so far (sent as each combo banks, and just before `finish`). The server caps it by the clock. */

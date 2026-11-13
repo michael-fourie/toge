@@ -8,19 +8,19 @@ import { TRACK_DEFS } from '../shared/track.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { LOGO } from './brand.ts';
 import { trackKind, trackMap, trackStyle } from './trackart.ts';
-import { LOADING_TIPS, type LoadingRun, runLabel } from './loadingcopy.ts';
+import { LOADING_TIPS, type LoadingRun, raceKm, runLabel } from './loadingcopy.ts';
 
 /** The loading screen's markup. */
 export function loadingHtml(r: LoadingRun, tip = LOADING_TIPS[Math.floor(Math.random() * LOADING_TIPS.length)]): string {
   const d = TRACK_DEFS[r.track];
-  const km = TRACK_LENGTH_KM[r.track];
+  const km = r.online?.mode === 'endurance' ? raceKm(r.track, r.online.laps) : TRACK_LENGTH_KM[r.track];
   // The road draws itself: pathLength="1" lets the CSS animate the dash from 1 to 0 whatever the road's length.
   const map = trackMap(r.track).replace('class="tg-map-road"', 'class="tg-map-road" pathLength="1"');
   return `<div class="tg-ld-art" aria-hidden="true"></div><div class="tg-ld-shade" aria-hidden="true"></div>
     <header class="tg-ld-top">${LOGO}<span class="tg-label tg-ld-run">${esc(runLabel(r))}</span></header>
     <main class="tg-ld-main">
       <div class="tg-ld-copy">
-        <p class="tg-label tg-ld-eyebrow">${esc(trackKind(r.track))} · <span class="tg-num">${km} km</span></p>
+        <p class="tg-label tg-ld-eyebrow">${esc(trackKind(r.track, r.online?.mode === 'endurance' ? r.online.laps : undefined))} · <span class="tg-num">${km} km</span></p>
         <h1 class="tg-ld-name">${esc(d.name)}</h1>
         <p class="tg-ld-tag">${esc(d.tag)}</p>
         <div class="tg-kerb tg-ld-kerb" aria-hidden="true"></div>

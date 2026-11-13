@@ -4,10 +4,11 @@ import { payout, raceBonus } from '../shared/garage.ts';
 import { raceXp } from '../shared/pass.ts';
 import { cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
 import { CUPS, addRound, isCup, roundsOf, type CupId } from '../shared/cups.ts';
-import { CAR_RULES, CPU, MODE_TRACK, RACE, RACE_MODES, cleanMode, isGp, isTeam, modeTracks, type CarRule, type GpState, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow, type Team } from '../shared/protocol.ts';
+import { CAR_RULES, CPU, ENDURANCE, MODE_TRACK, RACE, RACE_MODES, cleanLaps, cleanMode, isGp, isTeam, modeTracks, type CarRule, type GpState, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow, type Team } from '../shared/protocol.ts';
 import { GhostRecorder, type GhostRun, type GhostTape } from '../shared/ghost.ts';
 import { SAMPLE, TRACK_DEFS, getTrack, type TrackId } from '../shared/track.ts';
 import { Royale } from '../shared/royale.ts';
+import { RECORDS } from '../shared/records.ts';
 import { guarded, type Socket } from '../../server/rooms.ts';
 
 const OPEN = 1;
@@ -86,6 +87,8 @@ export class Race {
   solo = false;
   /** A Grand Prix lobby's cup (the host's pick). */
   cup: CupId = 'torii';
+  /** An Endurance race's lap count (the host's pick, ENDURANCE.min..max; kept when the mode changes). */
+  laps: number = ENDURANCE.start;
   /** The Grand Prix under way: its round and cup table (null between cups). */
   gp: GpState | null = null;
   /** The last round's results are in. */
@@ -276,7 +279,8 @@ export class Race {
           // A hill climb runs on its mountain; leaving one comes back down to the passes. A Grand Prix shows its cup's first round.
           // Free roam drives the open world, and leaving it comes back to the passes.
           if (isGp(msg.mode)) this.track = CUPS[this.cup].tracks[0];
-          else if (msg.mode !== 'race' || !modeTracks('race').includes(this.track)) this.track = MODE_TRACK[msg.mode];
+          // Endurance keeps a circuit that's already up.
+          else if ((msg.mode !== 'race' && msg.mode !== 'endurance') || !modeTracks(msg.mode).includes(this.track)) this.track = MODE_TRACK[msg.mode];
           if (msg.mode === 'roam') for (const bot of this.cpus) this.members.delete(bot.client.id);
           // A Team Grand Prix starts with the grid split evenly; racers can swap before the cup starts.
           if (msg.mode === 'team') this.balanceTeams();
@@ -294,6 +298,15 @@ export class Race {
           this.onChange(this);
         }
         break;
+      case 'laps': {
+        // The host sets an Endurance race's distance in the lobby.
+        const laps = cleanLaps(msg.laps);
+        if (!host || this.phase !== 'lobby' || this.mode !== 'endurance' || laps === null || laps === this.laps) return;
+        this.laps = laps;
+        this.broadcastRoom();
+        this.onChange(this);
+        break;
+      }
       case 'team': {
         // A Team Grand Prix lobby, between cups: join a team yourself, or (the host) move one of your CPU racers.
         if (this.mode !== 'team' || this.phase !== 'lobby' || this.gp || !isTeam(msg.team)) return;
@@ -398,7 +411,7 @@ export class Race {
   /** A checked pose for racer `m` (null if anything's off), kept as their latest. */
   private pose(m: Member, msg: Omit<NetCar, 'id'> & { id: number }): NetCar | null {
     const okVec = (a: unknown, n: number, lim: number) => Array.isArray(a) && a.length === n && a.every((x) => finite(x, lim));
-    if (!okVec(msg.p, 3, 1e5) || !okVec(msg.q, 4, 2) || !okVec(msg.v, 3, 200) || !finite(msg.w, 50) || !finite(msg.s, 1e5) || !finite(msg.st, 2) || !finite(msg.ws, 1e3) || !finite(msg.rpm, 2e4) || !finite(msg.f, 1023)) return null;
+    if (!okVec(msg.p, 3, 1e5) || !okVec(msg.q, 4, 2) || !okVec(msg.v, 3, 200) || !finite(msg.w, 50) || !finite(msg.s, 1e6) || !finite(msg.st, 2) || !finite(msg.ws, 1e3) || !finite(msg.rpm, 2e4) || !finite(msg.f, 1023)) return null;
     m.state = { id: m.client.id, p: msg.p, q: msg.q, v: msg.v, w: msg.w, s: msg.s, st: msg.st, ws: msg.ws, rpm: msg.rpm, f: msg.f | 0 };
     if (this.physics && finite(msg.dm, 0xffff)) m.state.dm = msg.dm! & 0xffff;
     if (this.phase === 'racing') m.rec.add((this.now() - this.goAt) / 1000, msg.p, msg.q);
@@ -419,9 +432,9 @@ export class Race {
 
   /** Racer `m` crossed the line at `time` by their client's clock. */
   private crossLine(m: Member, time: unknown, best: unknown) {
-    if (this.phase !== 'racing' || !m.racing || m.time !== null || this.isOut(m) || !finite(time, 1e4)) return;
+    if (this.phase !== 'racing' || !m.racing || m.time !== null || this.isOut(m) || !finite(time, 1e5)) return;
     const elapsed = (this.now() - this.goAt) / 1000;
-    if (elapsed < MIN_RACE_SECONDS) return;
+    if (elapsed < this.minSeconds()) return;
     // Trust the client's own clock (it started on `go`) within a little latency either way.
     const t = (time as number) >= elapsed - 2 && (time as number) <= elapsed + 0.5 ? (time as number) : elapsed;
     m.time = Math.round(t * 1000) / 1000;
@@ -429,6 +442,23 @@ export class Race {
     if (!this.firstFinish) this.firstFinish = this.now();
     this.broadcast({ t: 'finished', id: m.client.id, time: m.time });
     this.maybeFinish();
+  }
+
+  /** The race distance (m): an Endurance race's laps, otherwise the track's own. */
+  private raceMetres() {
+    const t = getTrack(this.track);
+    const laps = this.mode === 'endurance' && t.def.laps ? this.laps : (t.def.laps ?? 1);
+    return t.lap ? laps * t.lap * SAMPLE : (t.finishS - t.startS) * SAMPLE;
+  }
+
+  /** No finish comes quicker than this: MIN_RACE_SECONDS, or for an Endurance race (one lap can take 30 s) its distance at RECORDS.maxAvgSpeed. */
+  private minSeconds() {
+    return this.mode === 'endurance' ? this.raceMetres() / RECORDS.maxAvgSpeed : MIN_RACE_SECONDS;
+  }
+
+  /** The race is called off after this long: RACE.maxSeconds, longer for a long Endurance race (ENDURANCE.slowest + spare). */
+  private maxSeconds() {
+    return this.mode === 'endurance' ? Math.max(RACE.maxSeconds, this.raceMetres() / ENDURANCE.slowest + ENDURANCE.spare) : RACE.maxSeconds;
   }
 
   /** To every socket but `from`'s (the sender already has it on screen). */
@@ -462,8 +492,9 @@ export class Race {
     const rule: CarRule = cleanMode(this.mode) ? this.cars : 'own';
     const cars = raceCars(rule, [...this.members.values()].map((m) => ({ id: m.client.id, car: m.client.car })));
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
-    const ghost = this.ghost && !isGp(this.mode) && this.mode !== 'roam' && this.mode !== 'royale' && this.ghostOf === this.track ? this.ghostRun : null;
-    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics, ghost, ...(this.gp ? { gp: this.gp } : {}) });
+    // (Endurance has no record ghost: the record is the circuit's own distance, not this one.)
+    const ghost = this.ghost && !isGp(this.mode) && this.mode !== 'roam' && this.mode !== 'royale' && this.mode !== 'endurance' && this.ghostOf === this.track ? this.ghostRun : null;
+    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics, ghost, ...(this.gp ? { gp: this.gp } : {}), ...(this.mode === 'endurance' ? { laps: this.laps } : {}) });
     this.broadcastRoom();
     this.onChange(this);
   }
@@ -504,7 +535,7 @@ export class Race {
     const out = [...this.members.values()].filter((m) => m.racing && !m.cpu && m.time === null);
     const now = this.now();
     const dnfDue = this.firstFinish && now - this.firstFinish > RACE.dnfSeconds * 1000;
-    const tooLong = now - this.goAt > RACE.maxSeconds * 1000;
+    const tooLong = now - this.goAt > this.maxSeconds() * 1000;
     if (out.length && !dnfDue && !tooLong) return;
     const field = [...this.members.values()].filter((m) => m.racing);
     const done = field.filter((m) => m.time !== null).sort((a, b) => a.time! - b.time!);
@@ -680,7 +711,7 @@ export class Race {
   room(): Extract<RaceServerMsg, { t: 'room' }> {
     const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user, ...(m.cpu ? { cpu: true } : {}), ...(m.pit ? { pit: true } : {}), ...(m.racing && this.mode === 'roam' ? { roaming: true } : {}), ...(this.mode === 'team' ? { team: m.team } : {}) }));
     const record = this.ghostOf === this.track && this.ghostRun ? { name: this.ghostRun.name, time: this.ghostRun.time } : null;
-    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers, cup: this.cup, gp: isGp(this.mode) ? this.gp : null, ...(this.solo ? { solo: true as const } : {}) };
+    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers, cup: this.cup, gp: isGp(this.mode) ? this.gp : null, ...(this.solo ? { solo: true as const } : {}), laps: this.laps };
   }
 
   /** The host wants the record ghost: fetch the current track's (the lobby shows whose it is, or that there's none). */

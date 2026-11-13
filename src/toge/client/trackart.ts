@@ -32,12 +32,14 @@ export const trackClimb = (id: TrackId) => {
 };
 
 /** What kind of road it is, for the eyebrow over the name. */
-export function trackKind(id: TrackId): string {
+export function trackKind(id: TrackId, laps?: number): string {
   const d = TRACK_DEFS[id];
   if (d.world) return 'Open world · free roam';
   if (d.royale) return `Battle royale arena · ${d.laps} laps`;
   if (d.traffic) return 'City · live traffic';
-  if (d.laps) return `Circuit · ${d.laps} laps`;
+  // (`laps`: an Endurance race's own count.)
+  const n = laps ?? d.laps;
+  if (n) return `Circuit · ${n} ${n === 1 ? 'lap' : 'laps'}`;
   if (d.climb) return `Hill climb · ${trackClimb(id)} m up`;
   if (d.clean) return 'Mountain pass · time trial';
   return 'Mountain pass';

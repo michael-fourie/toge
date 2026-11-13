@@ -79,7 +79,7 @@ export class RaceRoom extends DurableObject<Env> {
     if (this.race) return this.race;
     this.race = new Race(
       code,
-      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, ...(isGp(r.mode) ? { cup: r.cup } : {}), ...(r.solo ? { solo: true } : {}), physics: r.physics, phase: r.phase, players: r.humans, max: r.solo ? 1 : RACE.maxPlayers })),
+      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, ...(isGp(r.mode) ? { cup: r.cup } : {}), ...(r.mode === 'endurance' ? { laps: r.laps } : {}), ...(r.solo ? { solo: true } : {}), physics: r.physics, phase: r.phase, players: r.humans, max: r.solo ? 1 : RACE.maxPlayers })),
       (r) => {
         this.race = null;
         this.ctx.waitUntil(dir.remove(r.code));
