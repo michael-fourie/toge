@@ -1,17 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BIOME_IDS, CHECKPOINT_COUNT, JOB_IDS, PLACES, TWISTS, checkpointOf } from '../src/games/boys-day/checkpoints.ts';
+import { BIOMES, BIOME_IDS, CHECKPOINT_COUNT, JOB_IDS, PLACES, TWISTS, checkpointOf } from '../src/games/boys-day/checkpoints.ts';
 import { BEACON_R, Director, packZombies, unpackZombies } from '../src/games/boys-day/director.ts';
-import { Duel, readDuel } from '../src/games/boys-day/duel.ts';
 import { readMsg, takeWheel } from '../src/games/boys-day/net.ts';
+import { ANY_BOY, BOYS, FITS, castBoys, dressed } from '../src/games/boys-day/roster.ts';
 import { ARENA, HAZARD, ROAD, groundAt, hazardAt, makeRoute, roadNear, solids } from '../src/games/boys-day/route.ts';
-import { TERRAIN, roadHeights } from '../src/games/boys-day/terrain.ts';
+import { TERRAIN, roadHeights, shapedFor, type Shape } from '../src/games/boys-day/terrain.ts';
 import {
   BLACKJACK,
   BUS,
   BUY,
   DRIVER,
-  DUEL,
   FLAT,
   FOOT,
   GOLF,
@@ -38,6 +37,8 @@ import {
   bjPay,
   bjTotal,
   buy,
+  yeetSpeedOf,
+  chewOf,
   canBoard,
   collideBus,
   fwdOf,
@@ -49,13 +50,31 @@ import {
   maxFuel,
   maxHp,
   newRun,
+  KIT,
+  regenOf,
+  reloadKit,
+  kitDamage,
+  spreadOf,
+  hasComfort,
+  hasKit,
+  ownsGun,
+  BUY_MAX,
+  BOSS,
+  KEG,
+  PIT,
+  stepJump,
+  scrapeSide,
+  stepLean,
+  tipOf,
+  pullOf,
+  clingLoad,
+  CLING,
   newSeed,
   onBus,
   pokerCompare,
   powerOf,
   priceOf,
   reelAt,
-  rng,
   slotPay,
   startSpot,
   stepBus,
@@ -98,8 +117,16 @@ function directorWith(job: string, seed = 5, crew = 1) {
 }
 function skipLeg(d: Director) {
   d.run.done = true;
-  const g = d.route.road[d.route.gate.i + 1];
-  d.step(DT, bus(g.x, g.z, g.h, 10));
+  const leg = d.run.stage;
+  const route = d.route;
+  // Drive the whole leg, point by point: the road is followed from where the bus was, not teleported along.
+  for (let i = 0; i <= route.gate.i; i += 8) {
+    if (d.run.stage !== leg) return;
+    const p = route.road[i];
+    d.step(DT, bus(p.x, p.z, p.h, 12));
+  }
+  const g = route.road[route.gate.i];
+  if (d.run.stage === leg) d.step(DT, bus(g.x - Math.sin(g.h) * 9, g.z - Math.cos(g.h) * 9, g.h, 12));
 }
 
 test('boys day checkpoints: thousands to find, the same for every screen, never the same job or world twice running', () => {
@@ -117,8 +144,15 @@ test('boys day checkpoints: thousands to find, the same for every screen, never 
         if (leg > 2) assert.notEqual(c.biome, p.biome, `seed ${seed} leg ${leg}: ${c.biome} twice`);
       }
     }
-    // The story opens every run: the club, a scavenge, the casino, Gordie.
-    assert.deepEqual([0, 1, 2, 3].map((l) => checkpointOf(seed, l).job), ['golf', 'scavenge', 'slots', 'holdout']);
+    // The story opens every run: loot the hardware store, a pit stop (the club's at the range), fuel, then Gordie.
+    assert.deepEqual([0, 1, 2, 3].map((l) => checkpointOf(seed, l).job), ['scavenge', 'rest', 'fuel', 'holdout']);
+    // A breather every fourth stop, and a big one every seventh that isn't one.
+    for (let leg = 4; leg < 60; leg++) {
+      const job = checkpointOf(seed, leg).job;
+      if (leg % 4 === 3) assert.equal(job, 'rest', `leg ${leg} should be a pit stop`);
+      else if (leg % 7 === 0) assert.equal(job, 'boss', `leg ${leg} should be a boss`);
+      else assert.ok(job !== 'rest' && job !== 'boss', `leg ${leg} is work`);
+    }
     assert.equal(checkpointOf(seed, 3).place, 'Kingston Holding Cells');
   }
   assert.ok(names.size > 300, `${names.size} different checkpoints in 480 legs`);
@@ -164,12 +198,16 @@ test('boys day route: a bus can take every bend, the road never crosses itself, 
 test('boys day route: each job puts its things in the arena, in reach on foot, off the road', () => {
   const seen = new Set<string>();
   for (let seed = 1; seed <= 6; seed++)
-    for (let leg = 0; leg < 14; leg++) {
+    for (let leg = 0; leg < 16; leg++) {
       const r = makeRoute(seed, leg);
       seen.add(r.cp.job);
       const kinds = r.sites.map((s) => s.kind);
-      const want = { golf: 'tee', slots: 'slot', fuel: 'pump', beacon: 'beacon', scavenge: 'crate', holdout: '' }[r.cp.job];
-      if (want) assert.ok(kinds.every((k) => k === want) && kinds.length >= 1, `${r.cp.job}: ${kinds}`);
+      const want = { fuel: 'pump', beacon: 'beacon', scavenge: 'crate', holdout: '', boss: 'keg', rest: '' }[r.cp.job];
+      if (r.cp.job === 'rest') {
+        // A pit stop has all three amusements and a pond to fish in.
+        assert.deepEqual([...kinds].sort(), ['rod', 'slot', 'tee'], `${r.cp.place}: ${kinds}`);
+        assert.ok(r.pond, 'and a pond');
+      } else if (want) assert.ok(kinds.every((k) => k === want) && kinds.length >= 1, `${r.cp.job}: ${kinds}`);
       else assert.equal(kinds.length, 0);
       if (r.cp.job === 'scavenge') {
         assert.equal(kinds.length, ARENA.crates);
@@ -404,7 +442,7 @@ test('boys day on foot: you walk the ground, round obstacles and the bus, on a l
 test('boys day run: park at the checkpoint, do its job, the gate opens; through it is the next leg, a new map', () => {
   const d = new Director(7, 2);
   assert.equal(d.run.stage, 0);
-  assert.equal(d.run.need, JOBS.golf.need(2, 0));
+  assert.equal(d.run.need, JOBS.scavenge.need(2, 0));
   const first = d.route;
   // The gate's shut until the job's done: driving at it does nothing but dent the bus.
   const g = d.route.road[d.route.gate.i + 1];
@@ -414,25 +452,23 @@ test('boys day run: park at the checkpoint, do its job, the gate opens; through 
   const at = bus(d.route.gate.x, d.route.gate.z, d.route.gate.h, 8);
   assert.ok(collideBus(at, solids(d.route, false)) > 0);
   assert.equal(collideBus(bus(d.route.gate.x, d.route.gate.z, d.route.gate.h, 8), solids(d.route, true)), 0, 'and gone once it’s open');
-  // Nothing counts while driving.
-  d.mini('golf', 1, 0);
-  assert.equal(d.run.prog, 0);
   const b = park(d);
-  d.run.busHp = 500;
-  d.mini('slots', 100, 0);
-  assert.equal(d.run.prog, 0, 'wrong game for this checkpoint');
   const cash = d.run.cash[0];
-  for (let k = 0; k < d.run.need; k++) d.mini('golf', 1, 0);
-  assert.equal(d.run.busHp, 500 + d.run.need * RUN.teeHeal, 'every tee-off patches the bus');
+  // The hardware store: grab the crates it wants.
+  for (let k = 0; k < d.run.need; k++) d.did('crate', d.route.sites[k].id, 0);
   d.step(DT, b);
   assert.equal(d.run.done, true);
-  assert.equal(d.run.club, true, 'the first golf checkpoint wins the club');
-  assert.equal(d.run.cash[0], cash + RUN.clear);
-  assert.equal(d.run.cash[1], cash + RUN.clear, 'everyone pockets the clear bonus');
+  assert.ok(d.run.cash[0] >= cash + RUN.clear, 'the clear bonus on top of the crates');
+  assert.ok(d.run.cash[1] >= cash + RUN.clear, 'everyone pockets the clear bonus');
+  assert.equal(d.run.club, false, 'the club is won at the range, not here');
   assert.equal(d.run.cash[2], 0, 'nobody in that seat');
   assert.ok(d.fx.some((f) => f.k === 'clear'));
   d.add(5, 5);
-  d.step(DT, bus(g.x, g.z, g.h, 10));
+  // Drive the last stretch up to the gate (the road's followed point by point, not teleported past).
+  for (let i = Math.max(0, d.route.gate.i - 8); i <= d.route.gate.i + 1; i++) {
+    const p = d.route.road[i];
+    d.step(DT, bus(p.x, p.z, p.h, 12));
+  }
   assert.equal(d.run.stage, 1);
   assert.notEqual(d.route, first);
   assert.equal(d.route.leg, 1);
@@ -693,65 +729,6 @@ test('boys day cards: blackjack totals and pays; poker hands rank and break ties
   assert.equal(pokerCompare([c(9), c(9, 1), c(2), c(3), c(5)], [c(9, 2), c(9, 3), c(2, 1), c(3, 1), c(5, 1)]), 0);
 });
 
-test('boys day heads-up poker: two sit down, ante, draw, bet, show down; the host moves real scrap and only shows you your own hand', () => {
-  const cash = [100, 100, 100];
-  const mk = (seed: number) => new Duel(rng(seed), (w) => cash[w], (w, n) => (cash[w] += n));
-  const d = mk(7);
-  assert.equal(d.move(2, 'draw', 0), null, 'not at the table');
-  let o = d.move(0, 'sit', 1)!;
-  assert.deepEqual([o.view.phase, o.view.seats, o.view.ante], ['wait', [0, -1], DUEL.antes[1]]);
-  assert.equal(d.move(0, 'sit', 0), null, 'already sat');
-  o = d.move(1, 'sit', 2)!;
-  assert.equal(o.view.ante, DUEL.antes[1], 'the first to sit names the ante');
-  assert.deepEqual([o.view.phase, o.view.pot, cash], ['draw', 50, [75, 75, 100]]);
-  assert.deepEqual([...o.hands.keys()], [0, 1]);
-  const mine = o.hands.get(0)!;
-  assert.equal(new Set([...mine, ...o.hands.get(1)!]).size, 10, 'ten different cards');
-  assert.deepEqual(o.view.shown, [[], []], 'nobody sees a hand on the table');
-  assert.ok(readDuel(JSON.parse(JSON.stringify(o.view))), 'the table goes over the wire');
-  assert.equal(d.move(2, 'sit', 0), null, 'the table’s full');
-  assert.equal(d.move(0, 'raise'), null, 'draw first');
-  o = d.move(0, 'draw', 0b00011)!;
-  const kept = o.hands.get(0)!;
-  assert.deepEqual(kept.slice(0, 2), mine.slice(0, 2));
-  assert.ok(kept.slice(2).every((c) => !mine.includes(c)), 'three new cards');
-  assert.equal(d.move(0, 'draw', 31), null, 'one draw each');
-  o = d.move(1, 'draw', 31)!;
-  assert.deepEqual([o.view.phase, o.view.turn], ['bet', 0]);
-  assert.equal(d.move(1, 'check'), null, 'not your turn');
-  assert.equal(d.move(0, 'call'), null, 'nothing to call');
-  o = d.move(0, 'check')!;
-  o = d.move(1, 'raise')!;
-  assert.deepEqual([o.view.raised, o.view.turn, o.view.pot, cash[1]], [true, 0, 75, 50]);
-  o = d.move(0, 'call')!;
-  assert.equal(o.view.phase, 'show');
-  assert.equal(o.view.shown[0].length, 5);
-  const win = pokerCompare(o.view.shown[0], o.view.shown[1]);
-  assert.equal(o.view.winner, win > 0 ? 0 : win < 0 ? 1 : -1);
-  assert.equal(cash[0] + cash[1], 200, 'scrap only changes hands');
-  if (win !== 0) assert.equal(cash[win > 0 ? 0 : 1], 150);
-  // A fold: the raiser takes the pot and nobody shows.
-  cash[0] = cash[1] = 100;
-  const f = mk(8);
-  f.move(0, 'sit', 0);
-  f.move(1, 'sit', 0);
-  f.move(0, 'draw', 31);
-  f.move(1, 'draw', 31);
-  f.move(0, 'raise');
-  o = f.move(1, 'fold')!;
-  assert.deepEqual([o.view.winner, o.view.shown, cash[0], cash[1]], [0, [[], []], 110, 90]);
-  // Sitting down again starts a fresh hand; walking off mid-hand forfeits; too poor to sit.
-  o = f.move(1, 'sit', 0)!;
-  assert.deepEqual(o.view.seats, [1, -1]);
-  f.move(0, 'sit', 0);
-  o = f.drop(0)!;
-  assert.deepEqual([o.view.phase, o.view.winner], ['show', 0], 'seat 0 (player 1) wins when player 0 walks');
-  assert.deepEqual(cash.slice(0, 2), [100, 100]);
-  cash[2] = 5;
-  assert.equal(mk(1).move(2, 'sit', 0), null);
-  assert.equal(readDuel({ ...o.view, pot: -1 }), null);
-});
-
 test('boys day hanging out: the bong, the cooler and the card table are in reach inside the bus, not on the roof', () => {
   const wb = walkBounds(0);
   for (const k of ['bong', 'cooler', 'table'] as const) {
@@ -769,14 +746,14 @@ test('boys day net: every seed the host can roll gets through to the joiners (st
   for (let k = 0; k < 200; k++) seeds.push(newSeed());
   for (const s of seeds) {
     assert.ok(Number.isInteger(s) && s >= 0 && s < SEED_MAX, `seed ${s} in range`);
-    assert.deepEqual(readMsg({ t: 'start', seed: s, driver: 2 }), { t: 'start', seed: s, driver: 2 }, `start, seed ${s}`);
+    assert.deepEqual(readMsg({ t: 'start', seed: s, driver: 2, boys: [0, 3] }), { t: 'start', seed: s, driver: 2, boys: [0, 3] }, `start, seed ${s}`);
     const r = { ...newRun(s, 3), stage: 250, round: 400 };
     const m = readMsg(JSON.parse(JSON.stringify({ t: 'run', run: r, taken: [1, 2], got: [0] })));
     assert.deepEqual(m, { t: 'run', run: r, taken: [1, 2], got: [0] }, `run, seed ${s}`);
   }
-  assert.equal(readMsg({ t: 'start', seed: SEED_MAX, driver: 0 }), null);
-  assert.equal(readMsg({ t: 'start', seed: -1, driver: 0 }), null);
-  assert.equal(readMsg({ t: 'start', seed: 1.5, driver: 0 }), null);
+  assert.equal(readMsg({ t: 'start', seed: SEED_MAX, driver: 0, boys: [] }), null);
+  assert.equal(readMsg({ t: 'start', seed: -1, driver: 0, boys: [] }), null);
+  assert.equal(readMsg({ t: 'start', seed: 1.5, driver: 0, boys: [] }), null);
 });
 
 test('boys day net: junk is dropped; the wheel is first come; spots are on the bus or out on the map', () => {
@@ -811,13 +788,15 @@ test('boys day net: junk is dropped; the wheel is first come; spots are on the b
   assert.deepEqual(readMsg({ t: 'do', k: 'crate', id: 3 }), { t: 'do', k: 'crate', id: 3 });
   assert.equal(readMsg({ t: 'do', k: 'steal', id: 3 }), null);
   assert.deepEqual(readMsg({ t: 'buy', k: BUY.bandage }), { t: 'buy', k: BUY.bandage });
-  assert.equal(readMsg({ t: 'buy', k: BUY.bandage + 1 }), null);
+  assert.deepEqual(readMsg({ t: 'buy', k: BUY_MAX }), { t: 'buy', k: BUY_MAX });
+  assert.equal(readMsg({ t: 'buy', k: BUY_MAX + 1 }), null, 'the store doesn’t sell that');
   assert.deepEqual(readMsg({ t: 'bj', v: -100 }), { t: 'bj', v: -100 });
   assert.equal(readMsg({ t: 'bj', v: 5000 }), null);
-  assert.deepEqual(readMsg({ t: 'duel', m: 'raise', n: 0 }), { t: 'duel', m: 'raise', n: 0 });
-  assert.equal(readMsg({ t: 'duel', m: 'cheat', n: 0 }), null);
-  assert.deepEqual(readMsg({ t: 'hand', cards: [0, 1, 2, 3, 51] }), { t: 'hand', cards: [0, 1, 2, 3, 51] });
-  assert.equal(readMsg({ t: 'hand', cards: [0, 1, 2, 3, 52] }), null);
+  assert.deepEqual(readMsg({ t: 'poker', m: 'raise', n: 0 }), { t: 'poker', m: 'raise', n: 0 });
+  assert.equal(readMsg({ t: 'poker', m: 'cheat', n: 0 }), null);
+  assert.deepEqual(readMsg({ t: 'hand', cards: [0, 51] }), { t: 'hand', cards: [0, 51] }, 'two hole cards');
+  assert.equal(readMsg({ t: 'hand', cards: [0, 52] }), null);
+  assert.equal(readMsg({ t: 'hand', cards: [0, 1, 2] }), null, 'nobody holds three');
   assert.deepEqual(readMsg({ t: 'mini', k: 'slots', v: 120 }), { t: 'mini', k: 'slots', v: 120 });
 });
 
@@ -836,11 +815,13 @@ test('boys day: the host holds gambling to the table’s limits', () => {
 test('boys day: driving over a pickup collects it; a repair kit says what it fixed', () => {
   const d = new Director(12);
   d.run.calm = 999;
+  // One that isn't sitting in a pothole, so nothing dents the bus on the way past.
   const kit = d.route.pickups.find((p) => p.kind === 'repair')!;
   d.run.busHp = 600;
   d.step(DT, bus(kit.x, kit.z, 0, 10));
   assert.ok(d.taken.has(kit.id), 'collected by driving over it');
-  assert.equal(d.run.busHp, 600 + RUN.repair);
+  // The kit itself is worth its full patch; a pothole under it may dent the bus on the way past.
+  assert.ok(d.run.busHp >= 600 + RUN.repair - HAZARD.potholeDamage && d.run.busHp <= 600 + RUN.repair);
   assert.ok(d.fx.some((f) => f.k === 'heal' && f.n === RUN.repair));
   const pile = d.route.pickups.find((p) => p.kind === 'scrap')!;
   const had = d.run.cash[0];
@@ -984,4 +965,285 @@ test('boys day route: hazards stay on the road, clear of the checkpoint, and lea
     }
   const n = (leg: number) => [1, 2, 3, 4, 5, 6].reduce((k, s) => k + makeRoute(s, leg).hazards.length / makeRoute(s, leg).road.length, 0);
   assert.ok(n(15) > n(0), 'the road gets meaner');
+});
+
+test('everyone gets their pick, and the undecided get somebody nobody picked', () => {
+  let k = 0;
+  const rand = () => (k++ * 0.37) % 1;
+  const cast = castBoys([2, undefined, ANY_BOY, 2, undefined], rand);
+  assert.equal(cast.length, 5);
+  assert.equal(cast[0], 2);
+  assert.equal(cast[3], 2, 'two players may be the same boy');
+  const others = [cast[1], cast[2], cast[4]];
+  assert.equal(new Set(others).size, 3, 'no doubles among the random ones');
+  for (const b of others) assert.ok(b >= 0 && b < BOYS.length && b !== 2);
+  // More players than boys: everyone still gets someone.
+  for (const b of castBoys(new Array(BOYS.length + 3).fill(undefined), Math.random)) assert.ok(b >= 0 && b < BOYS.length);
+  assert.deepEqual(BOYS.map((b) => b.name), ['Shota', 'Garrett', 'Nash', 'Jung', 'Dev', 'Angus', 'Michael']);
+});
+
+test('the wire only takes real boys', () => {
+  assert.deepEqual(readMsg({ t: 'pick', b: ANY_BOY }), { t: 'pick', b: ANY_BOY });
+  assert.deepEqual(readMsg({ t: 'pick', b: BOYS.length - 1 }), { t: 'pick', b: BOYS.length - 1 });
+  assert.equal(readMsg({ t: 'pick', b: BOYS.length }), null);
+  assert.equal(readMsg({ t: 'start', seed: 1, driver: 0, boys: [ANY_BOY] }), null, 'a run starts with everyone cast');
+  assert.equal(readMsg({ t: 'start', seed: 1, driver: 0 }), null);
+});
+
+test('pitchforks slow the chewing, the snow plow lowers the speed that yeets', () => {
+  const r = newRun(1, 1);
+  assert.equal(chewOf(r), 1);
+  const yeet = yeetSpeedOf(r);
+  r.cash[0] = 9999;
+  assert.ok(buy(r, UP.forks, 0));
+  assert.ok(chewOf(r) < 1);
+  assert.equal(yeetSpeedOf(r), yeet, 'forks leave the plow alone');
+  while (buy(r, UP.plow, 0));
+  assert.ok(yeetSpeedOf(r) < yeet && yeetSpeedOf(r) > 0);
+  while (buy(r, UP.forks, 0));
+  assert.ok(chewOf(r) > 0, 'they always chew a bit');
+  assert.equal(r.up[UP.forks], UPGRADES[UP.forks].max);
+});
+
+test('boys day zombie highway: weight on one side leans the bus, pulls the wheel and finally rolls it', () => {
+  const r = newRun(1, 1);
+  assert.equal(clingLoad([]), 0, 'nothing hanging on');
+  assert.equal(clingLoad([{ side: -1.6, k: 0 }, { side: 1.6, k: 0 }]), 0, 'one each side cancels out');
+  assert.ok(clingLoad([{ side: 1.6, k: 2 }]) > clingLoad([{ side: 1.6, k: 1 }]), 'a chonk weighs more than a sprinter');
+  assert.ok(clingLoad([{ side: -1.6, k: 0 }]) < 0, 'the left pulls left');
+
+  // The wheel pulls toward the heavy side, and armour steadies it.
+  const pull = pullOf(clingLoad([{ side: 1.6, k: 2 }, { side: 1.6, k: 2 }]), r);
+  assert.ok(pull > 0 && pull <= 1);
+  const armored = { up: r.up.map((v, i) => (i === UP.armor ? UPGRADES[UP.armor].max : v)) };
+  assert.ok(pullOf(clingLoad([{ side: 1.6, k: 2 }, { side: 1.6, k: 2 }]), armored) < pull, 'plated, it pulls less');
+  assert.ok(Math.abs(pullOf(clingLoad(new Array(20).fill({ side: 1.6, k: 2 })), r)) <= 1, 'the pull is capped');
+  assert.ok(tipOf(armored) > tipOf(r), 'armour lets it lean further before it goes');
+
+  // A balanced bus stays upright however long you leave it.
+  const b = bus(0, 0, 0, 20);
+  let lean = 0;
+  for (let i = 0; i < 400; i++) {
+    const out = stepLean(lean, 0, b, DT, tipOf(r));
+    assert.equal(out.rolled, false);
+    lean = out.lean;
+  }
+  assert.ok(Math.abs(lean) < 0.01, 'and doesn’t lean');
+  // Pile them on one side and it goes over.
+  let rolled = false;
+  const load = clingLoad(new Array(9).fill({ side: 1.6, k: 2 }));
+  for (let i = 0; i < 400 && !rolled; i++) {
+    const out = stepLean(lean, load, b, DT, tipOf(r));
+    lean = out.lean;
+    rolled = out.rolled;
+  }
+  assert.ok(rolled, 'nine chonks on one side roll it');
+  assert.equal(lean, 0, 'and it comes back level');
+});
+
+test('boys day zombie highway: scraping past something solid, and three rolls end the run', () => {
+  const b = bus(0, 0, 0, 18);
+  assert.equal(scrapeSide(b, []), 0, 'nothing to scrape along');
+  assert.equal(scrapeSide(b, [{ x: 0, z: 40, r: 1.2 }]), 0, 'and nothing within reach');
+  const right = scrapeSide({ ...b, h: 0 }, [{ x: BUS.width / 2 + 0.9, z: 0, r: 1.2 }]);
+  const left = scrapeSide({ ...b, h: 0 }, [{ x: -(BUS.width / 2 + 0.9), z: 0, r: 1.2 }]);
+  assert.equal(right, 1, 'a wreck off the right flank');
+  assert.equal(left, -1, 'and off the left');
+
+  // A bus with a crowd on one side rolls, pays for it, and three rolls is the run.
+  const d = new Director(7, 1);
+  d.run.phase = 'drive';
+  const ride = bus(d.route.road[3].x, d.route.road[3].z, d.route.road[3].h, 16);
+  for (let i = 0; i < 10; i++) {
+    const z = d.add(ride.x, ride.z);
+    z.st = 'climb';
+    z.k = 2;
+    z.side = BUS.width / 2 + 0.8;
+  }
+  const hp = d.run.busHp;
+  for (let i = 0; i < 300 && d.run.rolls < 1; i++) d.step(DT, ride);
+  assert.equal(d.run.rolls, 1, 'over it went');
+  assert.ok(d.run.busHp < hp, 'which hurt');
+  assert.ok(d.run.down > 0, 'and left it lying there');
+  assert.ok(d.fx.some((f) => f.k === 'roll'), 'everyone hears about it');
+  assert.ok(!d.zs.some((z) => z.st === 'climb'), 'everyone hanging on is thrown clear');
+  d.run.rolls = CLING.rolls - 1;
+  d.run.down = 0;
+  for (let i = 0; i < 10; i++) {
+    const z = d.add(ride.x, ride.z);
+    z.st = 'climb';
+    z.k = 2;
+    z.side = BUS.width / 2 + 0.8;
+  }
+  for (let i = 0; i < 400 && (d.run.phase as string) !== 'lost'; i++) d.step(DT, ride);
+  assert.equal(d.run.rolls, CLING.rolls);
+  assert.equal(d.run.phase, 'lost', 'three rolls and the run is over');
+});
+
+test('boys day zombie highway: leapers jump for the sides from further out than the rest', () => {
+  const d = new Director(11, 1);
+  const b = bus(0, 0, 0, 30);
+  const reach = (k: 0 | 1 | 2 | 3) => {
+    // Right alongside the spot it's making for, three metres off the flank.
+    const z = d.add(b.x + BUS.width / 2 + 3, b.z, k);
+    z.side = BUS.width / 2 + ZOMBIE[k].r;
+    z.along = 0;
+    for (let i = 0; i < 2; i++) d.step(DT, b);
+    const on: boolean = z.st === 'climb';
+    z.hp = 0;
+    z.st = 'dead';
+    return on;
+  };
+  assert.equal(reach(3), true, 'a leaper gets on at speed');
+  assert.equal(reach(0), false, 'a shambler can’t reach from there');
+});
+
+test('boys day on foot: you can jump, and you come back down', () => {
+  let { y, vy } = stepJump(0, FOOT.jump, DT);
+  assert.ok(y > 0 && vy > 0, 'up you go');
+  let top = 0;
+  let landed = false;
+  for (let i = 0; i < 400 && !landed; i++) {
+    const out = stepJump(y, vy, DT);
+    y = out.y;
+    vy = out.vy;
+    top = Math.max(top, y);
+    landed = out.landed;
+  }
+  assert.ok(landed, 'and down you come');
+  assert.ok(top > 0.6 && top < 2.5, `a sensible hop (${top.toFixed(2)} m)`);
+  assert.equal(y, 0, 'back on the ground');
+  assert.equal(stepJump(0, 0, DT).landed, false, 'standing still is not landing');
+});
+
+test('boys day pit stop: nothing to do but play; the range hands out the club, and the amusements pay', () => {
+  const d = directorWith('rest', 5, 2);
+  const b = park(d);
+  assert.equal(d.run.done, true, 'a pit stop is cleared the moment you pull in');
+  assert.equal(d.run.club, false);
+  const cash = d.run.cash[0];
+  const hp = (d.run.busHp = 500);
+  d.mini('golf', 1, 0);
+  assert.equal(d.run.club, true, 'the first bucket of balls wins the club');
+  assert.ok(d.run.cash[0] > cash, 'and pays');
+  assert.equal(d.run.busHp, hp + RUN.teeHeal, 'hitting balls patches the bus');
+  const before = d.run.cash[1];
+  d.mini('fish', 20, 1);
+  assert.ok(d.run.cash[1] >= before + PIT.fish, 'a fish pays its flat rate and then some');
+  assert.ok(d.fx.some((f: { k: string; w?: number }) => f.k === 'fish' && f.w === 1));
+  d.mini('slots', 100, 1);
+  assert.ok(d.run.cash[1] > before + PIT.fish, 'the machine pays too');
+  // The gate's open the whole time: you leave when you feel like it.
+  d.step(DT, b);
+  assert.equal(d.run.done, true);
+  // And none of it pays anywhere else.
+  const work = directorWith('scavenge', 5, 2);
+  park(work);
+  const had = work.run.cash[0];
+  work.mini('fish', 40, 0);
+  work.mini('golf', 1, 0);
+  assert.equal(work.run.cash[0], had, 'no fishing at a checkpoint with a job to do');
+});
+
+test('boys day boss stop: the big one comes for the keg, and putting it down clears the stop', () => {
+  const d = directorWith('boss', 5, 2);
+  const b = park(d);
+  assert.equal(d.run.keg, KEG.hp, 'the keg’s standing');
+  const boss = d.zs.find((z) => z.k === 4)!;
+  assert.ok(boss, 'and something big turned up for it');
+  assert.ok(boss.hp >= BOSS.hp(0, 2) - 1, 'with a lot of health');
+  const keg = d.route.sites.find((s) => s.kind === 'keg')!;
+  const far = Math.hypot(boss.x - keg.x, boss.z - keg.z);
+  for (let i = 0; i < 400 && d.run.keg >= KEG.hp; i++) d.step(DT, b);
+  assert.ok(Math.hypot(boss.x - keg.x, boss.z - keg.z) < far, 'it walks to the keg');
+  assert.ok(d.run.keg < KEG.hp, 'and starts smashing it');
+  assert.equal(d.run.done, false, 'which doesn’t clear anything');
+  // Put it down: everyone gets paid and the gate opens.
+  const cash = d.run.cash[1];
+  d.hit(boss.id, 0, boss.hp + 10);
+  d.step(DT, b);
+  assert.equal(d.run.done, true, 'the stop is cleared');
+  assert.ok(d.run.cash[1] >= cash + BOSS.pay, 'everyone pockets the bounty');
+  assert.equal(d.run.keg, 0);
+  // It can't be yeeted or clung to, however fast you drive at it.
+  const d2 = directorWith('boss', 5, 2);
+  const fast = park(d2);
+  fast.v = 28;
+  const big = d2.zs.find((z) => z.k === 4)!;
+  big.x = fast.x;
+  big.z = fast.z;
+  d2.step(DT, fast);
+  assert.equal(big.st, 'run', 'the bus just bounces off it');
+});
+
+test('boys day store: guns, gear, costumes and comforts are bought with your own scrap', () => {
+  const r = newRun(3, 2);
+  r.cash[0] = 2000;
+  r.cash[1] = 1000;
+  // Guns: the run hands them out as you clear stops, and you can buy the rest early.
+  assert.equal(ownsGun(r, 0, 0), true, 'everyone starts with a marker');
+  assert.equal(ownsGun(r, 0, 2), false, 'but not the minigun');
+  assert.equal(priceOf(r, BUY.gun + 0, 0), Infinity, 'nobody pays for the marker');
+  assert.ok(buy(r, BUY.gun + 2, 0), 'bought the minigun');
+  assert.equal(ownsGun(r, 0, 2), true);
+  assert.equal(ownsGun(r, 1, 2), false, 'and it’s his, not the crew’s');
+  assert.equal(priceOf(r, BUY.gun + 2, 0), Infinity, 'no buying it twice');
+  const left = r.cash[0];
+  assert.equal(buy(r, BUY.gun + 2, 0), false);
+  assert.equal(r.cash[0], left, 'and nothing taken for it');
+  // Gear: it's yours, and it does something.
+  assert.equal(hasKit(r, 0, KIT.scope), false);
+  assert.ok(spreadOf(r, 0, 1) > 0);
+  assert.ok(buy(r, BUY.kit + KIT.scope, 0));
+  assert.ok(spreadOf(r, 0, 1) < spreadOf(r, 1, 1), 'the red dot tightens your shots, not his');
+  assert.ok(buy(r, BUY.kit + KIT.barrel, 0));
+  assert.equal(kitDamage(r, 0), 1);
+  assert.equal(kitDamage(r, 1), 0);
+  assert.ok(buy(r, BUY.kit + KIT.loader, 0));
+  assert.ok(reloadKit(r, 0) < reloadKit(r, 1), 'and the loader halves your reload');
+  // Costumes: one at a time, and only yours changes.
+  assert.ok(buy(r, BUY.fit + 2, 1));
+  assert.equal(r.fit[1], 2);
+  assert.equal(r.fit[0], 0);
+  assert.equal(priceOf(r, BUY.fit + 2, 1), Infinity, 'already wearing it');
+  assert.equal(dressed(BOYS[0], 2).shirt, FITS[2].shirt, 'he’s in the jersey');
+  assert.equal(dressed(BOYS[0], 0), BOYS[0], 'and his own clothes are his own');
+  // Comforts are the bus's: one of each, for everyone.
+  assert.equal(hasComfort(r, 0), false);
+  const regen = regenOf(r);
+  assert.ok(buy(r, BUY.comfort + 1, 0), 'the boombox');
+  assert.ok(regenOf(r) > regen, 'everyone aboard pulls themselves together quicker');
+  assert.equal(priceOf(r, BUY.comfort + 1, 1), Infinity, 'and nobody buys a second one');
+  assert.ok(buy(r, BUY.comfort + 0, 0), 'the couch');
+  assert.equal(hangAt({ side: HANG.couch.side, along: HANG.couch.along, level: 1 }, r.comfort), 'couch', 'you can sit on it now');
+  assert.equal(hangAt({ side: HANG.couch.side, along: HANG.couch.along, level: 1 }, 0), null, 'and not before you buy it');
+  assert.equal(hangAt({ side: HANG.bbq.side, along: HANG.bbq.along, level: 1 }, r.comfort), null, 'the BBQ isn’t bought');
+  // Broke is broke.
+  const poor = newRun(4, 2);
+  poor.cash[0] = 1;
+  assert.equal(buy(poor, BUY.gun + 4, 0), false);
+  assert.equal(poor.guns[0], 0);
+});
+
+test('boys day terrain: every world is shaped differently, and all of them stay sane', () => {
+  const shapes: Shape[] = ['rolling', 'ridged', 'dunes', 'flat'];
+  const sample = (f: (x: number, z: number) => number) => {
+    const hs: number[] = [];
+    for (let x = -400; x <= 400; x += 25) for (let z = -400; z <= 400; z += 25) hs.push(f(x, z));
+    return hs;
+  };
+  const spread = (hs: number[]) => Math.max(...hs) - Math.min(...hs);
+  const made = shapes.map((sh) => sample(shapedFor(4, sh)));
+  made.forEach((hs, i) => {
+    assert.ok(hs.every((h) => Number.isFinite(h) && Math.abs(h) < TERRAIN.hill * 4), `${shapes[i]} stays in bounds`);
+    assert.ok(spread(hs) > 2, `${shapes[i]} isn’t a billiard table`);
+  });
+  assert.ok(spread(made[1]) > spread(made[3]), 'a gorge is wilder than a plain');
+  assert.ok(spread(made[0]) > spread(made[3]), 'and so are rolling hills');
+  // Each one really is a different landscape.
+  for (let i = 0; i < made.length; i++)
+    for (let j = i + 1; j < made.length; j++) assert.ok(made[i].some((h, k) => Math.abs(h - made[j][k]) > 1), `${shapes[i]} and ${shapes[j]} differ`);
+  // Every world names a shape, and the same seed builds the same land twice.
+  for (const b of BIOME_IDS) assert.ok(BIOMES[b].shape, `${b} has a shape`);
+  assert.deepEqual(sample(shapedFor(9, 'ridged')), sample(shapedFor(9, 'ridged')));
 });

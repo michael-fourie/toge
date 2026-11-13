@@ -9,6 +9,8 @@ import { TWISTS } from './checkpoints.ts';
 import { HAZARD, makeRoute, roadNear, type Route } from './route.ts';
 import {
   BUS,
+  BOSS,
+  CLING,
   CLUB,
   GORDIE,
   GUNS,
@@ -26,13 +28,21 @@ import {
   burnOf,
   buy,
   chewOf,
+  clingLoad,
+  KEG,
+  PIT,
+  type MiniKind,
   fwdOf,
   fromBus,
-  gunsUnlocked,
+  kitDamage,
+  ownsGun,
   maxFuel,
   maxHp,
   newRun,
   onBus,
+  scrapeSide,
+  stepLean,
+  tipOf,
   rng,
   toBus,
   yeetSpeedOf,
@@ -67,7 +77,7 @@ export interface Zombie {
   bite: number;
 }
 
-export type FxKind = 'yeet' | 'fore' | 'splat' | 'gordie' | 'grab' | 'hurt' | 'shake' | 'heal' | 'bump' | 'round' | 'bite' | 'crate' | 'can' | 'clear' | 'buy' | 'leg';
+export type FxKind = 'fish' | 'yeet' | 'fore' | 'splat' | 'gordie' | 'grab' | 'hurt' | 'shake' | 'heal' | 'bump' | 'round' | 'bite' | 'crate' | 'can' | 'clear' | 'buy' | 'leg' | 'scrape' | 'roll';
 export interface Fx {
   k: FxKind;
   x: number;
@@ -94,6 +104,7 @@ const SHAKE = { speed: 15, chance: 0.18 };
 export const Z_CAP = 120;
 /** Stand this close to the beacon to crank it (m). */
 export const BEACON_R = 6;
+
 
 export class Director {
   run: RunState;
@@ -135,6 +146,8 @@ export class Director {
   busS = 0;
   /** The last bus pose the session gave `step` (for knock-off directions). */
   lastBus: Bus | null = null;
+  /** How far over the bus is leaning under the weight hanging off its sides. */
+  lean = 0;
 
   private get twist() {
     return TWISTS[this.route.cp.twist];
@@ -160,11 +173,12 @@ export class Director {
     this.potholes(bus);
     this.spawn(dt, bus);
     this.zombies(dt, bus);
+    this.sides(dt, bus);
     this.gordie(dt);
-    if (run.busHp <= 0) {
-      run.busHp = 0;
+    if (run.busHp <= 0 || run.rolls >= CLING.rolls) {
+      run.busHp = Math.max(0, run.busHp);
       run.phase = 'lost';
-      this.said.push('THE BUS IS TOAST.');
+      this.said.push(run.rolls >= CLING.rolls ? 'THE BUS IS ON ITS ROOF FOR GOOD.' : 'THE BUS IS TOAST.');
     }
   }
 
@@ -176,6 +190,16 @@ export class Director {
     if (run.phase === 'drive' && !run.done && d < RUN.parkRadius && Math.abs(bus.v) < RUN.parkSpeed) {
       run.phase = 'stop';
       this.said.push(`${cp.name.toUpperCase()}: ${JOBS[cp.job].goal}.`);
+      if (cp.job === 'rest') {
+        // Nothing to do here but enjoy it: the gate's already open.
+        this.clear();
+      } else if (cp.job === 'boss' && run.keg <= 0 && run.prog < run.need) {
+        run.keg = KEG.hp;
+        const k = this.route.sites.find((q) => q.kind === 'keg');
+        const b = this.add(k ? k.x + 26 : bus.x + 26, k ? k.z + 20 : bus.z + 20, 4);
+        b.hp = BOSS.hp(run.stage, this.crew);
+        this.said.push('SOMETHING BIG IS COMING FOR THE KEG.');
+      }
     } else if (run.phase === 'stop' && d > RUN.parkRadius + 10) run.phase = 'drive';
     if (run.phase !== 'stop' || run.done) return;
     if (cp.job === 'beacon') {
@@ -197,9 +221,8 @@ export class Director {
     this.fx.push({ k: 'clear', x: stop.x, y: 3, z: stop.z, n: scrap });
     this.fx.push({ k: 'heal', x: stop.x, y: 2, z: stop.z, n: Math.round(run.busHp - before) });
     let line = `CHECKPOINT ${run.stage + 1} CLEARED! +${scrap} scrap each. All aboard: the gate’s open.`;
-    if (cp.job === 'golf' && !run.club) {
-      run.club = true;
-      line = 'GOLF CLUB GET! Swing it at zombies (V / RB): FORE! The gate’s open.';
+    if (cp.job === 'rest') {
+      line = `${cp.name.toUpperCase()}: a pit stop. Fish, hit a bucket of balls, hang out. Drive on when you’re ready.`;
     } else if (cp.job === 'holdout' && !run.gordie) {
       run.gordie = true;
       line = 'GORDIE IS FREE! He’s on the bus, shooting. The gate’s open.';
@@ -306,7 +329,9 @@ export class Director {
     const twist = this.route.cp.twist;
     const chonk = Math.min(0.3, 0.08 + stage * 0.012) + (twist === 'chonk' ? 0.4 : 0);
     const sprint = twist === 'sprint' ? 1 : Math.min(0.5, 0.17 + stage * 0.025);
-    const kind: ZKind = k ?? (twist !== 'sprint' && roll < chonk ? 2 : roll < chonk + sprint ? 1 : 0);
+    // Leapers turn up once the run gets going: they jump for the sides, so driving fast is no longer a free pass.
+    const leap = stage < 2 ? 0 : Math.min(0.22, 0.05 + stage * 0.012);
+    const kind: ZKind = k ?? (roll < leap ? 3 : twist !== 'sprint' && roll < leap + chonk ? 2 : roll < leap + chonk + sprint ? 1 : 0);
     const zb: Zombie = {
       id: this.nextId++,
       k: kind,
@@ -328,6 +353,54 @@ export class Director {
     return zb;
   }
 
+  /**
+   * The weight hanging off the sides: it leans the bus, and far enough over it goes. Everyone's screen works the
+   * lean out for itself from the zombies it can see (so it's smooth), but the roll is the host's call.
+   */
+  private sides(dt: number, bus: Bus) {
+    const r = this.run;
+    if (r.down > 0) {
+      r.down = Math.max(0, r.down - dt);
+      return;
+    }
+    const on = this.zs.filter((z) => z.st === 'climb');
+    const { lean, rolled } = stepLean(this.lean, clingLoad(on), bus, dt, tipOf(r));
+    this.lean = lean;
+    if (rolled) {
+      r.rolls++;
+      r.down = CLING.rollTime;
+      r.busHp -= CLING.rollDamage;
+      this.lean = 0;
+      // Everyone hanging on is thrown clear.
+      for (const z of on) {
+        z.st = 'fly';
+        z.t = 0;
+        z.vx = Math.sign(z.side) * Math.cos(bus.h) * 9;
+        z.vz = -Math.sign(z.side) * Math.sin(bus.h) * 9;
+        z.vy = 5;
+      }
+      this.fx.push({ k: 'roll', x: bus.x, y: 2, z: bus.z, n: r.rolls });
+      this.said.push(r.rolls >= CLING.rolls ? 'THE BUS IS ON ITS ROOF.' : `ROLLED! ${CLING.rolls - r.rolls} more and it’s over.`);
+    }
+    // Scraping them off along something solid: a wreck, a boulder, the gate's posts.
+    const side = scrapeSide(bus, this.route.obstacles);
+    if (!side) return;
+    const f = fwdOf(bus.h);
+    for (const z of on) {
+      if (Math.sign(z.side) !== side) continue;
+      // Wiped down the side of whatever the bus is passing.
+      z.hp = 0;
+      z.st = 'fly';
+      z.t = 0;
+      z.vx = -f.x * Math.abs(bus.v) * 0.6 + Math.sign(z.side) * Math.cos(bus.h) * 4;
+      z.vz = -f.z * Math.abs(bus.v) * 0.6 - Math.sign(z.side) * Math.sin(bus.h) * 4;
+      z.vy = 1.5;
+      this.killed();
+      this.payAll(CLING.scrapePay);
+      this.fx.push({ k: 'scrape', x: z.x, y: z.y + 1, z: z.z, n: CLING.scrapePay });
+    }
+  }
+
   private zombies(dt: number, bus: Bus) {
     const f = fwdOf(bus.h);
     this.shakeT += dt;
@@ -339,6 +412,10 @@ export class Director {
     for (const z of this.zs) {
       z.t += dt;
       z.bite -= dt;
+      if (z.st === 'run' && z.k === 4) {
+        this.bossStep(z, dt, bus);
+        continue;
+      }
       if (z.st === 'run') {
         const spec = ZOMBIE[z.k];
         // Whoever's nearest on foot, if they're closer than the bus; otherwise their spot on the bus's side.
@@ -372,7 +449,7 @@ export class Director {
           if (Math.abs(bus.v) > yeetAt) this.yeet(z, this.busFling(z, bus), Math.max(Math.abs(bus.v), 10), z.paint, 'yeet');
           else if (!prey) this.grabOn(z, bus);
           else this.pushOut(z, bus);
-        } else if (!prey && d < HORDE.climbReach + spec.r) this.grabOn(z, bus);
+        } else if (!prey && d < (z.k === 3 ? HORDE.leapReach : HORDE.climbReach) + spec.r) this.grabOn(z, bus);
         if (Math.hypot(z.x - bus.x, z.z - bus.z) > HORDE.despawn) z.st = 'dead';
       } else if (z.st === 'climb') {
         const p = fromBus(bus, z.side, z.along);
@@ -462,6 +539,63 @@ export class Director {
     if (run.phase === 'stop' && !run.done && this.route.cp.job === 'holdout') run.prog = Math.min(run.need, run.prog + 1);
   }
 
+  /**
+   * The big one. It walks through everything for the keg, and smashes it; with the keg gone it comes for whoever's
+   * on foot, and then for the bus. The bus can't yeet it and it never climbs: you have to shoot it.
+   */
+  private bossStep(z: Zombie, dt: number, bus: Bus) {
+    const run = this.run;
+    const keg = run.keg > 0 ? this.route.sites.find((s) => s.kind === 'keg') : undefined;
+    let tx = bus.x;
+    let tz = bus.z;
+    let reach = BOSS.reach + 2;
+    if (keg) {
+      tx = keg.x;
+      tz = keg.z;
+      reach = BOSS.reach;
+    } else {
+      let best = Infinity;
+      for (const w of this.walkers) {
+        const d = Math.hypot(w.x - z.x, w.z - z.z);
+        if (d < best) {
+          best = d;
+          tx = w.x;
+          tz = w.z;
+          reach = BOSS.reach;
+        }
+      }
+    }
+    const dx = tx - z.x;
+    const dz = tz - z.z;
+    const d = Math.hypot(dx, dz) || 1;
+    if (d > reach) {
+      const sp = BOSS.speed * zSpeed(run.stage);
+      z.vx = (dx / d) * sp;
+      z.vz = (dz / d) * sp;
+      z.x += z.vx * dt;
+      z.z += z.vz * dt;
+      return;
+    }
+    z.vx = z.vz = 0;
+    if (keg) {
+      // Smashing the keg open.
+      run.keg = Math.max(0, run.keg - BOSS.smash * dt);
+      this.shakeT -= dt;
+      if (this.shakeT <= 0) {
+        this.shakeT = 0.5;
+        this.fx.push({ k: 'bump', x: keg.x, y: 1.5, z: keg.z, n: Math.ceil(BOSS.smash / 2) });
+      }
+      if (run.keg <= 0) this.said.push('THE KEG! It got the keg. Put it down anyway.');
+      return;
+    }
+    if (z.bite > 0) return;
+    z.bite = HORDE.bite;
+    // A swat at whoever's nearest on foot; with nobody out there it leans on the bus instead.
+    const prey = this.walkers.find((w) => Math.hypot(w.x - z.x, w.z - z.z) < reach + 1);
+    if (prey) this.fx.push({ k: 'bite', x: prey.x, y: 1.4, z: prey.z, n: BOSS.bite, w: prey.id });
+    else run.busHp -= ZOMBIE[4].damage * chewOf(run) * HORDE.bite;
+  }
+
   /** Sends a zombie flying (hit by the bus or a golf club) along `dir`. It's dead when it lands. */
   private yeet(z: Zombie, dir: { x: number; z: number }, speed: number, paint: number, k: 'yeet' | 'fore') {
     z.st = 'fly';
@@ -476,11 +610,11 @@ export class Director {
     this.fx.push({ k, x: z.x, y: z.y + 1.5, z: z.z, n: Math.round(speed) });
   }
 
-  /** What a hit from gun `g` does (-1: a grenade), if the crew has that gun. */
-  damageOf(g: number) {
+  /** What a hit from `who`'s gun `g` does (-1: a grenade), if they have that gun, plus whatever's bolted to it. */
+  damageOf(g: number, who = 0) {
     if (g === -1) return NADE.damage;
     const gun = GUNS[g];
-    return gun && g < gunsUnlocked(this.run.stage + (this.run.done ? 1 : 0)) ? gun.damage : 1;
+    return gun && ownsGun(this.run, who, g) ? gun.damage + kitDamage(this.run, who) : 1;
   }
 
   /** A paintball hit (claimed by a player): `by` is their paint colour. */
@@ -503,7 +637,14 @@ export class Director {
     }
     if (z.hp <= 0) {
       this.killed();
-      this.pay(by, z.k === 2 ? RUN.chonk : RUN.kill);
+      if (z.k === 4) {
+        // The big one is down: that's the stop.
+        this.payAll(BOSS.pay);
+        this.said.push(`THE BIG ONE IS DOWN! +${BOSS.pay} scrap each.`);
+        this.run.keg = 0;
+        if (this.run.phase === 'stop' && !this.run.done && this.route.cp.job === 'boss') this.run.prog = this.run.need;
+      }
+      this.pay(by, z.k === 4 ? RUN.chonk * 3 : z.k === 2 ? RUN.chonk : RUN.kill);
       z.st = z.y > 0.1 || dmg > 3 ? 'fly' : 'dead';
       if (z.st === 'fly') {
         // A big hit (a grenade, the Long Tom) pops them into the air.
@@ -533,17 +674,28 @@ export class Director {
     return n;
   }
 
-  /** A minigame result at the checkpoint: a zombie teed off, or what a slot pull paid. Only counts for that job. */
-  mini(kind: 'golf' | 'slots', v: number, who: number) {
+  /**
+   * What the pit stop's amusements paid: a zombie teed off the mat, a slot pull, a fish landed. They're worth scrap
+   * (and the first bucket of balls wins the club), and you can only play them while the bus is parked at one.
+   */
+  mini(kind: MiniKind, v: number, who: number) {
     const run = this.run;
-    if (run.phase !== 'stop' || run.done || this.route.cp.job !== kind) return;
+    if (run.phase !== 'stop' || this.route.cp.job !== 'rest') return;
     if (kind === 'golf') {
-      run.prog = Math.min(run.need, run.prog + 1);
+      this.pay(who, PIT.golf);
       run.busHp = Math.min(maxHp(run), run.busHp + RUN.teeHeal);
+      if (!run.club) {
+        run.club = true;
+        this.said.push('GOLF CLUB GET! Swing it at zombies (V / RB): FORE!');
+      }
+    } else if (kind === 'fish') {
+      // Whatever came out of the pond, by how big it was.
+      const size = Math.max(0, Math.min(SLOT_MAX, Math.round(v)));
+      this.pay(who, PIT.fish + size);
+      this.fx.push({ k: 'fish', x: 0, y: 0, z: 0, n: PIT.fish + size, w: who });
     } else {
-      const won = Math.max(0, Math.min(SLOT_MAX, Math.round(v)));
+      const won = Math.max(0, Math.min(SLOT_MAX, Math.round(v))) * PIT.slots;
       this.pay(who, won);
-      run.prog = Math.min(run.need, run.prog + won);
     }
   }
 

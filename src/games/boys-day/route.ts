@@ -6,7 +6,7 @@
 
 import { BIOMES, checkpointOf, type Biome, type Checkpoint } from './checkpoints.ts';
 import { RUN, rng, type Obstacle } from './rules.ts';
-import { hillsFor, roadHeights, wildness } from './terrain.ts';
+import { roadHeights, shapedFor, wildness } from './terrain.ts';
 
 export interface RoadPoint {
   x: number;
@@ -59,7 +59,7 @@ export interface Pickup {
 /** The checkpoint job's things, out in the arena: walk up to one and use it. */
 export interface Site {
   id: number;
-  kind: 'crate' | 'pump' | 'beacon' | 'tee' | 'slot';
+  kind: 'crate' | 'pump' | 'beacon' | 'tee' | 'slot' | 'rod' | 'keg';
   x: number;
   z: number;
 }
@@ -95,6 +95,8 @@ export interface Route {
   /** The gate into the next leg, past the checkpoint (shut until the job's done). */
   gate: { i: number; x: number; z: number; h: number; y: number };
   sites: Site[];
+  /** A pit stop's pond, to fish in (null everywhere else). */
+  pond: { x: number; z: number; r: number } | null;
   props: Prop[];
   obstacles: Obstacle[];
   /** What blocks the road at the gate while it's shut. */
@@ -111,10 +113,10 @@ export const ROAD = {
   half: 5,
   step: 6,
   /** A leg's length to its checkpoint (m): `legMin` plus `legPer` a leg (up to `legGrow` legs) plus up to `legVar`. */
-  legMin: 460,
-  legPer: 28,
+  legMin: 980,
+  legPer: 46,
   legGrow: 16,
-  legVar: 160,
+  legVar: 420,
   /** Tightest bend (m radius): a bus has to make it. */
   minRadius: 34,
   /** The road never turns further than this from straight down -Z, so it never crosses itself. */
@@ -138,7 +140,7 @@ export const ARENA = { flat: 44, blend: 80, lumps: 0.22, spread: 50, crates: 16 
 export const legSeed = (seed: number, leg: number) => (seed ^ Math.imul(leg + 1, 0x85ebca6b)) >>> 0;
 
 const hillsOf = (seed: number, biome: Biome) => {
-  const hills = hillsFor(seed);
+  const hills = shapedFor(seed, BIOMES[biome].shape ?? 'rolling');
   const k = BIOMES[biome].hill;
   return (x: number, z: number) => hills(x, z) * k;
 };
@@ -233,12 +235,28 @@ export function makeRoute(seed: number, leg = 0): Route {
     return { x: stop.x - sr.x * side * (min + 6), z: stop.z - sr.z * side * (min + 6) };
   };
   const site = (kind: Site['kind'], p: { x: number; z: number }) => sites.push({ id: sites.length, kind, ...p });
-  if (cp.job === 'golf') site('tee', front(4, -5));
-  if (cp.job === 'slots') site('slot', front(1.2, 5));
+  // A pit stop has the lot: a tee box, a machine inside, and a pond with a dock to fish off.
+  let pond: Route['pond'] = null;
+  if (cp.job === 'rest') {
+    site('tee', front(4, -5));
+    site('slot', front(1.2, 5));
+    const p = scatter(30, 40);
+    pond = { x: p.x, z: p.z, r: 13 + r() * 5 };
+    // The dock runs out from the bank nearest the bus; if that would put it over the road, walk it round the pond.
+    const toBus = Math.atan2(stop.x - pond.x, stop.z - pond.z);
+    let rod = { x: 0, z: 0 };
+    for (let k = 0; k < 12; k++) {
+      const a = toBus + (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 0.55;
+      rod = { x: pond.x + Math.sin(a) * (pond.r - 1.5), z: pond.z + Math.cos(a) * (pond.r - 1.5) };
+      if (nearRoad(rod.x, rod.z, stopI) > ROAD.half + 4) break;
+    }
+    site('rod', rod);
+  }
+  if (cp.job === 'boss') site('keg', front(0, 0));
   if (cp.job === 'fuel') site('pump', scatter(34, 46));
   if (cp.job === 'beacon') site('beacon', scatter(30, 42));
   if (cp.job === 'scavenge') for (let k = 0; k < ARENA.crates; k++) site('crate', scatter(14, ARENA.spread));
-  for (const s of sites) if (s.kind !== 'beacon') obstacles.push({ x: s.x, z: s.z, r: s.kind === 'crate' ? 0.7 : 1 });
+  for (const s of sites) if (s.kind !== 'beacon' && s.kind !== 'rod') obstacles.push({ x: s.x, z: s.z, r: s.kind === 'crate' ? 0.7 : 1 });
   const nearSite = (x: number, z: number) => sites.some((s) => Math.hypot(s.x - x, s.z - z) < (s.kind === 'beacon' ? 9 : 3.5));
 
   const props: Prop[] = [];
@@ -258,13 +276,17 @@ export function makeRoute(seed: number, leg = 0): Route {
     neon: [['dead', 0.5], ['tree', 0.5]],
     grave: [['dead', 0.55], ['pine', 0.25], ['rock', 0.2]],
     crystal: [['crystal', 0.5], ['rock', 0.4], ['dead', 0.1]],
+    coast: [['reed', 0.4], ['dead', 0.25], ['rock', 0.2], ['tree', 0.15]],
+    farm: [['hay', 0.4], ['fence', 0.3], ['tree', 0.2], ['dead', 0.1]],
+    canyon: [['rock', 0.7], ['cactus', 0.2], ['dead', 0.1]],
+    patch: [['pumpkin', 0.5], ['dead', 0.25], ['tree', 0.25]],
   };
   const grow = (): PropKind => {
     let roll = r();
     for (const [k, w] of flora[cp.biome]) if ((roll -= w) < 0) return k;
     return flora[cp.biome][0][0];
   };
-  const solid: Partial<Record<PropKind, number>> = { tree: 0.55, pine: 0.55, dead: 0.5, cactus: 0.5, shroom: 0.6, crystal: 0.9, rock: 1.1 };
+  const solid: Partial<Record<PropKind, number>> = { tree: 0.55, pine: 0.55, dead: 0.5, cactus: 0.5, shroom: 0.6, crystal: 0.9, rock: 1.1, wreck: 1.2 };
   for (let i = 3; i < road.length; i += 2) {
     const p = road[i];
     const right = { x: Math.cos(p.h), z: -Math.sin(p.h) };
@@ -398,6 +420,7 @@ export function makeRoute(seed: number, leg = 0): Route {
     road,
     stop,
     gate,
+    pond,
     sites,
     props,
     obstacles,

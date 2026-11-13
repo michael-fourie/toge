@@ -10,16 +10,18 @@
 
 import * as THREE from 'three';
 import { Audio } from './audio.ts';
-import { Blackjack, DuelTable } from './cards.ts';
+import { Blackjack, PokerTable } from './cards.ts';
 import { BIOMES, TWISTS } from './checkpoints.ts';
 import { BEACON_R, Director, GORDIE_PAINT, packZombies, unpackZombies, type Fx, type Walker, type ZView } from './director.ts';
-import { Duel, type DuelMove, type DuelView } from './duel.ts';
+
 import { Hud } from './hud.ts';
 import { Input, type Frame } from './input.ts';
-import { Golf, Slots, type Minigame } from './minigames.ts';
-import { Horde, Paint, makeBean, makeBus, makeClub, makeGun, paintOf, type Ball, type Bean } from './models.ts';
+import { Fishing, Golf, Slots, type Minigame } from './minigames.ts';
+import { Horde, Paint, makeBean, makeBus, makeClub, makeGun, paintOf, showBusParts, type Ball, type Bean } from './models.ts';
 import { ACT_MAX, takeWheel, type Act, type Msg } from './net.ts';
+import { Poker, emptyTable, type PokerMove, type PokerView } from './poker.ts';
 import { Post } from './post.ts';
+import { BOYS, FITS, GORDIE, dressed } from './roster.ts';
 import { HAZARD, ROAD, groundAt, hazardAt, makeRoute, roadNear, solids, toGo, type Route, type Site } from './route.ts';
 import {
   BUS,
@@ -40,9 +42,12 @@ import {
   atCab,
   atHatch,
   canBoard,
+  clingLoad,
   collideBus,
+  CLING,
+  COMFORTS,
+  KITS,
   fwdOf,
-  gunsUnlocked,
   hangAt,
   hopOff,
   hopOn,
@@ -50,18 +55,27 @@ import {
   objective,
   onBus,
   powerOf,
+  pullOf,
   priceOf,
   reloadOf,
+  reloadKit,
+  regenOf,
+  ownsGun,
+  spreadOf,
   rightOf,
   rng,
   startSpot,
+  stepJump,
+  stepLean,
   stepBus,
   stepFoot,
+  toBus,
   walk,
   wallHit,
   type Bus,
   type Obstacle,
   type RunState,
+  type MiniKind,
   type Spot,
 } from './rules.ts';
 import { Sky } from './sky.ts';
@@ -73,7 +87,7 @@ export interface Link {
   me: number;
   hostId: number;
   /** Everyone in the run, in join order (their paint colours and wallets follow it). */
-  crew: { id: number; name: string }[];
+  crew: { id: number; name: string; boy: number }[];
   /** To everyone else, or to one player. */
   send(m: Msg, to?: number): void;
   solo: boolean;
@@ -82,7 +96,7 @@ export interface Link {
 const SEND = { bus: 1 / 15, aim: 1 / 8, act: 1 / 10, z: 1 / 10, run: 1 / 3 };
 const CHASE = { back: 15, up: 7.5, ahead: 9 };
 const BEST_KEY = 'boys-day.best';
-const EMPTY_TABLE: DuelView = { phase: 'wait', seats: [-1, -1], ante: 10, pot: 0, turn: 0, drew: [false, false], raised: false, shown: [[], []], winner: -1 };
+const EMPTY_TABLE = emptyTable();
 
 interface Other {
   spot: Spot;
@@ -106,7 +120,7 @@ export class Session {
   private input: Input;
   private hud: Hud;
   private director: Director | null = null;
-  private duel: Duel | null = null;
+  private poker: Poker | null = null;
   private sky: Sky;
   private post: Post;
   /** Seconds to the next lightning strike, and to its thunder. */
@@ -124,12 +138,19 @@ export class Session {
   private driver: number;
   private others = new Map<number, Other>();
   private beans = new Map<number, Bean>();
+  /** What each player was last seen wearing, so a costume change rebuilds their bean. */
+  private wearing = new Map<number, number>();
   private gordie: Bean | null = null;
   /** You on the bus: where, and inside or up top. Off it: `foot` (world) and the way you face (`footYaw`). */
   private spot: Spot;
   private foot: { x: number; z: number } | null = null;
   private footYaw = 0;
   private hp: number = FOOT.hp;
+  /** Mid-jump: how high off the ground you are on foot, and how fast. */
+  private footY = 0;
+  private footVy = 0;
+  /** How far the bus is leaning under the weight hanging off it (and lying right over after a roll). */
+  private lean = 0;
   private koT = 0;
   private hurt = 0;
   private carrying = false;
@@ -163,8 +184,8 @@ export class Session {
   private viewClub = makeClub();
 
   private mini: Minigame | null = null;
-  private miniKind: 'golf' | 'slots' | 'bj' | 'duel' | 'table' | 'shop' | null = null;
-  private table: DuelView = EMPTY_TABLE;
+  private miniKind: MiniKind | 'bj' | 'poker' | 'table' | 'shop' | null = null;
+  private table: PokerView = EMPTY_TABLE;
   private myHand: number[] = [];
   private shopKey = '';
   private paused = false;
@@ -198,7 +219,7 @@ export class Session {
     this.spot = startSpot(this.myPlace);
     if (this.isHost) {
       const d = (this.director = new Director(seed, link.crew.length));
-      this.duel = new Duel(rng(seed ^ 0xd0e1), (who) => d.run.cash[who] ?? 0, (who, n) => d.pay(who, n));
+      this.poker = new Poker(rng(seed ^ 0xd0e1), (who) => d.run.cash[who] ?? 0, (who, n) => d.pay(who, n));
     }
     this.run = this.director?.run ?? { ...new Director(seed, link.crew.length).run };
     this.route = this.director?.route ?? makeRoute(seed, 0);
@@ -248,7 +269,8 @@ export class Session {
       if (e.key !== 'Escape') return;
       e.stopImmediatePropagation();
       e.preventDefault();
-      if (this.endEl) return;
+      // On the end screen there's nothing to go back to but the menu.
+      if (this.endEl) return this.onLeave();
       if (this.mini) return this.closeMini();
       this.setPaused(!this.paused);
     };
@@ -272,6 +294,13 @@ export class Session {
   private get driving() {
     return this.driver === this.link.me;
   }
+  /** What's hanging off the bus's sides right now: negative to the left, positive to the right. */
+  private clingLoad() {
+    const on: { side: number; k: ZView['k'] }[] = [];
+    for (const z of this.zs) if (z.st === 'climb') on.push({ side: toBus(this.bus, z.x, z.z).side, k: z.k });
+    return clingLoad(on);
+  }
+
   /** The ground's height at (x, z). */
   private ground = (x: number, z: number) => groundAt(this.route, x, z);
   private get myPlace() {
@@ -284,8 +313,9 @@ export class Session {
   private get cash() {
     return this.run.cash[this.myPlace] ?? 0;
   }
-  private get unlocked() {
-    return gunsUnlocked(this.run.stage + (this.run.done ? 1 : 0));
+  /** The guns I can pick up: handed out as the run goes, plus any I've bought. */
+  private get myGuns() {
+    return GUNS.map((_, k) => k).filter((k) => ownsGun(this.run, this.myPlace, k));
   }
   private hopper(k = this.gun) {
     return Math.max(1, Math.round(hopperOf(this.run) * GUNS[k].hopper));
@@ -386,8 +416,8 @@ export class Session {
       case 'bj':
         this.director?.blackjack(m.v, who);
         break;
-      case 'duel':
-        this.duelMove(who, m.m, m.n);
+      case 'poker':
+        this.pokerMove(who, m.m, m.n);
         break;
       case 'table':
         if (fromHost) this.setTable(m.v);
@@ -423,9 +453,9 @@ export class Session {
     const d = this.director;
     if (!d) return;
     const c = this.placeOf(from);
-    const dmg = d.damageOf(a.g);
+    const dmg = d.damageOf(a.g, c);
     for (const id of a.hits) d.hit(id, c, dmg);
-    for (const id of a.boom) d.hit(id, c, d.damageOf(-1));
+    for (const id of a.boom) d.hit(id, c, d.damageOf(-1, c));
     for (const id of a.grabs) d.grab(id);
     if (a.swing.length) d.swing(a.swing, c, this.bus, this.others.get(from)?.foot ?? undefined);
   }
@@ -438,7 +468,7 @@ export class Session {
       const bean = this.beans.get(id);
       bean?.root.removeFromParent();
       this.beans.delete(id);
-      if (this.duel) this.tableOut(this.duel.drop(this.placeOf(id)));
+      if (this.poker) this.tableOut(this.poker.drop(this.placeOf(id)));
     }
     if (this.isHost && this.driver >= 0 && !ids.has(this.driver)) this.setDriver(-1);
   }
@@ -448,14 +478,14 @@ export class Session {
     this.link.send({ t: 'driver', id });
   }
 
-  // The card table (the host referees: duel.ts).
+  // The card table (the host referees: poker.ts).
 
-  private duelMove(who: number, m: DuelMove, n: number) {
-    if (this.duel) this.tableOut(this.duel.move(who, m, n));
-    else this.link.send({ t: 'duel', m, n });
+  private pokerMove(who: number, m: PokerMove, n: number) {
+    if (this.poker) this.tableOut(this.poker.move(who, m, n));
+    else this.link.send({ t: 'poker', m, n });
   }
 
-  private tableOut(out: ReturnType<Duel['move']>) {
+  private tableOut(out: ReturnType<Poker['move']>) {
     if (!out) return;
     this.link.send({ t: 'table', v: out.view });
     for (const [who, cards] of out.hands) {
@@ -466,22 +496,30 @@ export class Session {
     this.setTable(out.view);
   }
 
-  private setTable(v: DuelView) {
+  private setTable(v: PokerView) {
     this.table = v;
-    if (this.mini instanceof DuelTable) this.mini.setView(v);
+    if (this.mini instanceof PokerTable) this.mini.setView(v);
   }
 
   private setHand(cards: number[]) {
     this.myHand = cards;
-    if (this.mini instanceof DuelTable) this.mini.setHand(cards);
+    if (this.mini instanceof PokerTable) this.mini.setHand(cards);
   }
 
   /** Everyone's bean: the driver sat at the wheel, the rest on their feet, on the bus or out in the world. */
   private placeBeans(dt: number) {
     for (const c of this.link.crew) {
+      // Whatever he's wearing today: a new costume means a new bean.
+      const fit = this.run.fit[this.placeOf(c.id)] ?? 0;
       let bean = this.beans.get(c.id);
+      if (bean && this.wearing.get(c.id) !== fit) {
+        bean.root.removeFromParent();
+        this.beans.delete(c.id);
+        bean = undefined;
+      }
       if (!bean) {
-        bean = makeBean(paintOf(this.placeOf(c.id)));
+        this.wearing.set(c.id, fit);
+        bean = makeBean(dressed(BOYS[c.boy] ?? BOYS[0], fit), paintOf(this.placeOf(c.id)));
         bean.root.traverse((o) => ((o as THREE.Mesh).isMesh && ((o as THREE.Mesh).castShadow = true)));
         this.busModel.add(bean.root);
         this.beans.set(c.id, bean);
@@ -547,7 +585,7 @@ export class Session {
     const driver = this.driver;
     if (driver === this.link.me || (driver === -1 && this.isHost)) {
       // Nobody at the wheel (or the driver's in a minigame or the menu): it rolls to a stop.
-      const mine = driver === this.link.me && f && this.run.phase !== 'lost';
+      const mine = driver === this.link.me && f && this.run.phase !== 'lost' && this.run.down <= 0;
       const drive = mine ? { throttle: f.throttle, brake: f.brake, steer: f.steer, handbrake: f.handbrake } : b.v > 0.3 ? { ...NO_DRIVE, brake: 0.4 } : NO_DRIVE;
       const near = roadNear(this.route.road, b.x, b.z, this.roadHint);
       this.roadHint = near.i;
@@ -556,7 +594,8 @@ export class Session {
       const span = 7;
       const grade = (this.ground(b.x + (fw.x * span) / 2, b.z + (fw.z * span) / 2) - this.ground(b.x - (fw.x * span) / 2, b.z - (fw.z * span) / 2)) / span;
       const haz = hazardAt(this.route, b.x, b.z);
-      stepBus(b, drive, dt, { grade, onRoad: near.d < ROAD.half + 1, mud: haz?.kind === 'mud', fumes: this.run.fuel <= 0, power: powerOf(this.run) });
+      stepBus(b, drive, dt, { grade, onRoad: near.d < ROAD.half + 1, mud: haz?.kind === 'mud', fumes: this.run.fuel <= 0, power: powerOf(this.run), pull: pullOf(this.clingLoad(), this.run) });
+      if (this.run.down > 0) b.v *= Math.max(0, 1 - dt * 4);
       // Potholes: a jolt that kills speed (the host takes the damage).
       this.route.hazards.forEach((h, i) => {
         if (h.kind !== 'pothole' || Math.abs(h.x - b.x) > 9 || Math.abs(h.z - b.z) > 9 || Math.abs(b.v) < 4) return;
@@ -646,7 +685,13 @@ export class Session {
       if ((this.koT -= dt) <= 0) this.hp = FOOT.wake;
       return;
     }
-    if (!this.foot) this.hp = Math.min(FOOT.hp, this.hp + FOOT.regen * dt);
+    if (!this.foot) this.hp = Math.min(FOOT.hp, this.hp + regenOf(this.run) * dt);
+    if (this.foot) {
+      const j = stepJump(this.footY, this.footVy, dt);
+      this.footY = j.y;
+      this.footVy = j.vy;
+      if (j.landed) this.audio.play('thunk', 0.35);
+    } else this.footY = this.footVy = 0;
     if (this.driving !== this.wasDriving) {
       // Sat down at the wheel (look ahead) or got up from it (stand beside it).
       if (!this.driving) this.spot = { ...OFF_CAB };
@@ -656,7 +701,8 @@ export class Session {
     }
     if (f.view && this.driving) this.chase = !this.chase;
     if (this.mini) {
-      const gone = this.miniKind === 'golf' || this.miniKind === 'slots' ? !this.jobOpen(this.miniKind) : !!this.foot || this.driving;
+      const pit = this.miniKind === 'golf' || this.miniKind === 'slots' || this.miniKind === 'fish';
+      const gone = pit ? !this.pitOpen() : !!this.foot || this.driving;
       if (f.back || gone || (f.use && !this.mini.menu)) this.closeMini();
       else {
         this.mini.update(dt, f);
@@ -666,6 +712,12 @@ export class Session {
       if (f.use) this.use();
       if (f.shop && !this.foot && !this.driving) this.openShop();
       if (f.seat && !this.foot && (this.driving || atCab(this.spot))) this.wantWheel(!this.driving);
+      if (f.climb && this.foot && this.footY <= 0 && !this.carrying) {
+        // A jump: over a lunging zombie, or just for the hell of it.
+        this.footVy = FOOT.jump;
+        this.footY = 0.001;
+        this.audio.play('thunk', 0.3);
+      }
       if (f.climb && !this.foot && !this.driving && atHatch(this.spot)) {
         this.spot.level = this.spot.level ? 0 : 1;
         this.audio.play('reload', 0.5);
@@ -702,8 +754,9 @@ export class Session {
       walk(this.spot, f.fwd, f.side, this.yaw, dt);
     }
     if (this.carrying) return;
-    if (f.gun && this.unlocked > 1) {
-      this.gun = (this.gun + 1) % this.unlocked;
+    const rack = this.myGuns;
+    if (f.gun && rack.length > 1) {
+      this.gun = rack[(rack.indexOf(this.gun) + 1) % rack.length];
       this.reloadT = 0;
       this.fireT = 0.25;
       this.audio.play('reload', 0.6);
@@ -719,9 +772,9 @@ export class Session {
   // -------------------------------------------------------------------------------------------
   // Using things: off and on the bus, the job's things, the bong, the cooler, the card table, the store
 
-  /** Is the checkpoint's minigame there to be played? */
-  private jobOpen(kind: 'golf' | 'slots') {
-    return this.run.phase === 'stop' && !this.run.done && this.route.cp.job === kind;
+  /** Parked at a pit stop, where the tee, the machine and the rod are there to play with. */
+  private pitOpen() {
+    return this.run.phase === 'stop' && this.route.cp.job === 'rest';
   }
 
   /** The job's thing within reach of you on foot, if any. */
@@ -730,7 +783,7 @@ export class Session {
     let best: Site | null = null;
     let bd: number = FOOT.reach;
     for (const s of this.route.sites) {
-      if (s.kind === 'beacon' || (s.kind === 'crate' && this.got.has(s.id))) continue;
+      if (s.kind === 'beacon' || s.kind === 'keg' || (s.kind === 'crate' && this.got.has(s.id))) continue;
       const d = Math.hypot(s.x - this.foot.x, s.z - this.foot.z);
       if (d < bd) {
         bd = d;
@@ -752,7 +805,7 @@ export class Session {
         return;
       }
       const s = this.siteNear();
-      if (s && active) {
+      if (s && (active || this.pitOpen())) {
         if (s.kind === 'crate') {
           // The host's `got` is the director's own set: ask first, then mark it.
           this.did('crate', s.id);
@@ -770,14 +823,30 @@ export class Session {
           this.audio.play('reload');
           return;
         }
-        if (s.kind === 'tee' && this.jobOpen('golf')) return this.openMini('golf');
-        if (s.kind === 'slot' && this.jobOpen('slots')) return this.openMini('slots');
+        if (s.kind === 'tee' && this.pitOpen()) return this.openMini('golf');
+        if (s.kind === 'slot' && this.pitOpen()) return this.openMini('slots');
+        if (s.kind === 'rod' && this.pitOpen()) return this.openMini('fish');
       }
       if (near) this.board(true);
       return;
     }
-    const hang = hangAt(this.spot);
+    const hang = hangAt(this.spot, this.run.comfort);
     if (hang === 'table') return this.openTable();
+    if (hang === 'couch' && this.hangT <= 0) {
+      // Feet up on the roof: the best seat in the apocalypse.
+      this.hangT = 2;
+      this.hp = Math.min(FOOT.hp, this.hp + HANG.couch.heal);
+      this.hud.say(pick(['Feet up. Beautiful.', 'This couch was the best 80 scrap ever spent.', 'Rooftop couch, rolling countryside, zombies. Perfect.']));
+      this.audio.play('fix', 0.5);
+      return;
+    }
+    if (hang === 'bbq' && this.hangT <= 0) {
+      this.hangT = 6;
+      this.hp = FOOT.hp;
+      this.hud.say(pick(['🍔 Burger. Back to full.', '🍔 Nothing beats a roof burger.', '🍔 Medium rare, somehow.']));
+      this.audio.play('burp', 0.5);
+      return;
+    }
     if (hang && this.hangT <= 0) {
       this.hangT = 2.5;
       if (hang === 'bong') {
@@ -815,11 +884,12 @@ export class Session {
     if (sound) this.audio.play('thunk', 0.5);
   }
 
-  private openMini(k: 'golf' | 'slots') {
+  private openMini(k: MiniKind) {
     const report = (v: number) => {
       if (this.director) this.director.mini(k, v, this.myPlace);
       else this.link.send({ t: 'mini', k, v });
     };
+    if (k === 'fish') return this.show(new Fishing((size) => report(size), this.audio), 'fish');
     this.show(k === 'golf' ? new Golf(() => report(1), this.audio, () => Math.floor(this.run.prog), this.run.need) : new Slots((v) => report(v), this.audio, () => Math.floor(this.run.prog), this.run.need), k);
   }
 
@@ -837,8 +907,8 @@ export class Session {
 
   private closeMini() {
     if (!this.mini) return;
-    // Getting up from a hand of poker forfeits it.
-    if (this.miniKind === 'duel' && this.table.seats.includes(this.myPlace) && this.table.phase !== 'show') this.duelMove(this.myPlace, 'leave', 0);
+    // Walking away from the table gives up your chair (and your scrap stays in the pot).
+    if (this.miniKind === 'poker' && this.table.seats.includes(this.myPlace)) this.pokerMove(this.myPlace, 'leave', 0);
     if (this.mini.menu && !this.paused) this.api.setMenuNav(false);
     this.mini.el.remove();
     this.mini = null;
@@ -889,11 +959,11 @@ export class Session {
       );
     const hu = document.createElement('button');
     hu.className = 'bd-btn';
-    hu.textContent = '🤝 Heads-up poker (against a friend)';
+    hu.textContent = '🤠 Texas Hold’em (against the boys)';
     hu.disabled = this.link.crew.length < 2;
     hu.onclick = () => {
-      const t = new DuelTable(this.myPlace, (who) => this.link.crew[who]?.name ?? 'Someone', () => this.cash, (m, n) => this.duelMove(this.myPlace, m, n), this.audio);
-      this.show(t, 'duel');
+      const t = new PokerTable(this.myPlace, (who) => this.link.crew[who]?.name ?? 'Someone', () => this.cash, (m, n) => this.pokerMove(this.myPlace, m, n), this.audio);
+      this.show(t, 'poker');
       t.setView(this.table);
       t.setHand(this.myHand);
     };
@@ -902,7 +972,7 @@ export class Session {
     if (this.link.crew.length < 2) {
       const p = document.createElement('p');
       p.className = 'bd-cards-line';
-      p.textContent = 'Heads-up needs a friend on the bus.';
+      p.textContent = 'Hold’em needs a friend on the bus.';
       body.append(p);
     }
     this.show({ el, menu: true, update() {} }, 'table');
@@ -920,7 +990,8 @@ export class Session {
     const body = this.mini?.el.querySelector('.bd-cards-body');
     if (!body) return;
     const r = this.run;
-    const key = `${this.cash}|${r.up.join()}|${Math.round(r.busHp)}|${this.nades}|${Math.round(this.hp)}`;
+    const me = this.myPlace;
+    const key = `${this.cash}|${r.up.join()}|${Math.round(r.busHp)}|${this.nades}|${Math.round(this.hp)}|${r.guns[me]}|${r.kit[me]}|${r.fit[me]}|${r.comfort}`;
     if (key === this.shopKey) return;
     const focused = (document.activeElement as HTMLElement | null)?.dataset.k;
     this.shopKey = key;
@@ -931,8 +1002,14 @@ export class Session {
     body.append(head);
     const list = document.createElement('div');
     list.className = 'bd-shop';
-    const item = (k: number, name: string, what: string, ok = true) => {
-      const price = priceOf(r, k);
+    const shelf = (title: string) => {
+      const h = document.createElement('p');
+      h.className = 'bd-shelf';
+      h.textContent = title;
+      list.append(h);
+    };
+    const item = (k: number, name: string, what: string, ok = true, owned = '') => {
+      const price = priceOf(r, k, me);
       const b = document.createElement('button');
       b.className = 'bd-btn bd-shop-item';
       b.dataset.k = String(k);
@@ -941,19 +1018,33 @@ export class Session {
       const w = document.createElement('span');
       w.textContent = what;
       const p = document.createElement('i');
-      p.textContent = Number.isFinite(price) ? `🔩 ${price}` : 'MAXED';
+      p.textContent = Number.isFinite(price) ? `🔩 ${price}` : owned || 'MAXED';
       b.append(n, w, p);
       b.disabled = !ok || !(this.cash >= price);
       b.onclick = () => {
-        if (this.director) this.director.buy(k, this.myPlace);
+        if (this.director) this.director.buy(k, me);
         else this.link.send({ t: 'buy', k });
       };
       list.append(b);
     };
+    shelf('THE BUS — everyone rides in it');
     UPGRADES.forEach((u, k) => item(k, `${u.name}  ${'●'.repeat(r.up[k])}${'○'.repeat(u.max - r.up[k])}`, u.what));
     item(BUY.repair, 'Patch the bus', `+${REPAIR.hp} bus health`);
+    COMFORTS.forEach((c, i) => item(BUY.comfort + i, c.name, c.what, true, 'FITTED'));
+    shelf('THE RACK — yours for the rest of the run');
+    GUNS.forEach((g, k) => {
+      if (k === 0) return;
+      const free = ownsGun({ ...r, guns: new Array(r.guns.length).fill(0) }, me, k);
+      item(BUY.gun + k, g.name, free ? 'Already on the rack' : `${g.pellets > 1 ? `${g.pellets} pellets, ` : ''}unlocked anyway at checkpoint ${GUNS[k].unlock}`, true, free ? 'FREE' : 'OWNED');
+    });
+    KITS.forEach((kit, i) => item(BUY.kit + i, kit.name, kit.what, true, 'FITTED'));
+    shelf('YOU');
     item(BUY.nade, `Paint grenade  (you have ${this.nades})`, 'G / D-pad down to throw', this.nades < NADE.max);
     item(BUY.bandage, 'Bandage', 'Back to full health', this.hp < FOOT.hp - 1);
+    FITS.forEach((f, i) => {
+      if (i === 0) return;
+      item(BUY.fit + i, f.name, 'A new look for the road', true, 'WEARING');
+    });
     body.append(list);
     const again = (focused && (list.querySelector(`[data-k="${focused}"]:not(:disabled)`) as HTMLElement | null)) || (list.querySelector('button:not(:disabled)') as HTMLElement | null);
     again?.focus();
@@ -964,7 +1055,7 @@ export class Session {
 
   private reload() {
     if (this.reloadT > 0) return;
-    this.reloadT = reloadOf(this.run);
+    this.reloadT = reloadOf(this.run) * reloadKit(this.run, this.myPlace);
     this.audio.play('reload');
   }
 
@@ -999,9 +1090,10 @@ export class Session {
     for (let k = 0; k < gun.pellets; k++) {
       // A little spread: paintball markers aren't rifles (the Long Tom nearly is).
       const dir = aim.clone();
-      dir.x += (Math.random() - 0.5) * gun.spread * 2;
-      dir.y += (Math.random() - 0.5) * gun.spread * 2;
-      dir.z += (Math.random() - 0.5) * gun.spread * 2;
+      const spread = spreadOf(this.run, this.myPlace, this.gun);
+      dir.x += (Math.random() - 0.5) * spread * 2;
+      dir.y += (Math.random() - 0.5) * spread * 2;
+      dir.z += (Math.random() - 0.5) * spread * 2;
       dir.normalize();
       const { from, v } = this.launch(dir, GUN.speed * gun.speed);
       this.paint.fire(from, v, this.myPlace, true, GUN.life * (gun.splash ? 2.5 : 1), gun.gravity, gun.splash ? 2 : 1, this.gun);
@@ -1034,7 +1126,7 @@ export class Session {
     this.api.rumble(0.9, 0.6, 200);
     for (const z of this.zs) {
       if (z.st === 'dead' || z.st === 'fly' || Math.hypot(z.x - p.x, z.z - p.z) > r) continue;
-      if (this.director) this.director.hit(z.id, this.myPlace, this.director.damageOf(k));
+      if (this.director) this.director.hit(z.id, this.myPlace, this.director.damageOf(k, this.myPlace));
       else if (k === -1) this.act.boom.length < ACT_MAX.boom && this.act.boom.push(z.id);
       else if (this.act.hits.length < ACT_MAX.hits) this.act.hits.push(z.id);
     }
@@ -1066,7 +1158,7 @@ export class Session {
         }
         this.paint.splat(b.p.x, b.p.y, b.p.z, b.c, false, 0.5);
         this.audio.play('splat', 0.5);
-        if (this.director) this.director.hit(z.id, this.myPlace, this.director.damageOf(b.k));
+        if (this.director) this.director.hit(z.id, this.myPlace, this.director.damageOf(b.k, this.myPlace));
         else if (this.act.hits.length < ACT_MAX.hits) this.act.hits.push(z.id);
         return true;
       }
@@ -1128,16 +1220,21 @@ export class Session {
     this.busY += ((front + back + left + right) / 4 - this.busY) * k;
     this.tilt.pitch += (Math.atan2(front - back, 7) - this.tilt.pitch) * k;
     this.tilt.roll += (Math.atan2(right - left, 2.6) - this.tilt.roll) * k;
+    // The weight on the sides leans it; after a roll it lies right over until the boys get it back up.
+    const want = this.run.down > 0 ? Math.sign(this.lean || 1) * 1.45 : null;
+    if (want === null) this.lean = stepLean(this.lean, this.clingLoad(), b, dt, 99).lean;
+    else this.lean += (want - this.lean) * Math.min(1, dt * 5);
     this.shake = Math.max(0, this.shake - dt * 3);
     const jolt = this.shake * Math.sin(this.clock * 40) * 0.12;
     this.busModel.position.set(b.x, this.busY + jolt, b.z);
-    this.busModel.rotation.set(this.tilt.pitch + jolt * 0.2, b.h, this.tilt.roll - b.steer * Math.min(1, Math.abs(b.v) / 20) * 0.08, 'YXZ');
+    this.busModel.rotation.set(this.tilt.pitch + jolt * 0.2, b.h, this.tilt.roll - b.steer * Math.min(1, Math.abs(b.v) / 20) * 0.08 - this.lean, 'YXZ');
     this.busModel.children.forEach((c) => c.name === 'wheel' && (c.rotation.x -= (b.v * dt) / 0.55));
     if (this.steer) this.steer.rotation.z = -b.steer * 3;
+    showBusParts(this.busModel, this.run.up, this.run.comfort);
     this.placeBeans(dt);
     if (this.run.gordie && !this.gordie) {
       // Gordie, fresh out of the cells, stands in the aisle in his orange jumpsuit and fires out of both sides.
-      this.gordie = makeBean('#ff7a1a');
+      this.gordie = makeBean(GORDIE, '#ff7a1a');
       this.gordie.root.position.set(0, BUS.floor, 0.6);
       this.busModel.add(this.gordie.root);
     }
@@ -1162,7 +1259,7 @@ export class Session {
     const swayYaw = Math.sin(this.clock * 0.9 + 1) * 0.04 * sway;
     if (this.foot) {
       // Off the bus, on your own two feet.
-      const y = this.ground(this.foot.x, this.foot.z) + FOOT.eye;
+      const y = this.ground(this.foot.x, this.foot.z) + FOOT.eye + this.footY;
       this.camera.position.set(this.foot.x, y, this.foot.z);
       this.camera.rotation.set(this.pitch, this.footYaw + swayYaw, swayRoll, 'YXZ');
     } else if (!(this.driving && this.chase)) {
@@ -1213,6 +1310,7 @@ export class Session {
       objective: objective(this.run, cp.job, cp.name),
       toStop: this.run.done ? Math.hypot(gate.x - b.x, gate.z - b.z) : Math.max(toGo(this.route, s), Math.hypot(stop.x - b.x, stop.z - b.z) - RUN.parkRadius),
       arrow,
+      lean: this.lean,
       gunner,
       driver: this.driving,
       chase: this.chase,
@@ -1253,11 +1351,12 @@ export class Session {
     if (this.foot) {
       const near = canBoard(this.bus, this.foot.x, this.foot.z);
       if (this.carrying) return near ? 'E / Ⓐ  POUR IT IN THE TANK' : 'Lug the can back to the bus';
-      const s = active ? this.siteNear() : null;
+      const s = active || this.pitOpen() ? this.siteNear() : null;
       if (s?.kind === 'crate') return 'E / Ⓐ  GRAB THE CRATE';
       if (s?.kind === 'pump') return 'E / Ⓐ  GRAB A JERRY CAN';
-      if (s?.kind === 'tee') return 'E / Ⓐ  TEE OFF';
+      if (s?.kind === 'tee') return 'E / Ⓐ  HIT A BUCKET OF BALLS';
       if (s?.kind === 'slot') return 'E / Ⓐ  HIT THE SLOTS';
+      if (s?.kind === 'rod') return 'E / Ⓐ  CAST A LINE';
       if (near) return run.done ? 'E / Ⓐ  CLIMB ABOARD: time to go' : 'E / Ⓐ  CLIMB ABOARD';
       const beacon = this.route.sites.find((q) => q.kind === 'beacon');
       if (active && beacon && Math.hypot(beacon.x - this.foot.x, beacon.z - this.foot.z) < BEACON_R) return 'Cranking the beacon… hold the ring!';
@@ -1266,7 +1365,9 @@ export class Session {
     if (this.driving) return active ? 'Parked. F / Ⓨ to get up, then E / Ⓐ to hop off' : '';
     if (atCab(this.spot)) return this.driver === -1 ? 'F / Ⓨ  DRIVE' : 'Someone’s driving';
     if (atHatch(this.spot)) return this.spot.level ? 'SPACE / Ⓑ  CLIMB DOWN' : 'SPACE / Ⓑ  CLIMB UP TO THE ROOF';
-    const hang = hangAt(this.spot);
+    const hang = hangAt(this.spot, this.run.comfort);
+    if (hang === 'couch') return 'E / Ⓐ  SIT ON THE COUCH';
+    if (hang === 'bbq') return 'E / Ⓐ  GRAB A BURGER';
     if (hang === 'bong') return 'E / Ⓐ  RIP THE BONG';
     if (hang === 'cooler') return 'E / Ⓐ  CRACK A COLD ONE';
     if (hang === 'table') return 'E / Ⓐ  SIT AT THE CARD TABLE';
@@ -1339,6 +1440,29 @@ export class Session {
       this.hud.pop(`CLEARED! +${f.n} 🔩 EACH`, W / 2, H * 0.3, '#3aff8a', true);
       this.audio.play('jingle');
       this.bars = this.route.obstacles;
+    } else if (f.k === 'fish') {
+      if (f.w === this.myPlace) this.hud.pop(`+${f.n} 🔩 FISH`, W / 2, H * 0.62, '#9fe4ff', true);
+    } else if (f.k === 'scrape') {
+      // Wiped off down the side of something solid.
+      if (onScreen) this.hud.pop(`SCRAPED! +${f.n} 🔩`, sx, sy, '#ffe14a', true);
+      this.audio.play('splat', Math.max(0.4, vol));
+      this.api.rumble(0.5, 0.4, 90);
+      this.shake = Math.max(this.shake, 0.4);
+    } else if (f.k === 'roll') {
+      // Over it goes. Three of these and the run is done.
+      const left = CLING.rolls - f.n;
+      this.hud.pop(left > 0 ? `ROLLED! ${left} TO GO` : 'ROLLED!', W / 2, H * 0.34, '#ff5a5a', true);
+      this.hud.say(left > 0 ? `The bus went over! ${left} more roll${left === 1 ? '' : 's'} and that’s the run.` : 'The bus is on its roof.');
+      this.audio.play('boom');
+      this.audio.play('bump', 1);
+      this.api.rumble(1, 1, 600);
+      this.shake = 1.6;
+      this.hurt = Math.max(this.hurt, 0.8);
+      if (this.foot) {
+        // Standing next to a rolling bus is a bad place to be.
+        this.hp -= 20;
+        if (this.hp <= 0) this.knockedOut();
+      }
     } else if (f.k === 'buy') {
       this.audio.play('cash', 0.6);
       if (f.n < UPGRADES.length) this.hud.say(`${UPGRADES[f.n].name.toUpperCase()} fitted to the bus!`);

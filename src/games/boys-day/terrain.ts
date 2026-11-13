@@ -39,6 +39,33 @@ export function noise2(seed: number) {
 }
 
 /** The wild hills at (x, z), for a seed. */
+/** How a world's land is shaped: rolling hills, sharp ridges, long dunes, or next to nothing. */
+export type Shape = 'rolling' | 'ridged' | 'dunes' | 'flat';
+
+/**
+ * The wild hills, by shape. Rolling is the old big-hills-and-lumps; ridged folds the big noise into sharp
+ * ridges and gullies (canyons); dunes lays long ripples over gentler ground; flat is a plain with lumps.
+ */
+export function shapedFor(seed: number, shape: Shape) {
+  const big = noise2(seed ^ 0x51a7);
+  const small = noise2(seed ^ 0x2b0b);
+  const S = TERRAIN.hillSize;
+  if (shape === 'ridged')
+    return (x: number, z: number) =>
+      (1 - Math.abs(big(x / S, z / S) * 2 - 1)) * TERRAIN.hill * 1.9 -
+      TERRAIN.hill * 0.8 +
+      (small(x / TERRAIN.lumpSize, z / TERRAIN.lumpSize) - 0.5) * 2 * TERRAIN.lump;
+  if (shape === 'dunes')
+    return (x: number, z: number) =>
+      (big(x / S, z / S) - 0.5) * 2 * TERRAIN.hill * 0.5 +
+      Math.sin((x + z * 0.35) / 46) * TERRAIN.hill * 0.42 +
+      (small(x / TERRAIN.lumpSize, z / TERRAIN.lumpSize) - 0.5) * 2 * TERRAIN.lump;
+  if (shape === 'flat')
+    return (x: number, z: number) =>
+      (big(x / (S * 1.6), z / (S * 1.6)) - 0.5) * 2 * TERRAIN.hill * 0.3 + (small(x / TERRAIN.lumpSize, z / TERRAIN.lumpSize) - 0.5) * 2 * TERRAIN.lump;
+  return hillsFor(seed);
+}
+
 export function hillsFor(seed: number) {
   const big = noise2(seed ^ 0x51a7);
   const small = noise2(seed ^ 0x2b0b);

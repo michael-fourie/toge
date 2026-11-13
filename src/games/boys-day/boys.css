@@ -713,3 +713,146 @@
   font-style: normal;
   font-weight: 900;
 }
+
+/* Who are you today: the roster. */
+.boys-day .bd-picker {
+  margin: 8px 0;
+}
+.boys-day .bd-picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+.boys-day .bd-btn.pick {
+  width: auto;
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 15px;
+  border-bottom: 5px solid var(--boy, var(--bd-ink));
+  background: #2e2748;
+  color: var(--bd-cream);
+}
+.boys-day .bd-btn.pick.on {
+  background: var(--bd-sun);
+  color: var(--bd-ink);
+}
+
+/* The Hold'em table: a row of seats, the board in the middle. */
+.boys-day .bd-seats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  width: 100%;
+}
+.boys-day .bd-seat {
+  min-width: 118px;
+  padding: 5px 7px;
+  border-radius: 10px;
+  border: 3px solid var(--bd-ink);
+  background: #241e3c;
+  text-align: left;
+}
+.boys-day .bd-seat.turn {
+  border-color: var(--bd-sun);
+  box-shadow: 0 0 14px rgba(255, 210, 63, 0.5);
+}
+.boys-day .bd-seat.out {
+  opacity: 0.45;
+}
+.boys-day .bd-seat-top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+}
+.boys-day .bd-seat-cash {
+  margin-left: auto;
+  color: #7cff5b;
+  font-weight: 800;
+}
+.boys-day .bd-chip {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--bd-sun);
+  color: var(--bd-ink);
+  font-size: 10px;
+  font-weight: 900;
+  text-shadow: none;
+}
+.boys-day .bd-chip.red {
+  background: #ff5a5a;
+  color: #fff;
+}
+.boys-day .bd-seat-note {
+  margin: 2px 0 0;
+  font-size: 11px;
+  opacity: 0.8;
+}
+.boys-day .bd-seat-won {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 900;
+  color: #7cff5b;
+}
+.boys-day .bd-cards-hand.small .bd-pc {
+  width: 34px;
+  height: 48px;
+  font-size: 15px;
+  border-width: 2px;
+  box-shadow: 0 2px 0 var(--bd-ink);
+}
+.boys-day .bd-cards-hand.small {
+  gap: 3px;
+  margin-top: 3px;
+  justify-content: flex-start;
+  min-height: 48px;
+}
+.boys-day .bd-pc.slot {
+  background: rgba(255, 255, 255, 0.07);
+  border-style: dashed;
+  box-shadow: none;
+}
+
+/* How many times the bus has gone over, and a warning while it's up on two wheels. */
+.boys-day .bd-rolls {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  min-height: 15px;
+}
+.boys-day .bd-rolls.warn {
+  color: #ff5a5a;
+  animation: bd-blink 0.4s steps(2) infinite;
+}
+@keyframes bd-blink {
+  to {
+    opacity: 0.35;
+  }
+}
+
+/* The keg's health while the big one is after it. */
+.boys-day .bd-bar.keg .bd-bar-fill {
+  background: linear-gradient(90deg, #ffd23f, #ff9a3f);
+}
+
+/* The store's shelves. */
+.boys-day .bd-shelf {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  opacity: 0.7;
+}
+
+/* The store is a long list: let it scroll inside the panel. */
+.boys-day .bd-cards-body {
+  max-height: min(62vh, 560px);
+  overflow-y: auto;
+  width: 100%;
+}

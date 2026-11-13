@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { art, toonArt } from './assets.ts';
 import { signTexture, toon } from './models.ts';
 import { BIOMES, checkpointOf } from './checkpoints.ts';
 import { groundAt, ROAD, type Hazard, type Prop, type PropKind, type Route } from './route.ts';
@@ -36,6 +37,7 @@ export class World {
     this.ground();
     this.road();
     this.stop();
+    this.pond();
     this.sites();
     this.gate();
     this.props();
@@ -181,8 +183,8 @@ export class World {
     g.position.set(s.bx, s.y, s.bz);
     g.rotation.y = s.bh;
     const look: Record<Job, { wall: string; roof: string; sign: [string, string]; h: number }> = {
-      golf: { wall: '#e8e0c8', roof: '#2e7d4a', sign: ['#1d5c33', '#ffffff'], h: 6 },
-      slots: { wall: '#6b1d4f', roof: '#2a0c22', sign: ['#1a0610', '#ffd23f'], h: 9 },
+      rest: { wall: '#6b1d4f', roof: '#2e7d4a', sign: ['#1a0610', '#ffd23f'], h: 9 },
+      boss: { wall: '#7a5a46', roof: '#3a2a22', sign: ['#2a1008', '#ff6a4a'], h: 10 },
       holdout: { wall: '#9a9ca3', roof: '#55575e', sign: ['#1c2a4a', '#ffffff'], h: 6 },
       scavenge: { wall: '#b8643a', roof: '#4a2a1a', sign: ['#2a1608', '#ffe14a'], h: 7 },
       fuel: { wall: '#e8e8ee', roof: '#c8261c', sign: ['#8a1410', '#ffffff'], h: 5 },
@@ -253,7 +255,7 @@ export class World {
       g.add(m);
       return m;
     };
-    if (job === 'golf') {
+    if (job === 'rest') {
       // Tall net poles, a putting green and a flag.
       for (const x of [-s.w / 2, s.w / 2]) add(new THREE.CylinderGeometry(0.15, 0.15, 14, 6), '#ddd', x, 7, s.d / 2 + 4);
       add(new THREE.PlaneGeometry(s.w, 12), '#ffffff', 0, 7, s.d / 2 + 4, { transparent: true, opacity: 0.25, side: THREE.DoubleSide });
@@ -261,7 +263,7 @@ export class World {
       green.rotation.x = -Math.PI / 2;
       add(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6), '#eee', 8, 1.2, -s.d / 2 - 9);
       add(new THREE.PlaneGeometry(0.9, 0.55), '#ff3030', 8.45, 2.1, -s.d / 2 - 9, { side: THREE.DoubleSide }).rotation.y = Math.PI / 2;
-    } else if (job === 'slots') {
+      // …and the casino's marquee, because a pit stop has everything.
       // Marquee bulbs round the sign, and a giant die on the roof.
       for (let k = 0; k < 24; k++)
         add(new THREE.SphereGeometry(0.16, 8, 6), k % 2 ? '#fff5b0' : '#ff9df0', -s.w * 0.44 + (k * s.w * 0.88) / 23, h + 3.3, -s.d / 2 - 0.1, { emissive: k % 2 ? '#fff0a0' : '#ff60e0', emissiveIntensity: 1.6 });
@@ -301,10 +303,50 @@ export class World {
   }
 
   /** The job's things out in the arena, each under a beam of light so you can find it. */
+  /** A pit stop's pond, with a dock out to the fishing spot. */
+  private pond() {
+    const p = this.route.pond;
+    if (!p) return;
+    const y = this.y(p.x, p.z);
+    const water = new THREE.Mesh(
+      new THREE.CircleGeometry(p.r, 40),
+      // Pond water, pulled toward whatever this world's air is doing.
+      new THREE.MeshBasicMaterial({ color: new THREE.Color('#2f6ea8').lerp(new THREE.Color(this.look.fog[0]), 0.3), transparent: true, opacity: 0.85 }),
+    );
+    water.rotation.x = -Math.PI / 2;
+    water.position.set(p.x, y + 0.06, p.z);
+    this.group.add(water);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(p.r, p.r + 1.6, 40), toon('#c8b27a'));
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.set(p.x, y + 0.04, p.z);
+    rim.receiveShadow = true;
+    this.group.add(rim);
+    // Planks from the bank out to the rod.
+    const rod = this.route.sites.find((s) => s.kind === 'rod');
+    if (!rod) return;
+    const dx = rod.x - p.x;
+    const dz = rod.z - p.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const dock = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.16, len + 3.2), toon('#8a6238'));
+    dock.position.set(p.x + dx / 2, y + 0.35, p.z + dz / 2);
+    dock.rotation.y = Math.atan2(dx, dz);
+    dock.receiveShadow = true;
+    this.group.add(dock);
+    for (let k = 0; k <= 4; k++) {
+      for (const sx of [-0.75, 0.75]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.2, 6), toon('#6a4a32'));
+        const t = k / 4;
+        post.position.set(p.x + dx * t + Math.cos(Math.atan2(dx, dz)) * sx, y - 0.1, p.z + dz * t - Math.sin(Math.atan2(dx, dz)) * sx);
+        this.group.add(post);
+      }
+    }
+  }
+
   private sites() {
     const beamGeo = new THREE.CylinderGeometry(0.12, 0.12, 14, 6, 1, true).translate(0, 7, 0);
     const beam = (color: THREE.Color) => new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
     const wood = toon('#b88a4a');
+    const crateMat = toonArt();
     const strap = toon('#3a3a44');
     const metal = toon('#c9c9c9');
     for (const s of this.route.sites) {
@@ -319,9 +361,13 @@ export class World {
         return m;
       };
       if (s.kind === 'crate') {
-        add(new THREE.BoxGeometry(1.1, 0.9, 1.1), wood, 0, 0.45, 0);
-        add(new THREE.BoxGeometry(1.14, 0.12, 1.14), strap, 0, 0.3, 0);
-        add(new THREE.BoxGeometry(1.14, 0.12, 1.14), strap, 0, 0.65, 0);
+        const crate = art('p_crate');
+        if (crate) add(crate, crateMat, 0, 0, 0);
+        else {
+          add(new THREE.BoxGeometry(1.1, 0.9, 1.1), wood, 0, 0.45, 0);
+          add(new THREE.BoxGeometry(1.14, 0.12, 1.14), strap, 0, 0.3, 0);
+          add(new THREE.BoxGeometry(1.14, 0.12, 1.14), strap, 0, 0.65, 0);
+        }
         g.add(beam(new THREE.Color(1.6, 1.2, 0.3)));
       } else if (s.kind === 'pump') {
         add(new THREE.BoxGeometry(1.2, 2, 0.8), toon('#d8261c'), 0, 1, 0);
@@ -351,6 +397,28 @@ export class World {
         tag.scale.set(2.4, 0.6, 1);
         tag.position.y = 2.4;
         g.add(tag, beam(new THREE.Color(0.5, 1.8, 0.6)));
+      } else if (s.kind === 'rod') {
+        // The end of the dock: a bucket, a spare rod and a folding chair.
+        g.rotation.y = this.route.stop.bh;
+        add(new THREE.CylinderGeometry(0.3, 0.26, 0.5, 10), toon('#3a7ad8'), -0.7, 0.25, 0.3);
+        add(new THREE.CylinderGeometry(0.03, 0.02, 2.6, 5), toon('#6a4a32'), 0.5, 0.9, 0).rotation.set(0, 0, -0.5);
+        add(new THREE.BoxGeometry(0.7, 0.08, 0.7), toon('#c83a3a'), 0.9, 0.45, 0.6);
+        add(new THREE.BoxGeometry(0.7, 0.7, 0.08), toon('#c83a3a'), 0.9, 0.8, 0.95);
+        const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('FISH', 'rgba(0,0,0,0)', '#9fe4ff', 256, 64, 'bold 44px system-ui'), transparent: true, depthTest: false }));
+        tag.scale.set(2.2, 0.55, 1);
+        tag.position.y = 2.3;
+        g.add(tag, beam(new THREE.Color(0.4, 1.3, 1.8)));
+      } else if (s.kind === 'keg') {
+        // The keg the big one wants.
+        g.rotation.y = 0;
+        add(new THREE.CylinderGeometry(1, 1, 1.9, 16), toon('#c9c9d2'), 0, 0.95, 0);
+        add(new THREE.CylinderGeometry(1.06, 1.06, 0.18, 16), toon('#8a8a96'), 0, 0.5, 0);
+        add(new THREE.CylinderGeometry(1.06, 1.06, 0.18, 16), toon('#8a8a96'), 0, 1.4, 0);
+        add(new THREE.CylinderGeometry(0.22, 0.22, 0.4, 8), toon('#ffd23f', { emissive: '#ffd23f', emissiveIntensity: 0.6 }), 0, 2.05, 0);
+        const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('THE KEG', 'rgba(0,0,0,0)', '#ffe9a0', 256, 64, 'bold 44px system-ui'), transparent: true, depthTest: false }));
+        tag.scale.set(2.8, 0.7, 1);
+        tag.position.y = 3.2;
+        g.add(tag, beam(new THREE.Color(1.8, 1.4, 0.3)));
       } else {
         g.rotation.y = this.route.stop.bh;
         add(new THREE.BoxGeometry(1.1, 2, 0.9), toon('#6b1d4f'), 0, 1, 0);
@@ -428,7 +496,8 @@ export class World {
     const parts = (list: Prop[], geo: THREE.BufferGeometry, color: string | ((p: Prop) => string), place: (p: Prop, o: THREE.Object3D) => void, glow = 0) => {
       if (!list.length) return;
       // `glow`: an unlit material brighter than white, so it blooms (mushroom caps, crystals).
-      const im = new THREE.InstancedMesh(geo, glow ? new THREE.MeshBasicMaterial({ color: '#ffffff' }) : toon('#ffffff'), list.length);
+      // A Blender model brings its own vertex colours (times the tint).
+      const im = new THREE.InstancedMesh(geo, glow ? new THREE.MeshBasicMaterial({ color: '#ffffff' }) : toon('#ffffff', { vertexColors: geo.hasAttribute('color') }), list.length);
       im.castShadow = !glow;
       list.forEach((p, i) => {
         d.position.set(p.x, 0, p.z);
@@ -444,21 +513,35 @@ export class World {
     };
     const pick = <T>(a: readonly T[], k: number) => a[Math.floor(k * a.length) % a.length];
     const trees = by.get('tree') ?? [];
-    parts(trees, new THREE.CylinderGeometry(0.25, 0.35, 2.4, 6), '#7a5233', (p, o) => {
-      o.position.y = 1.2;
-      o.scale.setScalar(0.8 + p.s * 0.6);
-    });
-    parts(trees, new THREE.IcosahedronGeometry(2, 1), (p) => pick(this.look.leaves, p.c), (p, o) => {
-      // Maples in autumn: it's Ontario.
-      o.position.y = 3.2 + p.s * 1.2;
-      o.scale.setScalar(0.9 + p.s * 0.7);
-    });
     const pines = by.get('pine') ?? [];
-    parts(pines, new THREE.CylinderGeometry(0.2, 0.3, 1.6, 6), '#6a4a2e', (_, o) => (o.position.y = 0.8));
-    parts(pines, new THREE.ConeGeometry(1.7, 5, 7), (p) => pick(this.look.pines, p.c), (p, o) => {
-      o.position.y = 3.6 + p.s;
-      o.scale.setScalar(0.9 + p.s * 0.5);
-    });
+    const treeTrunk = art('p_tree_trunk');
+    const treeTop = art('p_tree_top');
+    const pineTrunk = art('p_pine_trunk');
+    const pineTop = art('p_pine_top');
+    if (treeTrunk && treeTop && pineTrunk && pineTop) {
+      // The Blender trees: a trunk in its own colours and a crown tinted by the world (maples in autumn: it's Ontario).
+      const tree = (p: Prop, o: THREE.Object3D) => o.scale.setScalar(0.75 + p.s * 0.5);
+      parts(trees, treeTrunk, '#ffffff', tree);
+      parts(trees, treeTop, (p) => pick(this.look.leaves, p.c), tree);
+      const pine = (p: Prop, o: THREE.Object3D) => o.scale.setScalar(0.8 + p.s * 0.35);
+      parts(pines, pineTrunk, '#ffffff', pine);
+      parts(pines, pineTop, (p) => pick(this.look.pines, p.c), pine);
+    } else {
+      parts(trees, new THREE.CylinderGeometry(0.25, 0.35, 2.4, 6), '#7a5233', (p, o) => {
+        o.position.y = 1.2;
+        o.scale.setScalar(0.8 + p.s * 0.6);
+      });
+      parts(trees, new THREE.IcosahedronGeometry(2, 1), (p) => pick(this.look.leaves, p.c), (p, o) => {
+        // Maples in autumn: it's Ontario.
+        o.position.y = 3.2 + p.s * 1.2;
+        o.scale.setScalar(0.9 + p.s * 0.7);
+      });
+      parts(pines, new THREE.CylinderGeometry(0.2, 0.3, 1.6, 6), '#6a4a2e', (_, o) => (o.position.y = 0.8));
+      parts(pines, new THREE.ConeGeometry(1.7, 5, 7), (p) => pick(this.look.pines, p.c), (p, o) => {
+        o.position.y = 3.6 + p.s;
+        o.scale.setScalar(0.9 + p.s * 0.5);
+      });
+    }
     const houses = by.get('house') ?? [];
     parts(houses, new THREE.BoxGeometry(9, 5 + FOOTING, 7), (p) => pick(['#d8cfb8', '#b85c4a', '#e8dcc0', '#8fa6b5', '#c9a77a'], p.c), (_, o) => (o.position.y = (5 - FOOTING) / 2));
     const roofGeo = new THREE.CylinderGeometry(0.01, 5.6, 3, 4, 1);
@@ -531,7 +614,7 @@ export class World {
       c.translate(0, y, 0);
       return c;
     };
-    const deadGeo = mergeGeometries([
+    const deadGeo = art('p_dead') ?? mergeGeometries([
       new THREE.CylinderGeometry(0.16, 0.32, 4.4, 6).translate(0, 2.2, 0),
       branch(1.8, 0.2, 0.9, 2.6),
       branch(1.5, -0.3, -1.0, 3.1),
@@ -553,14 +636,14 @@ export class World {
     }
     // Cacti: a trunk with two arms.
     const arm = (side: number, y: number) => mergeGeometries([new THREE.CylinderGeometry(0.16, 0.16, 0.9, 7).rotateZ(Math.PI / 2).translate(side * 0.55, y, 0), new THREE.CylinderGeometry(0.16, 0.16, 1.1, 7).translate(side * 0.95, y + 0.5, 0)]);
-    parts(by.get('cactus') ?? [], mergeGeometries([new THREE.CylinderGeometry(0.28, 0.3, 3.2, 8).translate(0, 1.6, 0), new THREE.SphereGeometry(0.28, 8, 6).translate(0, 3.2, 0), arm(1, 1.4), arm(-1, 2)]), (p) => pick(['#3f8a4a', '#4f9a52', '#3a7a56'], p.c), (p, o) => o.scale.setScalar(0.8 + p.s * 0.8));
+    parts(by.get('cactus') ?? [], art('p_cactus') ?? mergeGeometries([new THREE.CylinderGeometry(0.28, 0.3, 3.2, 8).translate(0, 1.6, 0), new THREE.SphereGeometry(0.28, 8, 6).translate(0, 3.2, 0), arm(1, 1.4), arm(-1, 2)]), (p) => pick(['#3f8a4a', '#4f9a52', '#3a7a56'], p.c), (p, o) => o.scale.setScalar(0.8 + p.s * 0.8));
     // Giant mushrooms: a pale stem under a cap that glows.
     const shrooms = by.get('shroom') ?? [];
     parts(shrooms, new THREE.CylinderGeometry(0.22, 0.4, 3, 7).translate(0, 1.5, 0), '#d8d0e8', (p, o) => o.scale.setScalar(0.7 + p.s * 1.6));
     parts(shrooms, new THREE.SphereGeometry(1.5, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.6, 1).translate(0, 2.9, 0), (p) => pick(['#ff4ad0', '#4ad8ff', '#a86bff', '#7cff9a'], p.c), (p, o) => o.scale.setScalar(0.7 + p.s * 1.6), 1.5);
     // Crystals: leaning shards that glow.
     parts(by.get('crystal') ?? [], mergeGeometries([new THREE.OctahedronGeometry(0.8).scale(0.6, 2.6, 0.6).translate(0, 1.6, 0), new THREE.OctahedronGeometry(0.6).scale(0.5, 2, 0.5).rotateZ(0.5).translate(0.7, 1, 0.2), new THREE.OctahedronGeometry(0.5).scale(0.5, 1.6, 0.5).rotateZ(-0.6).translate(-0.6, 0.8, -0.3)]), (p) => pick(['#4affea', '#6ab8ff', '#b88aff'], p.c), (p, o) => o.scale.setScalar(0.8 + p.s * 1.4), 1.25);
-    parts(by.get('rock') ?? [], new THREE.DodecahedronGeometry(1.2, 0).scale(1, 0.7, 0.9).translate(0, 0.5, 0), (p) => pick(['#7a7a86', '#6a6a74', '#8a847a'], p.c), (p, o) => o.scale.setScalar(0.7 + p.s * 0.9));
+    parts(by.get('rock') ?? [], art('p_rock') ?? new THREE.DodecahedronGeometry(1.2, 0).scale(1, 0.7, 0.9).translate(0, 0.5, 0), (p) => pick(['#7a7a86', '#6a6a74', '#8a847a'], p.c), (p, o) => o.scale.setScalar(0.7 + p.s * 0.9));
     // Reeds: a clump of stalks with dark heads.
     const stalk = (x: number, z: number, hgt: number) => mergeGeometries([new THREE.CylinderGeometry(0.03, 0.04, hgt, 4).translate(x, hgt / 2, z), new THREE.CylinderGeometry(0.07, 0.07, 0.35, 5).translate(x, hgt, z)]);
     parts(by.get('reed') ?? [], mergeGeometries([stalk(0, 0, 2.2), stalk(0.3, 0.2, 1.8), stalk(-0.25, 0.3, 2), stalk(0.1, -0.3, 1.6), stalk(-0.3, -0.2, 1.9)]), (p) => pick(['#6a7a3a', '#5a6a34', '#7a7a40'], p.c), (p, o) => o.scale.setScalar(0.8 + p.s * 0.6));
@@ -662,14 +745,16 @@ export class World {
       const g = new THREE.Group();
       if (p.kind === 'gas') {
         // A jerry can: a red block with a handle and a spout, and a ⛽ tag.
-        g.add(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.78, 0.34), can));
+        const jerry = art('p_jerry');
+        if (jerry) g.add(new THREE.Mesh(jerry, toonArt('#ffffff', { emissive: '#601000', emissiveIntensity: 0.4 })));
+        else g.add(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.78, 0.34), can));
         const handle = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.04, 6, 12, Math.PI), metal);
         handle.position.set(-0.08, 0.39, 0);
-        g.add(handle);
+        if (!jerry) g.add(handle);
         const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.3, 8), metal);
         spout.position.set(0.22, 0.5, 0);
         spout.rotation.z = -0.6;
-        g.add(spout);
+        if (!jerry) g.add(spout);
         const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('GAS', 'rgba(0,0,0,0)', '#fff6a0', 128, 64, 'bold 44px system-ui, sans-serif') }));
         label.scale.set(0.9, 0.45, 1);
         label.position.set(0, 0.75, 0);
