@@ -5,7 +5,8 @@
 // On foot: WASD or left stick walk round the bus, Space or Ⓑ at the hatch climb up or down,
 //          mouse or right stick aim, click or RT fire, R or Ⓧ reload, V / right-click or RB swing the club.
 // Driver:  mouse or right stick look round, C or View the chase camera.
-// Anyone:  F or Ⓨ swap seats, E or Ⓐ use (the stop's minigame), Esc or Start pause.
+// Anyone:  F or Ⓨ the wheel, E or Ⓐ use (hop off or on, crates, the pump, minigames, the bong, the cooler, the
+//          card table), B or D-pad up the store, Q or D-pad right the next gun, G or D-pad down a grenade, Esc or Start pause.
 
 import type { GameApi } from '../types.ts';
 
@@ -31,6 +32,10 @@ export interface Frame {
   pause: boolean;
   /** The driver's camera: in the cab or chasing the bus. */
   view: boolean;
+  /** The store (B / D-pad up), the next gun (Q / D-pad right), a grenade (G / D-pad down). */
+  shop: boolean;
+  gun: boolean;
+  nade: boolean;
   /** Minigames: the big button (Space, click, Ⓐ), and close (Ⓑ; Esc is handled by the session). */
   confirm: boolean;
   /** Minigames: the big button held (wind up a golf swing). */
@@ -140,6 +145,9 @@ export class Input {
       honk: this.any(['KeyH']) || !!pd[4],
       pause: !!pp[9],
       view: this.any(['KeyC'], this.pressed) || !!pp[8],
+      shop: this.any(['KeyB'], this.pressed) || !!pp[12],
+      gun: this.any(['KeyQ'], this.pressed) || !!pp[15],
+      nade: this.any(['KeyG'], this.pressed) || !!pp[13],
       confirm: this.any(['Space', 'Enter'], this.pressed) || this.click || !!pp[0],
       charge: this.any(['Space', 'Enter']) || this.mouse || !!pd[0],
       back: !!pp[1],

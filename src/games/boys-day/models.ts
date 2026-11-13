@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import type { ZView } from './director.ts';
-import { BUS, DRIVER, WALK, ZOMBIE } from './rules.ts';
+import { HANG, BUS, DRIVER, WALK, ZOMBIE } from './rules.ts';
 
 /** Paint colours: one per seat-order player, then Gordie's. */
 export const PAINT = ['#ff3d7f', '#2fd3ff', '#ffd23f', '#7cff5b', '#b06bff', '#ff8a2a', '#ffffff', '#00e0b0', '#ff2020'];
@@ -175,6 +175,39 @@ export function makeBus(): THREE.Group {
   const cabin = new THREE.PointLight('#ffe2b0', 2.5, 8, 2);
   cabin.position.set(0, top - 0.4, 0);
   g.add(cabin);
+  // Hanging out: the bong and the cooler on the back shelf, the card table by a bench.
+  {
+    const glass = toon('#58d0ff', { transparent: true, opacity: 0.75, emissive: '#1a6a8a', emissiveIntensity: 0.6 });
+    const b = HANG.bong;
+    g.add(box(0.5, 0.06, 0.5, toon('#5a4030'), b.side, floor + 0.6, -b.along - 0.5));
+    const base = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), glass);
+    base.position.set(b.side, floor + 0.76, -b.along - 0.5);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.5, 10), glass);
+    neck.position.set(b.side, floor + 1.08, -b.along - 0.5);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.22, 6), glass);
+    stem.position.set(b.side - 0.12, floor + 0.88, -b.along - 0.5);
+    stem.rotation.z = 0.9;
+    g.add(base, neck, stem);
+    const c = HANG.cooler;
+    g.add(box(0.6, 0.4, 0.42, toon('#2e86de'), c.side, floor + 0.2, -c.along - 0.5));
+    g.add(box(0.62, 0.08, 0.44, toon('#f4f4f4'), c.side, floor + 0.44, -c.along - 0.5));
+    for (const k of [-1, 0, 1]) {
+      const can = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.13, 8), toon('#e8c23a'));
+      can.position.set(c.side + k * 0.12, floor + 0.55, -c.along - 0.5);
+      g.add(can);
+    }
+    const t = HANG.table;
+    g.add(box(0.62, 0.05, 0.9, toon('#1f6b3a'), t.side + 0.25, floor + 0.78, -t.along));
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.78, 8), toon('#3a3a44'));
+    leg.position.set(t.side + 0.25, floor + 0.39, -t.along);
+    g.add(leg);
+    for (const [dx, dz, col] of [[0.18, -0.2, '#ff3d3d'], [0.32, 0.1, '#ffffff'], [0.2, 0.25, '#2fd3ff']] as const) {
+      const chip = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.04, 10), toon(col));
+      chip.position.set(t.side + dx, floor + 0.83, -t.along + dz);
+      g.add(chip);
+    }
+    g.add(box(0.1, 0.006, 0.14, toon('#ffffff'), t.side + 0.3, floor + 0.81, -t.along - 0.2));
+  }
   const ram = box(W + 0.3, 0.7, 0.25, toon('#b98a52'), 0, 0.6, -L / 2 - 0.35);
   ram.rotation.x = -0.35;
   g.add(ram);
@@ -202,6 +235,8 @@ export interface Bean {
   /** Turns with the aim (yaw); the gun tilts with pitch. */
   aim: THREE.Group;
   gun: THREE.Group;
+  /** The jerry can they're lugging (shown instead of the gun). */
+  can: THREE.Mesh;
 }
 
 export function makeBean(color: string, driver = false): Bean {
@@ -231,7 +266,10 @@ export function makeBean(color: string, driver = false): Bean {
   gun.position.set(0.28, 0.85, -0.3);
   gun.scale.setScalar(0.8);
   if (!driver) aim.add(gun);
-  return { root, aim, gun };
+  const can = box(0.4, 0.5, 0.24, toon('#d8261c'), 0, 0.75, -0.42);
+  can.visible = false;
+  aim.add(can);
+  return { root, aim, gun, can };
 }
 
 /** A paintball marker: body, barrel, a hopper on top. Points down -Z. */
@@ -250,6 +288,53 @@ export function makeMarker(color: string): THREE.Group {
   const grip = box(0.08, 0.18, 0.08, dark, 0, -0.15, 0.1);
   grip.rotation.x = 0.3;
   g.add(grip);
+  return g;
+}
+
+/** Each gun in your hands: the marker, rebuilt a little (GUNS' order). */
+export function makeGun(k: number, color: string): THREE.Group {
+  const g = makeMarker(color);
+  const dark = toon('#26272e');
+  if (k === 1) {
+    // Shotty: two fat barrels and a pump.
+    for (const x of [-0.045, 0.045]) {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.55, 8), dark);
+      b.rotation.x = Math.PI / 2;
+      b.position.set(x, 0.03, -0.45);
+      g.add(b);
+    }
+    g.add(box(0.16, 0.08, 0.2, toon('#8a5a2a'), 0, -0.05, -0.4));
+  } else if (k === 2) {
+    // Minigun: a ring of barrels and a drum.
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.7, 6), dark);
+      b.rotation.x = Math.PI / 2;
+      b.position.set(Math.cos(a) * 0.07, 0.03 + Math.sin(a) * 0.07, -0.55);
+      g.add(b);
+    }
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.16, 14), toon(color, { transparent: true, opacity: 0.85 }));
+    drum.rotation.z = Math.PI / 2;
+    drum.position.set(0, -0.12, 0);
+    g.add(drum);
+  } else if (k === 3) {
+    // Long Tom: a long barrel and a scope.
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.1, 8), dark);
+    b.rotation.x = Math.PI / 2;
+    b.position.set(0, 0.03, -0.75);
+    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.34, 10), toon('#3a3d4a'));
+    scope.rotation.x = Math.PI / 2;
+    scope.position.set(0, 0.36, -0.05);
+    g.add(b, scope);
+  } else if (k === 4) {
+    // Balloon launcher: a wide tube with a balloon in its mouth.
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.09, 0.6, 12), toon('#3a5a8a'));
+    tube.rotation.x = Math.PI / 2;
+    tube.position.set(0, 0.03, -0.45);
+    const balloon = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), toon(color));
+    balloon.position.set(0, 0.03, -0.78);
+    g.add(tube, balloon);
+  }
   return g;
 }
 
@@ -461,7 +546,12 @@ interface Ball {
   c: number;
   /** Mine: tested against zombies and pickups. */
   mine: boolean;
+  /** How hard gravity pulls it (1: a paintball), how big it's drawn, and what fired it (a GUNS index; -1: a grenade). */
+  g: number;
+  size: number;
+  k: number;
 }
+export type { Ball };
 
 export class Paint {
   readonly group = new THREE.Group();
@@ -489,9 +579,9 @@ export class Paint {
     this.group.add(this.ballMesh, this.splatMesh);
   }
 
-  fire(p: THREE.Vector3, v: THREE.Vector3, c: number, mine: boolean, life: number) {
+  fire(p: THREE.Vector3, v: THREE.Vector3, c: number, mine: boolean, life: number, g = 1, size = 1, k = 0) {
     if (this.balls.length > 380) this.balls.shift();
-    this.balls.push({ p: p.clone(), v: v.clone(), life, c, mine });
+    this.balls.push({ p: p.clone(), v: v.clone(), life, c, mine, g, size, k });
   }
 
   /** A splat on the ground (`up`) or a burst in the air (a hit). */
@@ -500,13 +590,16 @@ export class Paint {
     this.splats.push({ x, y, z, c, age: 0, r, nx: Math.random() * 6.28, nz: 0, up });
   }
 
-  /** Moves the balls; `test` is asked about each of mine and returns true when it hit something. */
-  update(dt: number, gravity: number, test: (b: Ball, from: THREE.Vector3) => boolean, ground: (x: number, z: number) => number) {
+  /**
+   * Moves the balls; `test` is asked about each of mine and returns true when it hit something; `land` is told when
+   * one of mine comes down on the ground (a grenade or a balloon bursts there).
+   */
+  update(dt: number, gravity: number, test: (b: Ball, from: THREE.Vector3) => boolean, ground: (x: number, z: number) => number, land?: (b: Ball) => void) {
     const from = new THREE.Vector3();
     for (let i = this.balls.length - 1; i >= 0; i--) {
       const b = this.balls[i];
       from.copy(b.p);
-      b.v.y -= gravity * dt;
+      b.v.y -= gravity * b.g * dt;
       b.p.addScaledVector(b.v, dt);
       b.life -= dt;
       let gone = b.life <= 0;
@@ -514,6 +607,7 @@ export class Paint {
       const gy = gone ? 0 : ground(b.p.x, b.p.z);
       if (!gone && b.p.y <= gy + 0.02) {
         this.splat(b.p.x, gy + 0.05, b.p.z, b.c, true, 0.45 + Math.random() * 0.3);
+        if (b.mine) land?.(b);
         gone = true;
       }
       if (gone) this.balls.splice(i, 1);
@@ -523,7 +617,7 @@ export class Paint {
     this.balls.forEach((b, i) => {
       d.position.copy(b.p);
       d.rotation.set(0, 0, 0);
-      d.scale.setScalar(1);
+      d.scale.setScalar(b.size);
       d.updateMatrix();
       this.ballMesh.setMatrixAt(i, d.matrix);
       this.ballMesh.setColorAt(i, this.col.set(paintOf(b.c)));

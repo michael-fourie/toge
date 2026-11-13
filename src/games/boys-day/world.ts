@@ -1,12 +1,15 @@
-// The run's world, built from the Route: sky, the hilly ground (from `groundAt`, so it matches the bus's physics),
-// the road ribbon on it, each stop's building with its sign, the hazards on the road, and the scenery (instanced per
-// kind, so a few hundred trees are a handful of draw calls). Pickups bob and spin.
+// One leg's world, built from its Route in its biome's colours (sky.ts `Look`): the hilly ground (from `groundAt`, so
+// it matches the bus's physics), the road ribbon on it, the checkpoint (its building and sign, the arena's edge, the
+// job's things: crates, the pump, the beacon, the tee box, the slot machine), the gate to the next leg, the hazards on
+// the road, and the scenery (instanced per kind, so a few hundred trees are a handful of draw calls).
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { signTexture, toon } from './models.ts';
-import { groundAt, ROAD, type Hazard, type Prop, type PropKind, type Route, type Stop } from './route.ts';
-import { STOP_INFO } from './rules.ts';
+import { BIOMES, checkpointOf } from './checkpoints.ts';
+import { groundAt, ROAD, type Hazard, type Prop, type PropKind, type Route } from './route.ts';
+import { FOOT, type Job } from './rules.ts';
+import { lookFor, type Look } from './sky.ts';
 
 /** The ground grid's spacing (m), how far the road ribbon sits above the ground, and how far buildings run on down
  *  into a slope. */
@@ -17,16 +20,24 @@ const FOOTING = 6;
 export class World {
   readonly group = new THREE.Group();
   private pickupMeshes = new Map<number, THREE.Object3D>();
-  private markers: THREE.Mesh[] = [];
+  private siteMeshes = new Map<number, THREE.Object3D>();
+  private ring!: THREE.Mesh;
+  private beacon: { ring: THREE.Mesh; lamp: THREE.Mesh } | null = null;
+  private portal!: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  private bars!: THREE.Group;
+  readonly look: Look;
   private disposables: { dispose(): void }[] = [];
   /** Every jack-o'-lantern's transform (the stops' and the scenery's), built as one instanced set at the end. */
   private pumpkins: THREE.Matrix4[] = [];
   private y = (x: number, z: number) => groundAt(this.route, x, z);
 
   constructor(readonly route: Route) {
+    this.look = lookFor(route.cp.biome, route.cp.twist);
     this.ground();
     this.road();
-    for (const s of route.stops) this.stop(s);
+    this.stop();
+    this.sites();
+    this.gate();
     this.props();
     this.hazards();
     this.pickups();
@@ -37,86 +48,6 @@ export class World {
       const mat = m.material as THREE.Material | THREE.Material[] | undefined;
       if (mat) for (const x of Array.isArray(mat) ? mat : [mat]) this.disposables.push(x);
     });
-  }
-
-  /**
-   * The sky and lights: a moonlit apocalypse night, spooky but still cartoon. Returns the per-frame update (the moon
-   * rides with the camera) and `flash`, the lightning.
-   */
-  static dress(scene: THREE.Scene) {
-    const c = document.createElement('canvas');
-    c.width = 4;
-    c.height = 256;
-    const g = c.getContext('2d')!;
-    const grad = g.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, '#07061a');
-    grad.addColorStop(0.42, '#1d1440');
-    grad.addColorStop(0.62, '#4b2f5e');
-    grad.addColorStop(0.74, '#3a5440');
-    grad.addColorStop(1, '#1a2418');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 4, 256);
-    const sky = new THREE.CanvasTexture(c);
-    sky.colorSpace = THREE.SRGBColorSpace;
-    scene.background = sky;
-    scene.fog = new THREE.Fog('#241c3c', 45, 260);
-    const hemi = new THREE.HemisphereLight('#8f8fd8', '#26301f', 1.15);
-    scene.add(hemi);
-    // The moonlight casts shadows in a box round the camera (it follows you down the road).
-    const moonLight = new THREE.DirectionalLight('#c4ccff', 1.5);
-    const MOON = { x: -60, y: 90, z: -40, box: 55 };
-    moonLight.castShadow = true;
-    moonLight.shadow.mapSize.set(2048, 2048);
-    Object.assign(moonLight.shadow.camera, { left: -MOON.box, right: MOON.box, top: MOON.box, bottom: -MOON.box, near: 10, far: 260 });
-    moonLight.shadow.bias = -0.0008;
-    moonLight.shadow.normalBias = 0.04;
-    scene.add(moonLight, moonLight.target);
-    // The moon: a big glowing disc that stays in the same spot of sky wherever you drive.
-    const mc = document.createElement('canvas');
-    mc.width = mc.height = 256;
-    const mg = mc.getContext('2d')!;
-    const halo = mg.createRadialGradient(128, 128, 40, 128, 128, 128);
-    halo.addColorStop(0, 'rgba(230,235,255,0.55)');
-    halo.addColorStop(1, 'rgba(230,235,255,0)');
-    mg.fillStyle = halo;
-    mg.fillRect(0, 0, 256, 256);
-    mg.fillStyle = '#eef0ff';
-    mg.beginPath();
-    mg.arc(128, 128, 52, 0, 7);
-    mg.fill();
-    mg.fillStyle = 'rgba(160,165,200,0.45)';
-    for (const [x, y, r] of [[110, 112, 12], [146, 140, 9], [132, 100, 6], [120, 150, 7]]) {
-      mg.beginPath();
-      mg.arc(x, y, r, 0, 7);
-      mg.fill();
-    }
-    const moonTex = new THREE.CanvasTexture(mc);
-    moonTex.colorSpace = THREE.SRGBColorSpace;
-    const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonTex, fog: false, depthWrite: false }));
-    moon.scale.setScalar(120);
-    scene.add(moon);
-    let flashT = 0;
-    const at = new THREE.Vector3();
-    return {
-      update(camera: THREE.Camera, dt: number) {
-        moon.position.set(camera.position.x - 260, 170, camera.position.z - 380);
-        const c = camera.getWorldPosition(at);
-        moonLight.target.position.copy(c);
-        moonLight.position.set(c.x + MOON.x, c.y + MOON.y, c.z + MOON.z);
-        // Lightning: a double flicker that fades.
-        if (flashT > 0) flashT = Math.max(0, flashT - dt);
-        const k = flashT > 0.32 ? 1 : flashT > 0.22 ? 0.2 : flashT > 0.12 ? 0.8 : flashT / 0.12;
-        hemi.intensity = 1.15 + k * 3.5;
-      },
-      flash() {
-        flashT = 0.45;
-      },
-      dispose() {
-        sky.dispose();
-        moonTex.dispose();
-        moon.material.dispose();
-      },
-    };
   }
 
   /** The ground: a grid over the map, each vertex lifted to `groundAt` and tinted by height (dark hollows, pale
@@ -147,16 +78,20 @@ export class World {
     geo.translate((min.x + max.x) / 2, 0, (min.z + max.z) / 2);
     const pos = geo.attributes.position as THREE.BufferAttribute;
     const colors = new Float32Array(pos.count * 3);
-    const low = new THREE.Color('#2c4a2c');
-    const high = new THREE.Color('#7d9a55');
-    const dirt = new THREE.Color('#6b5a40');
+    const low = new THREE.Color(this.look.ground[0]);
+    const high = new THREE.Color(this.look.ground[1]);
+    const dirt = new THREE.Color(this.look.ground[2]);
     const col = new THREE.Color();
+    let lo = Infinity;
+    let hi = -Infinity;
     for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const z = pos.getZ(i);
-      const y = this.y(x, z);
+      const y = this.y(pos.getX(i), pos.getZ(i));
       pos.setY(i, y);
-      col.copy(low).lerp(high, Math.max(0, Math.min(1, (y + 18) / 40)));
+      lo = Math.min(lo, y);
+      hi = Math.max(hi, y);
+    }
+    for (let i = 0; i < pos.count; i++) {
+      col.copy(low).lerp(high, (pos.getY(i) - lo) / Math.max(8, hi - lo));
       colors.set([col.r, col.g, col.b], i * 3);
     }
     // Worn dirt shoulders: tint the vertices close to the road.
@@ -238,20 +173,23 @@ export class World {
     this.disposables.push(tex);
   }
 
-  /** Each stop: a building in its own colours, a big sign, and a few props saying what it is. */
-  private stop(s: Stop) {
+  /** The checkpoint: a building in its job's colours with the place's name up in lights, and the arena's edge. */
+  private stop() {
+    const s = this.route.stop;
+    const cp = this.route.cp;
     const g = new THREE.Group();
     g.position.set(s.bx, s.y, s.bz);
     g.rotation.y = s.bh;
-    const look: Record<Stop['kind'], { wall: string; roof: string; sign: [string, string] }> = {
-      arena: { wall: '#3d5a3d', roof: '#26372a', sign: ['#111', '#7cff5b'] },
-      golf: { wall: '#e8e0c8', roof: '#2e7d4a', sign: ['#1d5c33', '#ffffff'] },
-      casino: { wall: '#6b1d4f', roof: '#2a0c22', sign: ['#1a0610', '#ffd23f'] },
-      jail: { wall: '#9a9ca3', roof: '#55575e', sign: ['#1c2a4a', '#ffffff'] },
-      home: { wall: '#c9b79a', roof: '#4a3a3a', sign: ['#3a2a1a', '#ffe6a0'] },
+    const look: Record<Job, { wall: string; roof: string; sign: [string, string]; h: number }> = {
+      golf: { wall: '#e8e0c8', roof: '#2e7d4a', sign: ['#1d5c33', '#ffffff'], h: 6 },
+      slots: { wall: '#6b1d4f', roof: '#2a0c22', sign: ['#1a0610', '#ffd23f'], h: 9 },
+      holdout: { wall: '#9a9ca3', roof: '#55575e', sign: ['#1c2a4a', '#ffffff'], h: 6 },
+      scavenge: { wall: '#b8643a', roof: '#4a2a1a', sign: ['#2a1608', '#ffe14a'], h: 7 },
+      fuel: { wall: '#e8e8ee', roof: '#c8261c', sign: ['#8a1410', '#ffffff'], h: 5 },
+      beacon: { wall: '#4a5a6a', roof: '#26303a', sign: ['#101820', '#7cf7ff'], h: 6 },
     };
-    const L = look[s.kind];
-    const h = s.kind === 'casino' ? 9 : s.kind === 'home' ? 7 : 6;
+    const L = look[cp.job];
+    const h = L.h;
     // The walls run on down into the hillside (the ground round a stop isn't quite flat).
     const body = new THREE.Mesh(new THREE.BoxGeometry(s.w, h + FOOTING, s.d), toon(L.wall));
     body.position.y = (h - FOOTING) / 2;
@@ -260,9 +198,9 @@ export class World {
     const roof = new THREE.Mesh(new THREE.BoxGeometry(s.w + 0.6, 0.5, s.d + 0.6), toon(L.roof));
     roof.position.y = h + 0.25;
     g.add(roof);
-    // The front faces the road (the group's -Z).
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(s.w * 0.8, 2.2), new THREE.MeshBasicMaterial({ map: signTexture(STOP_INFO[s.kind].sign, L.sign[0], L.sign[1]) }));
-    sign.position.set(0, h + 1.8, -s.d / 2);
+    // The front faces the road (the group's -Z). The sign's brighter than white, so it glows.
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(s.w * 0.92, 2.4), new THREE.MeshBasicMaterial({ map: signTexture(cp.name.toUpperCase(), L.sign[0], L.sign[1], 1024, 128, 'bold 60px system-ui, sans-serif'), color: new THREE.Color(1.5, 1.5, 1.5) }));
+    sign.position.set(0, h + 1.9, -s.d / 2);
     sign.rotation.y = Math.PI;
     g.add(sign);
     const post = toon('#555');
@@ -275,8 +213,8 @@ export class World {
     door.position.set(0, 1.6, -s.d / 2 - 0.05);
     g.add(door);
     // Lit windows (somebody left the lights on before it all went wrong), and a jack-o'-lantern each side of the door.
-    const lit = toon('#ffcf6a', { emissive: '#ffb340', emissiveIntensity: 0.9 });
-    for (const x of [-s.w * 0.32, -s.w * 0.16, s.w * 0.16, s.w * 0.32]) {
+    const lit = toon('#ffcf6a', { emissive: '#ffb340', emissiveIntensity: 1.3 });
+    for (const x of [-s.w * 0.36, -s.w * 0.2, s.w * 0.2, s.w * 0.36]) {
       const w = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.3), lit);
       w.position.set(x, h * 0.55, -s.d / 2 - 0.04);
       w.rotation.y = Math.PI;
@@ -284,80 +222,193 @@ export class World {
     }
     g.updateMatrix();
     for (const x of [-2.4, 2.4]) this.pumpkins.push(new THREE.Matrix4().makeTranslation(x, 0, -s.d / 2 - 1.2).premultiply(g.matrix));
-    this.dressStop(s, g, h);
+    this.dressStop(g, h);
     this.group.add(g);
-    // The parking spot: a glowing ring on the road (shown for the stop you're heading to).
-    const ring = new THREE.Mesh(new THREE.RingGeometry(5.5, 6.6, 40), new THREE.MeshBasicMaterial({ color: '#ffe14a', transparent: true, opacity: 0.85, depthWrite: false }));
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(s.x, s.y + ROAD_LIFT + 0.05, s.z);
-    ring.visible = false;
-    this.markers.push(ring);
-    this.group.add(ring);
+    // The parking spot: a glowing ring on the road.
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(5.5, 6.6, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(2, 1.7, 0.5), transparent: true, opacity: 0.85, depthWrite: false }));
+    this.ring.rotation.x = -Math.PI / 2;
+    this.ring.position.set(s.x, s.y + ROAD_LIFT + 0.05, s.z);
+    this.group.add(this.ring);
+    // The arena's edge: a ring of glowing stakes as far out as you can wander.
+    const n = 44;
+    const stakes = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07, 0.07, 1.5, 5), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.8, 0.9, 0.3) }), n);
+    const d = new THREE.Object3D();
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      const x = s.x + Math.cos(a) * (FOOT.leash + 0.6);
+      const z = s.z + Math.sin(a) * (FOOT.leash + 0.6);
+      d.position.set(x, this.y(x, z) + 0.75, z);
+      d.updateMatrix();
+      stakes.setMatrixAt(k, d.matrix);
+    }
+    this.group.add(stakes);
   }
 
-  private dressStop(s: Stop, g: THREE.Group, h: number) {
+  private dressStop(g: THREE.Group, h: number) {
+    const s = this.route.stop;
+    const job = this.route.cp.job;
     const add = (geo: THREE.BufferGeometry, color: string, x: number, y: number, z: number, extra: THREE.MeshToonMaterialParameters = {}) => {
       const m = new THREE.Mesh(geo, toon(color, extra));
       m.position.set(x, y, z);
       g.add(m);
       return m;
     };
-    if (s.kind === 'arena') {
-      // Inflatable bunkers out front, and paint everywhere.
-      const colors = ['#ff3d7f', '#2fd3ff', '#ffd23f', '#7cff5b'];
-      for (let k = 0; k < 6; k++)
-        add(new THREE.CylinderGeometry(0.9, 0.9, 2, 12), colors[k % 4], -8 + k * 3.2, 1, -s.d / 2 - 6 - (k % 2) * 3);
-      for (let k = 0; k < 14; k++)
-        add(new THREE.CircleGeometry(0.6 + (k % 3) * 0.3, 10), colors[k % 4], -s.w / 2 + 1 + ((k * 3.7) % (s.w - 2)), 1 + ((k * 1.3) % (h - 2)), -s.d / 2 - 0.02).rotation.y = Math.PI;
-    } else if (s.kind === 'golf') {
+    if (job === 'golf') {
       // Tall net poles, a putting green and a flag.
       for (const x of [-s.w / 2, s.w / 2]) add(new THREE.CylinderGeometry(0.15, 0.15, 14, 6), '#ddd', x, 7, s.d / 2 + 4);
-      const net = add(new THREE.PlaneGeometry(s.w, 12), '#ffffff', 0, 7, s.d / 2 + 4, { transparent: true, opacity: 0.25, side: THREE.DoubleSide });
-      net.rotation.y = 0;
-      const green = add(new THREE.CircleGeometry(5, 24), '#4fd16a', 10, 0.05, -s.d / 2 - 7);
+      add(new THREE.PlaneGeometry(s.w, 12), '#ffffff', 0, 7, s.d / 2 + 4, { transparent: true, opacity: 0.25, side: THREE.DoubleSide });
+      const green = add(new THREE.CircleGeometry(4, 24), '#4fd16a', 8, 0.08, -s.d / 2 - 9);
       green.rotation.x = -Math.PI / 2;
-      add(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6), '#eee', 10, 1.2, -s.d / 2 - 7);
-      const flag = add(new THREE.PlaneGeometry(0.9, 0.55), '#ff3030', 10.45, 2.1, -s.d / 2 - 7, { side: THREE.DoubleSide });
-      flag.rotation.y = Math.PI / 2;
-    } else if (s.kind === 'casino') {
+      add(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6), '#eee', 8, 1.2, -s.d / 2 - 9);
+      add(new THREE.PlaneGeometry(0.9, 0.55), '#ff3030', 8.45, 2.1, -s.d / 2 - 9, { side: THREE.DoubleSide }).rotation.y = Math.PI / 2;
+    } else if (job === 'slots') {
       // Marquee bulbs round the sign, and a giant die on the roof.
       for (let k = 0; k < 24; k++)
-        add(new THREE.SphereGeometry(0.16, 8, 6), k % 2 ? '#fff5b0' : '#ff9df0', -s.w * 0.42 + (k * s.w * 0.84) / 23, h + 3.1, -s.d / 2 - 0.1, { emissive: k % 2 ? '#fff0a0' : '#ff60e0', emissiveIntensity: 1 });
-      const die = add(new THREE.BoxGeometry(3, 3, 3), '#ffffff', s.w * 0.3, h + 2, 0);
+        add(new THREE.SphereGeometry(0.16, 8, 6), k % 2 ? '#fff5b0' : '#ff9df0', -s.w * 0.44 + (k * s.w * 0.88) / 23, h + 3.3, -s.d / 2 - 0.1, { emissive: k % 2 ? '#fff0a0' : '#ff60e0', emissiveIntensity: 1.6 });
+      const die = add(new THREE.BoxGeometry(3, 3, 3), '#ffffff', s.w * 0.3, h + 2, 2);
       die.rotation.set(0.5, 0.6, 0.2);
-      for (const [x, y, z] of [[0, 0, -1.52], [1.52, 0.6, 0], [0.5, 1.52, 0.5]]) add(new THREE.SphereGeometry(0.28, 8, 6), '#111', s.w * 0.3 + x, h + 2 + y, z);
-    } else if (s.kind === 'jail') {
+    } else if (job === 'holdout') {
       // Barred windows and a cop car on its roof.
       for (let k = -2; k <= 2; k++) {
         if (k === 0) continue;
-        for (let b = 0; b < 4; b++) add(new THREE.BoxGeometry(0.07, 1.5, 0.07), '#222', k * 3 - 0.45 + b * 0.3, 3.5, -s.d / 2 - 0.1);
+        for (let b = 0; b < 4; b++) add(new THREE.BoxGeometry(0.07, 1.5, 0.07), '#222', k * 3.4 - 0.45 + b * 0.3, h * 0.55, -s.d / 2 - 0.1);
       }
       const car = new THREE.Group();
       const c1 = new THREE.Mesh(new THREE.BoxGeometry(2, 0.8, 4.4), toon('#f4f4f4'));
       const c2 = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.6, 2.2), toon('#111a3a'));
       c2.position.y = -0.65;
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.2, 0.3), toon('#ff2020', { emissive: '#ff0000', emissiveIntensity: 0.6 }));
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.2, 0.3), toon('#ff2020', { emissive: '#ff0000', emissiveIntensity: 1.5 }));
       bar.position.y = -1.05;
       car.add(c1, c2, bar);
-      car.position.set(-9, 1.15, -s.d / 2 - 6);
+      car.position.set(-8, 1.15, -s.d / 2 - 4);
       car.rotation.set(0, 0.6, Math.PI);
       g.add(car);
+    } else if (job === 'scavenge') {
+      // A roller shutter half up, pallets and a pile of boxes out front.
+      add(new THREE.BoxGeometry(5, 2, 0.15), '#7a7a82', -5, 3, -s.d / 2 - 0.08);
+      for (let k = 0; k < 7; k++) add(new THREE.BoxGeometry(1.1, 1, 1.1), k % 2 ? '#c9a26a' : '#a8824a', 6 + (k % 3) * 1.2, 0.5 + Math.floor(k / 3), -s.d / 2 - 2 - (k % 2) * 1.2).rotation.y = k * 0.4;
+    } else if (job === 'fuel') {
+      // A canopy on posts out front.
+      add(new THREE.BoxGeometry(s.w * 0.8, 0.5, 7), '#c8261c', 0, 5, -s.d / 2 - 4.5);
+      add(new THREE.BoxGeometry(s.w * 0.8 - 0.4, 0.1, 6.6), '#fff8e0', 0, 4.72, -s.d / 2 - 4.5, { emissive: '#fff0c0', emissiveIntensity: 1.2 });
+      for (const x of [-s.w * 0.36, s.w * 0.36]) add(new THREE.CylinderGeometry(0.18, 0.18, 4.8, 8), '#e8e8ee', x, 2.4, -s.d / 2 - 7.2);
     } else {
-      // The boys' house: a porch, a couch on the lawn, a flag, and a limestone Queen's tower behind.
-      add(new THREE.BoxGeometry(s.w, 0.4, 4), '#8a7a6a', 0, 0.2, -s.d / 2 - 2);
-      for (const x of [-s.w / 2 + 0.5, s.w / 2 - 0.5]) add(new THREE.BoxGeometry(0.4, 3.2, 0.4), '#f2f2f2', x, 1.8, -s.d / 2 - 3.8);
-      add(new THREE.BoxGeometry(s.w + 0.6, 0.3, 4.4), '#4a3a3a', 0, 3.5, -s.d / 2 - 2);
-      add(new THREE.BoxGeometry(2.4, 0.6, 1), '#7a2a2a', -4, 0.3, -s.d / 2 - 8);
-      add(new THREE.BoxGeometry(2.4, 0.9, 0.3), '#7a2a2a', -4, 0.75, -s.d / 2 - 7.6);
-      const flag = add(new THREE.PlaneGeometry(2.6, 1.6), '#b40a2a', s.w / 2 - 1.5, h - 1, -s.d / 2 - 0.1, { side: THREE.DoubleSide });
-      flag.rotation.y = Math.PI;
-      const tower = add(new THREE.BoxGeometry(8, 22 + FOOTING * 2, 8), '#d8cfb8', 0, 11 - FOOTING, s.d / 2 + 30);
-      tower.name = 'queens';
-      add(new THREE.ConeGeometry(6, 6, 4), '#3f6b5a', 0, 25, s.d / 2 + 30).rotation.y = Math.PI / 4;
-      // A big bong on the porch. It's the whole point.
-      add(new THREE.CylinderGeometry(0.35, 0.5, 1.6, 12), '#58d0ff', 3, 1.2, -s.d / 2 - 2, { transparent: true, opacity: 0.8 });
-      add(new THREE.CylinderGeometry(0.06, 0.06, 0.7, 6), '#58d0ff', 3.45, 1.0, -s.d / 2 - 2).rotation.z = -0.7;
+      // A lattice mast on the roof with a red light on top.
+      add(new THREE.CylinderGeometry(0.12, 0.5, 16, 4), '#8a94a0', 0, h + 8, 0);
+      for (let k = 1; k < 5; k++) add(new THREE.BoxGeometry(1.6 - k * 0.25, 0.08, 0.08), '#8a94a0', 0, h + k * 3, 0);
+      add(new THREE.SphereGeometry(0.35, 10, 8), '#ff3030', 0, h + 16.2, 0, { emissive: '#ff0000', emissiveIntensity: 2.5 });
     }
+  }
+
+  /** The job's things out in the arena, each under a beam of light so you can find it. */
+  private sites() {
+    const beamGeo = new THREE.CylinderGeometry(0.12, 0.12, 14, 6, 1, true).translate(0, 7, 0);
+    const beam = (color: THREE.Color) => new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    const wood = toon('#b88a4a');
+    const strap = toon('#3a3a44');
+    const metal = toon('#c9c9c9');
+    for (const s of this.route.sites) {
+      const g = new THREE.Group();
+      g.position.set(s.x, this.y(s.x, s.z), s.z);
+      g.rotation.y = s.id * 1.7;
+      const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        m.castShadow = true;
+        g.add(m);
+        return m;
+      };
+      if (s.kind === 'crate') {
+        add(new THREE.BoxGeometry(1.1, 0.9, 1.1), wood, 0, 0.45, 0);
+        add(new THREE.BoxGeometry(1.14, 0.12, 1.14), strap, 0, 0.3, 0);
+        add(new THREE.BoxGeometry(1.14, 0.12, 1.14), strap, 0, 0.65, 0);
+        g.add(beam(new THREE.Color(1.6, 1.2, 0.3)));
+      } else if (s.kind === 'pump') {
+        add(new THREE.BoxGeometry(1.2, 2, 0.8), toon('#d8261c'), 0, 1, 0);
+        add(new THREE.BoxGeometry(0.9, 0.5, 0.82), toon('#fff8e0', { emissive: '#fff0c0', emissiveIntensity: 1.4 }), 0, 1.5, 0);
+        add(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 6), strap, 0.7, 1, 0).rotation.z = 0.3;
+        for (let k = 0; k < 4; k++) add(new THREE.BoxGeometry(0.5, 0.65, 0.3), toon('#d8261c'), -1.4 - (k % 2) * 0.6, 0.33, -0.4 + Math.floor(k / 2) * 0.8);
+        g.add(beam(new THREE.Color(1.8, 0.5, 0.2)));
+      } else if (s.kind === 'beacon') {
+        g.rotation.y = 0;
+        const ring = new THREE.Mesh(new THREE.RingGeometry(5.4, 6, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 1.8, 2), transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.4;
+        g.add(ring);
+        add(new THREE.CylinderGeometry(0.14, 0.2, 5, 8), metal, 0, 2.5, 0);
+        add(new THREE.BoxGeometry(0.5, 0.2, 1.1), strap, 0.3, 1.2, 0);
+        const lamp = add(new THREE.SphereGeometry(0.5, 12, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 1.8, 2) }), 0, 5.3, 0);
+        lamp.castShadow = false;
+        g.add(beam(new THREE.Color(0.3, 1.4, 1.6)));
+        this.beacon = { ring, lamp };
+      } else if (s.kind === 'tee') {
+        g.rotation.y = this.route.stop.bh;
+        const mat = add(new THREE.BoxGeometry(2.4, 0.08, 1.6), toon('#3fae4a'), 0, 0.04, 0);
+        mat.castShadow = false;
+        add(new THREE.SphereGeometry(0.09, 8, 6), toon('#ffffff'), 0.3, 0.2, 0);
+        add(new THREE.BoxGeometry(0.5, 1.1, 0.5), toon('#8a5a2a'), -0.9, 0.55, 0.3);
+        const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('TEE OFF', 'rgba(0,0,0,0)', '#baffc0', 256, 64, 'bold 44px system-ui, sans-serif') }));
+        tag.scale.set(2.4, 0.6, 1);
+        tag.position.y = 2.4;
+        g.add(tag, beam(new THREE.Color(0.5, 1.8, 0.6)));
+      } else {
+        g.rotation.y = this.route.stop.bh;
+        add(new THREE.BoxGeometry(1.1, 2, 0.9), toon('#6b1d4f'), 0, 1, 0);
+        add(new THREE.BoxGeometry(0.85, 0.6, 0.1), toon('#ffe14a', { emissive: '#ffd23f', emissiveIntensity: 1.6 }), 0, 1.45, -0.46);
+        add(new THREE.CylinderGeometry(0.04, 0.04, 0.8, 6), metal, 0.65, 1.3, 0);
+        add(new THREE.SphereGeometry(0.11, 8, 6), toon('#ff3030'), 0.65, 1.75, 0);
+        const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('SLOTS', 'rgba(0,0,0,0)', '#ffe9a0', 256, 64, 'bold 44px system-ui, sans-serif') }));
+        tag.scale.set(2.2, 0.55, 1);
+        tag.position.y = 2.7;
+        g.add(tag, beam(new THREE.Color(1.8, 1.3, 0.3)));
+      }
+      this.siteMeshes.set(s.id, g);
+      this.group.add(g);
+    }
+  }
+
+  /** The gate into the next leg (barred until the job's done), and the arch you came in under. */
+  private gate() {
+    const next = BIOMES[checkpointOf(this.route.seed, this.route.leg + 1).biome].name;
+    const stone = toon('#4a4654');
+    const arch = (p: { x: number; z: number; h: number; y: number }, text: string) => {
+      const g = new THREE.Group();
+      g.position.set(p.x, p.y, p.z);
+      g.rotation.y = p.h;
+      for (const k of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(1.6, 9 + FOOTING, 1.6), stone);
+        post.position.set(k * (ROAD.half + 1.6), (9 - FOOTING) / 2, 0);
+        post.castShadow = true;
+        g.add(post);
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(2, 1.4, 0.5) }));
+        lamp.position.set(k * (ROAD.half + 1.6), 9.5, 0);
+        g.add(lamp);
+      }
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(ROAD.half * 2 + 4.8, 1.6, 1.2), stone);
+      beam.position.y = 8.2;
+      g.add(beam);
+      // The sign faces the way you come from (the group's +Z).
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(ROAD.half * 2 + 2, 1.3), new THREE.MeshBasicMaterial({ map: signTexture(text, '#14101c', '#ffe9a0', 1024, 128, 'bold 56px system-ui, sans-serif'), color: new THREE.Color(1.4, 1.4, 1.4) }));
+      sign.position.set(0, 8.2, 0.62);
+      g.add(sign);
+      this.group.add(g);
+      return g;
+    };
+    const start = this.route.road[1];
+    arch(start, `CHECKPOINT ${this.route.leg + 1}: ${this.route.cp.name.toUpperCase()}`);
+    const g = arch(this.route.gate, `NEXT: ${next.toUpperCase()}`);
+    // The way through: a sheet of light (red while it's shut, the next world's colour once it's open) and the bars.
+    this.portal = new THREE.Mesh(new THREE.PlaneGeometry(ROAD.half * 2 + 1.6, 7.4), new THREE.MeshBasicMaterial({ color: '#ff2a2a', transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    this.portal.position.y = 3.7;
+    g.add(this.portal);
+    this.bars = new THREE.Group();
+    const iron = toon('#22222a');
+    for (let k = -3; k <= 3; k++) {
+      const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 7.4, 6), iron);
+      bar.position.set(k * 1.7, 3.7, 0);
+      this.bars.add(bar);
+    }
+    g.add(this.bars);
   }
 
   private props() {
@@ -374,9 +425,11 @@ export class World {
     for (const p of this.route.props) base.set(p, this.y(p.x, p.z) - 0.15);
     const at = (p: Prop) => base.get(p)!;
     /** One InstancedMesh per part of a kind: `place` sets the part's transform for prop p (y up from its ground). */
-    const parts = (list: Prop[], geo: THREE.BufferGeometry, color: string | ((p: Prop) => string), place: (p: Prop, o: THREE.Object3D) => void, shadow = true) => {
-      const im = new THREE.InstancedMesh(geo, toon('#ffffff'), list.length);
-      im.castShadow = shadow;
+    const parts = (list: Prop[], geo: THREE.BufferGeometry, color: string | ((p: Prop) => string), place: (p: Prop, o: THREE.Object3D) => void, glow = 0) => {
+      if (!list.length) return;
+      // `glow`: an unlit material brighter than white, so it blooms (mushroom caps, crystals).
+      const im = new THREE.InstancedMesh(geo, glow ? new THREE.MeshBasicMaterial({ color: '#ffffff' }) : toon('#ffffff'), list.length);
+      im.castShadow = !glow;
       list.forEach((p, i) => {
         d.position.set(p.x, 0, p.z);
         d.rotation.set(0, p.h, 0);
@@ -385,7 +438,7 @@ export class World {
         d.position.y += at(p);
         d.updateMatrix();
         im.setMatrixAt(i, d.matrix);
-        im.setColorAt(i, col.set(typeof color === 'string' ? color : color(p)));
+        im.setColorAt(i, col.set(typeof color === 'string' ? color : color(p)).multiplyScalar(glow || 1));
       });
       this.group.add(im);
     };
@@ -395,14 +448,14 @@ export class World {
       o.position.y = 1.2;
       o.scale.setScalar(0.8 + p.s * 0.6);
     });
-    parts(trees, new THREE.IcosahedronGeometry(2, 1), (p) => pick(['#5f9e3a', '#79b345', '#e0a13a', '#c7562d'], p.c), (p, o) => {
+    parts(trees, new THREE.IcosahedronGeometry(2, 1), (p) => pick(this.look.leaves, p.c), (p, o) => {
       // Maples in autumn: it's Ontario.
       o.position.y = 3.2 + p.s * 1.2;
       o.scale.setScalar(0.9 + p.s * 0.7);
     });
     const pines = by.get('pine') ?? [];
     parts(pines, new THREE.CylinderGeometry(0.2, 0.3, 1.6, 6), '#6a4a2e', (_, o) => (o.position.y = 0.8));
-    parts(pines, new THREE.ConeGeometry(1.7, 5, 7), (p) => pick(['#2f6b3f', '#3a7d4a', '#2a5e3a'], p.c), (p, o) => {
+    parts(pines, new THREE.ConeGeometry(1.7, 5, 7), (p) => pick(this.look.pines, p.c), (p, o) => {
       o.position.y = 3.6 + p.s;
       o.scale.setScalar(0.9 + p.s * 0.5);
     });
@@ -498,6 +551,19 @@ export class World {
       d.updateMatrix();
       this.pumpkins.push(d.matrix.clone());
     }
+    // Cacti: a trunk with two arms.
+    const arm = (side: number, y: number) => mergeGeometries([new THREE.CylinderGeometry(0.16, 0.16, 0.9, 7).rotateZ(Math.PI / 2).translate(side * 0.55, y, 0), new THREE.CylinderGeometry(0.16, 0.16, 1.1, 7).translate(side * 0.95, y + 0.5, 0)]);
+    parts(by.get('cactus') ?? [], mergeGeometries([new THREE.CylinderGeometry(0.28, 0.3, 3.2, 8).translate(0, 1.6, 0), new THREE.SphereGeometry(0.28, 8, 6).translate(0, 3.2, 0), arm(1, 1.4), arm(-1, 2)]), (p) => pick(['#3f8a4a', '#4f9a52', '#3a7a56'], p.c), (p, o) => o.scale.setScalar(0.8 + p.s * 0.8));
+    // Giant mushrooms: a pale stem under a cap that glows.
+    const shrooms = by.get('shroom') ?? [];
+    parts(shrooms, new THREE.CylinderGeometry(0.22, 0.4, 3, 7).translate(0, 1.5, 0), '#d8d0e8', (p, o) => o.scale.setScalar(0.7 + p.s * 1.6));
+    parts(shrooms, new THREE.SphereGeometry(1.5, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.6, 1).translate(0, 2.9, 0), (p) => pick(['#ff4ad0', '#4ad8ff', '#a86bff', '#7cff9a'], p.c), (p, o) => o.scale.setScalar(0.7 + p.s * 1.6), 1.5);
+    // Crystals: leaning shards that glow.
+    parts(by.get('crystal') ?? [], mergeGeometries([new THREE.OctahedronGeometry(0.8).scale(0.6, 2.6, 0.6).translate(0, 1.6, 0), new THREE.OctahedronGeometry(0.6).scale(0.5, 2, 0.5).rotateZ(0.5).translate(0.7, 1, 0.2), new THREE.OctahedronGeometry(0.5).scale(0.5, 1.6, 0.5).rotateZ(-0.6).translate(-0.6, 0.8, -0.3)]), (p) => pick(['#4affea', '#6ab8ff', '#b88aff'], p.c), (p, o) => o.scale.setScalar(0.8 + p.s * 1.4), 1.25);
+    parts(by.get('rock') ?? [], new THREE.DodecahedronGeometry(1.2, 0).scale(1, 0.7, 0.9).translate(0, 0.5, 0), (p) => pick(['#7a7a86', '#6a6a74', '#8a847a'], p.c), (p, o) => o.scale.setScalar(0.7 + p.s * 0.9));
+    // Reeds: a clump of stalks with dark heads.
+    const stalk = (x: number, z: number, hgt: number) => mergeGeometries([new THREE.CylinderGeometry(0.03, 0.04, hgt, 4).translate(x, hgt / 2, z), new THREE.CylinderGeometry(0.07, 0.07, 0.35, 5).translate(x, hgt, z)]);
+    parts(by.get('reed') ?? [], mergeGeometries([stalk(0, 0, 2.2), stalk(0.3, 0.2, 1.8), stalk(-0.25, 0.3, 2), stalk(0.1, -0.3, 1.6), stalk(-0.3, -0.2, 1.9)]), (p) => pick(['#6a7a3a', '#5a6a34', '#7a7a40'], p.c), (p, o) => o.scale.setScalar(0.8 + p.s * 0.6));
     const hay = by.get('hay') ?? [];
     const hayGeo = new THREE.CylinderGeometry(1, 1, 1.4, 14);
     hayGeo.rotateZ(Math.PI / 2);
@@ -587,7 +653,7 @@ export class World {
   }
 
   private pickups() {
-    const cash = toon('#3fae4a');
+    const cash = toon('#b8c0cc', { emissive: '#40505a', emissiveIntensity: 0.6 });
     const cross = toon('#ffffff');
     const kit = toon('#e03a3a');
     const can = toon('#d8261c', { emissive: '#601000', emissiveIntensity: 0.4 });
@@ -608,16 +674,18 @@ export class World {
         label.scale.set(0.9, 0.45, 1);
         label.position.set(0, 0.75, 0);
         g.add(label);
-      } else if (p.kind === 'cash') {
-        const bag = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10), cash);
-        bag.scale.set(1, 1.1, 1);
-        g.add(bag);
-        const tie = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.35, 8), cash);
-        tie.position.y = 0.55;
-        g.add(tie);
-        const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('$', 'rgba(0,0,0,0)', '#fff6a0', 64, 64, 'bold 56px system-ui, sans-serif') }));
-        label.scale.setScalar(0.6);
-        label.position.set(0, 0.05, 0);
+      } else if (p.kind === 'scrap') {
+        // A heap of scrap: a gear on a couple of plates.
+        const gear = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.12, 6, 8), cash);
+        gear.rotation.x = 0.4;
+        g.add(gear);
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.08, 0.5), metal);
+        plate.position.y = -0.3;
+        plate.rotation.z = 0.2;
+        g.add(plate);
+        const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTexture('SCRAP', 'rgba(0,0,0,0)', '#fff6a0', 128, 64, 'bold 36px system-ui, sans-serif') }));
+        label.scale.set(0.9, 0.45, 1);
+        label.position.set(0, 0.7, 0);
         g.add(label);
       } else {
         g.add(new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 0.5), kit));
@@ -634,18 +702,29 @@ export class World {
     }
   }
 
-  /** Per frame: pickups bob and spin (and vanish once taken); the flames flicker; the next stop's ring pulses. */
-  update(t: number, taken: ReadonlySet<number>, nextStop: number) {
+  /**
+   * Per frame: pickups bob and spin (and vanish once taken, like the crates once got); the parking ring pulses until
+   * you've parked; the beacon's ring fills as it's cranked; the gate's bars lift and its light turns once it's open.
+   */
+  update(t: number, taken: ReadonlySet<number>, got: ReadonlySet<number>, run: { phase: string; done: boolean; prog: number; need: number }) {
     for (const [id, g] of this.pickupMeshes) {
       g.visible = !taken.has(id);
       if (!g.visible) continue;
       g.rotation.y = t * 2 + g.userData.base;
       g.position.y = g.userData.y + Math.sin(t * 3 + g.userData.base) * 0.15;
     }
-    this.markers.forEach((m, i) => {
-      m.visible = i === nextStop;
-      if (m.visible) m.scale.setScalar(1 + Math.sin(t * 4) * 0.06);
-    });
+    for (const [id, g] of this.siteMeshes) g.visible = !(this.route.sites[id].kind === 'crate' && (got.has(id) || run.done));
+    this.ring.visible = run.phase === 'drive' && !run.done;
+    this.ring.scale.setScalar(1 + Math.sin(t * 4) * 0.06);
+    if (this.beacon) {
+      const k = run.done ? 1 : run.prog / Math.max(1, run.need);
+      this.beacon.lamp.scale.setScalar(0.6 + k * 1.2 + Math.sin(t * 8) * 0.08);
+      this.beacon.ring.material = this.beacon.ring.material as THREE.MeshBasicMaterial;
+      (this.beacon.ring.material as THREE.MeshBasicMaterial).opacity = run.done ? 0.25 : 0.55 + Math.sin(t * 5) * 0.25;
+    }
+    this.bars.position.y += ((run.done ? 8 : 0) - this.bars.position.y) * 0.06;
+    this.portal.material.color.set(run.done ? '#3aff8a' : '#ff2a2a');
+    this.portal.material.opacity = 0.3 + Math.sin(t * 3) * 0.1;
   }
 
   dispose() {

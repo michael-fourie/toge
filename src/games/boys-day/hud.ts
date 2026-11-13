@@ -1,11 +1,11 @@
-// The HUD, in the DOM over the canvas: the bus's health and fuel, the bail fund, the zombie round, what to do next
-// (with an arrow and the distance), what you can do right here, a minimap, ammo, speed, the crew, big banners and
-// the YEET!/FORE! popups. Player names only ever go in
-// with textContent.
+// The HUD, in the DOM over the canvas: the bus's health and fuel, your own health and scrap, the zombie round, the
+// checkpoint and what to do there (with an arrow and the distance), what you can do right here, a minimap, your gun,
+// ammo and grenades, speed, the crew and their scrap, big banners, the leg's title card and the YEET!/FORE! popups.
+// Player names only ever go in with textContent.
 
 import type { ZView } from './director.ts';
 import type { Route } from './route.ts';
-import { BUS, GUN, RUN, type Bus, type RunState } from './rules.ts';
+import { maxFuel, maxHp, type Bus, type RunState } from './rules.ts';
 
 
 const div = (cls: string, parent: HTMLElement, text = '') => {
@@ -34,6 +34,11 @@ export class Hud {
   private fuelText: HTMLElement;
   private round: HTMLElement;
   private prompt: HTMLElement;
+  private me: HTMLElement;
+  private meText: HTMLElement;
+  private place: HTMLElement;
+  private card: HTMLElement;
+  private cardT = 0;
   private cross: HTMLElement;
   private banner: HTMLElement;
   private bannerT = 0;
@@ -52,10 +57,15 @@ export class Hud {
     const fuelBar = div('bd-bar fuel', bus);
     this.fuel = div('bd-bar-fill', fuelBar);
     this.fuelText = div('bd-bar-text', fuelBar);
+    div('bd-label', bus, '❤ YOU');
+    const meBar = div('bd-bar me', bus);
+    this.me = div('bd-bar-fill', meBar);
+    this.meText = div('bd-bar-text', meBar);
     const row = div('bd-row', bus);
     this.money = div('bd-money', row);
     this.kills = div('bd-kills', row);
     const goal = div('bd-goal', top);
+    this.place = div('bd-place', goal);
     this.goal = div('bd-goal-text', goal);
     const where = div('bd-where', goal);
     this.arrow = div('bd-arrow', where, '➤');
@@ -73,6 +83,20 @@ export class Hud {
     this.banner = div('bd-banner', this.el);
     this.lockHint = div('bd-lockhint', this.el, 'Click to aim');
     this.prompt = div('bd-prompt', this.el);
+    this.card = div('bd-legcard', this.el);
+  }
+
+  /** The title card over a new leg: the checkpoint's number, the world, where you're headed. */
+  legCard(n: number, world: string, place: string, note: string) {
+    this.card.replaceChildren();
+    div('bd-legcard-n', this.card, `LEG ${n}`);
+    div('bd-legcard-world', this.card, world.toUpperCase());
+    div('bd-legcard-place', this.card, `Next stop: ${place}`);
+    if (note) div('bd-legcard-note', this.card, note);
+    this.card.classList.remove('show');
+    void this.card.offsetWidth;
+    this.card.classList.add('show');
+    this.cardT = 4.5;
   }
 
   /** The health bar flashes green (a repair kit). */
@@ -113,25 +137,40 @@ export class Hud {
       driver: boolean;
       chase: boolean;
       ammo: number;
+      hopper: number;
+      gun: string;
+      nades: number;
+      /** Your own health (0-1), scrap, and whether you're off the bus (lugging a can?) or knocked out. */
+      hp: number;
+      cash: number;
+      onFoot: boolean;
+      carrying: boolean;
+      ko: number;
+      /** The checkpoint: its number and name. */
+      place: string;
       reloading: boolean;
       club: number;
       bus: Bus;
-      crew: { name: string; driver: boolean; me: boolean; color: string }[];
+      crew: { name: string; driver: boolean; me: boolean; color: string; cash: number; off: boolean }[];
       locked: boolean;
       busy: boolean;
       prompt: string;
     },
   ) {
     const { run } = o;
-    const k = Math.max(0, run.busHp / BUS.hp);
+    const k = Math.max(0, run.busHp / maxHp(run));
     this.hp.style.width = `${k * 100}%`;
     this.hp.style.background = k > 0.5 ? '#5ee06a' : k > 0.25 ? '#ffc23f' : '#ff4a4a';
-    this.hpText.textContent = `${Math.ceil(run.busHp)}`;
-    this.money.textContent = `$${run.money}${run.stage <= 3 && !run.bailPaid ? ` / $${run.bail} bail` : ''}`;
-    const fk = run.fuel / RUN.fuel;
+    this.hpText.textContent = `${Math.ceil(run.busHp)} / ${maxHp(run)}`;
+    this.money.textContent = `🔩 ${o.cash}`;
+    this.me.style.width = `${Math.max(0, o.hp) * 100}%`;
+    this.me.style.background = o.hp > 0.5 ? '#ff6b8a' : o.hp > 0.25 ? '#ffc23f' : '#ff4a4a';
+    this.meText.textContent = o.ko > 0 ? `KNOCKED OUT ${Math.ceil(o.ko)}` : `${Math.ceil(o.hp * 100)}`;
+    this.place.textContent = o.place;
+    const fk = run.fuel / maxFuel(run);
     this.fuel.style.width = `${fk * 100}%`;
     this.fuel.style.background = fk > 0.3 ? '#ffb03a' : '#ff4a4a';
-    this.fuelText.textContent = run.fuel <= 0 ? 'EMPTY! Shoot or drive over gas cans' : `${Math.ceil(run.fuel)}%`;
+    this.fuelText.textContent = run.fuel <= 0 ? 'EMPTY! Shoot or drive over gas cans' : `${Math.ceil(run.fuel)}`;
     this.round.textContent = run.calm > 0 ? (run.round ? `Round ${run.round} survived · next in ${Math.ceil(run.calm)} s` : `First round in ${Math.ceil(run.calm)} s`) : `ROUND ${run.round} · ${run.left} left`;
     this.round.classList.toggle('calm', run.calm > 0);
     this.prompt.textContent = o.prompt;
@@ -143,12 +182,14 @@ export class Hud {
     this.arrow.style.transform = `rotate(${o.arrow - Math.PI / 2}rad)`;
     this.cross.style.display = o.gunner && !o.busy ? 'block' : 'none';
     this.ammo.style.display = o.gunner ? 'block' : 'none';
-    this.ammo.textContent = o.reloading ? 'RELOADING…' : `🎨 ${o.ammo}/${GUN.hopper}${run.club ? (o.club > 0 ? '  🏌 …' : '  🏌 READY') : ''}`;
+    this.ammo.textContent = o.carrying ? '⛽ LUGGING A CAN: get it to the bus' : `${o.gun}  ${o.reloading ? 'RELOADING…' : `🎨 ${o.ammo}/${o.hopper}`}  💣 ${o.nades}${run.club ? (o.club > 0 ? '  🏌 …' : '  🏌 READY') : ''}`;
     this.speed.style.display = o.driver ? 'block' : 'none';
     this.speed.textContent = `${Math.round(Math.abs(o.bus.v) * 3.6)} km/h`;
     this.hints.textContent = o.driver
       ? `W/S or RT/LT drive · A/D steer · Space/Ⓧ handbrake · H/LB horn · C/View ${o.chase ? 'cab view' : 'chase cam'} · F/Ⓨ get up`
-      : `WASD walk · Click/RT shoot · R/Ⓧ reload${run.club ? ' · V/RB swing the club' : ''} · Space/Ⓑ at the hatch: roof`;
+      : o.onFoot
+        ? `WASD walk · Click/RT shoot · G/D-pad↓ grenade · Q gun${run.club ? ' · V/RB club' : ''} · E/Ⓐ use, or climb aboard at the bus`
+        : `WASD walk · Click/RT shoot · G grenade · Q gun · B store${run.club ? ' · V/RB club' : ''} · Space/Ⓑ at the hatch: roof${run.phase === 'stop' ? ' · E/Ⓐ hop off' : ''}`;
     this.lockHint.style.display = o.gunner && !o.locked && !o.busy ? 'block' : 'none';
     this.crew.replaceChildren(
       ...o.crew.map((c) => {
@@ -158,12 +199,16 @@ export class Hud {
         dot.className = 'dot';
         dot.style.background = c.color;
         const n = document.createElement('span');
-        n.textContent = `${c.driver ? '🚌 ' : ''}${c.name}`;
-        d.append(dot, n);
+        n.textContent = `${c.driver ? '🚌 ' : c.off ? '🥾 ' : ''}${c.name}`;
+        const w = document.createElement('span');
+        w.className = 'cash';
+        w.textContent = `🔩${c.cash}`;
+        d.append(dot, n, w);
         return d;
       }),
     );
     if (this.bannerT > 0 && (this.bannerT -= dt) <= 0) this.banner.classList.remove('show');
+    if (this.cardT > 0 && (this.cardT -= dt) <= 0) this.card.classList.remove('show');
     this.pops = this.pops.filter((p) => {
       p.t += dt;
       p.el.style.transform = `translate(-50%, ${-p.t * 70}px) scale(${1 + Math.min(p.t * 4, 0.4)})`;
@@ -174,7 +219,7 @@ export class Hud {
   }
 
   /** The minimap: the road round the bus, north is the bus's heading. */
-  drawMap(route: Route, bus: Bus, zs: readonly ZView[], nextStop: number) {
+  drawMap(route: Route, bus: Bus, zs: readonly ZView[], got: ReadonlySet<number>, done: boolean, me: { x: number; z: number } | null) {
     const g = this.map.getContext('2d')!;
     const S = this.map.width;
     const scale = 0.55; // px per metre
@@ -204,13 +249,18 @@ export class Hud {
       started = true;
     }
     g.stroke();
-    route.stops.forEach((s, i) => {
-      const [x, y] = P(s.x, s.z);
-      g.fillStyle = i === nextStop ? '#ffe14a' : i < nextStop ? '#7a7a7a' : '#ffffff';
+    // The checkpoint (until it's cleared), its job's things, and the gate.
+    const dot = (wx: number, wz: number, r: number, color: string) => {
+      const [x, y] = P(wx, wz);
+      g.fillStyle = color;
       g.beginPath();
-      g.arc(x, y, i === nextStop ? 6 : 4, 0, 7);
+      g.arc(x, y, r, 0, 7);
       g.fill();
-    });
+    };
+    dot(route.stop.x, route.stop.z, 6, done ? '#7a7a7a' : '#ffe14a');
+    dot(route.gate.x, route.gate.z, 5, done ? '#3aff8a' : '#ff5a5a');
+    if (!done) for (const s of route.sites) if (!got.has(s.id)) dot(s.x, s.z, 3, '#58d0ff');
+    if (me) dot(me.x, me.z, 3.5, '#ffffff');
     g.fillStyle = '#ff5a5a';
     for (const z of zs) {
       if (z.st === 'dead') continue;

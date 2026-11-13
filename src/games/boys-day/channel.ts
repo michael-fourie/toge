@@ -8,10 +8,10 @@ import { mount } from './game.ts';
 const channel: GameChannel = {
   id: 'boys-day',
   title: 'BOYS DAY',
-  tagline: 'Drive the bus home. Paint the zombies. Bong tokes await.',
+  tagline: 'An endless zombie road trip. Every checkpoint is a new world.',
   about:
-    'You wake up in the paintball arena after the biggest night of your lives, and the world has ended. One of you drives the bus; the rest lean out of the windows with paintball markers. Win a golf club at the driving range, the bail money at the casino, spring Gordie from jail, and get home to the boys’ house. Every run is a new map.',
-  facts: ['1–8 players online', 'Co-op', 'Controller', 'New map every run'],
+    'You wake up in the paintball arena after the biggest night of your lives, and the world has ended. Drive the bus from checkpoint to checkpoint, each one a new world: hop off, do the job, unlock shotguns, miniguns and paint grenades, and spend your scrap on the bus. Between stops, rip the bong, crack a cold one and play blackjack or heads-up poker for it. There is no finish line.',
+  facts: ['1–8 players online', 'Co-op', 'Controller', 'Endless: thousands of checkpoints'],
   order: 35,
   banner: (canvas) => paintBanner(canvas),
   mount,
