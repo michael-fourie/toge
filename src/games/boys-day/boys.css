@@ -849,3 +849,10 @@
   letter-spacing: 2px;
   opacity: 0.7;
 }
+
+/* The store is a long list: let it scroll inside the panel. */
+.boys-day .bd-cards-body {
+  max-height: min(62vh, 560px);
+  overflow-y: auto;
+  width: 100%;
+}

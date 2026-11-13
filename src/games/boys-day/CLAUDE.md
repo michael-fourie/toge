@@ -99,7 +99,7 @@ slow or parked they climb it and chew. **Zombies come in rounds** (`ROUNDS`), gr
 | `hud.ts`, `minigames.ts` (tee-off, the slots and fishing), `input.ts`, `audio.ts`, `banner.ts`, `boys.css` | HUD, minimap and the leg title card; golf and slots; keyboard/mouse/pad; synthesised sound; the channel art; styles |
 
 Tests: `tests/boys-day.test.ts` (legs are deterministic and drivable; checkpoints; every job; on-foot movement and
-boarding; bites and knock-outs; wallets and the store; guns and grenades; blackjack, poker hands and the duel; bus
+boarding; bites and knock-outs; wallets and the store; guns and grenades; blackjack, Hold’em (its own file: side pots and 400 random hands that must balance); bus
 physics; rounds; the wire format).
 
 Lights: the bus's headlight and cabin light and the sky's lights are added once at the start and live for the whole
