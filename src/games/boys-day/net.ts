@@ -8,6 +8,7 @@
 import { Z_STATES, type Fx, type FxKind } from './director.ts';
 import { POKER_MOVES, readCards, readPoker, type PokerMove, type PokerView } from './poker.ts';
 import { isPick } from './roster.ts';
+import type { MiniKind } from './rules.ts';
 import { BJ_MAX, BUY, MAX_PLAYERS, SEED_MAX, SLOT_MAX, UPGRADES, type Phase, type RunState } from './rules.ts';
 
 export type Msg =
@@ -27,7 +28,7 @@ export type Msg =
    */
   | { t: 'aim'; yaw: number; pitch: number; s: number; a: number; l: 0 | 1 | 2; c?: boolean }
   | Act
-  | { t: 'mini'; k: 'golf' | 'slots'; v: number }
+  | { t: 'mini'; k: MiniKind; v: number }
   /** A hand of blackjack at the card table: scrap won (or lost). */
   | { t: 'bj'; v: number }
   /** Hold'em (poker.ts): a move to the host; the table for everyone; your own two cards, sent to you alone. */
@@ -58,7 +59,7 @@ export interface Act {
 
 export const ACT_MAX = { shots: 24, hits: 24, grabs: 6, swing: 8, boom: 16 } as const;
 
-const FX: FxKind[] = ['yeet', 'fore', 'splat', 'gordie', 'grab', 'hurt', 'shake', 'heal', 'bump', 'round', 'bite', 'crate', 'can', 'clear', 'buy', 'leg', 'scrape', 'roll'];
+const FX: FxKind[] = ['yeet', 'fore', 'splat', 'gordie', 'grab', 'hurt', 'shake', 'heal', 'bump', 'round', 'bite', 'crate', 'can', 'clear', 'buy', 'leg', 'scrape', 'roll', 'fish'];
 const PHASES: Phase[] = ['drive', 'stop', 'lost'];
 const DOS = ['crate', 'can', 'ko', 'toke', 'drink'] as const;
 
@@ -78,6 +79,7 @@ function readRun(r: unknown): RunState | null {
   if (!num(o.fuel, 1000) || !int(o.round, 1e5) || !int(o.left, 9999) || !num(o.calm, 999)) return null;
   if (!Array.isArray(o.up) || o.up.length !== UPGRADES.length || !o.up.every((v, i) => int(v, UPGRADES[i].max) && v >= 0)) return null;
   if (!int(o.rolls, 99) || (o.rolls as number) < 0 || !num(o.down, 99) || (o.down as number) < 0) return null;
+  if (!num(o.keg, 1e5) || (o.keg as number) < 0) return null;
   return {
     seed: o.seed,
     stage: o.stage,
@@ -99,6 +101,7 @@ function readRun(r: unknown): RunState | null {
     calm: o.calm,
     up: o.up as number[],
     rolls: o.rolls,
+    keg: o.keg,
     down: o.down,
   };
 }
@@ -150,7 +153,7 @@ export function readMsg(d: unknown): Msg | null {
       return { t: 'act', c: m.c, shots: m.shots as number[], hits: m.hits as number[], grabs: m.grabs as number[], swing: m.swing as number[], g: m.g, boom: m.boom as number[] };
     }
     case 'mini':
-      return (m.k === 'golf' || m.k === 'slots') && num(m.v, SLOT_MAX) && m.v >= 0 ? { t: 'mini', k: m.k, v: m.v } : null;
+      return (m.k === 'golf' || m.k === 'slots' || m.k === 'fish') && num(m.v, SLOT_MAX) && m.v >= 0 ? { t: 'mini', k: m.k, v: m.v } : null;
     case 'bj':
       return int(m.v, BJ_MAX) ? { t: 'bj', v: m.v } : null;
     case 'poker':

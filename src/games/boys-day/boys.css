@@ -835,3 +835,8 @@
     opacity: 0.35;
   }
 }
+
+/* The keg's health while the big one is after it. */
+.boys-day .bd-bar.keg .bd-bar-fill {
+  background: linear-gradient(90deg, #ffd23f, #ff9a3f);
+}

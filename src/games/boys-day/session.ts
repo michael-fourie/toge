@@ -16,7 +16,7 @@ import { BEACON_R, Director, GORDIE_PAINT, packZombies, unpackZombies, type Fx, 
 
 import { Hud } from './hud.ts';
 import { Input, type Frame } from './input.ts';
-import { Golf, Slots, type Minigame } from './minigames.ts';
+import { Fishing, Golf, Slots, type Minigame } from './minigames.ts';
 import { Horde, Paint, makeBean, makeBus, makeClub, makeGun, paintOf, showBusParts, type Ball, type Bean } from './models.ts';
 import { ACT_MAX, takeWheel, type Act, type Msg } from './net.ts';
 import { Poker, emptyTable, type PokerMove, type PokerView } from './poker.ts';
@@ -70,6 +70,7 @@ import {
   type Bus,
   type Obstacle,
   type RunState,
+  type MiniKind,
   type Spot,
 } from './rules.ts';
 import { Sky } from './sky.ts';
@@ -176,7 +177,7 @@ export class Session {
   private viewClub = makeClub();
 
   private mini: Minigame | null = null;
-  private miniKind: 'golf' | 'slots' | 'bj' | 'poker' | 'table' | 'shop' | null = null;
+  private miniKind: MiniKind | 'bj' | 'poker' | 'table' | 'shop' | null = null;
   private table: PokerView = EMPTY_TABLE;
   private myHand: number[] = [];
   private shopKey = '';
@@ -684,7 +685,8 @@ export class Session {
     }
     if (f.view && this.driving) this.chase = !this.chase;
     if (this.mini) {
-      const gone = this.miniKind === 'golf' || this.miniKind === 'slots' ? !this.jobOpen(this.miniKind) : !!this.foot || this.driving;
+      const pit = this.miniKind === 'golf' || this.miniKind === 'slots' || this.miniKind === 'fish';
+      const gone = pit ? !this.pitOpen() : !!this.foot || this.driving;
       if (f.back || gone || (f.use && !this.mini.menu)) this.closeMini();
       else {
         this.mini.update(dt, f);
@@ -753,9 +755,9 @@ export class Session {
   // -------------------------------------------------------------------------------------------
   // Using things: off and on the bus, the job's things, the bong, the cooler, the card table, the store
 
-  /** Is the checkpoint's minigame there to be played? */
-  private jobOpen(kind: 'golf' | 'slots') {
-    return this.run.phase === 'stop' && !this.run.done && this.route.cp.job === kind;
+  /** Parked at a pit stop, where the tee, the machine and the rod are there to play with. */
+  private pitOpen() {
+    return this.run.phase === 'stop' && this.route.cp.job === 'rest';
   }
 
   /** The job's thing within reach of you on foot, if any. */
@@ -764,7 +766,7 @@ export class Session {
     let best: Site | null = null;
     let bd: number = FOOT.reach;
     for (const s of this.route.sites) {
-      if (s.kind === 'beacon' || (s.kind === 'crate' && this.got.has(s.id))) continue;
+      if (s.kind === 'beacon' || s.kind === 'keg' || (s.kind === 'crate' && this.got.has(s.id))) continue;
       const d = Math.hypot(s.x - this.foot.x, s.z - this.foot.z);
       if (d < bd) {
         bd = d;
@@ -786,7 +788,7 @@ export class Session {
         return;
       }
       const s = this.siteNear();
-      if (s && active) {
+      if (s && (active || this.pitOpen())) {
         if (s.kind === 'crate') {
           // The host's `got` is the director's own set: ask first, then mark it.
           this.did('crate', s.id);
@@ -804,8 +806,9 @@ export class Session {
           this.audio.play('reload');
           return;
         }
-        if (s.kind === 'tee' && this.jobOpen('golf')) return this.openMini('golf');
-        if (s.kind === 'slot' && this.jobOpen('slots')) return this.openMini('slots');
+        if (s.kind === 'tee' && this.pitOpen()) return this.openMini('golf');
+        if (s.kind === 'slot' && this.pitOpen()) return this.openMini('slots');
+        if (s.kind === 'rod' && this.pitOpen()) return this.openMini('fish');
       }
       if (near) this.board(true);
       return;
@@ -849,11 +852,12 @@ export class Session {
     if (sound) this.audio.play('thunk', 0.5);
   }
 
-  private openMini(k: 'golf' | 'slots') {
+  private openMini(k: MiniKind) {
     const report = (v: number) => {
       if (this.director) this.director.mini(k, v, this.myPlace);
       else this.link.send({ t: 'mini', k, v });
     };
+    if (k === 'fish') return this.show(new Fishing((size) => report(size), this.audio), 'fish');
     this.show(k === 'golf' ? new Golf(() => report(1), this.audio, () => Math.floor(this.run.prog), this.run.need) : new Slots((v) => report(v), this.audio, () => Math.floor(this.run.prog), this.run.need), k);
   }
 
@@ -1293,11 +1297,12 @@ export class Session {
     if (this.foot) {
       const near = canBoard(this.bus, this.foot.x, this.foot.z);
       if (this.carrying) return near ? 'E / Ⓐ  POUR IT IN THE TANK' : 'Lug the can back to the bus';
-      const s = active ? this.siteNear() : null;
+      const s = active || this.pitOpen() ? this.siteNear() : null;
       if (s?.kind === 'crate') return 'E / Ⓐ  GRAB THE CRATE';
       if (s?.kind === 'pump') return 'E / Ⓐ  GRAB A JERRY CAN';
-      if (s?.kind === 'tee') return 'E / Ⓐ  TEE OFF';
+      if (s?.kind === 'tee') return 'E / Ⓐ  HIT A BUCKET OF BALLS';
       if (s?.kind === 'slot') return 'E / Ⓐ  HIT THE SLOTS';
+      if (s?.kind === 'rod') return 'E / Ⓐ  CAST A LINE';
       if (near) return run.done ? 'E / Ⓐ  CLIMB ABOARD: time to go' : 'E / Ⓐ  CLIMB ABOARD';
       const beacon = this.route.sites.find((q) => q.kind === 'beacon');
       if (active && beacon && Math.hypot(beacon.x - this.foot.x, beacon.z - this.foot.z) < BEACON_R) return 'Cranking the beacon… hold the ring!';
@@ -1379,6 +1384,8 @@ export class Session {
       this.hud.pop(`CLEARED! +${f.n} 🔩 EACH`, W / 2, H * 0.3, '#3aff8a', true);
       this.audio.play('jingle');
       this.bars = this.route.obstacles;
+    } else if (f.k === 'fish') {
+      if (f.w === this.myPlace) this.hud.pop(`+${f.n} 🔩 FISH`, W / 2, H * 0.62, '#9fe4ff', true);
     } else if (f.k === 'scrape') {
       // Wiped off down the side of something solid.
       if (onScreen) this.hud.pop(`SCRAPED! +${f.n} 🔩`, sx, sy, '#ffe14a', true);

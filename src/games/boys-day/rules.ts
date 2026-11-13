@@ -391,7 +391,11 @@ export const canBoard = (bus: Pick<Bus, 'x' | 'z' | 'h'>, x: number, z: number) 
 // The run: an endless road of checkpoints. Each has a job to do on foot; the bus dies when its health runs out.
 
 /** What a checkpoint asks of you (see checkpoints.ts for where and with what twist). */
-export type Job = 'scavenge' | 'fuel' | 'beacon' | 'holdout' | 'golf' | 'slots';
+/**
+ * What a checkpoint wants of you. The minigames aren't jobs any more: golf, the slots and the rod are what you do
+ * at a pit stop, for scrap, when you feel like it.
+ */
+export type Job = 'scavenge' | 'fuel' | 'beacon' | 'holdout' | 'boss' | 'rest';
 
 export const JOBS: Record<Job, { need: (crew: number, stage: number) => number; goal: string }> = {
   /** Supply crates lying about: walk up and grab them. */
@@ -402,11 +406,66 @@ export const JOBS: Record<Job, { need: (crew: number, stage: number) => number; 
   beacon: { need: (_, s) => 30 + Math.min(40, s * 3), goal: 'Stand in the ring to crank the beacon' },
   /** Zombies to put down while parked. */
   holdout: { need: (c, s) => Math.round((10 + s * 2) * HORDE.crewScale(c)), goal: 'Hold them off' },
-  /** Zombies teed off at the tee box. */
-  golf: { need: (c) => 2 + 2 * c, goal: 'Walk to the tee box and tee off zombies' },
-  /** Scrap won on the machine. */
-  slots: { need: (c) => 100 + 60 * c, goal: 'Walk to the slot machine and win scrap' },
+  /** One big one to put down, while it tries to make off with the keg. */
+  boss: { need: () => 1, goal: 'Defend the keg: put the big one down' },
+  /** A pit stop: nothing to do but enjoy it. */
+  rest: { need: () => 0, goal: 'Pit stop: fish, hit a bucket of balls, hang out' },
 };
+
+/** The big one at a boss stop, and the keg it's after. */
+export const BOSS = {
+  /** It grows with the run and the crew. */
+  hp: (stage: number, crew: number) => Math.round((260 + stage * 45) * (0.6 + 0.2 * Math.max(1, Math.min(8, crew)))),
+  speed: 3.4,
+  r: 1.6,
+  /** Keg health a second while it's smashing, and how close it has to be. */
+  smash: 26,
+  reach: 3.2,
+  /** What putting it down pays everyone. */
+  pay: 120,
+  /** How hard it swats someone on foot who gets in the way. */
+  bite: 34,
+};
+
+export const KEG = { hp: 300, r: 1.1 };
+
+/** Off the dock: how long the fish takes to bite, how long you have to set the hook, and the fight. */
+export const FISH = {
+  /** Seconds before a bite, and how long the window to strike is. */
+  waitMin: 1.2,
+  waitVar: 3.5,
+  window: 0.9,
+  /** How far out it starts, and how fast reeling brings it in. */
+  far: 1,
+  reel: 0.3,
+  /** The fish pulls back: tension climbs while you reel and falls when you don't; over 1 the line snaps. */
+  tension: 0.85,
+  ease: 0.75,
+  /** How hard it fights, by size, and how the fight wanders. */
+  fight: 0.55,
+  /** What the biggest one is worth on top of the flat pay. */
+  prize: 40,
+};
+
+/** How hard a fish of this size pulls at moment `t` (0…1, a wandering surge). */
+export const fishPull = (t: number, size: number) => FISH.fight * (0.55 + size * 0.75) * (0.75 + 0.45 * Math.sin(t * 2.3) * Math.sin(t * 0.7 + 1.3));
+
+/** One tick of the fight: reeling raises the tension and brings it in; letting go eases both. */
+export function fishStep(far: number, tension: number, size: number, t: number, reeling: boolean, dt: number) {
+  const pull = fishPull(t, size);
+  const next = Math.max(0, Math.min(1.2, tension + (reeling ? pull : -FISH.ease) * dt));
+  return {
+    far: Math.max(0, far - (reeling ? FISH.reel * dt : -FISH.reel * 0.35 * dt)),
+    tension: next,
+    snapped: next >= 1,
+  };
+}
+
+/** What you can play at a pit stop. */
+export type MiniKind = 'golf' | 'slots' | 'fish';
+
+/** What the pit stop's own amusements pay. */
+export const PIT = { fish: 14, golf: 10, slots: 1 };
 
 export const RUN = {
   /** Stop when the bus is this close to the checkpoint's marker, going slower than `parkSpeed`. */
@@ -486,6 +545,8 @@ export interface RunState {
   up: number[];
   /** How many times the bus has gone over (CLING.rolls ends the run), and how long it's lying on its side. */
   rolls: number;
+  /** A boss stop's keg, while it's standing (0: no keg, or it's been smashed). */
+  keg: number;
   down: number;
 }
 
@@ -511,6 +572,7 @@ export function newRun(seed: number, crew = 1): RunState {
     calm: ROUNDS.first,
     up: UPGRADES.map(() => 0),
     rolls: 0,
+    keg: 0,
     down: 0,
   };
 }
@@ -558,20 +620,21 @@ export function objective(r: RunState, job: Job, place: string): string {
   if (job === 'fuel') return `Lug jerry cans from the pump to the bus: ${n}`;
   if (job === 'beacon') return `Stand in the ring to crank the beacon: ${Math.ceil(r.need - r.prog)} s`;
   if (job === 'holdout') return `Hold them off: ${n}`;
-  if (job === 'golf') return `Tee off zombies at the tee box: ${n}`;
-  return `Win scrap on the slot machine: ${n}`;
+  if (job === 'boss') return `Defend the keg from the big one${r.keg > 0 ? '' : ' (the keg’s gone)'}`;
+  return 'Pit stop: fish, hit some balls, hang out';
 }
 
 // ---------------------------------------------------------------------------------------------
 // Zombies and guns
 
-export type ZKind = 0 | 1 | 2 | 3;
+export type ZKind = 0 | 1 | 2 | 3 | 4;
 /** `damage`: bus health a second while it hangs on. `bite`: what one bite takes off a player on foot. */
 export const ZOMBIE: Record<ZKind, { name: string; speed: number; hp: number; r: number; damage: number; bite: number }> = {
   0: { name: 'shambler', speed: 4.5, hp: 3, r: 0.45, damage: 2, bite: 12 },
   1: { name: 'sprinter', speed: 7.5, hp: 2, r: 0.4, damage: 1.5, bite: 9 },
   2: { name: 'chonk', speed: 3.2, hp: 7, r: 0.75, damage: 4, bite: 24 },
   3: { name: 'leaper', speed: 6.5, hp: 2, r: 0.38, damage: 1.5, bite: 10 },
+  4: { name: 'the big one', speed: 3.4, hp: 300, r: 1.6, damage: 9, bite: 34 },
 };
 /** The further you get, the faster they come (a share on top per leg, capped). */
 export const zSpeed = (stage: number) => 1 + Math.min(0.45, stage * 0.025);
@@ -617,7 +680,7 @@ export const HORDE = {
  */
 export const CLING = {
   /** What one of each kind weighs on the side it's hanging from. */
-  weight: [1, 0.8, 2.3, 0.9] as const,
+  weight: [1, 0.8, 2.3, 0.9, 4] as const,
   /** How hard a zombie of weight 1 pulls the wheel, and how far it leans the bus (radians). */
   pull: 0.085,
   lean: 0.05,
