@@ -4,7 +4,7 @@
 
 import type { Audio } from './audio.ts';
 import type { PokerMove, PokerView } from './poker.ts';
-import { STAKES } from './poker.ts';
+import { STAKES, bestFive } from './poker.ts';
 import type { Minigame } from './minigames.ts';
 import { BLACKJACK, bjPay, bjTotal, handName, rankOf, shuffled, suitOf } from './rules.ts';
 
@@ -274,7 +274,9 @@ export class PokerTable implements Minigame {
       line(`Waiting on ${this.name(v.seats[v.turn]) || 'them'}…`);
     } else {
       // My move.
-      line(`${handName([...this.hole, ...v.board].slice(0, 5))}${v.board.length ? '' : ' in the hole'}`);
+      // What you've got, once there are five cards to name it with.
+      const seven = [...this.hole, ...v.board];
+      line(seven.length >= 5 ? handName(bestFive(seven).five) : 'Two in the hole');
       const first = (btn: HTMLButtonElement) => {
         btn.dataset.autofocus = '';
         return btn;
