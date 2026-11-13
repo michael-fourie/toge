@@ -1,4 +1,4 @@
-import { type Bests, type BoardRow, type MedalRow, NOTICES, type NewBest, type Notice, cleanBests, cleanBoard, cleanNotices, medalTable, overtaken, placeOnBoard, recordTime } from '../shared/records.ts';
+import { BOARD_TRACKS, type Bests, type BoardRow, type MedalRow, NOTICES, type NewBest, type Notice, cleanBests, cleanBoard, cleanNotices, medalTable, overtaken, placeOnBoard, recordTime } from '../shared/records.ts';
 import { type GhostRun, type GhostTape, cleanRun, cleanTape } from '../shared/ghost.ts';
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { KV } from '../../server/accountStore.ts';
@@ -57,7 +57,8 @@ export class RecordStore {
   async leaders(): Promise<{ leaders: Partial<Record<TrackId, BoardRow>>; medals: MedalRow[] }> {
     const leaders: Partial<Record<TrackId, BoardRow>> = {};
     const boards: BoardRow[][] = [];
-    for (const t of TRACKS) {
+    // Only the boards the Leaderboard lists (BOARD_TRACKS): a hidden board's medals would count with no board to show them.
+    for (const t of BOARD_TRACKS) {
       const rows = await this.board(t);
       boards.push(rows);
       if (rows[0]) leaders[t] = rows[0];

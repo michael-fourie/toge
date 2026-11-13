@@ -18,7 +18,7 @@ import { settingsTab } from './settingsui.ts';
 import { friendCar, friendsApi, friendsTab } from './friendsui.ts';
 import { type Leaders, boardApi, leaderboardTab, noticeText } from './leaderboardui.ts';
 import type { FriendList } from '../../shared/friends.ts';
-import type { BoardRow, MedalRow, Notice, TogeProfile } from '../shared/records.ts';
+import { BOARD_TRACKS, type BoardRow, type MedalRow, type Notice, type TogeProfile } from '../shared/records.ts';
 import { type Graphics, graphics, setGraphics } from '../../client/graphics.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
@@ -145,7 +145,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   const friendsView = () => ({ user: account.user, list: friendList, open: friendOpen, openCar: friendCarI, bests: garage.bests, status });
   const visiting = () => (page === 'friends' ? friendOpen : null);
   /** Leaderboard: the track whose board is open, every track's record, and the boards loaded so far. */
-  let lbTrack: TrackId = track;
+  let lbTrack: TrackId = BOARD_TRACKS.includes(track) ? track : BOARD_TRACKS[0];
   let leaders: Leaders | null = null;
   let medals: MedalRow[] | null = null;
   const boards = new Map<TrackId, BoardRow[]>();
