@@ -4,6 +4,7 @@ import { BIOME_IDS, CHECKPOINT_COUNT, JOB_IDS, PLACES, TWISTS, checkpointOf } fr
 import { BEACON_R, Director, packZombies, unpackZombies } from '../src/games/boys-day/director.ts';
 import { Duel, readDuel } from '../src/games/boys-day/duel.ts';
 import { readMsg, takeWheel } from '../src/games/boys-day/net.ts';
+import { ANY_BOY, BOYS, castBoys } from '../src/games/boys-day/roster.ts';
 import { ARENA, HAZARD, ROAD, groundAt, hazardAt, makeRoute, roadNear, solids } from '../src/games/boys-day/route.ts';
 import { TERRAIN, roadHeights } from '../src/games/boys-day/terrain.ts';
 import {
@@ -38,6 +39,8 @@ import {
   bjPay,
   bjTotal,
   buy,
+  yeetSpeedOf,
+  chewOf,
   canBoard,
   collideBus,
   fwdOf,
@@ -769,14 +772,14 @@ test('boys day net: every seed the host can roll gets through to the joiners (st
   for (let k = 0; k < 200; k++) seeds.push(newSeed());
   for (const s of seeds) {
     assert.ok(Number.isInteger(s) && s >= 0 && s < SEED_MAX, `seed ${s} in range`);
-    assert.deepEqual(readMsg({ t: 'start', seed: s, driver: 2 }), { t: 'start', seed: s, driver: 2 }, `start, seed ${s}`);
+    assert.deepEqual(readMsg({ t: 'start', seed: s, driver: 2, boys: [0, 3] }), { t: 'start', seed: s, driver: 2, boys: [0, 3] }, `start, seed ${s}`);
     const r = { ...newRun(s, 3), stage: 250, round: 400 };
     const m = readMsg(JSON.parse(JSON.stringify({ t: 'run', run: r, taken: [1, 2], got: [0] })));
     assert.deepEqual(m, { t: 'run', run: r, taken: [1, 2], got: [0] }, `run, seed ${s}`);
   }
-  assert.equal(readMsg({ t: 'start', seed: SEED_MAX, driver: 0 }), null);
-  assert.equal(readMsg({ t: 'start', seed: -1, driver: 0 }), null);
-  assert.equal(readMsg({ t: 'start', seed: 1.5, driver: 0 }), null);
+  assert.equal(readMsg({ t: 'start', seed: SEED_MAX, driver: 0, boys: [] }), null);
+  assert.equal(readMsg({ t: 'start', seed: -1, driver: 0, boys: [] }), null);
+  assert.equal(readMsg({ t: 'start', seed: 1.5, driver: 0, boys: [] }), null);
 });
 
 test('boys day net: junk is dropped; the wheel is first come; spots are on the bus or out on the map', () => {
@@ -984,4 +987,42 @@ test('boys day route: hazards stay on the road, clear of the checkpoint, and lea
     }
   const n = (leg: number) => [1, 2, 3, 4, 5, 6].reduce((k, s) => k + makeRoute(s, leg).hazards.length / makeRoute(s, leg).road.length, 0);
   assert.ok(n(15) > n(0), 'the road gets meaner');
+});
+
+test('everyone gets their pick, and the undecided get somebody nobody picked', () => {
+  let k = 0;
+  const rand = () => (k++ * 0.37) % 1;
+  const cast = castBoys([2, undefined, ANY_BOY, 2, undefined], rand);
+  assert.equal(cast.length, 5);
+  assert.equal(cast[0], 2);
+  assert.equal(cast[3], 2, 'two players may be the same boy');
+  const others = [cast[1], cast[2], cast[4]];
+  assert.equal(new Set(others).size, 3, 'no doubles among the random ones');
+  for (const b of others) assert.ok(b >= 0 && b < BOYS.length && b !== 2);
+  // More players than boys: everyone still gets someone.
+  for (const b of castBoys(new Array(BOYS.length + 3).fill(undefined), Math.random)) assert.ok(b >= 0 && b < BOYS.length);
+  assert.deepEqual(BOYS.map((b) => b.name), ['Shota', 'Garrett', 'Nash', 'Jung', 'Dev', 'Angus', 'Michael']);
+});
+
+test('the wire only takes real boys', () => {
+  assert.deepEqual(readMsg({ t: 'pick', b: ANY_BOY }), { t: 'pick', b: ANY_BOY });
+  assert.deepEqual(readMsg({ t: 'pick', b: BOYS.length - 1 }), { t: 'pick', b: BOYS.length - 1 });
+  assert.equal(readMsg({ t: 'pick', b: BOYS.length }), null);
+  assert.equal(readMsg({ t: 'start', seed: 1, driver: 0, boys: [ANY_BOY] }), null, 'a run starts with everyone cast');
+  assert.equal(readMsg({ t: 'start', seed: 1, driver: 0 }), null);
+});
+
+test('pitchforks slow the chewing, the snow plow lowers the speed that yeets', () => {
+  const r = newRun(1, 1);
+  assert.equal(chewOf(r), 1);
+  const yeet = yeetSpeedOf(r);
+  r.cash[0] = 9999;
+  assert.ok(buy(r, UP.forks, 0));
+  assert.ok(chewOf(r) < 1);
+  assert.equal(yeetSpeedOf(r), yeet, 'forks leave the plow alone');
+  while (buy(r, UP.plow, 0));
+  assert.ok(yeetSpeedOf(r) < yeet && yeetSpeedOf(r) > 0);
+  while (buy(r, UP.forks, 0));
+  assert.ok(chewOf(r) > 0, 'they always chew a bit');
+  assert.equal(r.up[UP.forks], UPGRADES[UP.forks].max);
 });

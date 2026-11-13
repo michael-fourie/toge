@@ -427,10 +427,11 @@ export const RUN = {
 /** What scrap buys at the bus's store (B / D-pad up), out of your own pocket. Upgrades cost more a level at a time. */
 export const UPGRADES = [
   { id: 'armor', name: 'Scrap armour', what: '+250 max bus health (and fills it)', max: 6, cost: 50 },
-  { id: 'plow', name: 'Cow-catcher', what: 'Zombies bounce off at lower speed and chew slower', max: 4, cost: 45 },
+  { id: 'plow', name: 'Snow plow', what: 'A blade on the front: zombies bounce off at lower speed', max: 4, cost: 45 },
   { id: 'engine', name: 'Engine swap', what: '+8% speed, pulls harder up hills', max: 5, cost: 40 },
   { id: 'tank', name: 'Jerry-rigged tank', what: '+25 fuel and sips less', max: 4, cost: 35 },
   { id: 'hopper', name: 'Big hoppers', what: '+20 paintballs, quicker reloads for everyone', max: 4, cost: 30 },
+  { id: 'forks', name: 'Pitchforks', what: 'Spikes down both sides: zombies chew the bus slower', max: 4, cost: 40 },
 ] as const;
 export const REPAIR = { cost: 30, hp: 200 } as const;
 /** For yourself: a paint grenade, and a bandage (back to full health). */
@@ -438,7 +439,7 @@ export const STORE = { nade: 15, bandage: 10 } as const;
 /** What `buy` takes: an upgrade's index, then these. */
 export const BUY = { repair: UPGRADES.length, nade: UPGRADES.length + 1, bandage: UPGRADES.length + 2 } as const;
 /** Index of each upgrade in `RunState.up`. */
-export const UP = { armor: 0, plow: 1, engine: 2, tank: 3, hopper: 4 } as const;
+export const UP = { armor: 0, plow: 1, engine: 2, tank: 3, hopper: 4, forks: 5 } as const;
 export const upCost = (k: number, level: number) => UPGRADES[k].cost * (level + 1);
 
 export type Phase = 'drive' | 'stop' | 'lost';
@@ -502,8 +503,8 @@ export const hopperOf = (r: Pick<RunState, 'up'>) => GUN.hopper + r.up[UP.hopper
 export const reloadOf = (r: Pick<RunState, 'up'>) => GUN.reload * (1 - r.up[UP.hopper] * 0.12);
 /** The engine's pull (top speed, acceleration and climbing), from the engine upgrade. */
 export const powerOf = (r: Pick<RunState, 'up'>) => 1 + r.up[UP.engine] * 0.08;
-export const yeetSpeedOf = (r: Pick<RunState, 'up'>) => HORDE.yeetSpeed - r.up[UP.plow] * 0.9;
-export const chewOf = (r: Pick<RunState, 'up'>) => 1 - r.up[UP.plow] * 0.12;
+export const yeetSpeedOf = (r: Pick<RunState, 'up'>) => HORDE.yeetSpeed - r.up[UP.plow] * 1.1;
+export const chewOf = (r: Pick<RunState, 'up'>) => 1 - r.up[UP.forks] * 0.15;
 
 /** What `k` costs right now (Infinity: it can't be bought, e.g. maxed out or the bus is already whole). */
 export function priceOf(r: RunState, k: number): number {

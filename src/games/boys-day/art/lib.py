@@ -162,3 +162,17 @@ def pose(name, parts):
         o = bpy.data.objects[src]; c = o.copy(); c.data = o.data.copy(); bpy.context.scene.collection.objects.link(c)
         c.location = loc; c.rotation_euler = Euler(rot); cs.append(c)
     return join(name, cs, grad=None)
+
+def tube(color, a, b, r, r2=None, seg=8, smooth=True):
+    """A cylinder (or cone) from point a to point b."""
+    a, b = Vector(a), Vector(b)
+    d = b - a
+    bpy.ops.mesh.primitive_cone_add(vertices=seg, radius1=r, radius2=r if r2 is None else r2, depth=d.length)
+    o = bpy.context.view_layer.objects.active
+    o.location = (a + b) / 2
+    o.rotation_euler = d.to_track_quat('Z', 'Y').to_euler()
+    return _finish(o, color, 0, 0, smooth)
+
+def ring(color, R_, r, loc=(0, 0, 0), rot=(0, 0, 0), seg=16, arc=None):
+    bpy.ops.mesh.primitive_torus_add(major_radius=R_, minor_radius=r, major_segments=seg, minor_segments=6)
+    return _finish(_new(loc, rot, (1, 1, 1)), color)

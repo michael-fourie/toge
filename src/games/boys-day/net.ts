@@ -7,10 +7,14 @@
 
 import { Z_STATES, type Fx, type FxKind } from './director.ts';
 import { DUEL_MOVES, readDuel, readHand, type DuelMove, type DuelView } from './duel.ts';
+import { isPick } from './roster.ts';
 import { BJ_MAX, BUY, MAX_PLAYERS, SEED_MAX, SLOT_MAX, UPGRADES, type Phase, type RunState } from './rules.ts';
 
 export type Msg =
-  | { t: 'start'; seed: number; driver: number }
+  /** A run begins: the map's seed, who drives first, and who everyone is (roster.ts BOYS, by place in the crew). */
+  | { t: 'start'; seed: number; driver: number; boys: number[] }
+  /** In the lobby: who I'd like to be (ANY_BOY: surprise me). */
+  | { t: 'pick'; b: number }
   | { t: 'driver'; id: number }
   /** The run, the pickups taken on this leg and the crates got at its checkpoint. */
   | { t: 'run'; run: RunState; taken: number[]; got: number[] }
@@ -101,7 +105,12 @@ export function readMsg(d: unknown): Msg | null {
   const m = d as Record<string, unknown>;
   switch (m.t) {
     case 'start':
-      return seed(m.seed) && int(m.driver) ? { t: 'start', seed: m.seed, driver: m.driver } : null;
+{
+      const boys = Array.isArray(m.boys) && m.boys.length <= MAX_PLAYERS && m.boys.every((b) => isPick(b) && b >= 0) ? (m.boys as number[]) : null;
+      return seed(m.seed) && int(m.driver) && boys ? { t: 'start', seed: m.seed, driver: m.driver, boys } : null;
+    }
+    case 'pick':
+      return isPick(m.b) ? { t: 'pick', b: m.b } : null;
     case 'driver':
       return int(m.id) ? { t: 'driver', id: m.id } : null;
     case 'run': {

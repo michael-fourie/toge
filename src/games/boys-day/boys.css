@@ -713,3 +713,25 @@
   font-style: normal;
   font-weight: 900;
 }
+
+/* Who are you today: the roster. */
+.boys-day .bd-picker {
+  margin: 8px 0;
+}
+.boys-day .bd-picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+.boys-day .bd-btn.pick {
+  width: auto;
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 15px;
+  border-bottom: 5px solid var(--boy, var(--bd-ink));
+}
+.boys-day .bd-btn.pick.on {
+  background: var(--bd-sun);
+  color: var(--bd-ink);
+}

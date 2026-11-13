@@ -8,6 +8,7 @@ import { artReady, loadArt } from './assets.ts';
 import { paintBanner } from './banner.ts';
 import { paintOf } from './models.ts';
 import { readMsg } from './net.ts';
+import { ANY_BOY, BOYS, castBoys, isPick } from './roster.ts';
 import { MAX_PLAYERS, newSeed } from './rules.ts';
 import { Session } from './session.ts';
 import './boys.css';
@@ -24,6 +25,25 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = '') 
   return e;
 };
 
+const PICK_KEY = 'boys-day.boy';
+
+function loadPick() {
+  try {
+    const v = Number(localStorage.getItem(PICK_KEY) ?? ANY_BOY);
+    return isPick(v) ? v : ANY_BOY;
+  } catch {
+    return ANY_BOY;
+  }
+}
+
+function savePick(b: number) {
+  try {
+    localStorage.setItem(PICK_KEY, String(b));
+  } catch {
+    /* private mode: just this visit */
+  }
+}
+
 class App {
   private party: Party | null = null;
   private session: Session | null = null;
@@ -33,6 +53,9 @@ class App {
   private offs: (() => void)[] = [];
   private note = '';
   private hostAtStart = -1;
+  /** Who I'd like to be (kept per browser), and what the others in the room have said. */
+  private myPick = loadPick();
+  private picks = new Map<number, number>();
   /** Counts run starts still waiting on the models (a newer start, or leaving, cancels an older one). */
   private starting = 0;
   private gone = false;
@@ -97,7 +120,7 @@ class App {
     const rooms = el('div', 'bd-rooms');
     const back = el('button', 'bd-btn ghost', '← Back to the games');
     back.onclick = () => this.api.exit();
-    card.append(solo, host, row, rooms, back);
+    card.append(this.picker(() => this.menu()), solo, host, row, rooms, back);
     this.screen(card);
     void this.api.party
       .list()
@@ -126,11 +149,12 @@ class App {
       const row = el('div', 'bd-crewrow');
       const dot = el('span', 'dot');
       dot.style.background = paintOf(i);
-      row.append(dot, el('span', '', `${m.name}${m.id === p.hostId ? ' (host)' : ''}${m.id === p.id ? ' — you' : ''}`));
+      const pick = m.id === p.id ? this.myPick : (this.picks.get(m.id) ?? ANY_BOY);
+      row.append(dot, el('span', '', `${m.name}${m.id === p.hostId ? ' (host)' : ''}${m.id === p.id ? ' — you' : ''}`), el('span', 'cash', pick === ANY_BOY ? 'surprise me' : `as ${BOYS[pick].name}`));
       list.append(row);
     });
     if (p.members.length > MAX_PLAYERS) list.append(el('p', 'bd-note', `${p.members.length - MAX_PLAYERS} more watching (the bus seats 8).`));
-    card.append(list);
+    card.append(list, this.picker(() => this.lobby()));
     if (p.isHost) {
       const start = el('button', 'bd-btn big', '🚌  Start the bus');
       start.dataset.autofocus = '';
@@ -141,6 +165,28 @@ class App {
     leave.onclick = () => this.leave('');
     card.append(leave);
     this.screen(card);
+  }
+
+  /** Who do you want to be? One button each, and "surprise me". `again` redraws the screen it's on. */
+  private picker(again: () => void) {
+    const box = el('div', 'bd-picker');
+    box.append(el('p', 'bd-note', 'Who are you today?'));
+    const row = el('div', 'bd-picker-row');
+    const add = (b: number, label: string) => {
+      const btn = el('button', `bd-btn pick${this.myPick === b ? ' on' : ''}`, label);
+      if (b >= 0) btn.style.setProperty('--boy', BOYS[b].shirt);
+      btn.onclick = () => {
+        this.myPick = b;
+        savePick(b);
+        this.party?.send({ t: 'pick', b });
+        again();
+      };
+      row.append(btn);
+    };
+    add(ANY_BOY, '🎲 Surprise me');
+    BOYS.forEach((boy, i) => add(i, boy.name));
+    box.append(row);
+    return box;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -156,6 +202,7 @@ class App {
         p.onMembers(() => this.onMembers()),
         p.onClose((why) => this.leave(why || 'The bus left without you.')),
       );
+      p.send({ t: 'pick', b: this.myPick });
       this.lobby();
     } catch (e) {
       this.note = code ? `Couldn’t join ${code}: ${(e as Error).message || 'no such bus'}` : 'Couldn’t start a room. Try again?';
@@ -168,7 +215,11 @@ class App {
     if (this.session) {
       if (p.hostId !== this.hostAtStart) return this.leave('The host left, so the bus is gone.');
       this.session.dropMissing(new Set(p.members.map((m) => m.id)));
-    } else this.lobby();
+    } else {
+      // So whoever just got on knows who I am.
+      p.send({ t: 'pick', b: this.myPick });
+      this.lobby();
+    }
   }
 
   private onMessage(from: number, data: unknown) {
@@ -176,7 +227,12 @@ class App {
     if (!m || !this.party) return;
     if (m.t === 'start') {
       if (from !== this.party.hostId) return;
-      this.begin(m.seed, m.driver);
+      this.begin(m.seed, m.driver, m.boys);
+      return;
+    }
+    if (m.t === 'pick') {
+      this.picks.set(from, m.b);
+      if (!this.session) this.lobby();
       return;
     }
     this.session?.onMsg(from, m);
@@ -186,10 +242,11 @@ class App {
   private startRun() {
     const seed = newSeed();
     const p = this.party;
-    if (!p) return this.begin(seed, 0);
+    if (!p) return this.begin(seed, 0, castBoys([this.myPick], Math.random));
     p.setOpen(false);
-    p.send({ t: 'start', seed, driver: p.id });
-    this.begin(seed, p.id);
+    const boys = castBoys(p.members.slice(0, MAX_PLAYERS).map((m) => (m.id === p.id ? this.myPick : this.picks.get(m.id))), Math.random);
+    p.send({ t: 'start', seed, driver: p.id, boys });
+    this.begin(seed, p.id, boys);
   }
 
   private solo() {
@@ -198,18 +255,18 @@ class App {
   }
 
   /** Starts a run once the models are in (they're asked for when the game opens, so usually at once). */
-  private begin(seed: number, driver: number) {
-    if (artReady()) return this.beginNow(seed, driver);
+  private begin(seed: number, driver: number, boys: readonly number[]) {
+    if (artReady()) return this.beginNow(seed, driver, boys);
     const token = ++this.starting;
-    void loadArt().then(() => token === this.starting && !this.gone && this.beginNow(seed, driver));
+    void loadArt().then(() => token === this.starting && !this.gone && this.beginNow(seed, driver, boys));
   }
 
-  private beginNow(seed: number, driver: number) {
+  private beginNow(seed: number, driver: number, boys: readonly number[]) {
     this.session?.dispose();
     this.root.replaceChildren();
     const p = this.party;
     this.hostAtStart = p?.hostId ?? 0;
-    const crew = p ? p.members.slice(0, MAX_PLAYERS).map((m) => ({ id: m.id, name: m.name })) : [{ id: 0, name: this.api.name || 'You' }];
+    const crew = p ? p.members.slice(0, MAX_PLAYERS).map((m, i) => ({ id: m.id, name: m.name, boy: boys[i] ?? 0 })) : [{ id: 0, name: this.api.name || 'You', boy: boys[0] ?? 0 }];
     this.session = new Session(
       this.root,
       this.renderer,
