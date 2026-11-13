@@ -776,9 +776,6 @@ export function bjPay(player: readonly number[], dealer: readonly number[], bet:
   return p === d ? 0 : -bet;
 }
 
-/** Heads-up poker at the card table (five-card draw, one draw, one round of betting). See duel.ts. */
-export const DUEL = { antes: [10, 25, 50], seats: 2 } as const;
-
 /** A shuffled deck (Fisher-Yates on `rand`). */
 export function shuffled(rand: () => number): number[] {
   const d = Array.from({ length: 52 }, (_, i) => i);
