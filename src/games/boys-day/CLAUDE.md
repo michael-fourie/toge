@@ -74,6 +74,7 @@ slow or parked they climb it and chew. **Zombies come in rounds** (`ROUNDS`), gr
 | `net.ts` | the messages and `readMsg` (checks every message's shape), `takeWheel` |
 | `sky.ts` | the sky that outlives the legs: shader dome (stars, aurora), sun/moon, lights, fog, weather; a `Look` per biome |
 | `world.ts` / `models.ts` | three.js: a leg's ground, road, arena, gate and scenery; the bus (with the bong, cooler and card table), beans, guns, the horde, paintballs and splats |
+| `assets.ts`, `art/` | the Blender models: `art/build.py` builds `art/boys-day.glb` (see `art/README.md`); `assets.ts` loads it and hands out geometry by name (`art('z_head')`), with the old code-built shapes as the fallback |
 | `post.ts` | bloom, shadows and the grade ("Fancy") or straight to the screen ("Fast") |
 | `cards.ts` | the card table's screens (blackjack, heads-up poker): DOM with real buttons |
 | `hud.ts`, `minigames.ts`, `input.ts`, `audio.ts`, `banner.ts`, `boys.css` | HUD, minimap and the leg title card; golf and slots; keyboard/mouse/pad; synthesised sound; the channel art; styles |
