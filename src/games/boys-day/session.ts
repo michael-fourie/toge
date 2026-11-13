@@ -21,7 +21,7 @@ import { Horde, Paint, makeBean, makeBus, makeClub, makeGun, paintOf, showBusPar
 import { ACT_MAX, takeWheel, type Act, type Msg } from './net.ts';
 import { Poker, emptyTable, type PokerMove, type PokerView } from './poker.ts';
 import { Post } from './post.ts';
-import { BOYS, GORDIE } from './roster.ts';
+import { BOYS, FITS, GORDIE, dressed } from './roster.ts';
 import { HAZARD, ROAD, groundAt, hazardAt, makeRoute, roadNear, solids, toGo, type Route, type Site } from './route.ts';
 import {
   BUS,
@@ -45,8 +45,9 @@ import {
   clingLoad,
   collideBus,
   CLING,
+  COMFORTS,
+  KITS,
   fwdOf,
-  gunsUnlocked,
   hangAt,
   hopOff,
   hopOn,
@@ -57,6 +58,10 @@ import {
   pullOf,
   priceOf,
   reloadOf,
+  reloadKit,
+  regenOf,
+  ownsGun,
+  spreadOf,
   rightOf,
   rng,
   startSpot,
@@ -133,6 +138,8 @@ export class Session {
   private driver: number;
   private others = new Map<number, Other>();
   private beans = new Map<number, Bean>();
+  /** What each player was last seen wearing, so a costume change rebuilds their bean. */
+  private wearing = new Map<number, number>();
   private gordie: Bean | null = null;
   /** You on the bus: where, and inside or up top. Off it: `foot` (world) and the way you face (`footYaw`). */
   private spot: Spot;
@@ -306,8 +313,9 @@ export class Session {
   private get cash() {
     return this.run.cash[this.myPlace] ?? 0;
   }
-  private get unlocked() {
-    return gunsUnlocked(this.run.stage + (this.run.done ? 1 : 0));
+  /** The guns I can pick up: handed out as the run goes, plus any I've bought. */
+  private get myGuns() {
+    return GUNS.map((_, k) => k).filter((k) => ownsGun(this.run, this.myPlace, k));
   }
   private hopper(k = this.gun) {
     return Math.max(1, Math.round(hopperOf(this.run) * GUNS[k].hopper));
@@ -445,9 +453,9 @@ export class Session {
     const d = this.director;
     if (!d) return;
     const c = this.placeOf(from);
-    const dmg = d.damageOf(a.g);
+    const dmg = d.damageOf(a.g, c);
     for (const id of a.hits) d.hit(id, c, dmg);
-    for (const id of a.boom) d.hit(id, c, d.damageOf(-1));
+    for (const id of a.boom) d.hit(id, c, d.damageOf(-1, c));
     for (const id of a.grabs) d.grab(id);
     if (a.swing.length) d.swing(a.swing, c, this.bus, this.others.get(from)?.foot ?? undefined);
   }
@@ -501,9 +509,17 @@ export class Session {
   /** Everyone's bean: the driver sat at the wheel, the rest on their feet, on the bus or out in the world. */
   private placeBeans(dt: number) {
     for (const c of this.link.crew) {
+      // Whatever he's wearing today: a new costume means a new bean.
+      const fit = this.run.fit[this.placeOf(c.id)] ?? 0;
       let bean = this.beans.get(c.id);
+      if (bean && this.wearing.get(c.id) !== fit) {
+        bean.root.removeFromParent();
+        this.beans.delete(c.id);
+        bean = undefined;
+      }
       if (!bean) {
-        bean = makeBean(BOYS[c.boy] ?? BOYS[0], paintOf(this.placeOf(c.id)));
+        this.wearing.set(c.id, fit);
+        bean = makeBean(dressed(BOYS[c.boy] ?? BOYS[0], fit), paintOf(this.placeOf(c.id)));
         bean.root.traverse((o) => ((o as THREE.Mesh).isMesh && ((o as THREE.Mesh).castShadow = true)));
         this.busModel.add(bean.root);
         this.beans.set(c.id, bean);
@@ -669,7 +685,7 @@ export class Session {
       if ((this.koT -= dt) <= 0) this.hp = FOOT.wake;
       return;
     }
-    if (!this.foot) this.hp = Math.min(FOOT.hp, this.hp + FOOT.regen * dt);
+    if (!this.foot) this.hp = Math.min(FOOT.hp, this.hp + regenOf(this.run) * dt);
     if (this.foot) {
       const j = stepJump(this.footY, this.footVy, dt);
       this.footY = j.y;
@@ -738,8 +754,9 @@ export class Session {
       walk(this.spot, f.fwd, f.side, this.yaw, dt);
     }
     if (this.carrying) return;
-    if (f.gun && this.unlocked > 1) {
-      this.gun = (this.gun + 1) % this.unlocked;
+    const rack = this.myGuns;
+    if (f.gun && rack.length > 1) {
+      this.gun = rack[(rack.indexOf(this.gun) + 1) % rack.length];
       this.reloadT = 0;
       this.fireT = 0.25;
       this.audio.play('reload', 0.6);
@@ -813,8 +830,23 @@ export class Session {
       if (near) this.board(true);
       return;
     }
-    const hang = hangAt(this.spot);
+    const hang = hangAt(this.spot, this.run.comfort);
     if (hang === 'table') return this.openTable();
+    if (hang === 'couch' && this.hangT <= 0) {
+      // Feet up on the roof: the best seat in the apocalypse.
+      this.hangT = 2;
+      this.hp = Math.min(FOOT.hp, this.hp + HANG.couch.heal);
+      this.hud.say(pick(['Feet up. Beautiful.', 'This couch was the best 80 scrap ever spent.', 'Rooftop couch, rolling countryside, zombies. Perfect.']));
+      this.audio.play('fix', 0.5);
+      return;
+    }
+    if (hang === 'bbq' && this.hangT <= 0) {
+      this.hangT = 6;
+      this.hp = FOOT.hp;
+      this.hud.say(pick(['🍔 Burger. Back to full.', '🍔 Nothing beats a roof burger.', '🍔 Medium rare, somehow.']));
+      this.audio.play('burp', 0.5);
+      return;
+    }
     if (hang && this.hangT <= 0) {
       this.hangT = 2.5;
       if (hang === 'bong') {
@@ -958,7 +990,8 @@ export class Session {
     const body = this.mini?.el.querySelector('.bd-cards-body');
     if (!body) return;
     const r = this.run;
-    const key = `${this.cash}|${r.up.join()}|${Math.round(r.busHp)}|${this.nades}|${Math.round(this.hp)}`;
+    const me = this.myPlace;
+    const key = `${this.cash}|${r.up.join()}|${Math.round(r.busHp)}|${this.nades}|${Math.round(this.hp)}|${r.guns[me]}|${r.kit[me]}|${r.fit[me]}|${r.comfort}`;
     if (key === this.shopKey) return;
     const focused = (document.activeElement as HTMLElement | null)?.dataset.k;
     this.shopKey = key;
@@ -969,8 +1002,14 @@ export class Session {
     body.append(head);
     const list = document.createElement('div');
     list.className = 'bd-shop';
-    const item = (k: number, name: string, what: string, ok = true) => {
-      const price = priceOf(r, k);
+    const shelf = (title: string) => {
+      const h = document.createElement('p');
+      h.className = 'bd-shelf';
+      h.textContent = title;
+      list.append(h);
+    };
+    const item = (k: number, name: string, what: string, ok = true, owned = '') => {
+      const price = priceOf(r, k, me);
       const b = document.createElement('button');
       b.className = 'bd-btn bd-shop-item';
       b.dataset.k = String(k);
@@ -979,19 +1018,33 @@ export class Session {
       const w = document.createElement('span');
       w.textContent = what;
       const p = document.createElement('i');
-      p.textContent = Number.isFinite(price) ? `🔩 ${price}` : 'MAXED';
+      p.textContent = Number.isFinite(price) ? `🔩 ${price}` : owned || 'MAXED';
       b.append(n, w, p);
       b.disabled = !ok || !(this.cash >= price);
       b.onclick = () => {
-        if (this.director) this.director.buy(k, this.myPlace);
+        if (this.director) this.director.buy(k, me);
         else this.link.send({ t: 'buy', k });
       };
       list.append(b);
     };
+    shelf('THE BUS — everyone rides in it');
     UPGRADES.forEach((u, k) => item(k, `${u.name}  ${'●'.repeat(r.up[k])}${'○'.repeat(u.max - r.up[k])}`, u.what));
     item(BUY.repair, 'Patch the bus', `+${REPAIR.hp} bus health`);
+    COMFORTS.forEach((c, i) => item(BUY.comfort + i, c.name, c.what, true, 'FITTED'));
+    shelf('THE RACK — yours for the rest of the run');
+    GUNS.forEach((g, k) => {
+      if (k === 0) return;
+      const free = ownsGun({ ...r, guns: new Array(r.guns.length).fill(0) }, me, k);
+      item(BUY.gun + k, g.name, free ? 'Already on the rack' : `${g.pellets > 1 ? `${g.pellets} pellets, ` : ''}unlocked anyway at checkpoint ${GUNS[k].unlock}`, true, free ? 'FREE' : 'OWNED');
+    });
+    KITS.forEach((kit, i) => item(BUY.kit + i, kit.name, kit.what, true, 'FITTED'));
+    shelf('YOU');
     item(BUY.nade, `Paint grenade  (you have ${this.nades})`, 'G / D-pad down to throw', this.nades < NADE.max);
     item(BUY.bandage, 'Bandage', 'Back to full health', this.hp < FOOT.hp - 1);
+    FITS.forEach((f, i) => {
+      if (i === 0) return;
+      item(BUY.fit + i, f.name, 'A new look for the road', true, 'WEARING');
+    });
     body.append(list);
     const again = (focused && (list.querySelector(`[data-k="${focused}"]:not(:disabled)`) as HTMLElement | null)) || (list.querySelector('button:not(:disabled)') as HTMLElement | null);
     again?.focus();
@@ -1002,7 +1055,7 @@ export class Session {
 
   private reload() {
     if (this.reloadT > 0) return;
-    this.reloadT = reloadOf(this.run);
+    this.reloadT = reloadOf(this.run) * reloadKit(this.run, this.myPlace);
     this.audio.play('reload');
   }
 
@@ -1037,9 +1090,10 @@ export class Session {
     for (let k = 0; k < gun.pellets; k++) {
       // A little spread: paintball markers aren't rifles (the Long Tom nearly is).
       const dir = aim.clone();
-      dir.x += (Math.random() - 0.5) * gun.spread * 2;
-      dir.y += (Math.random() - 0.5) * gun.spread * 2;
-      dir.z += (Math.random() - 0.5) * gun.spread * 2;
+      const spread = spreadOf(this.run, this.myPlace, this.gun);
+      dir.x += (Math.random() - 0.5) * spread * 2;
+      dir.y += (Math.random() - 0.5) * spread * 2;
+      dir.z += (Math.random() - 0.5) * spread * 2;
       dir.normalize();
       const { from, v } = this.launch(dir, GUN.speed * gun.speed);
       this.paint.fire(from, v, this.myPlace, true, GUN.life * (gun.splash ? 2.5 : 1), gun.gravity, gun.splash ? 2 : 1, this.gun);
@@ -1072,7 +1126,7 @@ export class Session {
     this.api.rumble(0.9, 0.6, 200);
     for (const z of this.zs) {
       if (z.st === 'dead' || z.st === 'fly' || Math.hypot(z.x - p.x, z.z - p.z) > r) continue;
-      if (this.director) this.director.hit(z.id, this.myPlace, this.director.damageOf(k));
+      if (this.director) this.director.hit(z.id, this.myPlace, this.director.damageOf(k, this.myPlace));
       else if (k === -1) this.act.boom.length < ACT_MAX.boom && this.act.boom.push(z.id);
       else if (this.act.hits.length < ACT_MAX.hits) this.act.hits.push(z.id);
     }
@@ -1104,7 +1158,7 @@ export class Session {
         }
         this.paint.splat(b.p.x, b.p.y, b.p.z, b.c, false, 0.5);
         this.audio.play('splat', 0.5);
-        if (this.director) this.director.hit(z.id, this.myPlace, this.director.damageOf(b.k));
+        if (this.director) this.director.hit(z.id, this.myPlace, this.director.damageOf(b.k, this.myPlace));
         else if (this.act.hits.length < ACT_MAX.hits) this.act.hits.push(z.id);
         return true;
       }
@@ -1176,7 +1230,7 @@ export class Session {
     this.busModel.rotation.set(this.tilt.pitch + jolt * 0.2, b.h, this.tilt.roll - b.steer * Math.min(1, Math.abs(b.v) / 20) * 0.08 - this.lean, 'YXZ');
     this.busModel.children.forEach((c) => c.name === 'wheel' && (c.rotation.x -= (b.v * dt) / 0.55));
     if (this.steer) this.steer.rotation.z = -b.steer * 3;
-    showBusParts(this.busModel, this.run.up);
+    showBusParts(this.busModel, this.run.up, this.run.comfort);
     this.placeBeans(dt);
     if (this.run.gordie && !this.gordie) {
       // Gordie, fresh out of the cells, stands in the aisle in his orange jumpsuit and fires out of both sides.
@@ -1311,7 +1365,9 @@ export class Session {
     if (this.driving) return active ? 'Parked. F / Ⓨ to get up, then E / Ⓐ to hop off' : '';
     if (atCab(this.spot)) return this.driver === -1 ? 'F / Ⓨ  DRIVE' : 'Someone’s driving';
     if (atHatch(this.spot)) return this.spot.level ? 'SPACE / Ⓑ  CLIMB DOWN' : 'SPACE / Ⓑ  CLIMB UP TO THE ROOF';
-    const hang = hangAt(this.spot);
+    const hang = hangAt(this.spot, this.run.comfort);
+    if (hang === 'couch') return 'E / Ⓐ  SIT ON THE COUCH';
+    if (hang === 'bbq') return 'E / Ⓐ  GRAB A BURGER';
     if (hang === 'bong') return 'E / Ⓐ  RIP THE BONG';
     if (hang === 'cooler') return 'E / Ⓐ  CRACK A COLD ONE';
     if (hang === 'table') return 'E / Ⓐ  SIT AT THE CARD TABLE';

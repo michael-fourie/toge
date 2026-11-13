@@ -57,3 +57,31 @@ export function castBoys(picks: readonly (number | undefined)[], rand: () => num
     return b;
   });
 }
+
+/** What you can buy to wear over your own clothes. Index 0 is what you turned up in. */
+export interface Fit {
+  name: string;
+  cost: number;
+  shirt?: string;
+  trim?: string;
+  pants?: string;
+  shoes?: string;
+  hat?: 'toque' | 'cap';
+  hatColour?: string;
+}
+
+export const FITS: readonly Fit[] = [
+  { name: 'Your own clothes', cost: 0 },
+  { name: 'Hi-vis vest', cost: 40, shirt: '#ffd23f', trim: '#ff7a1a' },
+  { name: 'Hockey jersey', cost: 55, shirt: '#1d3f8a', trim: '#ffffff' },
+  { name: 'Jail jumpsuit', cost: 50, shirt: '#ff7a1a', trim: '#ffffff', pants: '#ff7a1a' },
+  { name: 'Beer-league tux', cost: 90, shirt: '#1a1a20', trim: '#ffffff', pants: '#1a1a20', shoes: '#1a1a20' },
+  { name: 'Santa suit', cost: 70, shirt: '#c8261c', trim: '#ffffff', pants: '#c8261c', hat: 'toque', hatColour: '#c8261c' },
+  { name: 'Lifeguard shorts', cost: 45, shirt: '#ff5a5a', trim: '#ffe14a', pants: '#ff5a5a', hat: 'cap', hatColour: '#ffe14a' },
+];
+
+/** A boy in whatever he's wearing today. */
+export const dressed = (boy: Boy, fit: number): Boy => {
+  const f = FITS[fit];
+  return !f || fit === 0 ? boy : { ...boy, ...Object.fromEntries(Object.entries(f).filter(([k, v]) => v !== undefined && k !== 'name' && k !== 'cost')) };
+};

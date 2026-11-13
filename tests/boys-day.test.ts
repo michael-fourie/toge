@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { BIOME_IDS, CHECKPOINT_COUNT, JOB_IDS, PLACES, TWISTS, checkpointOf } from '../src/games/boys-day/checkpoints.ts';
 import { BEACON_R, Director, packZombies, unpackZombies } from '../src/games/boys-day/director.ts';
 import { readMsg, takeWheel } from '../src/games/boys-day/net.ts';
-import { ANY_BOY, BOYS, castBoys } from '../src/games/boys-day/roster.ts';
+import { ANY_BOY, BOYS, FITS, castBoys, dressed } from '../src/games/boys-day/roster.ts';
 import { ARENA, HAZARD, ROAD, groundAt, hazardAt, makeRoute, roadNear, solids } from '../src/games/boys-day/route.ts';
 import { TERRAIN, roadHeights } from '../src/games/boys-day/terrain.ts';
 import {
@@ -50,6 +50,15 @@ import {
   maxFuel,
   maxHp,
   newRun,
+  KIT,
+  regenOf,
+  reloadKit,
+  kitDamage,
+  spreadOf,
+  hasComfort,
+  hasKit,
+  ownsGun,
+  BUY_MAX,
   BOSS,
   KEG,
   PIT,
@@ -779,7 +788,8 @@ test('boys day net: junk is dropped; the wheel is first come; spots are on the b
   assert.deepEqual(readMsg({ t: 'do', k: 'crate', id: 3 }), { t: 'do', k: 'crate', id: 3 });
   assert.equal(readMsg({ t: 'do', k: 'steal', id: 3 }), null);
   assert.deepEqual(readMsg({ t: 'buy', k: BUY.bandage }), { t: 'buy', k: BUY.bandage });
-  assert.equal(readMsg({ t: 'buy', k: BUY.bandage + 1 }), null);
+  assert.deepEqual(readMsg({ t: 'buy', k: BUY_MAX }), { t: 'buy', k: BUY_MAX });
+  assert.equal(readMsg({ t: 'buy', k: BUY_MAX + 1 }), null, 'the store doesn’t sell that');
   assert.deepEqual(readMsg({ t: 'bj', v: -100 }), { t: 'bj', v: -100 });
   assert.equal(readMsg({ t: 'bj', v: 5000 }), null);
   assert.deepEqual(readMsg({ t: 'poker', m: 'raise', n: 0 }), { t: 'poker', m: 'raise', n: 0 });
@@ -1164,4 +1174,53 @@ test('boys day boss stop: the big one comes for the keg, and putting it down cle
   big.z = fast.z;
   d2.step(DT, fast);
   assert.equal(big.st, 'run', 'the bus just bounces off it');
+});
+
+test('boys day store: guns, gear, costumes and comforts are bought with your own scrap', () => {
+  const r = newRun(3, 2);
+  r.cash[0] = 2000;
+  r.cash[1] = 1000;
+  // Guns: the run hands them out as you clear stops, and you can buy the rest early.
+  assert.equal(ownsGun(r, 0, 0), true, 'everyone starts with a marker');
+  assert.equal(ownsGun(r, 0, 2), false, 'but not the minigun');
+  assert.equal(priceOf(r, BUY.gun + 0, 0), Infinity, 'nobody pays for the marker');
+  assert.ok(buy(r, BUY.gun + 2, 0), 'bought the minigun');
+  assert.equal(ownsGun(r, 0, 2), true);
+  assert.equal(ownsGun(r, 1, 2), false, 'and it’s his, not the crew’s');
+  assert.equal(priceOf(r, BUY.gun + 2, 0), Infinity, 'no buying it twice');
+  const left = r.cash[0];
+  assert.equal(buy(r, BUY.gun + 2, 0), false);
+  assert.equal(r.cash[0], left, 'and nothing taken for it');
+  // Gear: it's yours, and it does something.
+  assert.equal(hasKit(r, 0, KIT.scope), false);
+  assert.ok(spreadOf(r, 0, 1) > 0);
+  assert.ok(buy(r, BUY.kit + KIT.scope, 0));
+  assert.ok(spreadOf(r, 0, 1) < spreadOf(r, 1, 1), 'the red dot tightens your shots, not his');
+  assert.ok(buy(r, BUY.kit + KIT.barrel, 0));
+  assert.equal(kitDamage(r, 0), 1);
+  assert.equal(kitDamage(r, 1), 0);
+  assert.ok(buy(r, BUY.kit + KIT.loader, 0));
+  assert.ok(reloadKit(r, 0) < reloadKit(r, 1), 'and the loader halves your reload');
+  // Costumes: one at a time, and only yours changes.
+  assert.ok(buy(r, BUY.fit + 2, 1));
+  assert.equal(r.fit[1], 2);
+  assert.equal(r.fit[0], 0);
+  assert.equal(priceOf(r, BUY.fit + 2, 1), Infinity, 'already wearing it');
+  assert.equal(dressed(BOYS[0], 2).shirt, FITS[2].shirt, 'he’s in the jersey');
+  assert.equal(dressed(BOYS[0], 0), BOYS[0], 'and his own clothes are his own');
+  // Comforts are the bus's: one of each, for everyone.
+  assert.equal(hasComfort(r, 0), false);
+  const regen = regenOf(r);
+  assert.ok(buy(r, BUY.comfort + 1, 0), 'the boombox');
+  assert.ok(regenOf(r) > regen, 'everyone aboard pulls themselves together quicker');
+  assert.equal(priceOf(r, BUY.comfort + 1, 1), Infinity, 'and nobody buys a second one');
+  assert.ok(buy(r, BUY.comfort + 0, 0), 'the couch');
+  assert.equal(hangAt({ side: HANG.couch.side, along: HANG.couch.along, level: 1 }, r.comfort), 'couch', 'you can sit on it now');
+  assert.equal(hangAt({ side: HANG.couch.side, along: HANG.couch.along, level: 1 }, 0), null, 'and not before you buy it');
+  assert.equal(hangAt({ side: HANG.bbq.side, along: HANG.bbq.along, level: 1 }, r.comfort), null, 'the BBQ isn’t bought');
+  // Broke is broke.
+  const poor = newRun(4, 2);
+  poor.cash[0] = 1;
+  assert.equal(buy(poor, BUY.gun + 4, 0), false);
+  assert.equal(poor.guns[0], 0);
 });

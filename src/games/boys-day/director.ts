@@ -34,7 +34,8 @@ import {
   type MiniKind,
   fwdOf,
   fromBus,
-  gunsUnlocked,
+  kitDamage,
+  ownsGun,
   maxFuel,
   maxHp,
   newRun,
@@ -609,11 +610,11 @@ export class Director {
     this.fx.push({ k, x: z.x, y: z.y + 1.5, z: z.z, n: Math.round(speed) });
   }
 
-  /** What a hit from gun `g` does (-1: a grenade), if the crew has that gun. */
-  damageOf(g: number) {
+  /** What a hit from `who`'s gun `g` does (-1: a grenade), if they have that gun, plus whatever's bolted to it. */
+  damageOf(g: number, who = 0) {
     if (g === -1) return NADE.damage;
     const gun = GUNS[g];
-    return gun && g < gunsUnlocked(this.run.stage + (this.run.done ? 1 : 0)) ? gun.damage : 1;
+    return gun && ownsGun(this.run, who, g) ? gun.damage + kitDamage(this.run, who) : 1;
   }
 
   /** A paintball hit (claimed by a player): `by` is their paint colour. */

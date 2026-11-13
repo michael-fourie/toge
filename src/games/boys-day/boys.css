@@ -840,3 +840,12 @@
 .boys-day .bd-bar.keg .bd-bar-fill {
   background: linear-gradient(90deg, #ffd23f, #ff9a3f);
 }
+
+/* The store's shelves. */
+.boys-day .bd-shelf {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  opacity: 0.7;
+}

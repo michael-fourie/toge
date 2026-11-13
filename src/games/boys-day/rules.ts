@@ -2,6 +2,8 @@
 // upgrades, the zombies' numbers, the minigames' maths.
 // Units are metres and seconds, Y up, yaw 0 faces -Z.
 
+import { FITS } from './roster.ts';
+
 /** Seeded random in [0, 1) (mulberry32): the same seed builds the same run on every screen. */
 export function rng(seed: number): () => number {
   let a = seed >>> 0;
@@ -506,11 +508,43 @@ export const UPGRADES = [
   { id: 'hopper', name: 'Big hoppers', what: '+20 paintballs, quicker reloads for everyone', max: 4, cost: 30 },
   { id: 'forks', name: 'Pitchforks', what: 'Spikes down both sides: zombies chew the bus slower', max: 4, cost: 40 },
 ] as const;
+/** Comforts bolted to the bus: everyone's, and you can sit on them. */
+export const COMFORTS = [
+  { id: 'couch', name: 'Roof couch', what: 'A couch on the roof deck. Sit down, feel better, watch the world go by', cost: 80 },
+  { id: 'boombox', name: 'Boombox', what: 'Tunes on the roof. Everyone aboard heals a little quicker', cost: 60 },
+  { id: 'bbq', name: 'Rooftop BBQ', what: 'Burgers up top: a bite back to full health whenever it’s hot', cost: 90 },
+] as const;
+
 export const REPAIR = { cost: 30, hp: 200 } as const;
 /** For yourself: a paint grenade, and a bandage (back to full health). */
 export const STORE = { nade: 15, bandage: 10 } as const;
-/** What `buy` takes: an upgrade's index, then these. */
-export const BUY = { repair: UPGRADES.length, nade: UPGRADES.length + 1, bandage: UPGRADES.length + 2 } as const;
+
+/** Guns on the rack: what they cost before the run hands them out for free. */
+export const GUN_COST = [0, 70, 130, 180, 240] as const;
+
+/** Bolted to your own marker, for the rest of the run. */
+export const KITS = [
+  { id: 'scope', name: 'Red dot', what: 'Tighter shots with every gun', cost: 55 },
+  { id: 'barrel', name: 'Long barrel', what: 'Every paintball hits harder', cost: 75 },
+  { id: 'loader', name: 'Speed loader', what: 'Reload in half the time', cost: 50 },
+] as const;
+export const KIT = { scope: 0, barrel: 1, loader: 2 } as const;
+
+/**
+ * What `buy` takes: the bus upgrades first, then the one-offs, then the comforts, the guns, the kit and the
+ * costumes, so a client's number always means the same thing.
+ */
+export const BUY = {
+  repair: UPGRADES.length,
+  nade: UPGRADES.length + 1,
+  bandage: UPGRADES.length + 2,
+  comfort: UPGRADES.length + 3,
+  gun: UPGRADES.length + 3 + COMFORTS.length,
+  kit: UPGRADES.length + 3 + COMFORTS.length + GUN_COST.length,
+  fit: UPGRADES.length + 3 + COMFORTS.length + GUN_COST.length + KITS.length,
+} as const;
+/** How many different things the store sells (the highest `k` a client may send). */
+export const BUY_MAX = BUY.fit + FITS.length;
 /** Index of each upgrade in `RunState.up`. */
 export const UP = { armor: 0, plow: 1, engine: 2, tank: 3, hopper: 4, forks: 5 } as const;
 export const upCost = (k: number, level: number) => UPGRADES[k].cost * (level + 1);
@@ -547,6 +581,12 @@ export interface RunState {
   rolls: number;
   /** A boss stop's keg, while it's standing (0: no keg, or it's been smashed). */
   keg: number;
+  /** Bought by each player, by their place: the guns and the kit they own, and the costume they're wearing. */
+  guns: number[];
+  kit: number[];
+  fit: number[];
+  /** The comforts bolted to the bus, for everyone (a bit each, COMFORTS). */
+  comfort: number;
   down: number;
 }
 
@@ -573,6 +613,10 @@ export function newRun(seed: number, crew = 1): RunState {
     up: UPGRADES.map(() => 0),
     rolls: 0,
     keg: 0,
+    guns: new Array(MAX_PLAYERS).fill(0),
+    kit: new Array(MAX_PLAYERS).fill(0),
+    fit: new Array(MAX_PLAYERS).fill(0),
+    comfort: 0,
     down: 0,
   };
 }
@@ -581,6 +625,7 @@ export const maxHp = (r: Pick<RunState, 'up'>) => BUS.hp + r.up[UP.armor] * 250;
 export const maxFuel = (r: Pick<RunState, 'up'>) => RUN.fuel + r.up[UP.tank] * 25;
 export const burnOf = (r: Pick<RunState, 'up'>) => RUN.burn * (1 - r.up[UP.tank] * 0.08);
 export const hopperOf = (r: Pick<RunState, 'up'>) => GUN.hopper + r.up[UP.hopper] * 20;
+export const reloadKit = (r: Pick<RunState, 'kit'>, who: number) => (hasKit(r, who, KIT.loader) ? 0.5 : 1);
 export const reloadOf = (r: Pick<RunState, 'up'>) => GUN.reload * (1 - r.up[UP.hopper] * 0.12);
 /** The engine's pull (top speed, acceleration and climbing), from the engine upgrade. */
 export const powerOf = (r: Pick<RunState, 'up'>) => 1 + r.up[UP.engine] * 0.08;
@@ -588,20 +633,46 @@ export const yeetSpeedOf = (r: Pick<RunState, 'up'>) => HORDE.yeetSpeed - r.up[U
 export const chewOf = (r: Pick<RunState, 'up'>) => 1 - r.up[UP.forks] * 0.15;
 
 /** What `k` costs right now (Infinity: it can't be bought, e.g. maxed out or the bus is already whole). */
-export function priceOf(r: RunState, k: number): number {
+export function priceOf(r: RunState, k: number, who = 0): number {
   if (k === BUY.repair) return r.busHp >= maxHp(r) ? Infinity : REPAIR.cost;
   if (k === BUY.nade) return STORE.nade;
   if (k === BUY.bandage) return STORE.bandage;
+  if (k >= BUY.fit) {
+    const f = FITS[k - BUY.fit];
+    return !f || (r.fit[who] ?? 0) === k - BUY.fit ? Infinity : f.cost;
+  }
+  if (k >= BUY.kit) {
+    const i = k - BUY.kit;
+    return !KITS[i] || hasKit(r, who, i) ? Infinity : KITS[i].cost;
+  }
+  if (k >= BUY.gun) {
+    const i = k - BUY.gun;
+    return !GUNS[i] || ownsGun(r, who, i) ? Infinity : GUN_COST[i];
+  }
+  if (k >= BUY.comfort) {
+    const i = k - BUY.comfort;
+    return !COMFORTS[i] || hasComfort(r, i) ? Infinity : COMFORTS[i].cost;
+  }
   const u = UPGRADES[k];
   return !u || r.up[k] >= u.max ? Infinity : upCost(k, r.up[k]);
 }
 
+/** Whether `who` can pick gun `g` up: the run hands them out as you clear stops, or you buy them early. */
+export const ownsGun = (r: Pick<RunState, 'stage' | 'done' | 'guns'>, who: number, g: number) =>
+  g < gunsUnlocked(r.stage + (r.done ? 1 : 0)) || (((r.guns[who] ?? 0) >> g) & 1) === 1;
+export const hasKit = (r: Pick<RunState, 'kit'>, who: number, i: number) => (((r.kit[who] ?? 0) >> i) & 1) === 1;
+export const hasComfort = (r: Pick<RunState, 'comfort'>, i: number) => ((r.comfort >> i) & 1) === 1;
+
 /** Crew member `who` buys `k` (see BUY) if they can afford it. Grenades and bandages are theirs: their screen hands them over. */
 export function buy(r: RunState, k: number, who: number): boolean {
-  const cost = priceOf(r, k);
+  const cost = priceOf(r, k, who);
   if (!(r.cash[who] >= cost)) return false;
   r.cash[who] -= cost;
   if (k === BUY.repair) r.busHp = Math.min(maxHp(r), r.busHp + REPAIR.hp);
+  else if (k >= BUY.fit) r.fit[who] = k - BUY.fit;
+  else if (k >= BUY.kit) r.kit[who] |= 1 << (k - BUY.kit);
+  else if (k >= BUY.gun) r.guns[who] |= 1 << (k - BUY.gun);
+  else if (k >= BUY.comfort) r.comfort |= 1 << (k - BUY.comfort);
   else if (k < UPGRADES.length) {
     r.up[k]++;
     if (k === UP.armor) r.busHp = maxHp(r);
@@ -848,17 +919,31 @@ export const HANG = {
   bong: { side: 0.75, along: -4.4, heal: 30, high: 12 },
   cooler: { side: -0.75, along: -4.4, heal: 15, tipsy: 14 },
   table: { side: 0.7, along: 0.5 },
+  /** Bought and bolted to the roof deck (COMFORTS): a couch to sit on and a BBQ to eat off. */
+  couch: { side: -0.55, along: -2.4, heal: 22 },
+  bbq: { side: 0.75, along: -4.2, heal: 100 },
   /** How close you have to stand (m). */
   reach: 1.1,
 } as const;
 
-export type HangKind = 'bong' | 'cooler' | 'table';
-/** Which station you're standing at inside the bus, if any. */
-export function hangAt(p: Spot): HangKind | null {
-  if (p.level !== 0) return null;
-  for (const k of ['bong', 'cooler', 'table'] as const) if (Math.hypot(p.side - HANG[k].side, p.along - HANG[k].along) < HANG.reach) return k;
+export type HangKind = 'bong' | 'cooler' | 'table' | 'couch' | 'bbq';
+/** Which station you're standing at, if any: the bong, the cooler and the cards inside, the comforts up top. */
+export function hangAt(p: Spot, comfort = 0): HangKind | null {
+  const near = (k: HangKind) => Math.hypot(p.side - HANG[k].side, p.along - HANG[k].along) < HANG.reach;
+  if (p.level !== 0) {
+    if (((comfort >> 0) & 1) === 1 && near('couch')) return 'couch';
+    if (((comfort >> 2) & 1) === 1 && near('bbq')) return 'bbq';
+    return null;
+  }
+  for (const k of ['bong', 'cooler', 'table'] as const) if (near(k)) return k;
   return null;
 }
+
+/** Your own gear: the red dot tightens every gun, the long barrel hits harder, the speed loader halves reloads. */
+export const spreadOf = (r: Pick<RunState, 'kit'>, who: number, g: number) => (GUNS[g]?.spread ?? 0) * (hasKit(r, who, KIT.scope) ? 0.45 : 1);
+export const kitDamage = (r: Pick<RunState, 'kit'>, who: number) => (hasKit(r, who, KIT.barrel) ? 1 : 0);
+/** The boombox has everyone aboard pulling themselves together quicker. */
+export const regenOf = (r: Pick<RunState, 'comfort'>) => FOOT.regen * (hasComfort(r, 1) ? 1.7 : 1);
 
 /** Cards are 0-51: rank c % 13 (0 is a two, 12 an ace), suit ⌊c / 13⌋. */
 export const rankOf = (c: number) => c % 13;

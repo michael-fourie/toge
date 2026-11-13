@@ -70,9 +70,72 @@ const BUS_PARTS: readonly (readonly [string, number, number])[] = [
   ['bus_forks_2', UP.forks, 3],
 ];
 
-/** Shows the parts the run has bought (`up`: RunState.up). */
-export function showBusParts(bus: THREE.Group, up: readonly number[]) {
-  for (const c of bus.children) if (c.name === 'part') c.visible = (up[c.userData.up as number] ?? 0) >= (c.userData.min as number);
+/** Shows the parts and comforts the run has bought (`up`: RunState.up, `comfort`: its bitmask). */
+export function showBusParts(bus: THREE.Group, up: readonly number[], comfort = 0) {
+  for (const c of bus.children) {
+    if (c.name === 'part') c.visible = (up[c.userData.up as number] ?? 0) >= (c.userData.min as number);
+    else if (c.name === 'comfort') c.visible = ((comfort >> (c.userData.bit as number)) & 1) === 1;
+  }
+}
+
+/** The comforts up on the roof deck: a couch, a boombox and a BBQ, each shown once it's been bought. */
+function comforts(g: THREE.Group) {
+  const add = (bit: number, parts: THREE.Mesh[], side: number, along: number) => {
+    const box = new THREE.Group();
+    box.name = 'comfort';
+    box.userData = { bit };
+    box.position.set(side, BUS.deck, -along);
+    box.visible = false;
+    for (const p of parts) box.add(p);
+    g.add(box);
+  };
+  const mesh = (geo: THREE.BufferGeometry, color: string, x: number, y: number, z: number, emissive = false) => {
+    const m = new THREE.Mesh(geo, emissive ? toon(color, { emissive: color, emissiveIntensity: 0.8 }) : toon(color));
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    return m;
+  };
+  // A sagging couch: base, back, two arms and a cushion seam.
+  add(
+    0,
+    [
+      mesh(new THREE.BoxGeometry(1.1, 0.34, 1.9), '#8a3f5a', 0, 0.32, 0),
+      mesh(new THREE.BoxGeometry(1.1, 0.7, 0.26), '#9a4a66', 0, 0.68, -0.82),
+      mesh(new THREE.BoxGeometry(0.22, 0.34, 1.9), '#9a4a66', -0.56, 0.62, 0),
+      mesh(new THREE.BoxGeometry(0.22, 0.34, 1.9), '#9a4a66', 0.56, 0.62, 0),
+      mesh(new THREE.BoxGeometry(1.0, 0.16, 0.8), '#a8577a', 0, 0.5, -0.4),
+      mesh(new THREE.BoxGeometry(1.0, 0.16, 0.8), '#a8577a', 0, 0.5, 0.45),
+    ],
+    HANG.couch.side,
+    HANG.couch.along,
+  );
+  // A boombox with two speakers and a handle.
+  add(
+    1,
+    [
+      mesh(new THREE.BoxGeometry(1.1, 0.5, 0.34), '#2a2b33', 0, 0.25, 0),
+      mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.06, 12).rotateX(Math.PI / 2), '#c9c9d2', -0.3, 0.27, 0.18),
+      mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.06, 12).rotateX(Math.PI / 2), '#c9c9d2', 0.3, 0.27, 0.18),
+      mesh(new THREE.BoxGeometry(0.34, 0.14, 0.05), '#ffd23f', 0, 0.3, 0.19, true),
+      mesh(new THREE.TorusGeometry(0.22, 0.03, 6, 10), '#8a8a96', 0, 0.52, 0),
+    ],
+    0.8,
+    -0.6,
+  );
+  // A kettle BBQ with a glowing grill.
+  add(
+    2,
+    [
+      mesh(new THREE.SphereGeometry(0.42, 14, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), '#2a2b33', 0, 0.66, 0),
+      mesh(new THREE.CircleGeometry(0.4, 16).rotateX(-Math.PI / 2), '#ff6a2a', 0, 0.67, 0, true),
+      mesh(new THREE.SphereGeometry(0.44, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2.4), '#3a3b45', 0, 0.72, 0),
+      mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.66, 6), '#8a8a96', -0.2, 0.33, 0.12),
+      mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.66, 6), '#8a8a96', 0.2, 0.33, 0.12),
+      mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.66, 6), '#8a8a96', 0, 0.33, -0.22),
+    ],
+    HANG.bbq.side,
+    HANG.bbq.along,
+  );
 }
 
 export function makeBus(): THREE.Group {
@@ -260,6 +323,7 @@ export function makeBus(): THREE.Group {
       w.name = 'wheel';
       g.add(w);
     }
+  comforts(g);
   return g;
 }
 

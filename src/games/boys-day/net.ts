@@ -7,9 +7,9 @@
 
 import { Z_STATES, type Fx, type FxKind } from './director.ts';
 import { POKER_MOVES, readCards, readPoker, type PokerMove, type PokerView } from './poker.ts';
-import { isPick } from './roster.ts';
+import { FITS, isPick } from './roster.ts';
 import type { MiniKind } from './rules.ts';
-import { BJ_MAX, BUY, MAX_PLAYERS, SEED_MAX, SLOT_MAX, UPGRADES, type Phase, type RunState } from './rules.ts';
+import { BJ_MAX, BUY_MAX, COMFORTS, GUN_COST, KITS, MAX_PLAYERS, SEED_MAX, SLOT_MAX, UPGRADES, type Phase, type RunState } from './rules.ts';
 
 export type Msg =
   /** A run begins: the map's seed, who drives first, and who everyone is (roster.ts BOYS, by place in the crew). */
@@ -80,6 +80,10 @@ function readRun(r: unknown): RunState | null {
   if (!Array.isArray(o.up) || o.up.length !== UPGRADES.length || !o.up.every((v, i) => int(v, UPGRADES[i].max) && v >= 0)) return null;
   if (!int(o.rolls, 99) || (o.rolls as number) < 0 || !num(o.down, 99) || (o.down as number) < 0) return null;
   if (!num(o.keg, 1e5) || (o.keg as number) < 0) return null;
+  // What everyone's bought: bitmasks by crew place, and the costume each is wearing.
+  const owned = (v: unknown, max: number) => Array.isArray(v) && v.length === MAX_PLAYERS && v.every((n) => int(n, max) && (n as number) >= 0);
+  if (!owned(o.guns, (1 << GUN_COST.length) - 1) || !owned(o.kit, (1 << KITS.length) - 1) || !owned(o.fit, FITS.length - 1)) return null;
+  if (!int(o.comfort, (1 << COMFORTS.length) - 1) || (o.comfort as number) < 0) return null;
   return {
     seed: o.seed,
     stage: o.stage,
@@ -102,6 +106,10 @@ function readRun(r: unknown): RunState | null {
     up: o.up as number[],
     rolls: o.rolls,
     keg: o.keg,
+    guns: o.guns as number[],
+    kit: o.kit as number[],
+    fit: o.fit as number[],
+    comfort: o.comfort,
     down: o.down,
   };
 }
@@ -169,7 +177,7 @@ export function readMsg(d: unknown): Msg | null {
     case 'do':
       return DOS.includes(m.k as (typeof DOS)[number]) && int(m.id, 9999) && m.id >= 0 ? { t: 'do', k: m.k as (typeof DOS)[number], id: m.id } : null;
     case 'buy':
-      return int(m.k, BUY.bandage) && m.k >= 0 ? { t: 'buy', k: m.k } : null;
+      return int(m.k, BUY_MAX) && m.k >= 0 ? { t: 'buy', k: m.k } : null;
     case 'drive':
       return bool(m.want) ? { t: 'drive', want: m.want } : null;
     case 'honk':
