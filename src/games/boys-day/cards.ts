@@ -225,6 +225,9 @@ export class DuelTable implements Minigame {
       }
     } else if (seat < 0) {
       line(v.phase === 'draw' ? 'They’re swapping cards…' : 'They’re betting…');
+    } else if (this.hand.length < 5 && v.phase !== 'show') {
+      // The table reaches you a moment before your cards do.
+      line('Dealing…');
     } else if (v.phase === 'draw') {
       if (v.drew[seat]) {
         this.cards(this.hand);
