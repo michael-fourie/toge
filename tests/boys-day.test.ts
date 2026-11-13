@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BIOME_IDS, CHECKPOINT_COUNT, JOB_IDS, PLACES, TWISTS, checkpointOf } from '../src/games/boys-day/checkpoints.ts';
+import { BIOMES, BIOME_IDS, CHECKPOINT_COUNT, JOB_IDS, PLACES, TWISTS, checkpointOf } from '../src/games/boys-day/checkpoints.ts';
 import { BEACON_R, Director, packZombies, unpackZombies } from '../src/games/boys-day/director.ts';
 import { readMsg, takeWheel } from '../src/games/boys-day/net.ts';
 import { ANY_BOY, BOYS, FITS, castBoys, dressed } from '../src/games/boys-day/roster.ts';
 import { ARENA, HAZARD, ROAD, groundAt, hazardAt, makeRoute, roadNear, solids } from '../src/games/boys-day/route.ts';
-import { TERRAIN, roadHeights } from '../src/games/boys-day/terrain.ts';
+import { TERRAIN, roadHeights, shapedFor, type Shape } from '../src/games/boys-day/terrain.ts';
 import {
   BLACKJACK,
   BUS,
@@ -1223,4 +1223,27 @@ test('boys day store: guns, gear, costumes and comforts are bought with your own
   poor.cash[0] = 1;
   assert.equal(buy(poor, BUY.gun + 4, 0), false);
   assert.equal(poor.guns[0], 0);
+});
+
+test('boys day terrain: every world is shaped differently, and all of them stay sane', () => {
+  const shapes: Shape[] = ['rolling', 'ridged', 'dunes', 'flat'];
+  const sample = (f: (x: number, z: number) => number) => {
+    const hs: number[] = [];
+    for (let x = -400; x <= 400; x += 25) for (let z = -400; z <= 400; z += 25) hs.push(f(x, z));
+    return hs;
+  };
+  const spread = (hs: number[]) => Math.max(...hs) - Math.min(...hs);
+  const made = shapes.map((sh) => sample(shapedFor(4, sh)));
+  made.forEach((hs, i) => {
+    assert.ok(hs.every((h) => Number.isFinite(h) && Math.abs(h) < TERRAIN.hill * 4), `${shapes[i]} stays in bounds`);
+    assert.ok(spread(hs) > 2, `${shapes[i]} isn’t a billiard table`);
+  });
+  assert.ok(spread(made[1]) > spread(made[3]), 'a gorge is wilder than a plain');
+  assert.ok(spread(made[0]) > spread(made[3]), 'and so are rolling hills');
+  // Each one really is a different landscape.
+  for (let i = 0; i < made.length; i++)
+    for (let j = i + 1; j < made.length; j++) assert.ok(made[i].some((h, k) => Math.abs(h - made[j][k]) > 1), `${shapes[i]} and ${shapes[j]} differ`);
+  // Every world names a shape, and the same seed builds the same land twice.
+  for (const b of BIOME_IDS) assert.ok(BIOMES[b].shape, `${b} has a shape`);
+  assert.deepEqual(sample(shapedFor(9, 'ridged')), sample(shapedFor(9, 'ridged')));
 });

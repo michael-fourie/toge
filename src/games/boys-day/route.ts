@@ -6,7 +6,7 @@
 
 import { BIOMES, checkpointOf, type Biome, type Checkpoint } from './checkpoints.ts';
 import { RUN, rng, type Obstacle } from './rules.ts';
-import { hillsFor, roadHeights, wildness } from './terrain.ts';
+import { roadHeights, shapedFor, wildness } from './terrain.ts';
 
 export interface RoadPoint {
   x: number;
@@ -140,7 +140,7 @@ export const ARENA = { flat: 44, blend: 80, lumps: 0.22, spread: 50, crates: 16 
 export const legSeed = (seed: number, leg: number) => (seed ^ Math.imul(leg + 1, 0x85ebca6b)) >>> 0;
 
 const hillsOf = (seed: number, biome: Biome) => {
-  const hills = hillsFor(seed);
+  const hills = shapedFor(seed, BIOMES[biome].shape ?? 'rolling');
   const k = BIOMES[biome].hill;
   return (x: number, z: number) => hills(x, z) * k;
 };
@@ -276,6 +276,10 @@ export function makeRoute(seed: number, leg = 0): Route {
     neon: [['dead', 0.5], ['tree', 0.5]],
     grave: [['dead', 0.55], ['pine', 0.25], ['rock', 0.2]],
     crystal: [['crystal', 0.5], ['rock', 0.4], ['dead', 0.1]],
+    coast: [['reed', 0.4], ['dead', 0.25], ['rock', 0.2], ['tree', 0.15]],
+    farm: [['hay', 0.4], ['fence', 0.3], ['tree', 0.2], ['dead', 0.1]],
+    canyon: [['rock', 0.7], ['cactus', 0.2], ['dead', 0.1]],
+    patch: [['pumpkin', 0.5], ['dead', 0.25], ['tree', 0.25]],
   };
   const grow = (): PropKind => {
     let roll = r();
