@@ -50,6 +50,13 @@ import {
   maxFuel,
   maxHp,
   newRun,
+  stepJump,
+  scrapeSide,
+  stepLean,
+  tipOf,
+  pullOf,
+  clingLoad,
+  CLING,
   newSeed,
   onBus,
   pokerCompare,
@@ -964,4 +971,115 @@ test('pitchforks slow the chewing, the snow plow lowers the speed that yeets', (
   while (buy(r, UP.forks, 0));
   assert.ok(chewOf(r) > 0, 'they always chew a bit');
   assert.equal(r.up[UP.forks], UPGRADES[UP.forks].max);
+});
+
+test('boys day zombie highway: weight on one side leans the bus, pulls the wheel and finally rolls it', () => {
+  const r = newRun(1, 1);
+  assert.equal(clingLoad([]), 0, 'nothing hanging on');
+  assert.equal(clingLoad([{ side: -1.6, k: 0 }, { side: 1.6, k: 0 }]), 0, 'one each side cancels out');
+  assert.ok(clingLoad([{ side: 1.6, k: 2 }]) > clingLoad([{ side: 1.6, k: 1 }]), 'a chonk weighs more than a sprinter');
+  assert.ok(clingLoad([{ side: -1.6, k: 0 }]) < 0, 'the left pulls left');
+
+  // The wheel pulls toward the heavy side, and armour steadies it.
+  const pull = pullOf(clingLoad([{ side: 1.6, k: 2 }, { side: 1.6, k: 2 }]), r);
+  assert.ok(pull > 0 && pull <= 1);
+  const armored = { up: r.up.map((v, i) => (i === UP.armor ? UPGRADES[UP.armor].max : v)) };
+  assert.ok(pullOf(clingLoad([{ side: 1.6, k: 2 }, { side: 1.6, k: 2 }]), armored) < pull, 'plated, it pulls less');
+  assert.ok(Math.abs(pullOf(clingLoad(new Array(20).fill({ side: 1.6, k: 2 })), r)) <= 1, 'the pull is capped');
+  assert.ok(tipOf(armored) > tipOf(r), 'armour lets it lean further before it goes');
+
+  // A balanced bus stays upright however long you leave it.
+  const b = bus(0, 0, 0, 20);
+  let lean = 0;
+  for (let i = 0; i < 400; i++) {
+    const out = stepLean(lean, 0, b, DT, tipOf(r));
+    assert.equal(out.rolled, false);
+    lean = out.lean;
+  }
+  assert.ok(Math.abs(lean) < 0.01, 'and doesn’t lean');
+  // Pile them on one side and it goes over.
+  let rolled = false;
+  const load = clingLoad(new Array(9).fill({ side: 1.6, k: 2 }));
+  for (let i = 0; i < 400 && !rolled; i++) {
+    const out = stepLean(lean, load, b, DT, tipOf(r));
+    lean = out.lean;
+    rolled = out.rolled;
+  }
+  assert.ok(rolled, 'nine chonks on one side roll it');
+  assert.equal(lean, 0, 'and it comes back level');
+});
+
+test('boys day zombie highway: scraping past something solid, and three rolls end the run', () => {
+  const b = bus(0, 0, 0, 18);
+  assert.equal(scrapeSide(b, []), 0, 'nothing to scrape along');
+  assert.equal(scrapeSide(b, [{ x: 0, z: 40, r: 1.2 }]), 0, 'and nothing within reach');
+  const right = scrapeSide({ ...b, h: 0 }, [{ x: BUS.width / 2 + 0.9, z: 0, r: 1.2 }]);
+  const left = scrapeSide({ ...b, h: 0 }, [{ x: -(BUS.width / 2 + 0.9), z: 0, r: 1.2 }]);
+  assert.equal(right, 1, 'a wreck off the right flank');
+  assert.equal(left, -1, 'and off the left');
+
+  // A bus with a crowd on one side rolls, pays for it, and three rolls is the run.
+  const d = new Director(7, 1);
+  d.run.phase = 'drive';
+  const ride = bus(d.route.road[3].x, d.route.road[3].z, d.route.road[3].h, 16);
+  for (let i = 0; i < 10; i++) {
+    const z = d.add(ride.x, ride.z);
+    z.st = 'climb';
+    z.k = 2;
+    z.side = BUS.width / 2 + 0.8;
+  }
+  const hp = d.run.busHp;
+  for (let i = 0; i < 300 && d.run.rolls < 1; i++) d.step(DT, ride);
+  assert.equal(d.run.rolls, 1, 'over it went');
+  assert.ok(d.run.busHp < hp, 'which hurt');
+  assert.ok(d.run.down > 0, 'and left it lying there');
+  assert.ok(d.fx.some((f) => f.k === 'roll'), 'everyone hears about it');
+  assert.ok(!d.zs.some((z) => z.st === 'climb'), 'everyone hanging on is thrown clear');
+  d.run.rolls = CLING.rolls - 1;
+  d.run.down = 0;
+  for (let i = 0; i < 10; i++) {
+    const z = d.add(ride.x, ride.z);
+    z.st = 'climb';
+    z.k = 2;
+    z.side = BUS.width / 2 + 0.8;
+  }
+  for (let i = 0; i < 400 && (d.run.phase as string) !== 'lost'; i++) d.step(DT, ride);
+  assert.equal(d.run.rolls, CLING.rolls);
+  assert.equal(d.run.phase, 'lost', 'three rolls and the run is over');
+});
+
+test('boys day zombie highway: leapers jump for the sides from further out than the rest', () => {
+  const d = new Director(11, 1);
+  const b = bus(0, 0, 0, 30);
+  const reach = (k: 0 | 1 | 2 | 3) => {
+    // Right alongside the spot it's making for, three metres off the flank.
+    const z = d.add(b.x + BUS.width / 2 + 3, b.z, k);
+    z.side = BUS.width / 2 + ZOMBIE[k].r;
+    z.along = 0;
+    for (let i = 0; i < 2; i++) d.step(DT, b);
+    const on: boolean = z.st === 'climb';
+    z.hp = 0;
+    z.st = 'dead';
+    return on;
+  };
+  assert.equal(reach(3), true, 'a leaper gets on at speed');
+  assert.equal(reach(0), false, 'a shambler can’t reach from there');
+});
+
+test('boys day on foot: you can jump, and you come back down', () => {
+  let { y, vy } = stepJump(0, FOOT.jump, DT);
+  assert.ok(y > 0 && vy > 0, 'up you go');
+  let top = 0;
+  let landed = false;
+  for (let i = 0; i < 400 && !landed; i++) {
+    const out = stepJump(y, vy, DT);
+    y = out.y;
+    vy = out.vy;
+    top = Math.max(top, y);
+    landed = out.landed;
+  }
+  assert.ok(landed, 'and down you come');
+  assert.ok(top > 0.6 && top < 2.5, `a sensible hop (${top.toFixed(2)} m)`);
+  assert.equal(y, 0, 'back on the ground');
+  assert.equal(stepJump(0, 0, DT).landed, false, 'standing still is not landing');
 });

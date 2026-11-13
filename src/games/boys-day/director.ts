@@ -9,6 +9,7 @@ import { TWISTS } from './checkpoints.ts';
 import { HAZARD, makeRoute, roadNear, type Route } from './route.ts';
 import {
   BUS,
+  CLING,
   CLUB,
   GORDIE,
   GUNS,
@@ -26,6 +27,7 @@ import {
   burnOf,
   buy,
   chewOf,
+  clingLoad,
   fwdOf,
   fromBus,
   gunsUnlocked,
@@ -33,6 +35,9 @@ import {
   maxHp,
   newRun,
   onBus,
+  scrapeSide,
+  stepLean,
+  tipOf,
   rng,
   toBus,
   yeetSpeedOf,
@@ -67,7 +72,7 @@ export interface Zombie {
   bite: number;
 }
 
-export type FxKind = 'yeet' | 'fore' | 'splat' | 'gordie' | 'grab' | 'hurt' | 'shake' | 'heal' | 'bump' | 'round' | 'bite' | 'crate' | 'can' | 'clear' | 'buy' | 'leg';
+export type FxKind = 'yeet' | 'fore' | 'splat' | 'gordie' | 'grab' | 'hurt' | 'shake' | 'heal' | 'bump' | 'round' | 'bite' | 'crate' | 'can' | 'clear' | 'buy' | 'leg' | 'scrape' | 'roll';
 export interface Fx {
   k: FxKind;
   x: number;
@@ -94,6 +99,7 @@ const SHAKE = { speed: 15, chance: 0.18 };
 export const Z_CAP = 120;
 /** Stand this close to the beacon to crank it (m). */
 export const BEACON_R = 6;
+
 
 export class Director {
   run: RunState;
@@ -135,6 +141,8 @@ export class Director {
   busS = 0;
   /** The last bus pose the session gave `step` (for knock-off directions). */
   lastBus: Bus | null = null;
+  /** How far over the bus is leaning under the weight hanging off its sides. */
+  lean = 0;
 
   private get twist() {
     return TWISTS[this.route.cp.twist];
@@ -160,11 +168,12 @@ export class Director {
     this.potholes(bus);
     this.spawn(dt, bus);
     this.zombies(dt, bus);
+    this.sides(dt, bus);
     this.gordie(dt);
-    if (run.busHp <= 0) {
-      run.busHp = 0;
+    if (run.busHp <= 0 || run.rolls >= CLING.rolls) {
+      run.busHp = Math.max(0, run.busHp);
       run.phase = 'lost';
-      this.said.push('THE BUS IS TOAST.');
+      this.said.push(run.rolls >= CLING.rolls ? 'THE BUS IS ON ITS ROOF FOR GOOD.' : 'THE BUS IS TOAST.');
     }
   }
 
@@ -306,7 +315,9 @@ export class Director {
     const twist = this.route.cp.twist;
     const chonk = Math.min(0.3, 0.08 + stage * 0.012) + (twist === 'chonk' ? 0.4 : 0);
     const sprint = twist === 'sprint' ? 1 : Math.min(0.5, 0.17 + stage * 0.025);
-    const kind: ZKind = k ?? (twist !== 'sprint' && roll < chonk ? 2 : roll < chonk + sprint ? 1 : 0);
+    // Leapers turn up once the run gets going: they jump for the sides, so driving fast is no longer a free pass.
+    const leap = stage < 2 ? 0 : Math.min(0.22, 0.05 + stage * 0.012);
+    const kind: ZKind = k ?? (roll < leap ? 3 : twist !== 'sprint' && roll < leap + chonk ? 2 : roll < leap + chonk + sprint ? 1 : 0);
     const zb: Zombie = {
       id: this.nextId++,
       k: kind,
@@ -326,6 +337,54 @@ export class Director {
     };
     this.zs.push(zb);
     return zb;
+  }
+
+  /**
+   * The weight hanging off the sides: it leans the bus, and far enough over it goes. Everyone's screen works the
+   * lean out for itself from the zombies it can see (so it's smooth), but the roll is the host's call.
+   */
+  private sides(dt: number, bus: Bus) {
+    const r = this.run;
+    if (r.down > 0) {
+      r.down = Math.max(0, r.down - dt);
+      return;
+    }
+    const on = this.zs.filter((z) => z.st === 'climb');
+    const { lean, rolled } = stepLean(this.lean, clingLoad(on), bus, dt, tipOf(r));
+    this.lean = lean;
+    if (rolled) {
+      r.rolls++;
+      r.down = CLING.rollTime;
+      r.busHp -= CLING.rollDamage;
+      this.lean = 0;
+      // Everyone hanging on is thrown clear.
+      for (const z of on) {
+        z.st = 'fly';
+        z.t = 0;
+        z.vx = Math.sign(z.side) * Math.cos(bus.h) * 9;
+        z.vz = -Math.sign(z.side) * Math.sin(bus.h) * 9;
+        z.vy = 5;
+      }
+      this.fx.push({ k: 'roll', x: bus.x, y: 2, z: bus.z, n: r.rolls });
+      this.said.push(r.rolls >= CLING.rolls ? 'THE BUS IS ON ITS ROOF.' : `ROLLED! ${CLING.rolls - r.rolls} more and it’s over.`);
+    }
+    // Scraping them off along something solid: a wreck, a boulder, the gate's posts.
+    const side = scrapeSide(bus, this.route.obstacles);
+    if (!side) return;
+    const f = fwdOf(bus.h);
+    for (const z of on) {
+      if (Math.sign(z.side) !== side) continue;
+      // Wiped down the side of whatever the bus is passing.
+      z.hp = 0;
+      z.st = 'fly';
+      z.t = 0;
+      z.vx = -f.x * Math.abs(bus.v) * 0.6 + Math.sign(z.side) * Math.cos(bus.h) * 4;
+      z.vz = -f.z * Math.abs(bus.v) * 0.6 - Math.sign(z.side) * Math.sin(bus.h) * 4;
+      z.vy = 1.5;
+      this.killed();
+      this.payAll(CLING.scrapePay);
+      this.fx.push({ k: 'scrape', x: z.x, y: z.y + 1, z: z.z, n: CLING.scrapePay });
+    }
   }
 
   private zombies(dt: number, bus: Bus) {
@@ -372,7 +431,7 @@ export class Director {
           if (Math.abs(bus.v) > yeetAt) this.yeet(z, this.busFling(z, bus), Math.max(Math.abs(bus.v), 10), z.paint, 'yeet');
           else if (!prey) this.grabOn(z, bus);
           else this.pushOut(z, bus);
-        } else if (!prey && d < HORDE.climbReach + spec.r) this.grabOn(z, bus);
+        } else if (!prey && d < (z.k === 3 ? HORDE.leapReach : HORDE.climbReach) + spec.r) this.grabOn(z, bus);
         if (Math.hypot(z.x - bus.x, z.z - bus.z) > HORDE.despawn) z.st = 'dead';
       } else if (z.st === 'climb') {
         const p = fromBus(bus, z.side, z.along);

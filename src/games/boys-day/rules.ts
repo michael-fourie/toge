@@ -77,6 +77,8 @@ export interface Ground {
   fumes: boolean;
   /** The engine's pull (1: stock; the engine upgrade raises it). */
   power?: number;
+  /** The horde hanging off one side dragging the wheel that way (-1 to 1: see `pullOf`). */
+  pull?: number;
 }
 
 export const FLAT: Ground = { grade: 0, onRoad: true, mud: false, fumes: false };
@@ -112,7 +114,8 @@ export function stepBus(b: Bus, d: Drive, dt: number, g: Ground = FLAT): void {
   const onRoad = g.onRoad;
   const speedK = Math.min(1, Math.abs(b.v) / BUS.maxSpeed);
   const maxSteer = BUS.steerMax * (1 - (1 - BUS.steerAtSpeed) * speedK);
-  const want = Math.max(-1, Math.min(1, d.steer)) * maxSteer * (g.mud ? BUS.mudGrip : 1);
+  // Zombies hanging off one side haul the wheel that way: you can still steer out of it, from further over.
+  const want = Math.max(-1, Math.min(1, d.steer + (g.pull ?? 0))) * maxSteer * (g.mud ? BUS.mudGrip : 1);
   const ds = want - b.steer;
   b.steer += Math.sign(ds) * Math.min(Math.abs(ds), BUS.steerRate * dt);
 
@@ -311,7 +314,18 @@ export const FOOT = {
   wake: 50,
   /** Left behind this far from the bus, you sprint back aboard (m). */
   left: 95,
+  /** A jump: how fast you leave the ground (m/s) and what pulls you back down. */
+  jump: 5.4,
+  gravity: 18,
 } as const;
+
+/** One tick of a jump: how high you are above the ground and how fast, and whether you've just landed. */
+export function stepJump(y: number, vy: number, dt: number): { y: number; vy: number; landed: boolean } {
+  if (y <= 0 && vy <= 0) return { y: 0, vy: 0, landed: false };
+  const nvy = vy - FOOT.gravity * dt;
+  const ny = y + nvy * dt;
+  return ny <= 0 ? { y: 0, vy: 0, landed: true } : { y: ny, vy: nvy, landed: false };
+}
 
 /**
  * Walks you over the ground: `fwd` and `strafe` input (−1..1), looking `yaw` (world: 0 faces −Z). Pushed out of
@@ -470,6 +484,9 @@ export interface RunState {
   calm: number;
   /** Upgrade levels, in UPGRADES' order. */
   up: number[];
+  /** How many times the bus has gone over (CLING.rolls ends the run), and how long it's lying on its side. */
+  rolls: number;
+  down: number;
 }
 
 export function newRun(seed: number, crew = 1): RunState {
@@ -493,6 +510,8 @@ export function newRun(seed: number, crew = 1): RunState {
     left: 0,
     calm: ROUNDS.first,
     up: UPGRADES.map(() => 0),
+    rolls: 0,
+    down: 0,
   };
 }
 
@@ -546,12 +565,13 @@ export function objective(r: RunState, job: Job, place: string): string {
 // ---------------------------------------------------------------------------------------------
 // Zombies and guns
 
-export type ZKind = 0 | 1 | 2;
+export type ZKind = 0 | 1 | 2 | 3;
 /** `damage`: bus health a second while it hangs on. `bite`: what one bite takes off a player on foot. */
 export const ZOMBIE: Record<ZKind, { name: string; speed: number; hp: number; r: number; damage: number; bite: number }> = {
   0: { name: 'shambler', speed: 4.5, hp: 3, r: 0.45, damage: 2, bite: 12 },
   1: { name: 'sprinter', speed: 7.5, hp: 2, r: 0.4, damage: 1.5, bite: 9 },
   2: { name: 'chonk', speed: 3.2, hp: 7, r: 0.75, damage: 4, bite: 24 },
+  3: { name: 'leaper', speed: 6.5, hp: 2, r: 0.38, damage: 1.5, bite: 10 },
 };
 /** The further you get, the faster they come (a share on top per leg, capped). */
 export const zSpeed = (stage: number) => 1 + Math.min(0.45, stage * 0.025);
@@ -582,11 +602,85 @@ export const HORDE = {
   yeetSpeed: 5,
   /** Hanging on the bus, they hurt it (hp/s, by kind) until shot off. */
   climbReach: 0.9,
+  /** A leaper jumps for the side from this far out, so speed alone won't keep them off. */
+  leapReach: 4.2,
   /** They go for someone on foot within this (m) rather than the bus, and bite every `bite` s within `biteReach`. */
   chase: 40,
   bite: 0.9,
   biteReach: 0.7,
 } as const;
+
+/**
+ * Zombies hanging off the sides, like Zombie Highway: their weight hauls the wheel their way and leans the bus,
+ * and far enough over it rolls. Scrape them along something solid (a wreck, a boulder, a gate post) and they come
+ * off — cheaper than paint, and the whole point of the plow and the pitchforks.
+ */
+export const CLING = {
+  /** What one of each kind weighs on the side it's hanging from. */
+  weight: [1, 0.8, 2.3, 0.9] as const,
+  /** How hard a zombie of weight 1 pulls the wheel, and how far it leans the bus (radians). */
+  pull: 0.085,
+  lean: 0.05,
+  /** Cornering at speed with a load on leans it further. */
+  corner: 0.5,
+  /** How fast the lean follows what's hanging on (rad/s). */
+  settle: 1.6,
+  /** Over this far (radians) and the bus goes over; armour plate lowers the bus and buys you a bit more. */
+  tip: 0.68,
+  tipPerArmor: 0.035,
+  /** A roll: the damage, how long the bus lies there, and how many the run survives. */
+  rollDamage: 260,
+  rollTime: 3,
+  rolls: 3,
+  /** Scraping: how close the side has to pass something solid, and how fast you have to be going. */
+  scrape: 1.1,
+  scrapeSpeed: 5,
+  /** Scraping one off pays the driver this. */
+  scrapePay: 2,
+} as const;
+
+/** The net weight hanging off the sides: negative to the left, positive to the right. */
+export function clingLoad(on: readonly { side: number; k: ZKind }[]): number {
+  let load = 0;
+  for (const z of on) load += Math.sign(z.side) * (CLING.weight[z.k] ?? 1);
+  return load;
+}
+
+/** What that load does to the wheel (-1 to 1), given the bus's upgrades. */
+export const pullOf = (load: number, r: Pick<RunState, 'up'>) => Math.max(-1, Math.min(1, (load * CLING.pull) / (1 + r.up[UP.armor] * 0.12)));
+
+/** How far over the bus can go before it rolls. */
+export const tipOf = (r: Pick<RunState, 'up'>) => CLING.tip + r.up[UP.armor] * CLING.tipPerArmor;
+
+/** One tick of the lean: where it settles with that load, plus the cornering, and whether it just went over. */
+export function stepLean(lean: number, load: number, b: Bus, dt: number, tip: number): { lean: number; rolled: boolean } {
+  const speedK = Math.min(1, Math.abs(b.v) / BUS.maxSpeed);
+  const want = load * CLING.lean + Math.sign(load || 1) * Math.abs(b.steer * speedK * CLING.corner * load * CLING.lean);
+  const next = lean + (want - lean) * Math.min(1, CLING.settle * dt);
+  return Math.abs(next) > tip ? { lean: 0, rolled: true } : { lean: next, rolled: false };
+}
+
+/** Which side of the bus is scraping something solid right now (-1 left, 1 right, 0 neither). */
+export function scrapeSide(b: Bus, obstacles: readonly Obstacle[]): number {
+  if (Math.abs(b.v) < CLING.scrapeSpeed) return 0;
+  const f = fwdOf(b.h);
+  const rt = rightOf(b.h);
+  for (const off of BUS.hull) {
+    const cx = b.x + f.x * off;
+    const cz = b.z + f.z * off;
+    for (const o of obstacles) {
+      const dx = o.x - cx;
+      const dz = o.z - cz;
+      const reach = BUS.hullR + o.r + CLING.scrape;
+      if (dx * dx + dz * dz >= reach * reach) continue;
+      const lat = rt.x * dx + rt.z * dz;
+      const along = f.x * dx + f.z * dz;
+      // Beside the bus rather than straight ahead of it: that's a scrape, not a crash.
+      if (Math.abs(lat) > Math.abs(along)) return Math.sign(lat) || 1;
+    }
+  }
+  return 0;
+}
 
 export const GUN = {
   /** Paintballs per second (held), hopper, reload (s), ball speed (m/s), gravity on the ball. */

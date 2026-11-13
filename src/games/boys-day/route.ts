@@ -264,7 +264,7 @@ export function makeRoute(seed: number, leg = 0): Route {
     for (const [k, w] of flora[cp.biome]) if ((roll -= w) < 0) return k;
     return flora[cp.biome][0][0];
   };
-  const solid: Partial<Record<PropKind, number>> = { tree: 0.55, pine: 0.55, dead: 0.5, cactus: 0.5, shroom: 0.6, crystal: 0.9, rock: 1.1 };
+  const solid: Partial<Record<PropKind, number>> = { tree: 0.55, pine: 0.55, dead: 0.5, cactus: 0.5, shroom: 0.6, crystal: 0.9, rock: 1.1, wreck: 1.2 };
   for (let i = 3; i < road.length; i += 2) {
     const p = road[i];
     const right = { x: Math.cos(p.h), z: -Math.sin(p.h) };

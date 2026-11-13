@@ -42,7 +42,9 @@ import {
   atCab,
   atHatch,
   canBoard,
+  clingLoad,
   collideBus,
+  CLING,
   fwdOf,
   gunsUnlocked,
   hangAt,
@@ -52,13 +54,17 @@ import {
   objective,
   onBus,
   powerOf,
+  pullOf,
   priceOf,
   reloadOf,
   rightOf,
   rng,
   startSpot,
+  stepJump,
+  stepLean,
   stepBus,
   stepFoot,
+  toBus,
   walk,
   wallHit,
   type Bus,
@@ -132,6 +138,11 @@ export class Session {
   private foot: { x: number; z: number } | null = null;
   private footYaw = 0;
   private hp: number = FOOT.hp;
+  /** Mid-jump: how high off the ground you are on foot, and how fast. */
+  private footY = 0;
+  private footVy = 0;
+  /** How far the bus is leaning under the weight hanging off it (and lying right over after a roll). */
+  private lean = 0;
   private koT = 0;
   private hurt = 0;
   private carrying = false;
@@ -275,6 +286,13 @@ export class Session {
   private get driving() {
     return this.driver === this.link.me;
   }
+  /** What's hanging off the bus's sides right now: negative to the left, positive to the right. */
+  private clingLoad() {
+    const on: { side: number; k: ZView['k'] }[] = [];
+    for (const z of this.zs) if (z.st === 'climb') on.push({ side: toBus(this.bus, z.x, z.z).side, k: z.k });
+    return clingLoad(on);
+  }
+
   /** The ground's height at (x, z). */
   private ground = (x: number, z: number) => groundAt(this.route, x, z);
   private get myPlace() {
@@ -550,7 +568,7 @@ export class Session {
     const driver = this.driver;
     if (driver === this.link.me || (driver === -1 && this.isHost)) {
       // Nobody at the wheel (or the driver's in a minigame or the menu): it rolls to a stop.
-      const mine = driver === this.link.me && f && this.run.phase !== 'lost';
+      const mine = driver === this.link.me && f && this.run.phase !== 'lost' && this.run.down <= 0;
       const drive = mine ? { throttle: f.throttle, brake: f.brake, steer: f.steer, handbrake: f.handbrake } : b.v > 0.3 ? { ...NO_DRIVE, brake: 0.4 } : NO_DRIVE;
       const near = roadNear(this.route.road, b.x, b.z, this.roadHint);
       this.roadHint = near.i;
@@ -559,7 +577,8 @@ export class Session {
       const span = 7;
       const grade = (this.ground(b.x + (fw.x * span) / 2, b.z + (fw.z * span) / 2) - this.ground(b.x - (fw.x * span) / 2, b.z - (fw.z * span) / 2)) / span;
       const haz = hazardAt(this.route, b.x, b.z);
-      stepBus(b, drive, dt, { grade, onRoad: near.d < ROAD.half + 1, mud: haz?.kind === 'mud', fumes: this.run.fuel <= 0, power: powerOf(this.run) });
+      stepBus(b, drive, dt, { grade, onRoad: near.d < ROAD.half + 1, mud: haz?.kind === 'mud', fumes: this.run.fuel <= 0, power: powerOf(this.run), pull: pullOf(this.clingLoad(), this.run) });
+      if (this.run.down > 0) b.v *= Math.max(0, 1 - dt * 4);
       // Potholes: a jolt that kills speed (the host takes the damage).
       this.route.hazards.forEach((h, i) => {
         if (h.kind !== 'pothole' || Math.abs(h.x - b.x) > 9 || Math.abs(h.z - b.z) > 9 || Math.abs(b.v) < 4) return;
@@ -650,6 +669,12 @@ export class Session {
       return;
     }
     if (!this.foot) this.hp = Math.min(FOOT.hp, this.hp + FOOT.regen * dt);
+    if (this.foot) {
+      const j = stepJump(this.footY, this.footVy, dt);
+      this.footY = j.y;
+      this.footVy = j.vy;
+      if (j.landed) this.audio.play('thunk', 0.35);
+    } else this.footY = this.footVy = 0;
     if (this.driving !== this.wasDriving) {
       // Sat down at the wheel (look ahead) or got up from it (stand beside it).
       if (!this.driving) this.spot = { ...OFF_CAB };
@@ -669,6 +694,12 @@ export class Session {
       if (f.use) this.use();
       if (f.shop && !this.foot && !this.driving) this.openShop();
       if (f.seat && !this.foot && (this.driving || atCab(this.spot))) this.wantWheel(!this.driving);
+      if (f.climb && this.foot && this.footY <= 0 && !this.carrying) {
+        // A jump: over a lunging zombie, or just for the hell of it.
+        this.footVy = FOOT.jump;
+        this.footY = 0.001;
+        this.audio.play('thunk', 0.3);
+      }
       if (f.climb && !this.foot && !this.driving && atHatch(this.spot)) {
         this.spot.level = this.spot.level ? 0 : 1;
         this.audio.play('reload', 0.5);
@@ -1131,10 +1162,14 @@ export class Session {
     this.busY += ((front + back + left + right) / 4 - this.busY) * k;
     this.tilt.pitch += (Math.atan2(front - back, 7) - this.tilt.pitch) * k;
     this.tilt.roll += (Math.atan2(right - left, 2.6) - this.tilt.roll) * k;
+    // The weight on the sides leans it; after a roll it lies right over until the boys get it back up.
+    const want = this.run.down > 0 ? Math.sign(this.lean || 1) * 1.45 : null;
+    if (want === null) this.lean = stepLean(this.lean, this.clingLoad(), b, dt, 99).lean;
+    else this.lean += (want - this.lean) * Math.min(1, dt * 5);
     this.shake = Math.max(0, this.shake - dt * 3);
     const jolt = this.shake * Math.sin(this.clock * 40) * 0.12;
     this.busModel.position.set(b.x, this.busY + jolt, b.z);
-    this.busModel.rotation.set(this.tilt.pitch + jolt * 0.2, b.h, this.tilt.roll - b.steer * Math.min(1, Math.abs(b.v) / 20) * 0.08, 'YXZ');
+    this.busModel.rotation.set(this.tilt.pitch + jolt * 0.2, b.h, this.tilt.roll - b.steer * Math.min(1, Math.abs(b.v) / 20) * 0.08 - this.lean, 'YXZ');
     this.busModel.children.forEach((c) => c.name === 'wheel' && (c.rotation.x -= (b.v * dt) / 0.55));
     if (this.steer) this.steer.rotation.z = -b.steer * 3;
     showBusParts(this.busModel, this.run.up);
@@ -1166,7 +1201,7 @@ export class Session {
     const swayYaw = Math.sin(this.clock * 0.9 + 1) * 0.04 * sway;
     if (this.foot) {
       // Off the bus, on your own two feet.
-      const y = this.ground(this.foot.x, this.foot.z) + FOOT.eye;
+      const y = this.ground(this.foot.x, this.foot.z) + FOOT.eye + this.footY;
       this.camera.position.set(this.foot.x, y, this.foot.z);
       this.camera.rotation.set(this.pitch, this.footYaw + swayYaw, swayRoll, 'YXZ');
     } else if (!(this.driving && this.chase)) {
@@ -1217,6 +1252,7 @@ export class Session {
       objective: objective(this.run, cp.job, cp.name),
       toStop: this.run.done ? Math.hypot(gate.x - b.x, gate.z - b.z) : Math.max(toGo(this.route, s), Math.hypot(stop.x - b.x, stop.z - b.z) - RUN.parkRadius),
       arrow,
+      lean: this.lean,
       gunner,
       driver: this.driving,
       chase: this.chase,
@@ -1343,6 +1379,27 @@ export class Session {
       this.hud.pop(`CLEARED! +${f.n} 🔩 EACH`, W / 2, H * 0.3, '#3aff8a', true);
       this.audio.play('jingle');
       this.bars = this.route.obstacles;
+    } else if (f.k === 'scrape') {
+      // Wiped off down the side of something solid.
+      if (onScreen) this.hud.pop(`SCRAPED! +${f.n} 🔩`, sx, sy, '#ffe14a', true);
+      this.audio.play('splat', Math.max(0.4, vol));
+      this.api.rumble(0.5, 0.4, 90);
+      this.shake = Math.max(this.shake, 0.4);
+    } else if (f.k === 'roll') {
+      // Over it goes. Three of these and the run is done.
+      const left = CLING.rolls - f.n;
+      this.hud.pop(left > 0 ? `ROLLED! ${left} TO GO` : 'ROLLED!', W / 2, H * 0.34, '#ff5a5a', true);
+      this.hud.say(left > 0 ? `The bus went over! ${left} more roll${left === 1 ? '' : 's'} and that’s the run.` : 'The bus is on its roof.');
+      this.audio.play('boom');
+      this.audio.play('bump', 1);
+      this.api.rumble(1, 1, 600);
+      this.shake = 1.6;
+      this.hurt = Math.max(this.hurt, 0.8);
+      if (this.foot) {
+        // Standing next to a rolling bus is a bad place to be.
+        this.hp -= 20;
+        if (this.hp <= 0) this.knockedOut();
+      }
     } else if (f.k === 'buy') {
       this.audio.play('cash', 0.6);
       if (f.n < UPGRADES.length) this.hud.say(`${UPGRADES[f.n].name.toUpperCase()} fitted to the bus!`);

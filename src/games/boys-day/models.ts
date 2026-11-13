@@ -524,7 +524,7 @@ export class Horde {
 
   private pose(i: number, z: ZView, s: { x: number; y: number; z: number; yaw: number; spin: number }, t: number, gy: number) {
     const spec = ZOMBIE[z.k];
-    const scale = z.k === 2 ? 1.45 : z.k === 1 ? 0.92 : 1;
+    const scale = z.k === 2 ? 1.45 : z.k === 1 ? 0.92 : z.k === 3 ? 0.86 : 1;
     const d = this.dummy;
     d.position.set(s.x, gy + s.y, s.z);
     d.rotation.set(0, s.yaw, 0);
@@ -567,7 +567,7 @@ export class Horde {
     this.parts.body.setColorAt(i, this.c);
     this.parts.legL.setColorAt(i, this.c.set('#3b3b48'));
     this.parts.legR.setColorAt(i, this.c);
-    this.parts.eyes.setColorAt(i, this.c.set(z.k === 1 ? '#ff5050' : z.k === 2 ? '#ffb030' : '#c8ff5a'));
+    this.parts.eyes.setColorAt(i, this.c.set(z.k === 1 ? '#ff5050' : z.k === 2 ? '#ffb030' : z.k === 3 ? '#c45aff' : '#c8ff5a'));
     this.parts.xx.setColorAt(i, this.c.set('#ffffff'));
   }
 
@@ -585,7 +585,7 @@ export class Horde {
   }
 }
 
-/** Two glowing slits (tinted per kind: green shamblers, red sprinters, amber chonks). */
+/** Two glowing slits (tinted per kind: green shamblers, red sprinters, amber chonks, violet leapers). */
 function glowEyesTexture() {
   const c = document.createElement('canvas');
   c.width = 128;

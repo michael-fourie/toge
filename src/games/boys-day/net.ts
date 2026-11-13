@@ -58,7 +58,7 @@ export interface Act {
 
 export const ACT_MAX = { shots: 24, hits: 24, grabs: 6, swing: 8, boom: 16 } as const;
 
-const FX: FxKind[] = ['yeet', 'fore', 'splat', 'gordie', 'grab', 'hurt', 'shake', 'heal', 'bump', 'round', 'bite', 'crate', 'can', 'clear', 'buy', 'leg'];
+const FX: FxKind[] = ['yeet', 'fore', 'splat', 'gordie', 'grab', 'hurt', 'shake', 'heal', 'bump', 'round', 'bite', 'crate', 'can', 'clear', 'buy', 'leg', 'scrape', 'roll'];
 const PHASES: Phase[] = ['drive', 'stop', 'lost'];
 const DOS = ['crate', 'can', 'ko', 'toke', 'drink'] as const;
 
@@ -77,6 +77,7 @@ function readRun(r: unknown): RunState | null {
   if (!bool(o.club) || !bool(o.gordie) || !int(o.kills) || !int(o.yeets)) return null;
   if (!num(o.fuel, 1000) || !int(o.round, 1e5) || !int(o.left, 9999) || !num(o.calm, 999)) return null;
   if (!Array.isArray(o.up) || o.up.length !== UPGRADES.length || !o.up.every((v, i) => int(v, UPGRADES[i].max) && v >= 0)) return null;
+  if (!int(o.rolls, 99) || (o.rolls as number) < 0 || !num(o.down, 99) || (o.down as number) < 0) return null;
   return {
     seed: o.seed,
     stage: o.stage,
@@ -97,6 +98,8 @@ function readRun(r: unknown): RunState | null {
     left: o.left,
     calm: o.calm,
     up: o.up as number[],
+    rolls: o.rolls,
+    down: o.down,
   };
 }
 

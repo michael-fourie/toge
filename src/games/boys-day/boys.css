@@ -818,3 +818,20 @@
   border-style: dashed;
   box-shadow: none;
 }
+
+/* How many times the bus has gone over, and a warning while it's up on two wheels. */
+.boys-day .bd-rolls {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  min-height: 15px;
+}
+.boys-day .bd-rolls.warn {
+  color: #ff5a5a;
+  animation: bd-blink 0.4s steps(2) infinite;
+}
+@keyframes bd-blink {
+  to {
+    opacity: 0.35;
+  }
+}
