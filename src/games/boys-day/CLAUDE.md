@@ -45,7 +45,8 @@ aboard, out for `FOOT.ko` s, and you drop `RUN.koLoss` of your scrap. Stray too 
 aboard too. Everyone on foot when the bus goes through the gate comes with it.
 
 **Scrap is personal** (`run.cash[place]`, by place in the crew): kills, crates, minigames, pickups and clearing a
-checkpoint pay it. Spend it at the store (`UPGRADES`: armor, plow, engine, tank, hopper, for the whole bus; `BUY`: a
+checkpoint pay it. Spend it at the store (`UPGRADES`: scrap armour, a snow plow, an engine, a tank, hoppers and pitchforks,
+for the whole bus, each one bolted on where you can see it: `showBusParts`; `BUY`: a
 bus repair, a paint grenade, a bandage) or gamble it at the card table: **blackjack** against the dealer (`cards.ts`,
 `BLACKJACK`, `bjPay`) or **heads-up five-card draw** against a friend (`duel.ts`, refereed by the host: ante, one
 draw, one betting round with a single raise).
@@ -71,6 +72,7 @@ slow or parked they climb it and chew. **Zombies come in rounds** (`ROUNDS`), gr
 | `checkpoints.ts` | the checkpoint generator, pure: `BIOMES`, `PLACES`, `TWISTS`, `checkpointOf` |
 | `route.ts` | a leg's map, pure: road, checkpoint arena and its sites, gate, props, obstacles, hazards, pickups; `groundAt`, `hazardAt`, `solids` |
 | `terrain.ts` | the hills, pure |
+| `roster.ts` | the boys you can play as, pure: `BOYS` (looks follow their Royal Degeneracy cards), `castBoys` (your pick, or somebody nobody picked) |
 | `net.ts` | the messages and `readMsg` (checks every message's shape), `takeWheel` |
 | `sky.ts` | the sky that outlives the legs: shader dome (stars, aurora), sun/moon, lights, fog, weather; a `Look` per biome |
 | `world.ts` / `models.ts` | three.js: a leg's ground, road, arena, gate and scenery; the bus (with the bong, cooler and card table), beans, guns, the horde, paintballs and splats |
@@ -89,6 +91,9 @@ lit shader recompiles). Every gun's viewmodel is built at the start and shown in
 `window.__boys` is the app and `__boys.session` the run (`__boys.session.director` on the host).
 
 ## Netcode
+
+In the lobby everyone says who they'd like to be (`pick`); the host casts the crew when it starts the run and `start`
+carries the result (`boys`, by place in the crew).
 
 The party relay only forwards messages, so the **host's browser referees** (`Director`, and `Duel` for the card
 table). The **driver's browser moves the bus** (`bus` at 15 Hz, tagged with its leg `l`; a pose from another leg is

@@ -147,7 +147,7 @@ def guns():
         cyl(m, 0.055, 0.1, (0, 0.03, 0.12), seg=12), box(m, (0.02, 0.3, 0.03), (0.065, 0.2, 0.03), bevel=0.005),
         box(k, (0.05, 0.07, 0.14), (0, 0.33, -0.1), (R(20), 0, 0), bevel=0.02),
     ], grad=(0.8, 1.1))
-    join('g_0_paint', [blob(P, (0.24, 0.36, 0.22), (0, 0.04, 0.27)), cyl(P, 0.05, 0.03, (0, -0.02, 0.385), seg=10)], grad=(0.85, 1.1))
+    join('g_0_paint', [blob(P, (0.17, 0.27, 0.15), (0, 0.04, 0.235)), cyl(P, 0.04, 0.025, (0, -0.02, 0.315), seg=10)], grad=(0.85, 1.1))
     # 1: the Splatter Shotty. Sawn-off, two fat barrels, a wooden pump, shells down the side.
     shot = frame(stock=False) + [
         barrel(0.055, 0.5, 0.46, -0.05, seg=14), barrel(0.055, 0.5, 0.46, 0.05, seg=14),

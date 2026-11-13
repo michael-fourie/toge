@@ -8,8 +8,10 @@ run `exec(open('<that path>/bridge.py').read())` in the Python console. While Bl
 every time the file changes and writes the result to `log.txt`.
 
 In the game (`../assets.ts`): the zombie's parts (near white: each zombie is tinted by skin and shirt), trees and pines
-(a trunk and a crown tinted by the world), dead trees, rocks, cacti, crates, jerry cans and the five guns. Still built
-in code: the bus, the boys, the buildings, mushrooms and crystals (they glow).
+(a trunk and a crown tinted by the world), dead trees, rocks, cacti, crates, jerry cans, the five guns (`g_N`, with
+`g_N_paint` in the player's colour), the boys (`b_*` body parts, `h_*` hair styles and `hat_*`, each tinted from
+`roster.ts`), and the bus's bodywork, wheels and the parts the store sells (`bus_*`). Still built in code: the bus's
+walkable shell (its walls and windows are the rules' own), the buildings, mushrooms and crystals (they glow).
 
 Blender is Z up with the front at +Y; the export turns that into the game's Y up, front at -Z. Model at game scale
 (metres), with origins where the game pivots: the ground for scenery, the shoulder and hip for limbs, the centre for

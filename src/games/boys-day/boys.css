@@ -730,6 +730,8 @@
   padding: 6px 12px;
   font-size: 15px;
   border-bottom: 5px solid var(--boy, var(--bd-ink));
+  background: #2e2748;
+  color: var(--bd-cream);
 }
 .boys-day .bd-btn.pick.on {
   background: var(--bd-sun);
