@@ -102,7 +102,7 @@ def export(path):
                               export_yup=True, export_materials='NONE', export_normals=True,
                               export_vertex_color='ACTIVE', export_all_vertex_colors=False, export_texcoords=False)
 
-def preview(path, names=None, cols=6, gap=3.0, res=(1600, 900), bg='#2a2440'):
+def preview(path, names=None, cols=6, gap=3.0, res=(1600, 900), bg='#2a2440', close=None, side=False):
     """Lays the assets out in a grid (copies), lights them and renders a PNG."""
     sc = bpy.context.scene
     objs = [o for o in sc.objects if o.type == 'MESH' and (names is None or o.name in names)]
@@ -132,7 +132,12 @@ def preview(path, names=None, cols=6, gap=3.0, res=(1600, 900), bg='#2a2440'):
     fill.data.energy = 1.2; fill.data.color = (0.6, 0.7, 1); fill.rotation_euler = Euler((math.radians(60), 0, math.radians(-140))); made.append(fill)
     span = max(cols * gap, rows * gap * 1.6)
     bpy.ops.object.camera_add(location=(cx + span * 0.2, cy - span * 1.15, span * 0.75)); cam = bpy.context.view_layer.objects.active
-    d = Vector((cx, cy, 1.0)) - cam.location
+    look = Vector((cx, cy, 1.0))
+    if close:
+        # (height looked at, distance, camera height): a three-quarter view from the front (+Y), or from the side.
+        look = Vector((cx, cy, close[0]))
+        cam.location = (cx + close[1], cy + (0.25 if side else 1.0) * close[1] * (0.4 if side else 1), close[2]) if side else (cx + close[1] * 0.45, cy + close[1], close[2])
+    d = look - cam.location
     cam.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler(); cam.data.lens = 34; made.append(cam)
     sc.camera = cam
     w = bpy.data.worlds.new('w'); w.use_nodes = True

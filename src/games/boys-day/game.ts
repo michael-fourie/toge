@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import type { Party } from '../party.ts';
 import type { GameApi } from '../types.ts';
+import { artReady, loadArt } from './assets.ts';
 import { paintBanner } from './banner.ts';
 import { paintOf } from './models.ts';
 import { readMsg } from './net.ts';
@@ -32,12 +33,16 @@ class App {
   private offs: (() => void)[] = [];
   private note = '';
   private hostAtStart = -1;
+  /** Counts run starts still waiting on the models (a newer start, or leaving, cancels an older one). */
+  private starting = 0;
+  private gone = false;
 
   constructor(
     private root: HTMLElement,
     private api: GameApi,
   ) {
     root.classList.add('boys-day');
+    void loadArt();
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -192,7 +197,14 @@ class App {
     this.startRun();
   }
 
+  /** Starts a run once the models are in (they're asked for when the game opens, so usually at once). */
   private begin(seed: number, driver: number) {
+    if (artReady()) return this.beginNow(seed, driver);
+    const token = ++this.starting;
+    void loadArt().then(() => token === this.starting && !this.gone && this.beginNow(seed, driver));
+  }
+
+  private beginNow(seed: number, driver: number) {
     this.session?.dispose();
     this.root.replaceChildren();
     const p = this.party;
@@ -217,6 +229,7 @@ class App {
   }
 
   private leave(why: string) {
+    this.starting++;
     this.session?.dispose();
     this.session = null;
     for (const f of this.offs) f();
@@ -228,6 +241,7 @@ class App {
   }
 
   destroy() {
+    this.gone = true;
     cancelAnimationFrame(this.raf);
     this.session?.dispose();
     this.session = null;

@@ -2,6 +2,7 @@
 // so 90 of them are a handful of draw calls), paintballs and splats, and your marker in first person.
 
 import * as THREE from 'three';
+import { art, toonArt } from './assets.ts';
 import type { ZView } from './director.ts';
 import { HANG, BUS, DRIVER, WALK, ZOMBIE } from './rules.ts';
 
@@ -293,6 +294,29 @@ export function makeMarker(color: string): THREE.Group {
 
 /** Each gun in your hands: the marker, rebuilt a little (GUNS' order). */
 export function makeGun(k: number, color: string): THREE.Group {
+  const model = art(`g_${k}`);
+  if (model) {
+    // The Blender gun, plus the part that's your paint colour: the hopper, the minigun's drum, the balloon.
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(model, toonArt()));
+    const paint = toon(color, { transparent: true, opacity: 0.85 });
+    if (k === 2) {
+      const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.16, 18), paint);
+      drum.rotation.z = Math.PI / 2;
+      drum.position.set(0, -0.12, 0);
+      g.add(drum);
+    } else if (k === 4) {
+      const balloon = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 10), toon(color));
+      balloon.position.set(0, 0.03, -0.8);
+      g.add(balloon);
+    } else {
+      const hopper = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 12), paint);
+      hopper.scale.set(1, 1.15, 1.3);
+      hopper.position.set(0, 0.24, 0.02);
+      g.add(hopper);
+    }
+    return g;
+  }
   const g = makeMarker(color);
   const dark = toon('#26272e');
   if (k === 1) {
@@ -377,11 +401,16 @@ export class Horde {
       this.group.add(im);
       return im;
     };
-    const white = toon('#ffffff');
-    const body = new THREE.CapsuleGeometry(0.3, 0.55, 3, 8);
-    const head = new THREE.SphereGeometry(0.3, 10, 8);
+    // The Blender zombie (near white: each one is tinted by skin and shirt), or capsules and boxes without it.
+    const modelled = !!art('z_body');
+    const white = modelled ? toonArt() : toon('#ffffff');
+    const body = art('z_body') ?? new THREE.CapsuleGeometry(0.3, 0.55, 3, 8);
+    const head = art('z_head') ?? new THREE.SphereGeometry(0.3, 10, 8);
     const limb = new THREE.BoxGeometry(0.14, 0.6, 0.14);
     limb.translate(0, -0.27, 0); // pivot at the shoulder / hip
+    const arm = art('z_arm') ?? limb;
+    const leg = art('z_leg') ?? limb;
+    const legMat = modelled ? white : toon('#3b3b48');
     // Eyes, as one flat strip in front of the face: glowing while they're up, X_X once they're down.
     const eyes = new THREE.PlaneGeometry(0.34, 0.12);
     eyes.rotateY(Math.PI); // face out of the front (-Z)
@@ -389,10 +418,10 @@ export class Horde {
     this.parts = {
       body: mk(body, white),
       head: mk(head, white),
-      armL: mk(limb, white),
-      armR: mk(limb, white),
-      legL: mk(limb, toon('#3b3b48')),
-      legR: mk(limb, toon('#3b3b48')),
+      armL: mk(arm, white),
+      armR: mk(arm, white),
+      legL: mk(leg, legMat),
+      legR: mk(leg, legMat),
       eyes: mk(eyes, new THREE.MeshBasicMaterial({ map: glowEyesTexture(), transparent: true, fog: false })),
       xx: mk(eyes.clone(), new THREE.MeshBasicMaterial({ map: eyesTexture(), transparent: true })),
     };
