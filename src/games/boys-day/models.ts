@@ -2,8 +2,10 @@
 // so 90 of them are a handful of draw calls), paintballs and splats, and your marker in first person.
 
 import * as THREE from 'three';
+import { art, toonArt } from './assets.ts';
 import type { ZView } from './director.ts';
-import { HANG, BUS, DRIVER, WALK, ZOMBIE } from './rules.ts';
+import type { Boy } from './roster.ts';
+import { HANG, BUS, DRIVER, UP, WALK, ZOMBIE } from './rules.ts';
 
 /** Paint colours: one per seat-order player, then Gordie's. */
 export const PAINT = ['#ff3d7f', '#2fd3ff', '#ffd23f', '#7cff5b', '#b06bff', '#ff8a2a', '#ffffff', '#00e0b0', '#ff2020'];
@@ -55,6 +57,23 @@ const box = (w: number, h: number, d: number, mat: THREE.Material, x = 0, y = 0,
 // out: the driver sees through the windscreen, everyone else walks about inside or climbs the ladder through the
 // roof hatch onto the railed deck up top. Its origin is
 // on the ground under its middle; it faces -Z. The steering wheel is named 'steer' (it turns with the wheels).
+
+/** The store's parts on the bus: a model, the upgrade it belongs to, and the level it shows from. */
+const BUS_PARTS: readonly (readonly [string, number, number])[] = [
+  ['bus_armor_1', UP.armor, 1],
+  ['bus_armor_2', UP.armor, 4],
+  ['bus_plow', UP.plow, 1],
+  ['bus_engine', UP.engine, 1],
+  ['bus_tank', UP.tank, 1],
+  ['bus_hopper', UP.hopper, 1],
+  ['bus_forks_1', UP.forks, 1],
+  ['bus_forks_2', UP.forks, 3],
+];
+
+/** Shows the parts the run has bought (`up`: RunState.up). */
+export function showBusParts(bus: THREE.Group, up: readonly number[]) {
+  for (const c of bus.children) if (c.name === 'part') c.visible = (up[c.userData.up as number] ?? 0) >= (c.userData.min as number);
+}
 
 export function makeBus(): THREE.Group {
   const g = new THREE.Group();
@@ -208,15 +227,32 @@ export function makeBus(): THREE.Group {
     }
     g.add(box(0.1, 0.006, 0.14, toon('#ffffff'), t.side + 0.3, floor + 0.81, -t.along - 0.2));
   }
-  const ram = box(W + 0.3, 0.7, 0.25, toon('#b98a52'), 0, 0.6, -L / 2 - 0.35);
-  ram.rotation.x = -0.35;
-  g.add(ram);
+  // Outside: the Blender bodywork (bumpers, grille, arches, rails, the back end) and the parts the store sells,
+  // every one built now and shown when bought (showBusParts). Without the models: a plank for a ram.
+  const bodywork = art('bus_body');
+  const metal = toonArt();
+  if (bodywork) {
+    g.add(new THREE.Mesh(bodywork, metal));
+    for (const [name, up, min] of BUS_PARTS) {
+      const geo = art(name);
+      if (!geo) continue;
+      const m = new THREE.Mesh(geo, metal);
+      m.name = 'part';
+      m.userData = { up, min };
+      m.visible = false;
+      g.add(m);
+    }
+  } else {
+    const ram = box(W + 0.3, 0.7, 0.25, toon('#b98a52'), 0, 0.6, -L / 2 - 0.35);
+    ram.rotation.x = -0.35;
+    g.add(ram);
+  }
   // Rust patches, for character.
   for (const [x, y, z] of [[W / 2 + 0.01, 1.2, 1.8], [-W / 2 - 0.01, 1.4, -2.6], [W / 2 + 0.01, 1.3, -4.1]]) g.add(box(0.03, 0.4, 0.7, rust, x, y, z));
   // Wheels.
-  const wheelGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.4, 14);
-  wheelGeo.rotateZ(Math.PI / 2);
-  const tyre = toon('#1b1b1f');
+  const wheelArt = art('bus_wheel');
+  const wheelGeo = wheelArt ?? new THREE.CylinderGeometry(0.55, 0.55, 0.4, 14).rotateZ(Math.PI / 2);
+  const tyre = wheelArt ? metal : toon('#1b1b1f');
   for (const z of [-L / 2 + 2, L / 2 - 2.2])
     for (const s of [-1, 1]) {
       const w = new THREE.Mesh(wheelGeo, tyre);
@@ -239,7 +275,10 @@ export interface Bean {
   can: THREE.Mesh;
 }
 
-export function makeBean(color: string, driver = false): Bean {
+/** One of the boys (roster.ts), carrying a marker in `paint`, their colour. */
+export function makeBean(look: Boy, paint: string, driver = false): Bean {
+  if (art('b_shirt')) return makeBoy(look, paint, driver);
+  const color = paint;
   const root = new THREE.Group();
   const aim = new THREE.Group();
   root.add(aim);
@@ -272,6 +311,42 @@ export function makeBean(color: string, driver = false): Bean {
   return { root, aim, gun, can };
 }
 
+/** The Blender body, dressed in a boy's colours: skin, hair, shirt and trim, pants, shoes, a hat if he wears one. */
+function makeBoy(look: Boy, paint: string, driver: boolean): Bean {
+  const root = new THREE.Group();
+  const aim = new THREE.Group();
+  root.add(aim);
+  const body = new THREE.Group();
+  // Taller boys are bigger all over; a broad build is wider at the shoulders.
+  const k = look.height / 178;
+  body.scale.set(k * look.build, k, k);
+  aim.add(body);
+  const part = (name: string, color: string) => {
+    const g = art(name);
+    if (g) body.add(new THREE.Mesh(g, toonArt(color)));
+  };
+  part('b_shirt', look.shirt);
+  part('b_trim', look.trim);
+  part('b_pants', look.pants);
+  part('b_shoes', look.shoes);
+  part('b_skin', look.skin);
+  part('b_face', '#ffffff');
+  part('b_band', paint);
+  part(`h_${look.style}`, look.hair);
+  if (look.hat) part(`hat_${look.hat}`, look.hatColour ?? paint);
+  const gun = makeGun(0, paint);
+  gun.position.set(0.28 * k, 0.85 * k, -0.3 * k);
+  gun.scale.setScalar(0.85 * k);
+  if (!driver) aim.add(gun);
+  const jerry = art('p_jerry');
+  const can = jerry ? new THREE.Mesh(jerry, toonArt()) : box(0.4, 0.5, 0.24, toon('#d8261c'), 0, 0, 0);
+  can.position.set(0, 0.8 * k, -0.45 * k);
+  can.scale.setScalar(0.7);
+  can.visible = false;
+  aim.add(can);
+  return { root, aim, gun, can };
+}
+
 /** A paintball marker: body, barrel, a hopper on top. Points down -Z. */
 export function makeMarker(color: string): THREE.Group {
   const g = new THREE.Group();
@@ -293,6 +368,17 @@ export function makeMarker(color: string): THREE.Group {
 
 /** Each gun in your hands: the marker, rebuilt a little (GUNS' order). */
 export function makeGun(k: number, color: string): THREE.Group {
+  const model = art(`g_${k}`);
+  if (model) {
+    // The Blender gun, plus the parts in your paint colour (the hopper, the shells, the drum, the balloons).
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(model, toonArt()));
+    const paint = art(`g_${k}_paint`);
+    if (paint) g.add(new THREE.Mesh(paint, toonArt(color, { emissive: color, emissiveIntensity: 0.3 })));
+    const drum = art(`g_${k}_drum`);
+    if (drum) g.add(new THREE.Mesh(drum, toonArt()));
+    return g;
+  }
   const g = makeMarker(color);
   const dark = toon('#26272e');
   if (k === 1) {
@@ -377,11 +463,16 @@ export class Horde {
       this.group.add(im);
       return im;
     };
-    const white = toon('#ffffff');
-    const body = new THREE.CapsuleGeometry(0.3, 0.55, 3, 8);
-    const head = new THREE.SphereGeometry(0.3, 10, 8);
+    // The Blender zombie (near white: each one is tinted by skin and shirt), or capsules and boxes without it.
+    const modelled = !!art('z_body');
+    const white = modelled ? toonArt() : toon('#ffffff');
+    const body = art('z_body') ?? new THREE.CapsuleGeometry(0.3, 0.55, 3, 8);
+    const head = art('z_head') ?? new THREE.SphereGeometry(0.3, 10, 8);
     const limb = new THREE.BoxGeometry(0.14, 0.6, 0.14);
     limb.translate(0, -0.27, 0); // pivot at the shoulder / hip
+    const arm = art('z_arm') ?? limb;
+    const leg = art('z_leg') ?? limb;
+    const legMat = modelled ? white : toon('#3b3b48');
     // Eyes, as one flat strip in front of the face: glowing while they're up, X_X once they're down.
     const eyes = new THREE.PlaneGeometry(0.34, 0.12);
     eyes.rotateY(Math.PI); // face out of the front (-Z)
@@ -389,10 +480,10 @@ export class Horde {
     this.parts = {
       body: mk(body, white),
       head: mk(head, white),
-      armL: mk(limb, white),
-      armR: mk(limb, white),
-      legL: mk(limb, toon('#3b3b48')),
-      legR: mk(limb, toon('#3b3b48')),
+      armL: mk(arm, white),
+      armR: mk(arm, white),
+      legL: mk(leg, legMat),
+      legR: mk(leg, legMat),
       eyes: mk(eyes, new THREE.MeshBasicMaterial({ map: glowEyesTexture(), transparent: true, fog: false })),
       xx: mk(eyes.clone(), new THREE.MeshBasicMaterial({ map: eyesTexture(), transparent: true })),
     };

@@ -17,9 +17,10 @@ import { Duel, type DuelMove, type DuelView } from './duel.ts';
 import { Hud } from './hud.ts';
 import { Input, type Frame } from './input.ts';
 import { Golf, Slots, type Minigame } from './minigames.ts';
-import { Horde, Paint, makeBean, makeBus, makeClub, makeGun, paintOf, type Ball, type Bean } from './models.ts';
+import { Horde, Paint, makeBean, makeBus, makeClub, makeGun, paintOf, showBusParts, type Ball, type Bean } from './models.ts';
 import { ACT_MAX, takeWheel, type Act, type Msg } from './net.ts';
 import { Post } from './post.ts';
+import { BOYS, GORDIE } from './roster.ts';
 import { HAZARD, ROAD, groundAt, hazardAt, makeRoute, roadNear, solids, toGo, type Route, type Site } from './route.ts';
 import {
   BUS,
@@ -73,7 +74,7 @@ export interface Link {
   me: number;
   hostId: number;
   /** Everyone in the run, in join order (their paint colours and wallets follow it). */
-  crew: { id: number; name: string }[];
+  crew: { id: number; name: string; boy: number }[];
   /** To everyone else, or to one player. */
   send(m: Msg, to?: number): void;
   solo: boolean;
@@ -481,7 +482,7 @@ export class Session {
     for (const c of this.link.crew) {
       let bean = this.beans.get(c.id);
       if (!bean) {
-        bean = makeBean(paintOf(this.placeOf(c.id)));
+        bean = makeBean(BOYS[c.boy] ?? BOYS[0], paintOf(this.placeOf(c.id)));
         bean.root.traverse((o) => ((o as THREE.Mesh).isMesh && ((o as THREE.Mesh).castShadow = true)));
         this.busModel.add(bean.root);
         this.beans.set(c.id, bean);
@@ -1134,10 +1135,11 @@ export class Session {
     this.busModel.rotation.set(this.tilt.pitch + jolt * 0.2, b.h, this.tilt.roll - b.steer * Math.min(1, Math.abs(b.v) / 20) * 0.08, 'YXZ');
     this.busModel.children.forEach((c) => c.name === 'wheel' && (c.rotation.x -= (b.v * dt) / 0.55));
     if (this.steer) this.steer.rotation.z = -b.steer * 3;
+    showBusParts(this.busModel, this.run.up);
     this.placeBeans(dt);
     if (this.run.gordie && !this.gordie) {
       // Gordie, fresh out of the cells, stands in the aisle in his orange jumpsuit and fires out of both sides.
-      this.gordie = makeBean('#ff7a1a');
+      this.gordie = makeBean(GORDIE, '#ff7a1a');
       this.gordie.root.position.set(0, BUS.floor, 0.6);
       this.busModel.add(this.gordie.root);
     }
