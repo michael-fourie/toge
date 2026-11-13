@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BIOME_IDS, CHECKPOINT_COUNT, JOB_IDS, PLACES, TWISTS, checkpointOf } from '../src/games/boys-day/checkpoints.ts';
 import { BEACON_R, Director, packZombies, unpackZombies } from '../src/games/boys-day/director.ts';
-import { Duel, readDuel } from '../src/games/boys-day/duel.ts';
 import { readMsg, takeWheel } from '../src/games/boys-day/net.ts';
 import { ANY_BOY, BOYS, castBoys } from '../src/games/boys-day/roster.ts';
 import { ARENA, HAZARD, ROAD, groundAt, hazardAt, makeRoute, roadNear, solids } from '../src/games/boys-day/route.ts';
@@ -12,7 +11,6 @@ import {
   BUS,
   BUY,
   DRIVER,
-  DUEL,
   FLAT,
   FOOT,
   GOLF,
@@ -58,7 +56,6 @@ import {
   powerOf,
   priceOf,
   reelAt,
-  rng,
   slotPay,
   startSpot,
   stepBus,
@@ -696,65 +693,6 @@ test('boys day cards: blackjack totals and pays; poker hands rank and break ties
   assert.equal(pokerCompare([c(9), c(9, 1), c(2), c(3), c(5)], [c(9, 2), c(9, 3), c(2, 1), c(3, 1), c(5, 1)]), 0);
 });
 
-test('boys day heads-up poker: two sit down, ante, draw, bet, show down; the host moves real scrap and only shows you your own hand', () => {
-  const cash = [100, 100, 100];
-  const mk = (seed: number) => new Duel(rng(seed), (w) => cash[w], (w, n) => (cash[w] += n));
-  const d = mk(7);
-  assert.equal(d.move(2, 'draw', 0), null, 'not at the table');
-  let o = d.move(0, 'sit', 1)!;
-  assert.deepEqual([o.view.phase, o.view.seats, o.view.ante], ['wait', [0, -1], DUEL.antes[1]]);
-  assert.equal(d.move(0, 'sit', 0), null, 'already sat');
-  o = d.move(1, 'sit', 2)!;
-  assert.equal(o.view.ante, DUEL.antes[1], 'the first to sit names the ante');
-  assert.deepEqual([o.view.phase, o.view.pot, cash], ['draw', 50, [75, 75, 100]]);
-  assert.deepEqual([...o.hands.keys()], [0, 1]);
-  const mine = o.hands.get(0)!;
-  assert.equal(new Set([...mine, ...o.hands.get(1)!]).size, 10, 'ten different cards');
-  assert.deepEqual(o.view.shown, [[], []], 'nobody sees a hand on the table');
-  assert.ok(readDuel(JSON.parse(JSON.stringify(o.view))), 'the table goes over the wire');
-  assert.equal(d.move(2, 'sit', 0), null, 'the table’s full');
-  assert.equal(d.move(0, 'raise'), null, 'draw first');
-  o = d.move(0, 'draw', 0b00011)!;
-  const kept = o.hands.get(0)!;
-  assert.deepEqual(kept.slice(0, 2), mine.slice(0, 2));
-  assert.ok(kept.slice(2).every((c) => !mine.includes(c)), 'three new cards');
-  assert.equal(d.move(0, 'draw', 31), null, 'one draw each');
-  o = d.move(1, 'draw', 31)!;
-  assert.deepEqual([o.view.phase, o.view.turn], ['bet', 0]);
-  assert.equal(d.move(1, 'check'), null, 'not your turn');
-  assert.equal(d.move(0, 'call'), null, 'nothing to call');
-  o = d.move(0, 'check')!;
-  o = d.move(1, 'raise')!;
-  assert.deepEqual([o.view.raised, o.view.turn, o.view.pot, cash[1]], [true, 0, 75, 50]);
-  o = d.move(0, 'call')!;
-  assert.equal(o.view.phase, 'show');
-  assert.equal(o.view.shown[0].length, 5);
-  const win = pokerCompare(o.view.shown[0], o.view.shown[1]);
-  assert.equal(o.view.winner, win > 0 ? 0 : win < 0 ? 1 : -1);
-  assert.equal(cash[0] + cash[1], 200, 'scrap only changes hands');
-  if (win !== 0) assert.equal(cash[win > 0 ? 0 : 1], 150);
-  // A fold: the raiser takes the pot and nobody shows.
-  cash[0] = cash[1] = 100;
-  const f = mk(8);
-  f.move(0, 'sit', 0);
-  f.move(1, 'sit', 0);
-  f.move(0, 'draw', 31);
-  f.move(1, 'draw', 31);
-  f.move(0, 'raise');
-  o = f.move(1, 'fold')!;
-  assert.deepEqual([o.view.winner, o.view.shown, cash[0], cash[1]], [0, [[], []], 110, 90]);
-  // Sitting down again starts a fresh hand; walking off mid-hand forfeits; too poor to sit.
-  o = f.move(1, 'sit', 0)!;
-  assert.deepEqual(o.view.seats, [1, -1]);
-  f.move(0, 'sit', 0);
-  o = f.drop(0)!;
-  assert.deepEqual([o.view.phase, o.view.winner], ['show', 0], 'seat 0 (player 1) wins when player 0 walks');
-  assert.deepEqual(cash.slice(0, 2), [100, 100]);
-  cash[2] = 5;
-  assert.equal(mk(1).move(2, 'sit', 0), null);
-  assert.equal(readDuel({ ...o.view, pot: -1 }), null);
-});
-
 test('boys day hanging out: the bong, the cooler and the card table are in reach inside the bus, not on the roof', () => {
   const wb = walkBounds(0);
   for (const k of ['bong', 'cooler', 'table'] as const) {
@@ -817,10 +755,11 @@ test('boys day net: junk is dropped; the wheel is first come; spots are on the b
   assert.equal(readMsg({ t: 'buy', k: BUY.bandage + 1 }), null);
   assert.deepEqual(readMsg({ t: 'bj', v: -100 }), { t: 'bj', v: -100 });
   assert.equal(readMsg({ t: 'bj', v: 5000 }), null);
-  assert.deepEqual(readMsg({ t: 'duel', m: 'raise', n: 0 }), { t: 'duel', m: 'raise', n: 0 });
-  assert.equal(readMsg({ t: 'duel', m: 'cheat', n: 0 }), null);
-  assert.deepEqual(readMsg({ t: 'hand', cards: [0, 1, 2, 3, 51] }), { t: 'hand', cards: [0, 1, 2, 3, 51] });
-  assert.equal(readMsg({ t: 'hand', cards: [0, 1, 2, 3, 52] }), null);
+  assert.deepEqual(readMsg({ t: 'poker', m: 'raise', n: 0 }), { t: 'poker', m: 'raise', n: 0 });
+  assert.equal(readMsg({ t: 'poker', m: 'cheat', n: 0 }), null);
+  assert.deepEqual(readMsg({ t: 'hand', cards: [0, 51] }), { t: 'hand', cards: [0, 51] }, 'two hole cards');
+  assert.equal(readMsg({ t: 'hand', cards: [0, 52] }), null);
+  assert.equal(readMsg({ t: 'hand', cards: [0, 1, 2] }), null, 'nobody holds three');
   assert.deepEqual(readMsg({ t: 'mini', k: 'slots', v: 120 }), { t: 'mini', k: 'slots', v: 120 });
 });
 

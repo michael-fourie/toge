@@ -71,9 +71,21 @@ class App {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.className = 'bd-canvas';
     this.menu();
+    // While a game is mounted the site leaves Escape to it, and the pad's Ⓑ sends Escape, so every screen of ours
+    // has to take you back itself: a run handles its own (Session), the lobby drops back to the menu, the menu
+    // leaves for the game chooser.
+    addEventListener('keydown', this.onEsc, { capture: true });
     this.raf = requestAnimationFrame(this.tick);
     if (import.meta.env.DEV) (window as unknown as { __boys: App }).__boys = this;
   }
+
+  private onEsc = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || this.session) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    if (this.party) this.leave('');
+    else this.api.exit();
+  };
 
   private tick = (now: number) => {
     const dt = Math.min(0.1, (now - this.last) / 1000);
@@ -299,6 +311,7 @@ class App {
 
   destroy() {
     this.gone = true;
+    removeEventListener('keydown', this.onEsc, { capture: true });
     cancelAnimationFrame(this.raf);
     this.session?.dispose();
     this.session = null;

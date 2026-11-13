@@ -10,15 +10,16 @@
 
 import * as THREE from 'three';
 import { Audio } from './audio.ts';
-import { Blackjack, DuelTable } from './cards.ts';
+import { Blackjack, PokerTable } from './cards.ts';
 import { BIOMES, TWISTS } from './checkpoints.ts';
 import { BEACON_R, Director, GORDIE_PAINT, packZombies, unpackZombies, type Fx, type Walker, type ZView } from './director.ts';
-import { Duel, type DuelMove, type DuelView } from './duel.ts';
+
 import { Hud } from './hud.ts';
 import { Input, type Frame } from './input.ts';
 import { Golf, Slots, type Minigame } from './minigames.ts';
 import { Horde, Paint, makeBean, makeBus, makeClub, makeGun, paintOf, showBusParts, type Ball, type Bean } from './models.ts';
 import { ACT_MAX, takeWheel, type Act, type Msg } from './net.ts';
+import { Poker, emptyTable, type PokerMove, type PokerView } from './poker.ts';
 import { Post } from './post.ts';
 import { BOYS, GORDIE } from './roster.ts';
 import { HAZARD, ROAD, groundAt, hazardAt, makeRoute, roadNear, solids, toGo, type Route, type Site } from './route.ts';
@@ -83,7 +84,7 @@ export interface Link {
 const SEND = { bus: 1 / 15, aim: 1 / 8, act: 1 / 10, z: 1 / 10, run: 1 / 3 };
 const CHASE = { back: 15, up: 7.5, ahead: 9 };
 const BEST_KEY = 'boys-day.best';
-const EMPTY_TABLE: DuelView = { phase: 'wait', seats: [-1, -1], ante: 10, pot: 0, turn: 0, drew: [false, false], raised: false, shown: [[], []], winner: -1 };
+const EMPTY_TABLE = emptyTable();
 
 interface Other {
   spot: Spot;
@@ -107,7 +108,7 @@ export class Session {
   private input: Input;
   private hud: Hud;
   private director: Director | null = null;
-  private duel: Duel | null = null;
+  private poker: Poker | null = null;
   private sky: Sky;
   private post: Post;
   /** Seconds to the next lightning strike, and to its thunder. */
@@ -164,8 +165,8 @@ export class Session {
   private viewClub = makeClub();
 
   private mini: Minigame | null = null;
-  private miniKind: 'golf' | 'slots' | 'bj' | 'duel' | 'table' | 'shop' | null = null;
-  private table: DuelView = EMPTY_TABLE;
+  private miniKind: 'golf' | 'slots' | 'bj' | 'poker' | 'table' | 'shop' | null = null;
+  private table: PokerView = EMPTY_TABLE;
   private myHand: number[] = [];
   private shopKey = '';
   private paused = false;
@@ -199,7 +200,7 @@ export class Session {
     this.spot = startSpot(this.myPlace);
     if (this.isHost) {
       const d = (this.director = new Director(seed, link.crew.length));
-      this.duel = new Duel(rng(seed ^ 0xd0e1), (who) => d.run.cash[who] ?? 0, (who, n) => d.pay(who, n));
+      this.poker = new Poker(rng(seed ^ 0xd0e1), (who) => d.run.cash[who] ?? 0, (who, n) => d.pay(who, n));
     }
     this.run = this.director?.run ?? { ...new Director(seed, link.crew.length).run };
     this.route = this.director?.route ?? makeRoute(seed, 0);
@@ -249,7 +250,8 @@ export class Session {
       if (e.key !== 'Escape') return;
       e.stopImmediatePropagation();
       e.preventDefault();
-      if (this.endEl) return;
+      // On the end screen there's nothing to go back to but the menu.
+      if (this.endEl) return this.onLeave();
       if (this.mini) return this.closeMini();
       this.setPaused(!this.paused);
     };
@@ -387,8 +389,8 @@ export class Session {
       case 'bj':
         this.director?.blackjack(m.v, who);
         break;
-      case 'duel':
-        this.duelMove(who, m.m, m.n);
+      case 'poker':
+        this.pokerMove(who, m.m, m.n);
         break;
       case 'table':
         if (fromHost) this.setTable(m.v);
@@ -439,7 +441,7 @@ export class Session {
       const bean = this.beans.get(id);
       bean?.root.removeFromParent();
       this.beans.delete(id);
-      if (this.duel) this.tableOut(this.duel.drop(this.placeOf(id)));
+      if (this.poker) this.tableOut(this.poker.drop(this.placeOf(id)));
     }
     if (this.isHost && this.driver >= 0 && !ids.has(this.driver)) this.setDriver(-1);
   }
@@ -449,14 +451,14 @@ export class Session {
     this.link.send({ t: 'driver', id });
   }
 
-  // The card table (the host referees: duel.ts).
+  // The card table (the host referees: poker.ts).
 
-  private duelMove(who: number, m: DuelMove, n: number) {
-    if (this.duel) this.tableOut(this.duel.move(who, m, n));
-    else this.link.send({ t: 'duel', m, n });
+  private pokerMove(who: number, m: PokerMove, n: number) {
+    if (this.poker) this.tableOut(this.poker.move(who, m, n));
+    else this.link.send({ t: 'poker', m, n });
   }
 
-  private tableOut(out: ReturnType<Duel['move']>) {
+  private tableOut(out: ReturnType<Poker['move']>) {
     if (!out) return;
     this.link.send({ t: 'table', v: out.view });
     for (const [who, cards] of out.hands) {
@@ -467,14 +469,14 @@ export class Session {
     this.setTable(out.view);
   }
 
-  private setTable(v: DuelView) {
+  private setTable(v: PokerView) {
     this.table = v;
-    if (this.mini instanceof DuelTable) this.mini.setView(v);
+    if (this.mini instanceof PokerTable) this.mini.setView(v);
   }
 
   private setHand(cards: number[]) {
     this.myHand = cards;
-    if (this.mini instanceof DuelTable) this.mini.setHand(cards);
+    if (this.mini instanceof PokerTable) this.mini.setHand(cards);
   }
 
   /** Everyone's bean: the driver sat at the wheel, the rest on their feet, on the bus or out in the world. */
@@ -838,8 +840,8 @@ export class Session {
 
   private closeMini() {
     if (!this.mini) return;
-    // Getting up from a hand of poker forfeits it.
-    if (this.miniKind === 'duel' && this.table.seats.includes(this.myPlace) && this.table.phase !== 'show') this.duelMove(this.myPlace, 'leave', 0);
+    // Walking away from the table gives up your chair (and your scrap stays in the pot).
+    if (this.miniKind === 'poker' && this.table.seats.includes(this.myPlace)) this.pokerMove(this.myPlace, 'leave', 0);
     if (this.mini.menu && !this.paused) this.api.setMenuNav(false);
     this.mini.el.remove();
     this.mini = null;
@@ -890,11 +892,11 @@ export class Session {
       );
     const hu = document.createElement('button');
     hu.className = 'bd-btn';
-    hu.textContent = '🤝 Heads-up poker (against a friend)';
+    hu.textContent = '🤠 Texas Hold’em (against the boys)';
     hu.disabled = this.link.crew.length < 2;
     hu.onclick = () => {
-      const t = new DuelTable(this.myPlace, (who) => this.link.crew[who]?.name ?? 'Someone', () => this.cash, (m, n) => this.duelMove(this.myPlace, m, n), this.audio);
-      this.show(t, 'duel');
+      const t = new PokerTable(this.myPlace, (who) => this.link.crew[who]?.name ?? 'Someone', () => this.cash, (m, n) => this.pokerMove(this.myPlace, m, n), this.audio);
+      this.show(t, 'poker');
       t.setView(this.table);
       t.setHand(this.myHand);
     };
@@ -903,7 +905,7 @@ export class Session {
     if (this.link.crew.length < 2) {
       const p = document.createElement('p');
       p.className = 'bd-cards-line';
-      p.textContent = 'Heads-up needs a friend on the bus.';
+      p.textContent = 'Hold’em needs a friend on the bus.';
       body.append(p);
     }
     this.show({ el, menu: true, update() {} }, 'table');

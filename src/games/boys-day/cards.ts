@@ -1,11 +1,12 @@
-// The bus's card table: blackjack against the dealer, and heads-up five-card draw against a friend (duel.ts is its
-// referee, on the host), both for your own scrap. Plain DOM with real buttons, so the mouse and the pad's menu
+// The bus's card table: blackjack against the dealer, and Texas Hold'em against the rest of the crew (poker.ts is
+// its referee, on the host), both for your own scrap. Plain DOM with real buttons, so the mouse and the pad's menu
 // navigation both work; the session frees the pointer while one's open.
 
 import type { Audio } from './audio.ts';
-import type { DuelMove, DuelView } from './duel.ts';
+import type { PokerMove, PokerView } from './poker.ts';
+import { STAKES } from './poker.ts';
 import type { Minigame } from './minigames.ts';
-import { BLACKJACK, DUEL, bjPay, bjTotal, handName, rankOf, shuffled, suitOf } from './rules.ts';
+import { BLACKJACK, bjPay, bjTotal, handName, rankOf, shuffled, suitOf } from './rules.ts';
 
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 const SUITS = ['♠', '♥', '♦', '♣'];
@@ -143,15 +144,13 @@ export class Blackjack implements Minigame {
   }
 }
 
-/** Heads-up five-card draw: sit down with an ante, swap cards once, then check, raise, call or fold. */
-export class DuelTable implements Minigame {
+/** Texas Hold'em: sit down, and the host deals. Your two cards are yours; the five in the middle are everyone's. */
+export class PokerTable implements Minigame {
   el: HTMLElement;
   readonly menu = true;
   private body: HTMLElement;
-  private view: DuelView | null = null;
-  private hand: number[] = [];
-  /** The cards I'm throwing away (a bit each). */
-  private toss = 0;
+  private view: PokerView | null = null;
+  private hole: number[] = [];
   private key = '';
 
   constructor(
@@ -159,10 +158,10 @@ export class DuelTable implements Minigame {
     private me: number,
     private name: (place: number) => string,
     private cash: () => number,
-    private send: (m: DuelMove, n: number) => void,
+    private send: (m: PokerMove, n: number) => void,
     private audio: Audio,
   ) {
-    const s = shell('HEADS-UP POKER', 'Five-card draw against a friend, for your own scrap. Ante up, swap the cards you don’t want once, then bet.');
+    const s = shell('TEXAS HOLD’EM', 'Two cards each, five in the middle, four rounds of betting. Fixed limit, and your own scrap on the line.');
     this.el = s.root;
     this.body = s.body;
     this.draw();
@@ -171,126 +170,123 @@ export class DuelTable implements Minigame {
   update() {}
 
   /** The table as the host tells it. */
-  setView(v: DuelView) {
-    const was = this.view?.phase;
+  setView(v: PokerView) {
+    const was = this.view;
     this.view = v;
-    if (v.phase === 'draw' && was !== 'draw') this.toss = 0;
-    if (v.phase === 'show' && was !== 'show') this.audio.play(v.winner >= 0 && v.seats[v.winner] === this.me ? 'win' : 'cash', 0.7);
+    if (v.phase === 'show' && was?.phase !== 'show') {
+      const mine = v.seats.indexOf(this.me);
+      this.audio.play(mine >= 0 && v.won[mine] > 0 ? 'win' : 'cash', 0.7);
+    } else if (was && v.board.length > was.board.length) this.audio.play('reload', 0.5);
     this.draw();
   }
 
-  /** My own cards (only I'm sent them). */
+  /** My own two cards (only I'm sent them). */
   setHand(cards: number[]) {
-    this.hand = cards;
+    this.hole = cards;
     this.draw();
+  }
+
+  private get seat() {
+    return this.view ? this.view.seats.indexOf(this.me) : -1;
   }
 
   private draw() {
     const v = this.view;
+    const cash = this.cash();
     // The same picture again: leave the buttons (and the pad's focus) alone.
-    const key = JSON.stringify([v, this.hand, this.toss, this.cash()]);
+    const key = JSON.stringify([v, this.hole, cash]);
     if (key === this.key) return;
     this.key = key;
     const b = this.body;
     b.replaceChildren();
-    const line = (t: string) => b.append(el('p', 'bd-cards-line', t));
+    const line = (t: string, cls = '') => b.append(el('p', `bd-cards-line${cls ? ' ' + cls : ''}`, t));
     const row = el('div', 'bd-cards-row');
     if (!v) {
       line('Pulling up a chair…');
       return;
     }
-    const seat = v.seats.indexOf(this.me);
-    const who = (s: number) => (v.seats[s] === this.me ? 'You' : v.seats[s] >= 0 ? this.name(v.seats[s]) : 'An empty chair');
-    const seats = el('p', 'bd-cards-seats');
-    seats.append(el('b', '', who(0)), el('span', '', ' vs '), el('b', '', who(1)), el('span', '', v.pot ? ` · pot ${v.pot}` : ` · ante ${v.ante}`));
+    const seat = this.seat;
+    const playing = seat >= 0 && v.live[seat] && !v.folded[seat];
+
+    // Everyone at the table: their scrap, what they've pushed in, and their cards.
+    const seats = el('div', 'bd-seats');
+    v.seats.forEach((who, s) => {
+      if (who < 0) return;
+      const r = el('div', `bd-seat${v.turn === s ? ' turn' : ''}${v.folded[s] && v.live[s] ? ' out' : ''}`);
+      const top = el('div', 'bd-seat-top');
+      top.append(el('b', '', who === this.me ? 'You' : this.name(who)));
+      if (v.button === s) top.append(el('span', 'bd-chip', 'D'));
+      if (v.allIn[s] && v.live[s] && !v.folded[s]) top.append(el('span', 'bd-chip red', 'ALL IN'));
+      top.append(el('span', 'bd-seat-cash', `🔩 ${v.stack[s]}`));
+      r.append(top);
+      const hand = el('div', 'bd-cards-hand small');
+      const shown = v.shown[s];
+      if (shown.length) hand.append(...shown.map(cardEl));
+      else if (who === this.me && this.hole.length) hand.append(...this.hole.map(cardEl));
+      else if (v.live[s] && !v.folded[s]) hand.append(cardEl(-1), cardEl(-1));
+      else if (!v.live[s]) hand.append(el('span', 'bd-seat-note', 'next hand'));
+      if (v.folded[s] && v.live[s]) hand.append(el('span', 'bd-seat-note', 'folded'));
+      r.append(hand);
+      if (v.phase === 'show' && shown.length) r.append(el('p', 'bd-seat-note', handName(v.best[s])));
+      if (v.bet[s] > 0) r.append(el('p', 'bd-seat-note', `bet ${v.bet[s]}`));
+      if (v.phase === 'show' && v.won[s] > 0) r.append(el('p', 'bd-seat-won', `+${v.won[s]} 🔩`));
+      seats.append(r);
+    });
     b.append(seats);
-    const cash = this.cash();
-    if (v.phase === 'wait' || (v.phase === 'show' && seat < 0)) {
-      if (v.phase === 'show') this.showdown(v);
-      if (seat >= 0) {
-        line('Waiting for someone to sit down across from you…');
-        row.append(button('Get up', () => this.send('leave', 0)));
-      } else if (v.phase === 'show' || v.seats[0] < 0) {
-        line(`Your scrap: ${cash}. Sit down and name the ante (you need double it, for a raise).`);
-        DUEL.antes.forEach((a, i) => {
-          const btn = button(`Sit: ante ${a}`, () => this.send('sit', i), cash >= a * 2);
-          if (i === 0) btn.dataset.autofocus = '';
+
+    if (v.phase !== 'wait') {
+      const board = el('div', 'bd-cards-hand');
+      board.append(...v.board.map(cardEl));
+      for (let i = v.board.length; i < 5; i++) board.append(el('span', 'bd-pc slot'));
+      b.append(board);
+      const inFront = v.bet.reduce((a, c) => a + c, 0);
+      line(`Pot: ${v.pot + inFront} 🔩`, 'big');
+    }
+
+    if (v.phase === 'wait' || v.phase === 'show') {
+      // Between hands: sit down, deal, or get up.
+      if (seat < 0) {
+        const open = v.seats.every((w) => w < 0);
+        line(`Your scrap: ${cash}.`);
+        if (open) {
+          STAKES.forEach((st, i) => {
+            const btn = button(`Sit: blinds ${Math.round(st / 2)}/${st}`, () => this.send('sit', i), cash >= st);
+            if (i === 0) btn.dataset.autofocus = '';
+            row.append(btn);
+          });
+        } else {
+          const btn = button(`Sit down (blinds ${Math.round(v.stake / 2)}/${v.stake})`, () => this.send('sit', 0), cash >= v.stake);
+          btn.dataset.autofocus = '';
           row.append(btn);
-        });
-      } else if (v.seats[1] < 0) {
-        const btn = button(`Sit down (ante ${v.ante})`, () => this.send('sit', 0), cash >= v.ante * 2);
-        btn.dataset.autofocus = '';
-        row.append(btn);
-        if (cash < v.ante * 2) line(`You need ${v.ante * 2} scrap to sit at this table.`);
-      }
-    } else if (seat < 0) {
-      line(v.phase === 'draw' ? 'They’re swapping cards…' : 'They’re betting…');
-    } else if (this.hand.length < 5 && v.phase !== 'show') {
-      // The table reaches you a moment before your cards do.
-      line('Dealing…');
-    } else if (v.phase === 'draw') {
-      if (v.drew[seat]) {
-        this.cards(this.hand);
-        line('Waiting for them to draw…');
+          if (cash < v.stake) line(`You need ${v.stake} scrap for this table.`);
+        }
       } else {
-        const hand = el('div', 'bd-cards-hand');
-        this.hand.forEach((c, i) => {
-          const btn = el('button', `bd-pcb${(this.toss >> i) & 1 ? ' toss' : ''}`);
-          btn.append(cardEl(c));
-          btn.onclick = () => {
-            this.toss ^= 1 << i;
-            this.draw();
-          };
-          hand.append(btn);
-        });
-        b.append(hand);
-        line(`${handName(this.hand)}. Pick the cards to throw away, then draw.`);
-        const n = this.hand.filter((_, i) => (this.toss >> i) & 1).length;
-        const go = button(n ? `Draw ${n}` : 'Stand pat', () => this.send('draw', ~this.toss & 31));
-        go.dataset.autofocus = '';
-        row.append(go);
+        const ready = v.seats.filter((w) => w >= 0).length;
+        const deal = button(ready >= 2 ? (v.phase === 'show' ? 'Next hand' : 'Deal') : 'Waiting for a friend…', () => this.send('deal', 0), ready >= 2 && cash >= v.stake);
+        deal.dataset.autofocus = '';
+        row.append(deal, button('Get up', () => this.send('leave', 0)));
+        if (ready >= 2 && cash < v.stake) line(`You’re short of the ${v.stake} blind. Go and paint some zombies.`);
       }
-    } else if (v.phase === 'bet') {
-      this.cards(this.hand);
-      line(`${handName(this.hand)}.`);
-      if (v.turn !== seat) line(v.raised ? 'You raised. Will they call?' : 'Their move…');
-      else if (v.raised) {
-        const call = button(`Call ${v.ante}`, () => this.send('call', 0), cash >= v.ante);
-        call.dataset.autofocus = '';
-        row.append(call, button('Fold', () => this.send('fold', 0)));
-      } else {
-        const check = button('Check', () => this.send('check', 0));
-        check.dataset.autofocus = '';
-        row.append(check, button(`Raise ${v.ante}`, () => this.send('raise', 0), cash >= v.ante));
-      }
+    } else if (!playing) {
+      line(seat < 0 ? 'Watching the hand…' : v.live[seat] ? 'You folded. Sit tight.' : 'You’re in on the next hand.');
+      if (seat >= 0) row.append(button('Get up', () => this.send('leave', 0)));
+    } else if (v.turn !== seat) {
+      line(`Waiting on ${this.name(v.seats[v.turn]) || 'them'}…`);
     } else {
-      this.showdown(v);
-      const again = button(`Again (ante ${v.ante})`, () => this.send('sit', Math.max(0, DUEL.antes.indexOf(v.ante as 10))), cash >= v.ante * 2);
-      again.dataset.autofocus = '';
-      row.append(again);
+      // My move.
+      line(`${handName([...this.hole, ...v.board].slice(0, 5))}${v.board.length ? '' : ' in the hole'}`);
+      const first = (btn: HTMLButtonElement) => {
+        btn.dataset.autofocus = '';
+        return btn;
+      };
+      if (v.toCall > 0) {
+        row.append(first(button(`Call ${v.toCall}`, () => this.send('call', 0))), button('Fold', () => this.send('fold', 0)));
+      } else {
+        row.append(first(button('Check', () => this.send('check', 0))));
+      }
+      if (v.raise > 0) row.append(button(v.toCall > 0 ? `Raise to ${v.raise}` : `Bet ${v.raise}`, () => this.send('raise', 0)));
     }
     b.append(row);
     (b.querySelector('[data-autofocus]:not(:disabled)') as HTMLElement | null)?.focus();
-  }
-
-  private cards(hand: readonly number[]) {
-    const h = el('div', 'bd-cards-hand');
-    h.append(...hand.map(cardEl));
-    this.body.append(h);
-  }
-
-  private showdown(v: DuelView) {
-    v.shown.forEach((hand, s) => {
-      if (!hand.length) return;
-      const h = el('div', 'bd-cards-hand');
-      const label = el('b');
-      label.textContent = `${v.seats[s] === this.me ? 'You' : this.name(v.seats[s])}: ${handName(hand)}`;
-      h.append(label, ...hand.map(cardEl));
-      this.body.append(h);
-    });
-    const w = v.winner;
-    const p = el('p', 'bd-cards-line big');
-    p.textContent = w < 0 ? 'Split pot.' : v.seats[w] === this.me ? `You take the pot: ${v.pot} scrap!` : `${this.name(v.seats[w])} takes the pot (${v.pot} scrap).${v.shown[0].length ? '' : ' A fold.'}`;
-    this.body.append(p);
   }
 }

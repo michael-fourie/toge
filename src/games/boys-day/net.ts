@@ -6,7 +6,7 @@
 // party relay's 60 messages a second.
 
 import { Z_STATES, type Fx, type FxKind } from './director.ts';
-import { DUEL_MOVES, readDuel, readHand, type DuelMove, type DuelView } from './duel.ts';
+import { POKER_MOVES, readCards, readPoker, type PokerMove, type PokerView } from './poker.ts';
 import { isPick } from './roster.ts';
 import { BJ_MAX, BUY, MAX_PLAYERS, SEED_MAX, SLOT_MAX, UPGRADES, type Phase, type RunState } from './rules.ts';
 
@@ -30,9 +30,9 @@ export type Msg =
   | { t: 'mini'; k: 'golf' | 'slots'; v: number }
   /** A hand of blackjack at the card table: scrap won (or lost). */
   | { t: 'bj'; v: number }
-  /** Heads-up poker (duel.ts): a move to the host; the table for everyone; your own hand, sent to you alone. */
-  | { t: 'duel'; m: DuelMove; n: number }
-  | { t: 'table'; v: DuelView }
+  /** Hold'em (poker.ts): a move to the host; the table for everyone; your own two cards, sent to you alone. */
+  | { t: 'poker'; m: PokerMove; n: number }
+  | { t: 'table'; v: PokerView }
   | { t: 'hand'; cards: number[] }
   /** On foot: a crate grabbed (its site id), a jerry can brought to the bus, knocked out. On the bus: a toke, a beer. */
   | { t: 'do'; k: 'crate' | 'can' | 'ko' | 'toke' | 'drink'; id: number }
@@ -150,14 +150,14 @@ export function readMsg(d: unknown): Msg | null {
       return (m.k === 'golf' || m.k === 'slots') && num(m.v, SLOT_MAX) && m.v >= 0 ? { t: 'mini', k: m.k, v: m.v } : null;
     case 'bj':
       return int(m.v, BJ_MAX) ? { t: 'bj', v: m.v } : null;
-    case 'duel':
-      return DUEL_MOVES.includes(m.m as DuelMove) && int(m.n, 31) && m.n >= 0 ? { t: 'duel', m: m.m as DuelMove, n: m.n } : null;
+    case 'poker':
+      return POKER_MOVES.includes(m.m as PokerMove) && int(m.n, 31) && m.n >= 0 ? { t: 'poker', m: m.m as PokerMove, n: m.n } : null;
     case 'table': {
-      const v = readDuel(m.v);
+      const v = readPoker(m.v);
       return v ? { t: 'table', v } : null;
     }
     case 'hand': {
-      const cards = readHand(m.cards);
+      const cards = readCards(m.cards, 2);
       return cards ? { t: 'hand', cards } : null;
     }
     case 'do':
