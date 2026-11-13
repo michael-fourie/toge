@@ -6,7 +6,8 @@
 
 import { CARS, CLASS_COLORS, PAINTS, PAINT_NAMES, carSpec, decodeCar, encodeCar, isBike, peakPower, rating } from '../shared/cars.ts';
 import { current } from '../shared/garage.ts';
-import { CAR_RULES, PHYSICS, RACE, RECORD_GHOST, RACE_MODES, TEAMS, cleanMode, isGp, modeTracks, recordMode, type CarRule, type RaceMode, type RaceServerMsg, type Team } from '../shared/protocol.ts';
+import { lapsLabel, raceKm } from './loadingcopy.ts';
+import { CAR_RULES, ENDURANCE, PHYSICS, RACE, RECORD_GHOST, RACE_MODES, TEAMS, cleanLaps, cleanMode, isGp, modeTracks, recordMode, type CarRule, type RaceMode, type RaceServerMsg, type Team } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { copy, esc, playerName } from '../../client/menu/ui.ts';
@@ -26,7 +27,10 @@ import { PORTRAIT, releasePortraits, riderPortrait } from './riderportrait.ts';
 import './race.css';
 import './hub.css';
 
-const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb', gp: 'Start Grand Prix', team: 'Start Team Grand Prix', roam: 'Start free roam', royale: 'Start battle royale' };
+const START: Record<RaceMode, string> = { race: 'Start race', trial: 'Start time trial', climb: 'Start hill climb', gp: 'Start Grand Prix', team: 'Start Team Grand Prix', roam: 'Start free roam', royale: 'Start battle royale', endurance: 'Start endurance race' };
+
+/** Endurance's quick picks under the lap counter. */
+const LAP_PICKS = [1, 5, 10, 25, 50, 100];
 
 /** A racer's face for the grid list: their portrait, cropped to the head (`ready`: redraw once it's drawn). */
 const face = (rider: string, ready: () => void) => {
@@ -93,7 +97,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const scroll = view.querySelector('.tg-lobby-body')?.scrollTop ?? 0;
     const isHost = room.hostId === raceNet.id;
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
-    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.random !== undefined ? '[data-random]' : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : focus?.team ? `[data-team="${focus.team}"]` : null;
+    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.random !== undefined ? '[data-random]' : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : focus?.team ? `[data-team="${focus.team}"]` : focus?.lapstep ? `[data-lapstep="${focus.lapstep}"]` : focus?.lapset ? `[data-lapset="${focus.lapset}"]` : focus?.lapin !== undefined ? '[data-lapin]' : null;
     const max = RACE.maxPlayers;
     // Free roam: the open world, no CPU racers, no record ghost, and friends can drive in while it's on.
     const roam = room.mode === 'roam';
@@ -165,10 +169,27 @@ export const driveLobby: Render = (root, ctx, screen) => {
     // The record ghost: the track record's run rides along (the host's pick); say whose it'd be.
     // (Not in a battle royale: a ghost can't be knocked out.)
     const royale = room.mode === 'royale';
-    const ghost = gp || roam || royale ? '' : (['off', 'on'] as const)
+    // Endurance: the host sets the distance, 1 to 100 laps (−/+, type a number, or a quick pick). No record ghost:
+    // the record is the circuit's own distance.
+    const endurance = room.mode === 'endurance';
+    const laps = room.laps ?? ENDURANCE.start;
+    const off = canPick ? '' : 'disabled';
+    const lapPicker = endurance
+      ? `<h2 class="tg-h">Laps ${canPick ? '<small>you pick</small>' : ''}</h2>
+            <div class="tg-laps">
+              <div class="tg-laps-count">
+                <button class="tg-pill tg-laps-step" data-lapstep="-1" aria-label="One lap fewer" ${canPick && laps > ENDURANCE.min ? '' : 'disabled'}>−</button>
+                <label class="tg-laps-num"><input type="number" class="tg-num" data-lapin min="${ENDURANCE.min}" max="${ENDURANCE.max}" step="1" value="${laps}" aria-label="Laps" ${off} /><small>${laps === 1 ? 'lap' : 'laps'}</small></label>
+                <button class="tg-pill tg-laps-step" data-lapstep="1" aria-label="One lap more" ${canPick && laps < ENDURANCE.max ? '' : 'disabled'}>+</button>
+                <span class="tg-muted tg-laps-km"><span class="tg-num">${raceKm(room.track, laps)}</span> km</span>
+              </div>
+              <div class="tg-row tg-laps-picks">${LAP_PICKS.map((n) => `<button class="tg-pill" data-lapset="${n}" aria-pressed="${n === laps}" ${off}>${lapsLabel(n)}</button>`).join('')}</div>
+            </div>`
+      : '';
+    const ghost = gp || roam || royale || endurance ? '' : (['off', 'on'] as const)
       .map((k) => `<button class="tg-mode" data-ghost="${k}" aria-pressed="${(k === 'on') === !!room.ghost}" ${canPick ? '' : 'disabled'}><b>${esc(RECORD_GHOST[k].name)}</b><small>${esc(RECORD_GHOST[k].blurb)}</small></button>`)
       .join('');
-    const ghostNote = gp || roam || royale || !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
+    const ghostNote = gp || roam || royale || endurance || !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
     // Who's still in the garage (the host can wait for them, or not).
     const tuning = room.racers.filter((r) => r.pit && r.id !== raceNet.id).map((r) => r.name);
     const tuningLine = tuning.length ? ` ${tuning.length === 1 ? `${esc(tuning[0])} is` : `${tuning.length} racers are`} in the garage.` : '';
@@ -202,7 +223,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
-          <div class="tg-lobby-title">${gp ? `${teamMode ? 'Team Grand Prix · ' : ''}${esc(CUPS[room.cup].name)}` : `${RACE_MODES[room.mode].name} lobby`}${room.physics ? ' · Physics' : ''}${room.ghost && !gp && !roam && !royale ? ' · Record ghost' : ''}</div>
+          <div class="tg-lobby-title">${gp ? `${teamMode ? 'Team Grand Prix · ' : ''}${esc(CUPS[room.cup].name)}` : endurance ? `Endurance · ${lapsLabel(laps)}` : `${RACE_MODES[room.mode].name} lobby`}${room.physics ? ' · Physics' : ''}${room.ghost && !gp && !roam && !royale && !endurance ? ' · Record ghost' : ''}</div>
           <div class="tg-roomcode"><small>Race<br />code</small><b class="tg-bigcode">${esc(room.code)}</b></div>
         </header>
         <section class="tg-lobby-body${isHost ? '' : ' guest'}">
@@ -211,19 +232,20 @@ export const driveLobby: Render = (root, ctx, screen) => {
               <span class="tg-hero-art" aria-hidden="true"></span>
               <div class="tg-hero-map">${trackMap(room.track)}</div>
               <div class="tg-hero-copy">
-                <small class="tg-eyebrow">${gp ? esc(`${CUPS[room.cup].name} · round ${(room.gp?.cup === room.cup ? room.gp.round : 0) + 1} of ${roundsOf(room.cup)}`) : esc(trackKind(room.track))}</small>
+                <small class="tg-eyebrow">${gp ? esc(`${CUPS[room.cup].name} · round ${(room.gp?.cup === room.cup ? room.gp.round : 0) + 1} of ${roundsOf(room.cup)}`) : esc(trackKind(room.track, endurance ? laps : undefined))}</small>
                 <h1 class="tg-display">${esc(d.name)}</h1>
                 <p>${esc(d.tag)}</p>
               </div>
-              <dl class="tg-hero-facts"><div><dt>${d.world ? 'Roads' : 'Distance'}</dt><dd class="tg-num">${TRACK_LENGTH_KM[room.track]}<small>km</small></dd></div>${d.climb ? `<div><dt>Climb</dt><dd class="tg-num">${trackClimb(room.track)}<small>m</small></dd></div>` : ''}</dl>
+              <dl class="tg-hero-facts"><div><dt>${d.world ? 'Roads' : 'Distance'}</dt><dd class="tg-num">${endurance ? raceKm(room.track, laps) : TRACK_LENGTH_KM[room.track]}<small>km</small></dd></div>${endurance ? `<div><dt>Laps</dt><dd class="tg-num">${laps}</dd></div>` : ''}${d.climb ? `<div><dt>Climb</dt><dd class="tg-num">${trackClimb(room.track)}<small>m</small></dd></div>` : ''}</dl>
             </section>
             ${leaderboard}
             <h2 class="tg-h">Mode ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${modes}</div>
+            ${lapPicker}
             ${rules}
             <h2 class="tg-h">${esc(PHYSICS.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${physics}</div>
-            ${gp || roam ? '' : `<h2 class="tg-h">${esc(RECORD_GHOST.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
+            ${gp || roam || endurance ? '' : `<h2 class="tg-h">${esc(RECORD_GHOST.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${ghost}</div>`}
             ${ghostNote}
             ${
@@ -259,6 +281,18 @@ export const driveLobby: Render = (root, ctx, screen) => {
     view.querySelectorAll<HTMLElement>('[data-rule]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cars', cars: b.dataset.rule as CarRule })));
     view.querySelectorAll<HTMLElement>('[data-physics]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'physics', on: b.dataset.physics === 'on' })));
     view.querySelectorAll<HTMLElement>('[data-ghost]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'ghost', on: b.dataset.ghost === 'on' })));
+    const setLaps = (n: number) => {
+      const next = cleanLaps(n);
+      if (next !== null && next !== laps) raceNet.send({ t: 'laps', laps: next });
+    };
+    view.querySelectorAll<HTMLElement>('[data-lapstep]').forEach((b) => b.addEventListener('click', () => setLaps(laps + Number(b.dataset.lapstep))));
+    view.querySelectorAll<HTMLElement>('[data-lapset]').forEach((b) => b.addEventListener('click', () => setLaps(Number(b.dataset.lapset))));
+    const lapIn = view.querySelector<HTMLInputElement>('[data-lapin]');
+    lapIn?.addEventListener('change', () => {
+      setLaps(lapIn.valueAsNumber);
+      // A number out of range (or nothing) snaps back to what the room has, or to the clamped one it's sending.
+      lapIn.value = String(cleanLaps(lapIn.valueAsNumber) ?? laps);
+    });
     view.querySelector('[data-start]')?.addEventListener('click', () => raceNet.send({ t: 'start' }));
     view.querySelector('[data-addcpu]')?.addEventListener('click', () => raceNet.send({ t: 'cpu', op: 'add' }));
     view.querySelectorAll<HTMLElement>('[data-kick]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cpu', op: 'remove', id: Number(b.dataset.kick) })));

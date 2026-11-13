@@ -63,7 +63,7 @@ export interface RaceSetup {
    * waits on the line until every racer has loaded and the server sends the countdown.
    */
   /** `solo`: a solo time trial (a private room of one, hub.ts `soloTrial`): no lobby to go back to. */
-  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null; solo?: boolean };
+  online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null; solo?: boolean; laps?: number };
   /** Solo: how many AI rivals. */
   rivals?: number;
   /** Solo: Physics mode (crash damage, damage.ts). Online it comes with the race (`online.physics`). */
@@ -429,7 +429,8 @@ export class RaceGame {
   private driven: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
 
   constructor(private setup: RaceSetup) {
-    this.track = getTrack(setup.track);
+    // An Endurance race runs the circuit the host's number of laps (the same road, unrolled that many times).
+    this.track = getTrack(setup.track, setup.online?.mode === 'endurance' ? setup.online.laps : undefined);
     // Headlamps blaze at night (the bloom catches them) and only glow by day.
     setLampLevel(this.track.def.theme === 'night' || this.track.def.theme === 'city' ? LAMP_NIGHT : LAMP_DAY);
     this.trial = !!setup.online && ghostMode(setup.online.mode);
@@ -1436,7 +1437,7 @@ export class RaceGame {
     this.watching = null;
     this.hud.watching('', '');
     const arrived = performance.now();
-    const title = gp ? `${CUPS[gp.cup].name} · ${this.track.def.name}` : this.clean || this.royaleOn ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : 'Results';
+    const title = gp ? `${CUPS[gp.cup].name} · ${this.track.def.name}` : this.clean || this.royaleOn ? `${RACE_MODES[this.setup.online!.mode].name} · ${this.track.def.name}` : this.setup.online?.mode === 'endurance' ? `Endurance · ${this.track.def.name} · ${this.track.def.laps} ${this.track.def.laps === 1 ? 'lap' : 'laps'}` : 'Results';
     const mine = lines.find((l) => l.me);
     const xpBefore = garage.g.xp;
     if (mine) garage.credit(mine.prize, mine.place === 1 && lines.filter((l) => !l.cpu).length > 1, mine.xp ?? 0);

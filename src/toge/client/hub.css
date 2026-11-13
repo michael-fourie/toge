@@ -2392,6 +2392,63 @@ html:not(.pad) .tg-bumper {
 .tg-racers li.me[data-team-row] {
   box-shadow: inset 3px 0 0 var(--team), inset 0 0 0 1px rgba(255, 201, 64, 0.45);
 }
+/* Endurance's lap counter (lobby.ts): − [ 10 laps ] +, the distance, then the quick picks. */
+.tg-laps {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.tg-laps-count {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tg-laps-step {
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+  font-size: 20px !important;
+}
+.tg-laps-num {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 14px;
+  border: 1px solid var(--tg-line-2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.tg-laps-num:focus-within {
+  border-color: var(--tg-cyan);
+}
+.tg-laps-num input {
+  /* "100" in the display face. */
+  width: 2.4em;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: 700 28px/1.1 var(--tg-display);
+  text-align: right;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.tg-laps-num input::-webkit-inner-spin-button,
+.tg-laps-num input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.tg-laps-num input:focus {
+  outline: none;
+}
+.tg-laps-num small {
+  color: var(--tg-dim);
+  font-size: 13px;
+}
+.tg-laps-picks {
+  flex-wrap: wrap;
+}
+
 .tg-team {
   display: inline-block;
   flex: none;
