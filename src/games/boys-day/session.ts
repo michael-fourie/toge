@@ -1537,6 +1537,8 @@ export class Session {
       'Esc again leaves the run. Drive to each checkpoint and park in the ring. E/Ⓐ hops off the bus: do the job on foot (crates, jerry cans, the beacon, the tee box, the slots), climb back aboard (E/Ⓐ at the bus) and drive on through the gate into the next world. No finish line: how far can you get? On foot or on the bus: WASD or the left stick walks, mouse or right stick aims, click/RT shoots, R/Ⓧ reloads, Q/D-pad→ next gun, G/D-pad↓ grenade, V/RB club. On the bus: Space/Ⓑ at the hatch for the roof, B/D-pad↑ the store, E/Ⓐ at the bong, the cooler or the card table, F/Ⓨ at the front to drive. Driving: W/S or RT/LT, A/D or the stick, Space/Ⓧ handbrake, H/LB horn, C/View chase cam.';
     el.append(h, resume, looks, leave, how);
     this.stage.append(el);
+    // Hold on to it: this is what takes it off the screen again when you go back to the bus.
+    this.pauseEl = el;
     resume.focus();
   }
 
