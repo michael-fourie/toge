@@ -32,7 +32,7 @@ import { garage } from './garageStore.ts';
 import { money } from './hud.ts';
 import { raceNet, roomRace } from './racenet.ts';
 import { Showroom } from './showroom.ts';
-import { ICON, LOGO } from './brand.ts';
+import { GAME, ICON, LOGO } from './brand.ts';
 import { ROYALE_IDS, TRACK_IDS, cupCard, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
 import { CUP_IDS, CUPS, GP_POINTS, type CupId } from '../shared/cups.ts';
 import './race.css';
@@ -159,10 +159,10 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   const passReward = () => (page === 'pass' ? TIERS[passSel - 1] : null);
 
   root.innerHTML = `
-    <main class="tg${pit ? ' tg-pit' : ''}" aria-label="${pit ? 'Your car, from the race lobby' : 'TŌGE garage'}" ${pit ? 'data-nav-scope' : ''}>
+    <main class="tg${pit ? ' tg-pit' : ''}" aria-label="${pit ? 'Your car, from the race lobby' : `${GAME.name} garage`}" ${pit ? 'data-nav-scope' : ''}>
       <canvas class="tg-showroom" aria-label="Your car. Drag to spin it."></canvas>
       <header class="tg-top">
-        <button class="tg-home" data-home aria-label="${pit ? 'Back to the lobby' : 'Back to the game menu'}">${ICON.back}</button>
+        ${pit ? `<button class="tg-home" data-home aria-label="Back to the lobby">${ICON.back}</button>` : ''}
         ${LOGO}
         <nav class="tg-tabs" role="tablist" aria-label="Garage sections">
           <span class="tg-bumper" aria-hidden="true">LB</span>
@@ -1127,7 +1127,8 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   // --- events ------------------------------------------------------------------------------------
 
   root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => b.addEventListener('click', () => switchPage(lastPage[b.dataset.tab as TabId])));
-  $(root, '[data-home]').addEventListener('click', () => (pit ? pit.close() : ctx.go({ name: 'games' })));
+  // The back arrow only exists over a race lobby (TŌGE's garage is the home page).
+  root.querySelector('[data-home]')?.addEventListener('click', () => pit?.close());
   // Your name top right: your player card (Account is a button on it).
   const showCard = () => {
     if (busy) return;

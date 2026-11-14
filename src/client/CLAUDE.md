@@ -1,36 +1,28 @@
-# src/client: the site shell in the browser
+# src/client: the page shell in the browser
 
-The page every game runs inside: boot, the screen router, the game chooser, the account screen, controllers and touch
-setup, and the small menu kit the games' screens use. The games themselves are elsewhere:
-
-- Gambol (the shooter): `src/gambol/client/` (guide: `src/gambol/client/CLAUDE.md`, incl. "Verifying in the browser").
-- TŌGE (racing): `src/toge/client/` (guide: `src/toge/CLAUDE.md`).
-- Plug-in games: `src/games/<id>/` (guide: `src/games/CLAUDE.md`), mounted by `menu/play.ts`.
-
-The shell may import the games (it wires them in); the games import the shell, never each other
-(`tests/boundaries.test.ts`). Put code here only when more than one game uses it, or it is the site's own.
+The page TŌGE runs inside: boot, the screen router, the account screen, controllers and touch setup, the Graphics
+setting and the small menu kit the screens use. The game itself is in `src/toge/client/` (guide: `src/toge/CLAUDE.md`).
+The shell came from the Gambol site this repo was split from; it imports TŌGE to wire it in, and TŌGE imports these
+pieces back.
 
 ## Files
 
 ```
-  main.ts         boots the site: touch + pad setup, account.refresh(), the menu router (SCREENS: the shell's screens plus
-                  Gambol's and TŌGE's; default screen `games`, the channel grid), ?join= / ?race= deep links, the loading
-                  veil; ctx.play starts a Gambol Game, ctx.drive a TŌGE RaceGame
-  menu/router.ts  the history-backed screen router (ScreenName, Screen, Ctx); browser Back, ← Back and Esc all match
-  menu/ui.ts      the menu kit: backdrops (SKY_BACKDROP, FIELD_BACKDROP), sheet(), $(), esc() for HTML, playerName(),
-                  toast(), copy(), replay()
-  menu/games.ts   the console-style channel grid (built-ins + src/games plug-ins; games.css)
-  menu/play.ts    hosts a plug-in game (GameApi, parties)
-  menu/banners.ts the animated Gambol / TŌGE tiles; menu/skirmish.ts the animated island scene (Gambol's tile and the
-                  loading veil)
-  menu/account.ts the sign-in / create-account screen, and Change password when signed in (account.css)
+  main.ts         boots the page: touch + pad setup, account.refresh(), the screen router (SCREENS: `drive` = TŌGE's
+                  garage, the home page; `drivelobby` = a race lobby; `account`), the ?race=CODE deep link, and
+                  ctx.drive, which shows TŌGE's loading screen and starts a RaceGame
+  menu/router.ts  the history-backed screen router (ScreenName, Screen, Ctx, DriveOpts); browser Back, ← Back and Esc
+                  all match; Back at depth 0 goes to the garage
+  menu/ui.ts      the menu kit: $(), esc() for HTML, playerName(), toast(), copy(), replay()
+  menu/account.ts the sign-in / create-account screen, and Change password when signed in, in TŌGE's look
+                  (account.css, built on the tg tokens and components from src/toge/client/hub.css)
   account.ts      who's signed in (asks `/api/me`; the session cookie is HttpOnly)
   pad.ts          gamepads for every menu (spatial focus, A/B/LB/RB) and for driving (readPad, padAxis, rumble)
-  graphics.ts     the Graphics setting, High / Low, saved per device (`atrous.graphics`; picked in TŌGE's Settings tab):
-                  lowGraphics(), frameGate(fps) for Low's frame cap, LOW_PIXEL_RATIO. Both games read it at renderer build
+  graphics.ts     the Graphics setting, High / Low, saved per device (`atrous.graphics`; picked in the Settings tab):
+                  lowGraphics(), frameGate(fps) for Low's frame cap, LOW_PIXEL_RATIO
   touch.ts        phones/tablets: IS_TOUCH, html.touch, the rotate-your-phone card, fullscreen; touch.css holds every
                   mobile style, all under html.touch, so desktop never changes
-  styles.css      global styles (loaded by index.html)
+  styles.css      global styles (loaded by index.html); much of it is the old Gambol shell's and unused now
   env.d.ts        Vite client types
 ```
 

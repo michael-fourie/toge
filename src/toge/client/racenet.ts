@@ -1,4 +1,4 @@
-// The race lobby socket. Like the shooter's Net, a socket exists only while you're in a lobby; it remembers
+// The race lobby socket. A socket exists only while you're in a lobby; it remembers
 // the latest roster so screens can draw it straight away.
 
 import type { DriveOpts } from '../../client/menu/router.ts';

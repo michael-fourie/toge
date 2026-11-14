@@ -1,7 +1,7 @@
 # src/toge/client: TŌGE in the browser
 
 The whole TŌGE guide (physics, tracks, cars, server, rendering rules, how to add a car or track) is
-`src/toge/CLAUDE.md`. Read it before changing anything here. Never import from `src/gambol/`; site-wide pieces
+`src/toge/CLAUDE.md`. Read it before changing anything here. The page shell's pieces
 (pad, account, menu kit, router) come from `src/client/`.
 
 The rules that bite most often in this folder:

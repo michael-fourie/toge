@@ -11,5 +11,11 @@ export const ICON = {
   spin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18 3v4h-4M6 21v-4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
-/** The logo: the 峠 hanko and the wordmark. */
-export const LOGO = `<div class="tg-logo" aria-label="TŌGE"><span class="tg-hanko" aria-hidden="true">峠</span><span class="tg-word" aria-hidden="true">TŌGE</span></div>`;
+/**
+ * The game's name as the menus show it, in one place so a rename is one edit here (plus index.html and
+ * public/site.webmanifest; CLAUDE.md "Renaming the game" lists the rest). `hanko`: the stamp beside the wordmark.
+ */
+export const GAME = { name: 'TŌGE', hanko: '峠' };
+
+/** The logo: the hanko and the wordmark. */
+export const LOGO = `<div class="tg-logo" aria-label="${GAME.name}"><span class="tg-hanko" aria-hidden="true">${GAME.hanko}</span><span class="tg-word" aria-hidden="true">${GAME.name}</span></div>`;

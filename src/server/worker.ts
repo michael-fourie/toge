@@ -1,32 +1,24 @@
 import type { Accounts } from './accounts.ts';
 import type { Directory } from './directory.ts';
 import type { RaceRoom } from '../toge/server/raceroom.ts';
-import type { PartyRoom } from './partyroom.ts';
-import { isGameId } from '../shared/party.ts';
-import type { LobbyRoom } from '../gambol/server/room.ts';
 import type { GarageAction } from '../toge/shared/garage.ts';
 import { CAR_CODE_MAX } from '../toge/shared/cars.ts';
 import { RIDER_CODE_MAX } from '../toge/shared/rider.ts';
-import type { StashAction } from '../gambol/shared/stash.ts';
 import type { FriendAction } from '../shared/friends.ts';
 
 export { Accounts } from './accounts.ts';
 export { Directory } from './directory.ts';
 export { RaceRoom } from '../toge/server/raceroom.ts';
-export { PartyRoom } from './partyroom.ts';
-export { LobbyRoom } from '../gambol/server/room.ts';
 
 export interface Env {
-  LOBBY: DurableObjectNamespace<LobbyRoom>;
   RACE: DurableObjectNamespace<RaceRoom>;
-  PARTY: DurableObjectNamespace<PartyRoom>;
   DIRECTORY: DurableObjectNamespace<Directory>;
   ACCOUNTS: DurableObjectNamespace<Accounts>;
   /** Secret (`wrangler secret put ADMIN_KEY`) for `/api/admin/reset-password` and `/api/admin/clear-race-records`. Unset or short: those routes don't exist. */
   ADMIN_KEY?: string;
 }
 
-const COOKIE = 'gambol_session';
+const COOKIE = 'toge_session';
 const SESSION_SECONDS = 30 * 24 * 3600;
 
 function readCookie(req: Request): string | undefined {
@@ -115,6 +107,57 @@ async function adminClearRecords(req: Request, env: Env): Promise<Response> {
   return Response.json({ ok: true, ...report }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
+/** The admin routes' lock: a Bearer token equal to ADMIN_KEY. Null when it opens, else the reply to send. */
+async function adminLock(req: Request, env: Env): Promise<Response | null> {
+  const key = env.ADMIN_KEY ?? '';
+  if (key.length < ADMIN_KEY_MIN) return new Response('Not found', { status: 404 });
+  const auth = req.headers.get('Authorization') ?? '';
+  if (req.method !== 'POST' || !auth.startsWith('Bearer ') || !(await sameSecret(auth.slice(7), key))) return Response.json({ ok: false, error: 'Not allowed.' }, { status: 403 });
+  return null;
+}
+
+/**
+ * Backup / copy check: `POST /api/admin/export` with `{"after": <key or null>}` returns one page of the Accounts
+ * object's storage and the key to ask after next (null: last page). Read only. Gambol's site has the same route.
+ */
+async function adminExport(req: Request, env: Env): Promise<Response> {
+  const locked = await adminLock(req, env);
+  if (locked) return locked;
+  let body: { after?: unknown; limit?: unknown } | null = null;
+  try {
+    body = JSON.parse((await req.text()).slice(0, 1024) || '{}');
+  } catch {
+    /* falls through */
+  }
+  if (!body || typeof body !== 'object') return Response.json({ ok: false, error: 'Send {"after": null} for the first page.' }, { status: 400 });
+  const page = await env.ACCOUNTS.getByName('all').exportPage(typeof body.after === 'string' ? body.after : null, Number(body.limit) || 0);
+  return new Response(page, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+}
+
+/** Biggest import page we take (50 keys; a record ghost is the largest value, well under 1 MB). */
+const IMPORT_MAX_BYTES = 24 * 1024 * 1024;
+
+/**
+ * The copy from Gambol's site (tools/copy-accounts.mjs): `POST /api/admin/import` with
+ * `{"entries": [[key, value], ...], "wipe": bool}` writes one exported page as it is; `wipe` (the first page) empties
+ * the accounts here first. Same lock as the other admin routes.
+ */
+async function adminImport(req: Request, env: Env): Promise<Response> {
+  const locked = await adminLock(req, env);
+  if (locked) return locked;
+  let body: { entries?: unknown; wipe?: unknown } | null = null;
+  try {
+    const text = await req.text();
+    if (text.length <= IMPORT_MAX_BYTES) body = JSON.parse(text);
+  } catch {
+    /* falls through */
+  }
+  if (!body || typeof body !== 'object' || !Array.isArray(body.entries)) return Response.json({ ok: false, error: 'Send {"entries": [[key, value], ...], "wipe": false}.' }, { status: 400 });
+  const wrote = await env.ACCOUNTS.getByName('all').importPage(JSON.stringify(body.entries), body.wipe === true);
+  if (wrote === null) return Response.json({ ok: false, error: 'entries must be [key, value] pairs.' }, { status: 400 });
+  return Response.json({ ok: true, wrote }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
 /** Sign-up / sign-in / sign-out / who-am-I / change password. POSTs are same-origin JSON only (cookie is SameSite=Lax as well). */
 async function accountApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
   const token = readCookie(req);
@@ -172,21 +215,7 @@ async function friendsApi(req: Request, url: URL, accounts: DurableObjectStub<Ac
   return Response.json(await accounts.friendAct(token, action));
 }
 
-/**
- * The shooter's stash (coins, items, XP) and the Casino: GET reads it, POST applies one action (open a case, sell,
- * equip, a bet...) with the server's dice, or `{adopt}` brings a browser's old stash over once. Signed-in only.
- */
-async function stashApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
-  const token = readCookie(req);
-  if (req.method === 'GET') return Response.json({ stash: await accounts.stash(token) });
-  const body = await jsonBody<StashAction | { adopt: unknown }>(req, url, 64 * 1024);
-  if (!body || typeof body !== 'object') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
-  if ('adopt' in body) return Response.json({ stash: await accounts.stash(token, body.adopt ?? null) });
-  if (JSON.stringify(body).length > 512) return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
-  return Response.json(await accounts.stashAct(token, body));
-}
-
-/** Joins or hosts a race lobby (the driving game): same code scheme as the shooter, its own directory. */
+/** Joins or hosts a race lobby: a fresh 4-letter code from the 'race' directory, or the room behind a code. */
 async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, url: URL, env: Env, name: string, user: boolean): Promise<Response> {
   const dir = env.DIRECTORY.getByName('race');
   const join = url.searchParams.get('code')?.toUpperCase();
@@ -210,29 +239,6 @@ async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, ur
   // A solo time trial (`solo=1`) is a fresh private room: never passed on to someone joining a code.
   const solo = !join && url.searchParams.get('solo') === '1';
   target.search = new URLSearchParams({ code, name, user: user ? '1' : '', car, rider, ...(solo ? { solo: '1' } : {}) }).toString();
-  return room.fetch(new Request(target, req));
-}
-
-/** A room of a plug-in game (src/games/<kind>): each game has its own directory of codes. */
-async function partySocket(req: Request<unknown, IncomingRequestCfProperties>, url: URL, env: Env, name: string, user: boolean): Promise<Response> {
-  const kind = url.searchParams.get('kind');
-  if (!isGameId(kind)) return refuse('Unknown game.');
-  const dir = env.DIRECTORY.getByName(`party:${kind}`);
-  const join = url.searchParams.get('code')?.toUpperCase();
-  let code: string;
-  let room: DurableObjectStub<PartyRoom>;
-  if (join) {
-    if (!(await dir.has(join))) return refuse('No room with that code.');
-    code = join;
-    room = env.PARTY.getByName(`${kind}:${code}`);
-  } else {
-    const fresh = await dir.allocate(clientIp(req));
-    if (!fresh) return refuse('Too many new rooms from here. Wait a minute and try again.');
-    code = fresh;
-    room = env.PARTY.getByName(`${kind}:${code}`, { locationHint: regionHint(req.cf) });
-  }
-  const target = new URL(req.url);
-  target.search = new URLSearchParams({ code, kind, name, user: user ? '1' : '' }).toString();
   return room.fetch(new Request(target, req));
 }
 
@@ -267,21 +273,15 @@ export default {
   // Static files never reach this (see run_worker_first in wrangler.jsonc); only /ws and /api/* do.
   async fetch(req, env): Promise<Response> {
     const url = new URL(req.url);
-    const dir = env.DIRECTORY.getByName('all');
-
-    if (url.pathname === '/api/lobbies') return Response.json(await dir.list());
     if (url.pathname === '/api/races') return Response.json(await env.DIRECTORY.getByName('race').listRaces());
     if (url.pathname === '/api/garage') return garageApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/friends') return friendsApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/notices') return noticesApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/leaderboard') return Response.json(await env.ACCOUNTS.getByName('all').leaderboard(url.searchParams.get('t')?.slice(0, 32) ?? null));
-    if (url.pathname === '/api/stash') return stashApi(req, url, env.ACCOUNTS.getByName('all'));
-    if (url.pathname === '/api/parties') {
-      const game = url.searchParams.get('game');
-      return isGameId(game) ? Response.json(await env.DIRECTORY.getByName(`party:${game}`).listParties()) : Response.json([]);
-    }
     if (url.pathname === '/api/admin/reset-password') return adminReset(req, env);
     if (url.pathname === '/api/admin/clear-race-records') return adminClearRecords(req, env);
+    if (url.pathname === '/api/admin/export') return adminExport(req, env);
+    if (url.pathname === '/api/admin/import') return adminImport(req, env);
     if (['/api/me', '/api/register', '/api/login', '/api/logout', '/api/password'].includes(url.pathname)) return accountApi(req, url, env.ACCOUNTS.getByName('all'));
 
     if (url.pathname === '/ws') {
@@ -290,31 +290,7 @@ export default {
 
       // Signed in: you play as your username. Guests keep their typed name unless it belongs to an account.
       const { name, user } = await env.ACCOUNTS.getByName('all').identify(readCookie(req), url.searchParams.get('name') ?? '');
-      if (url.searchParams.get('game') === 'race') return raceSocket(req, url, env, name, user);
-      if (url.searchParams.get('game') === 'party') return partySocket(req, url, env, name, user);
-      const mode = url.searchParams.get('mode') ?? '';
-      const teams = url.searchParams.get('teams') === '1' ? '1' : '';
-      const map = url.searchParams.get('map') ?? '';
-      const koth = url.searchParams.get('koth') === '1' ? '1' : '';
-      const br = url.searchParams.get('br') === '1' ? '1' : '';
-      const skin = (url.searchParams.get('skin') ?? '').slice(0, 24);
-      const gear = (url.searchParams.get('gear') ?? '').slice(0, 120);
-      const join = url.searchParams.get('code')?.toUpperCase();
-      let room: DurableObjectStub<LobbyRoom>;
-      let code: string;
-      if (join) {
-        if (!(await dir.has(join))) return refuse('No lobby with that code.');
-        code = join;
-        room = env.LOBBY.getByName(code);
-      } else {
-        const fresh = await dir.allocate(clientIp(req));
-    if (!fresh) return refuse('Too many new rooms from here. Wait a minute and try again.');
-    code = fresh;
-        room = env.LOBBY.getByName(code, { locationHint: regionHint(req.cf) });
-      }
-      const target = new URL(req.url);
-      target.search = new URLSearchParams({ code, name, user: user ? '1' : '', mode, teams, map, koth, br, skin, gear }).toString();
-      return room.fetch(new Request(target, req));
+      return raceSocket(req, url, env, name, user);
     }
     return new Response('Not found', { status: 404 });
   },

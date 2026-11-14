@@ -1,7 +1,6 @@
 # Ships master to production at night, when nobody is playing.
 #
-# Why: Cloudflare restarts every Durable Object on each deploy, and that drops every open game (shooter matches,
-# races, plug-in rooms) at once. When every merge to master deployed, a busy day of merges meant a "random crash"
+# Why: Cloudflare restarts every Durable Object on each deploy, and that drops every open race at once. When every merge to master deployed, a busy day of merges meant a "random crash"
 # every few minutes. Now Cloudflare's production branch is `production` (Workers Builds > Branch control), and this
 # workflow moves `production` up to master:
 #   - every hour from 09:00 to 14:00 UTC (1-6 am Pacific), only if nobody is in a game right now;
@@ -31,7 +30,8 @@ jobs:
   ship:
     runs-on: ubuntu-latest
     env:
-      SITE: ${{ vars.SITE_URL || 'https://gambol.lol' }}
+      # The live site, e.g. https://toge.<you>.workers.dev or your domain (Settings > Secrets and variables > Actions).
+      SITE: ${{ vars.SITE_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,13 +52,9 @@ jobs:
         id: live
         if: steps.diff.outputs.ship == 'yes'
         run: |
-          # Every open room lists its player count: the shooter's lobbies, races, and each plug-in game's rooms.
-          urls="$SITE/api/lobbies $SITE/api/races"
-          for d in src/games/*/; do
-            id=$(basename "$d")
-            case "$id" in _*) continue ;; esac
-            [ -f "$d/channel.ts" ] && urls="$urls $SITE/api/parties?game=$id"
-          done
+          # Every open race room lists its player count (solo time trials too).
+          if [ -z "$SITE" ]; then echo "Set the SITE_URL variable first."; echo "players=-1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          urls="$SITE/api/races"
           total=0
           for u in $urls; do
             n=$(curl -fsS --max-time 20 "$u" | jq '[.[].players // 0] | add // 0') || { echo "could not read $u"; n=-1; }

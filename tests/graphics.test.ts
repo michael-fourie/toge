@@ -44,7 +44,7 @@ test('every WebGL renderer gives its context back', async () => {
   const { readdirSync, readFileSync, statSync } = await import('node:fs');
   const { join } = await import('node:path');
   // One small offscreen renderer each, made once and kept for the whole visit: nothing to give back.
-  const singletons = new Set(['src/gambol/client/menu/itemIcon.ts', 'src/gambol/client/workshop.ts']);
+  const singletons = new Set<string>();
   const files: string[] = [];
   const walk = (d: string) => {
     for (const f of readdirSync(d)) {
@@ -55,7 +55,7 @@ test('every WebGL renderer gives its context back', async () => {
   };
   walk('src');
   const makers = files.filter((f) => readFileSync(f, 'utf8').includes('new THREE.WebGLRenderer('));
-  assert.ok(makers.includes('src/toge/client/racegame.ts') && makers.includes('src/gambol/client/game.ts'), 'found the game renderers');
+  assert.ok(makers.includes('src/toge/client/racegame.ts'), 'found the game renderers');
   for (const f of makers) {
     if (singletons.has(f)) continue;
     const src = readFileSync(f, 'utf8');

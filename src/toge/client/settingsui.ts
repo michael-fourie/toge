@@ -22,7 +22,7 @@ const MODES: { id: Graphics; name: string; for: string; what: string[] }[] = [
 /** The page body. */
 export function settingsTab(g: Graphics, status: string): string {
   return `
-    <p class="tg-lede">Saved on this device. Graphics apply to TŌGE and Gambol.</p>
+    <p class="tg-lede">Saved on this device.</p>
     <div class="tg-group tg-cardbox">
       <h2 class="tg-h">Graphics <small>Takes effect in the garage now, in races from the next one</small></h2>
       <div class="tg-gfx" role="group" aria-label="Graphics">

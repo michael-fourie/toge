@@ -1,9 +1,9 @@
 {
-  "name": "atrous",
+  "name": "toge",
   "main": "src/server/worker.ts",
   "compatibility_date": "2026-09-01",
   // Workers Logs: exceptions, Durable Object resets and limit errors show up in the dashboard (Observability), so a
-  // dropped game can be traced. Free plan: 200k log events a day, plenty for a group of friends.
+  // dropped race can be traced. Free plan: 200k log events a day, plenty for a group of friends.
   "observability": { "enabled": true },
   "assets": {
     "directory": "./dist",
@@ -13,28 +13,19 @@
   },
   "durable_objects": {
     "bindings": [
-      { "name": "LOBBY", "class_name": "LobbyRoom" },
       { "name": "RACE", "class_name": "RaceRoom" },
-      { "name": "PARTY", "class_name": "PartyRoom" },
       { "name": "DIRECTORY", "class_name": "Directory" },
       { "name": "ACCOUNTS", "class_name": "Accounts" }
     ]
   },
-  // SQLite-backed classes are the ones available on the free plan.
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["LobbyRoom", "Directory"] },
-    { "tag": "v2", "new_sqlite_classes": ["Accounts"] },
-    { "tag": "v3", "new_sqlite_classes": ["RaceRoom"] },
-    { "tag": "v4", "new_sqlite_classes": ["PartyRoom"] }
-  ],
-  // Branch previews (`wrangler preview`): each gets its own isolated Durable Objects. The code reads them from `env`,
-  // so the bindings are repeated here or they don't exist in a preview.
+  // SQLite-backed classes are the ones available on the free plan. A new Worker, so one fresh migration.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Directory", "Accounts", "RaceRoom"] }],
+  // Branch previews (`wrangler preview`): each gets its own isolated Durable Objects (3 namespaces per preview, counted
+  // against the account's 100 on the free plan). The code reads them from `env`, so the bindings are repeated here.
   "previews": {
     "durable_objects": {
       "bindings": [
-        { "name": "LOBBY", "class_name": "LobbyRoom" },
         { "name": "RACE", "class_name": "RaceRoom" },
-        { "name": "PARTY", "class_name": "PartyRoom" },
         { "name": "DIRECTORY", "class_name": "Directory" },
         { "name": "ACCOUNTS", "class_name": "Accounts" }
       ]

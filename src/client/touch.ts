@@ -14,7 +14,7 @@ export function setupTouchPage() {
   const hint = document.createElement('div');
   hint.className = 'rotate-hint';
   hint.setAttribute('role', 'alert');
-  hint.innerHTML = `<div class="rotate-card"><div class="rotate-phone" aria-hidden="true"><i></i></div><b>Rotate your phone</b><span>Gambol plays sideways</span></div>`;
+  hint.innerHTML = `<div class="rotate-card"><div class="rotate-phone" aria-hidden="true"><i></i></div><b>Rotate your phone</b><span>Racing plays sideways</span></div>`;
   document.body.appendChild(hint);
 }
 

@@ -1,9 +1,8 @@
-// Race lobby wire types (JSON). A race room is its own Durable Object (toge/server/raceroom.ts); the shooter's
-// protocol is untouched.
+// Race lobby wire types (JSON). A race room is its own Durable Object (toge/server/raceroom.ts).
 //
 // Flow: everyone sits in the lobby → the host picks a track and starts → `load` (grid slots): every racer builds
 // the track and says `ready` (`loading` tells the room who has) → once all are ready, or after RACE.loadTimeoutMs,
-// `countdown` (the same 3-2-1 on every screen) → `go` → clients drive (client-authoritative, like the shooter) and send `state` at 20 Hz → each sends `finish`
+// `countdown` (the same 3-2-1 on every screen) → `go` → clients drive (client-authoritative) and send `state` at 20 Hz → each sends `finish`
 // with its time (and `drift` / `used` along the way for the bonus) → `results` (places, prize money) → back to the lobby.
 
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from './track.ts';

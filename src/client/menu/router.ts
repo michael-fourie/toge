@@ -1,43 +1,28 @@
 // A tiny history-backed screen router: every screen change is a history entry, so the
 // browser's Back button, the on-screen ← Back and Esc all behave the same.
 
-import type { GameMode, ServerMsg } from '../../gambol/shared/protocol.ts';
-import type { Net } from '../../gambol/client/net.ts';
-import type { BotLevel } from '../../gambol/shared/bot.ts';
 import type { CarRule, GpState, RaceMode, Racer } from '../../toge/shared/protocol.ts';
 import type { TrackId } from '../../toge/shared/track.ts';
 import type { GhostRun } from '../../toge/shared/ghost.ts';
 import type { RaceNet } from '../../toge/client/racenet.ts';
 
-/** `games` is the landing page (the game chooser); `title` is Gambol's home, `drive` TOGE's garage. */
-export type ScreenName = 'games' | 'title' | 'host' | 'join' | 'lobby' | 'help' | 'settings' | 'account' | 'casino' | 'inventory' | 'practice' | 'drive' | 'drivelobby' | 'play' | 'game';
+/** `drive` is the landing page (TŌGE's garage / home), `drivelobby` a race lobby, `game` a race in progress. */
+export type ScreenName = 'drive' | 'drivelobby' | 'account' | 'game';
 
 export interface Screen {
   name: ScreenName;
-  notice?: string; // title: why we came back (e.g. "Disconnected")
-  code?: string; // join / drivelobby: prefilled lobby code
-  channel?: string; // games: the open channel page
-  gameId?: string; // play: which plug-in game (src/games/<id>)
+  notice?: string; // drive: why we came back (e.g. "Disconnected")
+  code?: string; // drivelobby: the lobby code to join
   dtab?: string; // drive: which garage tab is open
-  mode?: GameMode; // host: which game type starts selected
-  tab?: 'items' | 'character'; // inventory: which tab opens
-  game?: 'cases' | 'plinko' | 'blackjack' | 'crash'; // casino: which game opens
   signup?: boolean; // account: open on Create account
-  depth?: number; // how many entries deep we are; Back at depth 0 goes to the title instead of leaving the site
+  depth?: number; // how many entries deep we are; Back at depth 0 goes home instead of leaving the site
 }
-
-export type Joined = Extract<ServerMsg, { t: 'joined' }>;
 
 /** What every screen gets to work with. */
 export interface Ctx {
-  net: Net;
   go(s: Screen): void;
   replace(s: Screen): void;
   back(): void;
-  /** Start a match: offline practice (with bots of `bots` difficulty) without `joined`, online with it. */
-  play(joined?: Joined, bots?: BotLevel): void;
-  /** The lobby we're sitting in (lobby room), kept fresh until we enter the match. */
-  joined: Joined | null;
   /** Start a TOGE race: solo against AI rivals, or online once the lobby's countdown arrives. */
   drive(opts: DriveOpts): void;
 }
@@ -57,9 +42,9 @@ export type Render = (root: HTMLElement, ctx: Ctx, screen: Screen) => (() => voi
 
 export function createRouter(show: (s: Screen) => void) {
   const depth = () => (history.state as Screen | null)?.depth ?? 0;
-  // Drop ?join=… once we start navigating so a reload doesn't re-trigger it.
+  // Drop ?race=… once we start navigating so a reload doesn't re-trigger it.
   const url = () => location.pathname;
-  addEventListener('popstate', (e) => show((e.state as Screen | null) ?? { name: 'games' }));
+  addEventListener('popstate', (e) => show((e.state as Screen | null) ?? { name: 'drive' }));
   const router = {
     push(s: Screen) {
       const st = { ...s, depth: depth() + 1 };
@@ -77,7 +62,7 @@ export function createRouter(show: (s: Screen) => void) {
     },
     back() {
       if (depth() > 0) history.back();
-      else router.replace({ name: 'games' });
+      else router.replace({ name: 'drive' });
     },
   };
   return router;

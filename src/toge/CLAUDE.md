@@ -1,12 +1,12 @@
 # TŌGE (racing): the whole game
 
-TŌGE is channel 2 on the game chooser: mountain-pass and circuit racing, solo against AI or online (up to 8).
+TŌGE is this whole site: mountain-pass and circuit racing, solo against AI or online (up to 8). The garage
+(`hub.ts`, screen `drive`) is the home page.
 Everything that is TŌGE's own lives in `src/toge/`: the pure rules and physics in `shared/` (used by client and
 server), the browser in `client/`, the server in `server/` (`race.ts` + `raceroom.ts` + `garageStore.ts`). Its tests
 are `tests/toge/`. This file is the guide for all of it.
 
-TŌGE never imports Gambol (`src/gambol/`); `tests/boundaries.test.ts` checks it. What it shares with the rest of the
-site is the shell: `src/client/pad.ts`, `src/client/account.ts`, `src/client/menu/ui.ts` (`$`, `esc`, `copy`,
+Around it is the page shell (it came from the Gambol site this repo was split from): `src/client/pad.ts`, `src/client/account.ts`, `src/client/menu/ui.ts` (`$`, `esc`, `copy`,
 `playerName`) and `router.ts` on the client, `src/server/rooms.ts` (`Socket`), `limiter.ts` and `worker.ts` (`Env`) on
 the server. The shell wires TŌGE in: `src/client/main.ts` (screens `drive` / `drivelobby`, `ctx.drive`), and
 `src/server/worker.ts` + `accounts.ts` + `directory.ts` (the RaceRoom DO, `/api/garage`, the 'race' lobby list).
@@ -592,7 +592,7 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   rebuilds the showroom on a fresh canvas.
 - Never add or remove a light mid-race: three.js recompiles every lit shader when the light count changes (a multi-second freeze). Keep the light in the scene from the start and change its intensity (see the brake glow and headlights in racegame.ts `headlights()`).
 - Online start: `start` sends `load`; each client builds the track, draws its first frames (shader compiles) and says `ready`. The room counts down (`countdown`, RACE.countdownMs) once every racer is ready, or after RACE.loadTimeoutMs without the stragglers; a straggler who loads later is sent the time left, or `go` at once. Until the countdown, cars sit `held` on the grid (racegame.ts) with a "Waiting for racers" banner. Race and Time trial both work this way.
-- Driving is client-authoritative like the shooter; the server times the race, sanity-checks finish times and pays signed-in racers (guests credit themselves from `results`).
+- Driving is client-authoritative; the server times the race, sanity-checks finish times and pays signed-in racers (guests credit themselves from `results`).
 - Rerace (Race again): solo results restart the race in place (`restart()`); online, the host's results have Rerace, which sends `start` straight from the `results` phase (the room allows it there as well as in the lobby). Racers still on their results get `load` in racegame.ts and hand over to the next race (`onNext` → `drive(roomRace(m), true)`, no extra history entry); `roomRace()` (racenet.ts) is the one place a `load` becomes drive options, for the lobby too. Without it, results go back to the lobby after `RACE.resultsSeconds`.
 - Pause menu (`pause()` in racegame.ts): Restart at the top, then Resume, Settings and Quit/Leave. Settings is a second page of the same panel (camera, volume, ABS, TCS, steering assist, handling, gearbox, Back); put new in-race options there, not on the main page. Restart is solo `restart()`; online only the host sees it, and it sends `start` mid-race (the room accepts the host's `start` in every phase but `loading`), which drops the race unpaid and sends everyone a `load`. racegame.ts hands over on `load` in any phase, not only on the results.
 - **Drift bonus:** racegame.ts runs your `DriftMeter` each tick (the HUD shows the live combo over the spark readout and the banked total in the top bar). Online it sends `drift` (the total) as each combo banks and before `finish`; the room caps it by its own clock and puts `drift` + `bonus` on each `ResultRow` (`prize` includes the bonus). Solo sends `drift` with the `solo` action. Limits are in docs/SECURITY.md.

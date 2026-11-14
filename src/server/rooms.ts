@@ -1,6 +1,5 @@
-// What every game's room shares with the rest of the Worker: the socket slice the rooms talk through, and the
-// heartbeat the Directory uses to expire dead lobbies. Gambol's LobbyRoom, TŌGE's RaceRoom and the plug-ins'
-// PartyRoom all use these.
+// What a race room shares with the rest of the Worker: the socket slice it talks through, and the heartbeat the
+// Directory uses to expire dead lobbies.
 
 /** The slice of a WebSocket a room needs (satisfied by the Workers WebSocket). */
 export interface Socket {

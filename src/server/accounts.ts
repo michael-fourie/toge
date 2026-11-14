@@ -4,17 +4,20 @@ import { type Bests, type BoardRow, type MedalRow, type NewBest, type Notice, ty
 import type { TrackId } from '../toge/shared/track.ts';
 import type { GhostRun, GhostTape } from '../toge/shared/ghost.ts';
 import type { FriendAction, FriendList, FriendResult } from '../shared/friends.ts';
-import type { Inv } from '../gambol/shared/inventory.ts';
-import type { StashAction, StashResult } from '../gambol/shared/stash.ts';
 import { AccountStore, type ResetResult, type Result } from './accountStore.ts';
 import { FriendStore } from './friendStore.ts';
 import { GarageStore } from '../toge/server/garageStore.ts';
 import { type ClearReport, RecordStore } from '../toge/server/recordStore.ts';
 import { Limiter } from './limiter.ts';
-import { StashStore } from '../gambol/server/stashStore.ts';
 
 /** The tracks `clearRaceRecords` wipes: Kōri Pass, Saltwind Cliffs and Red Mesa Rally. */
 const CLEAR_TRACKS: TrackId[] = ['koripass', 'saltwind', 'redmesa'];
+
+/** Most keys in one `exportPage` (a key holds at most one ghost tape, so a page stays a few MB). */
+const EXPORT_PAGE_MAX = 50;
+
+/** Most keys one storage `put` takes (Cloudflare's limit). */
+const PUT_BATCH = 128;
 
 /**
  * One global Durable Object holds every account and session (fine for a group of friends). Password hashing
@@ -23,7 +26,6 @@ const CLEAR_TRACKS: TrackId[] = ['koripass', 'saltwind', 'redmesa'];
 export class Accounts extends DurableObject {
   private store = new AccountStore(this.ctx.storage);
   private garages = new GarageStore(this.ctx.storage);
-  private stashes = new StashStore(this.ctx.storage);
   private records = new RecordStore(this.ctx.storage);
   private friendStore = new FriendStore(this.ctx.storage);
   /** Per IP: password guesses (on top of the per-username lockout), and sign-ups (each one is a costly hash). */
@@ -139,34 +141,6 @@ export class Accounts extends DurableObject {
     return this.friendStore.act(user, action);
   }
 
-  /**
-   * The shooter's stash for a session (null for guests, who keep theirs in the browser). `fresh`: the account has none
-   * saved yet, so the browser may bring its old one over once with `adopt`.
-   */
-  async stash(token: string | undefined, adopt?: unknown): Promise<{ inv: Inv; fresh: boolean } | null> {
-    const user = await this.store.me(token);
-    if (!user) return null;
-    if (adopt !== undefined) return { inv: await this.stashes.adopt(user, adopt), fresh: false };
-    return { inv: await this.stashes.get(user), fresh: !(await this.stashes.has(user)) };
-  }
-
-  async stashAct(token: string | undefined, action: StashAction): Promise<StashResult> {
-    const user = await this.store.me(token);
-    if (!user) return { ok: false, error: 'Sign in to save your stash.' };
-    return this.stashes.act(user, action);
-  }
-
-  /** A shooter room pays a signed-in player (kills, wins, rounds, Workbench refunds). */
-  async reward(name: string, coins: number, xp: number): Promise<void> {
-    if (await this.ctx.storage.get(`u:${name.toLowerCase()}`)) await this.stashes.reward(name, coins, xp);
-  }
-
-  /** A shooter room charges a signed-in player (a Workbench build). False if they can't afford it. */
-  async spend(name: string, coins: number): Promise<boolean> {
-    if (!(await this.ctx.storage.get(`u:${name.toLowerCase()}`))) return false;
-    return this.stashes.spend(name, coins);
-  }
-
   /** A driver code as an account may show it: battle pass pieces it hasn't unlocked are taken off. Guests' pass as they are. */
   async raceRider(name: string, rider: string): Promise<string> {
     if (!(await this.ctx.storage.get(`u:${name.toLowerCase()}`))) return rider;
@@ -189,6 +163,36 @@ export class Accounts extends DurableObject {
     await this.boardsBuilt();
     const users = [...(await this.ctx.storage.list({ prefix: 'b:' })).keys()].map((k) => k.slice(2));
     return this.records.clear(CLEAR_TRACKS, users, apply);
+  }
+
+  /**
+   * Admin only (the Worker checks the admin key): one page of every key this object stores, in key order, as JSON text
+   * (the reply's body as it is). `after`: the last key of the previous page; `next` is null on the last page. Gambol's
+   * site (atrous) has the same route: tools/copy-accounts.mjs reads it there and checks the copy here with it.
+   */
+  async exportPage(after: string | null, limit: number): Promise<string> {
+    const n = Math.max(1, Math.min(EXPORT_PAGE_MAX, Math.floor(limit) || EXPORT_PAGE_MAX));
+    const page = await this.ctx.storage.list({ ...(after ? { startAfter: after } : {}), limit: n });
+    const entries = [...page.entries()];
+    return JSON.stringify({ ok: true, entries, next: entries.length === n ? entries[entries.length - 1][0] : null });
+  }
+
+  /**
+   * Admin only: writes one exported page (`[key, value]` pairs, JSON text) as it is. `wipe` first deletes everything
+   * here, so a copy started over is exact (no leftovers from an earlier run or from accounts made here meanwhile).
+   * Returns how many keys it wrote, or null if the page isn't a list of pairs.
+   */
+  async importPage(json: string, wipe: boolean): Promise<number | null> {
+    let entries: unknown;
+    try {
+      entries = JSON.parse(json);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(entries) || !entries.every((e) => Array.isArray(e) && e.length === 2 && typeof e[0] === 'string' && e[0].length > 0)) return null;
+    if (wipe) await this.ctx.storage.deleteAll();
+    for (let i = 0; i < entries.length; i += PUT_BATCH) await this.ctx.storage.put(Object.fromEntries(entries.slice(i, i + PUT_BATCH)));
+    return entries.length;
   }
 
   /** A race room keeps a signed-in racer's finish as a best time if it is one; the new best, or null. */

@@ -1,16 +1,12 @@
-# src/shared: pure code used by more than one game
+# src/shared: pure code the shell and the Worker share
 
 Code here runs on the client and in the Worker. **No three.js, no DOM, no `cloudflare:workers`.** Both
-`tsconfig.json` and `tsconfig.worker.json` compile it. It must not import any game (`src/gambol`, `src/toge`,
-`src/games`); `tests/boundaries.test.ts` checks that.
+`tsconfig.json` and `tsconfig.worker.json` compile it. It must not import the game (`src/toge`), the browser shell
+(`src/client`) or the server (`src/server`); `tests/boundaries.test.ts` checks that.
 
 ```
-  math.ts     tiny {x,y,z} helpers (yaw 0 looks down -Z, three.js convention); Gambol and Royal Degeneracy use them
   account.ts  checkCredentials (username/password rules shared by the sign-up form and the server)
-  party.ts    wire types + PARTY limits for plug-in game rooms (src/games, src/server/party.ts)
   friends.ts  friend lists (FriendAction, FriendList, FRIENDS_MAX, friendName); kept by src/server/friendStore.ts
 ```
 
-A game's own rules live in its folder: Gambol's in `src/gambol/shared/` (guide: `src/gambol/shared/CLAUDE.md`),
-TŌGE's in `src/toge/shared/` (guide: `src/toge/CLAUDE.md`). Move something here only when a second game needs it,
-and keep it free of game-specific constants.
+The game's own rules live in `src/toge/shared/` (guide: `src/toge/CLAUDE.md`).

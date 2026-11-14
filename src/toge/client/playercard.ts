@@ -22,7 +22,7 @@ import { garageEnvironment } from './showroom.ts';
 import { fmtTime, money } from './hud.ts';
 import { loadHighs } from './highs.ts';
 import { THEME_ART } from './trackart.ts';
-import { ICON } from './brand.ts';
+import { GAME, ICON } from './brand.ts';
 
 export const CARD = { w: 1080, h: 1350 };
 /** The 3D shot's box on the card. */
@@ -302,13 +302,13 @@ function header(ctx: Ctx, d: CardData) {
   font(ctx, `700 44px ${BODY}`);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('峠', 0, 3);
+  ctx.fillText(GAME.hanko, 0, 3);
   ctx.restore();
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#fff';
   font(ctx, `italic 800 56px ${DISPLAY}`, 10);
-  ctx.fillText('TŌGE', 140, 106);
+  ctx.fillText(GAME.name, 140, 106);
   ctx.textAlign = 'right';
   font(ctx, `700 22px ${DISPLAY}`, 5);
   ctx.fillStyle = C.dim;
@@ -567,7 +567,7 @@ function footer(ctx: Ctx) {
   ctx.restore();
   font(ctx, `700 20px ${DISPLAY}`, 4);
   ctx.fillStyle = C.dim;
-  ctx.fillText('GAMBOL.LOL', 56, h - 22);
+  ctx.fillText(location.hostname.toUpperCase(), 56, h - 22); // the site it was made on
   ctx.textAlign = 'right';
   font(ctx, `italic 700 24px ${DISPLAY}`, 1);
   ctx.fillStyle = C.text;

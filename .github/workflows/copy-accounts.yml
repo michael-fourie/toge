@@ -1,0 +1,39 @@
+# Copies every account from Gambol's live site (atrous) to this site, exactly, and checks the copy.
+# Run it by hand: Actions > Copy accounts from Gambol > Run workflow. Each run empties this site's accounts first and
+# copies everything again, so run it as late as you like before switching players over (the last run wins).
+# Needs, under Settings > Secrets and variables > Actions:
+#   secrets FROM_ADMIN_KEY (atrous's ADMIN_KEY) and TO_ADMIN_KEY (this Worker's ADMIN_KEY);
+#   variable TO_URL (this site, e.g. https://toge.<you>.workers.dev or your domain). FROM_URL defaults to gambol.lol.
+# Details: tools/copy-accounts.mjs, docs/DEPLOYMENT.md "Moving the accounts over".
+name: Copy accounts from Gambol
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only read Gambol and count (writes nothing)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: copy-accounts
+  cancel-in-progress: false
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/copy-accounts.mjs
+        env:
+          FROM: ${{ vars.FROM_URL || 'https://gambol.lol' }}
+          FROM_KEY: ${{ secrets.FROM_ADMIN_KEY }}
+          TO: ${{ vars.TO_URL }}
+          TO_KEY: ${{ secrets.TO_ADMIN_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}

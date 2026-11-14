@@ -1,6 +1,5 @@
-// Keeps the games apart: Gambol (src/gambol) and TŌGE (src/toge) never import each other, and the common code
-// (src/shared) imports neither. The site shell (src/client) and the Worker (src/server) wire the games together,
-// so they may import both.
+// Keeps the layers apart: the common code (src/shared) imports neither the game (src/toge) nor the browser shell
+// (src/client), so the Worker can use it. TŌGE's own shared code (src/toge/shared) stays free of three.js and the DOM.
 
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -17,13 +16,14 @@ function filesIn(dir: string): string[] {
   });
 }
 
-/** Every relative import in `area`, resolved to a path under src/ (e.g. "gambol/shared/math.ts"). */
+/** Every import in `area`: relative ones resolved to a path under src/ (e.g. "toge/shared/track.ts"), packages as written. */
 function importsOf(area: string): { from: string; to: string }[] {
   const out: { from: string; to: string }[] = [];
   for (const file of filesIn(join(SRC, area))) {
     const text = readFileSync(file, 'utf8');
-    for (const m of text.matchAll(/(?:from|import)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
-      out.push({ from: relative(SRC, file).replaceAll('\\', '/'), to: relative(SRC, resolve(dirname(file), m[1])).replaceAll('\\', '/') });
+    for (const m of text.matchAll(/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)) {
+      const to = m[1].startsWith('.') ? relative(SRC, resolve(dirname(file), m[1])).replaceAll('\\', '/') : m[1];
+      out.push({ from: relative(SRC, file).replaceAll('\\', '/'), to });
     }
   }
   return out;
@@ -31,17 +31,13 @@ function importsOf(area: string): { from: string; to: string }[] {
 
 const crossing = (area: string, banned: string[]) =>
   importsOf(area)
-    .filter((i) => banned.some((b) => i.to.startsWith(b + '/')))
+    .filter((i) => banned.some((b) => i.to === b || i.to.startsWith(b + '/')))
     .map((i) => `${i.from} -> ${i.to}`);
 
-test('Gambol never imports TŌGE', () => {
-  assert.deepEqual(crossing('gambol', ['toge']), []);
+test('the common shared code imports neither the game nor the browser shell', () => {
+  assert.deepEqual(crossing('shared', ['toge', 'client', 'server']), []);
 });
 
-test('TŌGE never imports Gambol', () => {
-  assert.deepEqual(crossing('toge', ['gambol']), []);
-});
-
-test('the common shared code imports no game', () => {
-  assert.deepEqual(crossing('shared', ['gambol', 'toge', 'games']), []);
+test("TŌGE's shared rules stay pure: no three.js, no browser code", () => {
+  assert.deepEqual(crossing('toge/shared', ['three', 'client', 'toge/client']), []);
 });

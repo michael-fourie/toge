@@ -2,7 +2,21 @@ import { PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN } from '../../shared/account.t
 import { account } from '../account.ts';
 import type { Render } from './router.ts';
 import './account.css';
-import { $, esc, sheet } from './ui.ts';
+import { $, esc } from './ui.ts';
+import { ICON, LOGO } from '../../toge/client/brand.ts';
+
+/** The account card in TŌGE's look (DESIGN.md): the logo, a back pill, the heading, then `body`. */
+const card = (body: string) => `
+  <div class="tg tg-account">
+    <main class="tg-acct" data-nav-scope>
+      <header class="tg-acct-head">
+        <button class="tg-home" data-back aria-label="Back">${ICON.back}</button>
+        ${LOGO}
+      </header>
+      <h2 class="tg-acct-title" tabindex="-1">Account</h2>
+      ${body}
+    </main>
+  </div>`;
 
 /** Sign in / create account, or who you're signed in as. Accounts are optional: guests can play, an account just reserves your name. */
 export const accountScreen: Render = (root, ctx, screen) => {
@@ -13,20 +27,19 @@ export const accountScreen: Render = (root, ctx, screen) => {
 };
 
 function signedIn(root: HTMLElement, user: string) {
-  root.innerHTML = sheet(
-    'Account',
+  root.innerHTML = card(
     `
-    <p class="lead">Signed in as <b>${esc(user)}</b>. Your name, coins and XP are kept on this account.</p>
-    <div class="cta"><button class="primary big" data-signout>Sign out</button></div>
+    <p class="tg-acct-lead">Signed in as <b>${esc(user)}</b>. Your garage, race money, best times and friends are kept on this account.</p>
+    <div class="tg-acct-cta"><button class="tg-go alt small" data-signout>Sign out</button></div>
     <details class="account-change">
       <summary>Change password</summary>
       <form class="account-form" novalidate>
         <input type="text" autocomplete="username" value="${esc(user)}" hidden />
         <label>Current password<input id="acc-cur" type="password" autocomplete="current-password" /></label>
         <label>New password<input id="acc-new" type="password" autocomplete="new-password" /></label>
-        <p class="hint">At least ${PASSWORD_MIN} characters. You stay signed in here and get signed out everywhere else.</p>
-        <p class="notice" role="alert"></p>
-        <div class="cta"><button class="primary" type="submit">Change password</button></div>
+        <p class="tg-acct-hint">At least ${PASSWORD_MIN} characters. You stay signed in here and get signed out everywhere else.</p>
+        <p class="tg-acct-notice notice" role="alert"></p>
+        <div class="tg-acct-cta"><button class="tg-go small" type="submit">Change password</button></div>
       </form>
     </details>`,
   );
@@ -57,20 +70,19 @@ function signedIn(root: HTMLElement, user: string) {
 
 function signInForm(root: HTMLElement, ctx: Parameters<Render>[1], signup?: boolean) {
   let mode: 'login' | 'register' = 'login';
-  root.innerHTML = sheet(
-    'Account',
+  root.innerHTML = card(
     `
-    <p class="lead">Sign in to keep your name. Friends can't pass as you.</p>
-    <div class="tabs" role="tablist">
-      <button role="tab" data-mode="login" class="on">Sign in</button>
-      <button role="tab" data-mode="register">Create account</button>
+    <p class="tg-acct-lead">Sign in to keep your garage and race money on the server, set times on the leaderboards and add friends. Nobody else can race under your name.</p>
+    <div class="tg-acct-tabs" role="tablist">
+      <button class="tg-pill" role="tab" data-mode="login" aria-pressed="true">Sign in</button>
+      <button class="tg-pill" role="tab" data-mode="register" aria-pressed="false">Create account</button>
     </div>
     <form class="account-form" novalidate>
       <label>Username<input id="acc-user" maxlength="${USERNAME_MAX}" autocomplete="username" spellcheck="false" autocapitalize="off" /></label>
       <label>Password<input id="acc-pass" type="password" autocomplete="current-password" /></label>
-      <p class="hint" data-hint></p>
-      <p class="notice" role="alert"></p>
-      <div class="cta"><button class="primary big" type="submit">Sign in</button></div>
+      <p class="tg-acct-hint" data-hint></p>
+      <p class="tg-acct-notice notice" role="alert"></p>
+      <div class="tg-acct-cta"><button class="tg-go" type="submit">Sign in</button></div>
     </form>`,
   );
   const form = $<HTMLFormElement>(root, 'form');
@@ -81,7 +93,7 @@ function signInForm(root: HTMLElement, ctx: Parameters<Render>[1], signup?: bool
 
   const setMode = (m: 'login' | 'register') => {
     mode = m;
-    root.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
+    root.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
     submit.textContent = m === 'login' ? 'Sign in' : 'Create account';
     pass.autocomplete = m === 'login' ? 'current-password' : 'new-password';
     $(root, '[data-hint]').textContent = m === 'register' ? `${USERNAME_MIN}-${USERNAME_MAX} letters, numbers, _ or -. Password at least ${PASSWORD_MIN} characters.` : '';

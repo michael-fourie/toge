@@ -1,56 +1,122 @@
-/* Account screen (menu/account.ts) */
-.tabs {
+/* The account screen (menu/account.ts) in TŌGE's look: a dark card over the ink background, using the tokens and
+   components (tg-go, tg-pill, tg-home, the logo) from src/toge/client/hub.css. Rules: src/toge/DESIGN.md. */
+.tg-account {
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: var(--tg-gutter);
+  background:
+    radial-gradient(1200px 600px at 80% 0%, rgba(56, 201, 255, 0.08), transparent 60%),
+    radial-gradient(900px 500px at 0% 100%, rgba(255, 59, 48, 0.08), transparent 60%),
+    var(--tg-ink-0);
+}
+.tg-acct {
+  width: min(460px, 100%);
+  padding: 22px 28px 28px;
+  border-radius: var(--tg-radius);
+  border: 1px solid var(--tg-line);
+  background: var(--tg-ink-1);
+  box-shadow: var(--tg-shadow);
+}
+.tg-acct-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.tg-acct-title {
+  margin: 22px 0 6px;
+  font: italic 800 34px/1 var(--tg-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  outline: none;
+}
+.tg-acct-lead {
+  margin: 0 0 18px;
+  color: var(--tg-dim);
+}
+.tg-acct-lead b {
+  color: var(--tg-text);
+}
+.tg-acct-tabs {
   display: flex;
   gap: 8px;
-  margin: 4px 0 14px;
+  margin-bottom: 16px;
 }
-.tabs button {
+.tg-acct-tabs .tg-pill {
   flex: 1;
-  padding: 8px 12px;
-  border-radius: 12px;
-  border: 2px solid var(--paper-edge);
-  background: transparent;
-  color: var(--ink-soft);
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
+  justify-content: center;
+  color: var(--tg-text);
 }
-.tabs button.on {
-  background: var(--paper);
-  color: var(--ink);
-  border-color: var(--ink-soft);
+.tg-acct-tabs .tg-pill[aria-pressed='true'] {
+  background: var(--tg-cyan);
+  border-color: var(--tg-cyan);
 }
-.account-form {
+.tg-account .account-form {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
-.account-form label {
+.tg-account .account-form label {
   display: grid;
-  gap: 4px;
-  font-weight: 700;
-  font-size: 14px;
+  gap: 6px;
+  font: 700 12px/1 var(--tg-display);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tg-dim);
 }
-.account-form input {
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 2px solid var(--paper-edge);
-  background: #fffdf3;
-  font: inherit;
-  color: var(--ink);
+.tg-account .account-form input {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--tg-radius);
+  border: 1px solid var(--tg-line-2);
+  background: var(--tg-ink-2);
+  color: var(--tg-text);
+  font: 500 16px/1 var(--tg-body);
+  letter-spacing: 0;
+  text-transform: none;
 }
-.account-form input:focus {
+.tg-account .account-form input:focus {
   outline: none;
-  border-color: var(--meadow-dark);
+  border-color: var(--tg-cyan);
+  box-shadow: 0 0 0 3px rgba(56, 201, 255, 0.25);
 }
-.account-change {
-  margin-top: 18px;
+.tg-acct-hint {
+  margin: 0;
+  color: var(--tg-faint);
+  font-size: 13px;
 }
-.account-change summary {
+.tg-acct-hint:empty,
+.tg-acct-notice:empty {
+  display: none;
+}
+.tg-acct-notice {
+  margin: 0;
+  color: var(--tg-bad);
+  font-weight: 600;
+}
+.tg-acct-notice.ok {
+  color: var(--tg-good);
+}
+.tg-acct-cta {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.tg-acct-cta .tg-go:not(.small) {
+  width: 100%;
+}
+.tg-account .account-change {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--tg-line);
+}
+.tg-account .account-change summary {
   cursor: pointer;
-  font-weight: 700;
-  color: var(--ink-soft);
-  margin-bottom: 12px;
+  font: 700 13px/1 var(--tg-display);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tg-dim);
+  margin-bottom: 14px;
 }
-.account-change .notice.ok {
-  color: var(--meadow-dark);
+.tg-account .tg-home {
+  padding: 0;
 }
