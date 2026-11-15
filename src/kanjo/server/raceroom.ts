@@ -115,6 +115,7 @@ export class RaceRoom extends DurableObject<Env> {
       },
     );
     this.race.ghostSource ??= (track) => accounts.recordGhost(track);
+    this.race.fetchGhost(); // the ghost is always on: the lobby's first track has its record's run ready
     if (solo) this.race.makeSolo();
     return this.race;
   }
