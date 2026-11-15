@@ -48,6 +48,7 @@ async function post(site, key, path, body) {
  * once ADMIN_KEY is set, 404 while it isn't: so it tells "key missing" apart from "export not deployed".
  */
 async function why404(site) {
+  await probe(site);
   try {
     const res = await fetch(`${base(site)}/api/admin/reset-password`, { method: 'POST', headers: { Authorization: 'Bearer not-the-key', 'Content-Type': 'application/json' }, body: '{}' });
     if (res.status === 403) return "the site's ADMIN_KEY is set, but this build doesn't have the export route yet: deploy the latest master to production there.";
@@ -56,6 +57,27 @@ async function why404(site) {
   } catch (e) {
     return `couldn't tell why (${e.message}).`;
   }
+}
+
+/** Prints what a site answers on a few routes (status, final URL, server headers, body start), for debugging a 404. */
+async function probe(site) {
+  const show = async (label, url, init) => {
+    try {
+      const res = await fetch(url, init);
+      const body = (await res.text()).replace(/\s+/g, ' ').slice(0, 120);
+      const h = ['server', 'cf-ray', 'content-type', 'x-frame-options'].map((k) => `${k}=${res.headers.get(k)}`).join(' ');
+      console.log(`  probe ${label}: ${res.status}${res.redirected ? ` (redirected to ${res.url})` : ''} ${h} body="${body}"`);
+    } catch (e) {
+      console.log(`  probe ${label}: ${e.message}`);
+    }
+  };
+  const wrong = { method: 'POST', headers: { Authorization: 'Bearer not-the-key', 'Content-Type': 'application/json' }, body: '{}' };
+  console.log(`Probing ${base(site)}:`);
+  await show('GET /api/races', `${base(site)}/api/races`);
+  await show('GET /api/me', `${base(site)}/api/me`);
+  await show('POST /api/admin/reset-password (wrong key)', `${base(site)}/api/admin/reset-password`, wrong);
+  await show('POST /api/admin/export (wrong key)', `${base(site)}/api/admin/export`, wrong);
+  await show('POST /api/admin/nonexistent', `${base(site)}/api/admin/nonexistent`, wrong);
 }
 
 /** Every [key, value] of a site's Accounts object, a page at a time. */
