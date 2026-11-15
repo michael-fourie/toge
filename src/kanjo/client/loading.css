@@ -1,0 +1,258 @@
+/* KANJO's loading screen (loading.ts). Builds on the tokens and components in hub.css; rules in DESIGN.md §8. */
+
+.tg.tg-loader {
+  z-index: 50; /* over the menu and the race canvas while it builds */
+  grid-template-rows: auto 1fr auto;
+  padding: var(--tg-gutter);
+  gap: 24px;
+  isolation: isolate;
+  animation: none;
+  transition: opacity 0.6s var(--tg-ease);
+}
+.tg-loader.done {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The theme's sky and painted backdrop, drifting slowly towards you like the camera rolling up to the line. */
+.tg-ld-art {
+  position: absolute;
+  inset: -4%;
+  z-index: -2;
+  background:
+    var(--art) 50% 72% / cover no-repeat,
+    linear-gradient(180deg, var(--sky1), var(--sky2));
+  filter: saturate(1.05) brightness(0.85);
+  animation: tg-ld-roll 14s linear both;
+}
+.tg-ld-shade {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(90deg, rgba(5, 7, 11, 0.85) 0%, rgba(5, 7, 11, 0.4) 50%, rgba(5, 7, 11, 0.05) 100%),
+    linear-gradient(0deg, var(--tg-ink-0) 0%, rgba(5, 7, 11, 0) 42%),
+    radial-gradient(120% 60% at 80% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%);
+}
+@keyframes tg-ld-roll {
+  from {
+    transform: scale(1) translateX(0);
+  }
+  to {
+    transform: scale(1.08) translateX(-1.5%);
+  }
+}
+
+.tg-ld-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tg-loader .tg-logo {
+  display: flex; /* the hub hides it on phones; here it's the only brand on screen */
+}
+.tg-ld-run {
+  color: var(--tg-dim);
+  padding: 6px 12px;
+  border: 1px solid var(--tg-line-2);
+  border-radius: var(--tg-radius);
+  background: rgba(11, 15, 23, 0.6);
+  backdrop-filter: blur(14px);
+  white-space: nowrap;
+}
+
+.tg-ld-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 32px;
+  align-self: end;
+}
+.tg-ld-copy {
+  animation: tg-ld-in 0.5s var(--tg-ease) both;
+}
+.tg-ld-eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent);
+}
+.tg-ld-name {
+  margin: 0;
+  font: italic 800 clamp(48px, 8vw, 104px) / 0.92 var(--tg-display);
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 6px 30px rgba(0, 0, 0, 0.5);
+}
+.tg-ld-tag {
+  margin: 10px 0 18px;
+  color: var(--tg-text);
+  opacity: 0.85;
+  font-size: 16px;
+}
+.tg-ld-kerb {
+  width: min(320px, 70%);
+  transform-origin: left;
+  animation: tg-ld-kerb 0.7s 0.15s var(--tg-ease) both;
+}
+@keyframes tg-ld-in {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+@keyframes tg-ld-kerb {
+  from {
+    transform: skewX(var(--tg-skew)) scaleX(0);
+  }
+}
+
+/* The road from above, drawn start to finish. */
+.tg-ld-map {
+  justify-self: end;
+  width: min(100%, 600px);
+}
+.tg-ld-map .tg-map {
+  width: 100%;
+  height: auto;
+  max-height: 46vh;
+  overflow: visible;
+}
+.tg-ld-map .tg-map-under {
+  stroke-width: 5;
+}
+.tg-ld-map .tg-map-road {
+  stroke-width: 1.8;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 70%, transparent));
+  animation: tg-ld-draw 1.4s 0.2s var(--tg-ease) forwards;
+}
+.tg-ld-map .tg-map-start {
+  animation: tg-ld-pulse 1.2s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.tg-ld-map .tg-map-end {
+  opacity: 0;
+  animation: tg-ld-pop 0.3s 1.5s ease-out forwards;
+}
+@keyframes tg-ld-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes tg-ld-pulse {
+  50% {
+    transform: scale(1.5);
+  }
+}
+@keyframes tg-ld-pop {
+  to {
+    opacity: 1;
+  }
+}
+
+.tg-ld-foot {
+  display: grid;
+  gap: 10px;
+}
+.tg-ld-tip {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  color: var(--tg-text);
+  max-width: 70ch;
+}
+.tg-ld-tip .tg-label {
+  color: var(--tg-cyan);
+}
+/* Progress: we can't know how far the build has got, so a cyan sweep runs along a hairline, speed-cut at each end. */
+.tg-ld-bar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  background: var(--tg-line);
+  transform: skewX(var(--tg-skew));
+}
+.tg-ld-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 34%;
+  background: linear-gradient(90deg, transparent, var(--tg-cyan) 60%, #fff);
+  box-shadow: 0 0 12px var(--tg-cyan);
+  animation: tg-ld-sweep 1.15s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+@keyframes tg-ld-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+.tg-ld-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tg-ld-status .tg-label {
+  color: var(--tg-dim);
+}
+.tg-ld-tagline {
+  font: italic 700 15px/1 var(--tg-display);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tg-faint);
+}
+
+@media (max-width: 760px) {
+  .tg-ld-main {
+    grid-template-columns: 1fr;
+    align-self: center;
+  }
+  .tg-ld-map {
+    grid-row: 1;
+    justify-self: start;
+    width: min(100%, 280px);
+  }
+  .tg-ld-run {
+    font-size: 11px;
+  }
+}
+@media (max-height: 480px) {
+  /* phones held sideways */
+  .tg.tg-loader {
+    gap: 8px;
+  }
+  .tg-ld-name {
+    font-size: clamp(36px, 7vw, 64px);
+  }
+  .tg-ld-tag {
+    margin: 4px 0 10px;
+  }
+  .tg-ld-map {
+    width: min(100%, 300px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-ld-art,
+  .tg-ld-copy,
+  .tg-ld-kerb,
+  .tg-ld-map .tg-map-start,
+  .tg-ld-map .tg-map-end {
+    animation: none;
+  }
+  .tg-ld-map .tg-map-end {
+    opacity: 1;
+  }
+  .tg-ld-map .tg-map-road {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .tg-ld-bar i {
+    animation-duration: 2.4s;
+  }
+}

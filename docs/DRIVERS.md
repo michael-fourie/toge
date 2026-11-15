@@ -1,4 +1,4 @@
-# TŌGE drivers
+# KANJO drivers
 
 Four drivers sit in every car: a realistic human (MakeHuman body, real proportions) dressed in a
 steampunk-meets-cyberpunk kit, seated with their hands on their own steering wheel, or tucked over the bike's tank.
@@ -13,10 +13,10 @@ You pick yours on the garage's **Driver** tab; rivals get the other three; onlin
 
 ## In the game
 
-- `src/toge/shared/rider.ts`: the catalogue (`RIDER_IDS`, `RIDERS`: names, bios, glow colours), `cleanRider`,
+- `src/kanjo/shared/rider.ts`: the catalogue (`RIDER_IDS`, `RIDERS`: names, bios, glow colours), `cleanRider`,
   `rivalRider`. The garage stores your pick (`rider`); a rider's code is its id, carried as `Racer.rider` (the room
   cleans anything else to the default).
-- `src/toge/client/driver.ts`: loads each GLB once and hands out skinned clones (`loadDriver`). A rig `sit()`s
+- `src/kanjo/client/driver.ts`: loads each GLB once and hands out skinned clones (`loadDriver`). A rig `sit()`s
   (the `drive` clip held at the steering angle; seat and wheel shown, shoes hidden), `ride()`s (the bike) or
   `stand()`s (the `idle` loop). `arrive()` seats one in a car or on a bike once it has loaded (and fades a
   time-trial ghost's copy).
@@ -26,7 +26,7 @@ You pick yours on the garage's **Driver** tab; rivals get the other three; onlin
   so yokes and dished wheels work), wrist out behind the rim, palm in toward the hub, knuckles along it, the arm
   following by two-bone IK; the fingers are straightened back to the model's, drawn together, and closed joint by
   joint until they rest on the rim. `ride` closes them round the bike's grips; `idle` gives them a soft curl.
-  Tunables are `HANDS`; `tests/toge/hands.test.ts` checks every legend at five steering angles. A rebuilt GLB
+  Tunables are `HANDS`; `tests/kanjo/hands.test.ts` checks every legend at five steering angles. A rebuilt GLB
   goes through the same fix, so if `pose.py` ever grips properly itself, check the fix still agrees.
 - `carmodel.ts`: the driver's eyes go where the cockpit camera's are, never through the roof; they replace the
   cabin's own driver seat and wheel (theirs fit their reach). `pose()` turns the wheel with the steering (with a
@@ -59,7 +59,7 @@ Build (all, or some ids), optionally with preview renders:
 blender -b --python tools/drivers/build.py -- marlowe kirika --preview /tmp/drivers
 ```
 
-Then `npx tsx --test tests/toge/drivers.test.ts` checks every GLB still has what the game needs.
+Then `npx tsx --test tests/kanjo/drivers.test.ts` checks every GLB still has what the game needs.
 
 What each file does:
 

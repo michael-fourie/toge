@@ -267,7 +267,7 @@ def drive(arm, spec):
 # Ride
 
 #: The bike's touch points from the saddle (hip point at the origin, Blender axes: forward -Y), from
-#: src/toge/client/bikemodel.ts: grips 0.82 m ahead and 0.3 m out, pegs just behind and 0.48 m down.
+#: src/kanjo/client/bikemodel.ts: grips 0.82 m ahead and 0.3 m out, pegs just behind and 0.48 m down.
 BIKE = {'grip': (0.3, -0.82, -0.02), 'peg': (0.2, 0.08, -0.48)}
 
 

@@ -1,12 +1,12 @@
-# TŌGE's driving mechanics are locked (Michael, 2026-11-12): see "Driving mechanics are locked" in CLAUDE.md.
+# KANJO's driving mechanics are locked (Michael, 2026-11-12): see "Driving mechanics are locked" in CLAUDE.md.
 # Any PR touching these asks Michael for a review.
-/src/toge/shared/vehicle.ts @michael-fourie
-/src/toge/shared/draft.ts @michael-fourie
-/src/toge/shared/boost.ts @michael-fourie
-/src/toge/shared/damage.ts @michael-fourie
-/src/toge/shared/cars.ts @michael-fourie
-/src/toge/client/input.ts @michael-fourie
-/tests/toge/drivinglock.test.ts @michael-fourie
-/tests/toge/drivinglock.json @michael-fourie
+/src/kanjo/shared/vehicle.ts @michael-fourie
+/src/kanjo/shared/draft.ts @michael-fourie
+/src/kanjo/shared/boost.ts @michael-fourie
+/src/kanjo/shared/damage.ts @michael-fourie
+/src/kanjo/shared/cars.ts @michael-fourie
+/src/kanjo/client/input.ts @michael-fourie
+/tests/kanjo/drivinglock.test.ts @michael-fourie
+/tests/kanjo/drivinglock.json @michael-fourie
 /.github/CODEOWNERS @michael-fourie
 /.github/workflows/driving-lock.yml @michael-fourie

@@ -1,11 +1,11 @@
-// Dev-only lab for the TŌGE drivers: legends and custom looks side by side, standing or seated.
+// Dev-only lab for the KANJO drivers: legends and custom looks side by side, standing or seated.
 // window.lab: show(ids[]) (legend ids or look codes), view(yawDeg, pitchDeg, dist, y, x?, z?), sit(on), ride(), steer(s),
 // look (the current custom Look; edit it then call lab.custom()), random().
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { DEFAULT_LOOK, encodeLook, type Look, randomLook } from '../src/toge/shared/look.ts';
-import { type DriverRig, loadDriver } from '../src/toge/client/driver.ts';
+import { DEFAULT_LOOK, encodeLook, type Look, randomLook } from '../src/kanjo/shared/look.ts';
+import { type DriverRig, loadDriver } from '../src/kanjo/client/driver.ts';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });

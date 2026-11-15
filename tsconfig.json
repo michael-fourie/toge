@@ -24,8 +24,8 @@
   "include": [
     "src/client",
     "src/shared",
-    "src/toge/client",
-    "src/toge/shared",
+    "src/kanjo/client",
+    "src/kanjo/shared",
     "tests",
     "vite.config.ts"
   ]

@@ -1,4 +1,4 @@
-"""Builds TŌGE's drivers in Blender and exports them to public/models/drivers/<id>.glb.
+"""Builds KANJO's drivers in Blender and exports them to public/models/drivers/<id>.glb.
 
     blender -b --python tools/drivers/build.py -- [ids...] [--preview DIR]
 

@@ -4,5 +4,5 @@
     "lib": ["ES2022"],
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["src/server", "src/shared", "src/toge/server", "src/toge/shared"]
+  "include": ["src/server", "src/shared", "src/kanjo/server", "src/kanjo/shared"]
 }

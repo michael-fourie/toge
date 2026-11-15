@@ -1,12 +1,12 @@
 // A tiny history-backed screen router: every screen change is a history entry, so the
 // browser's Back button, the on-screen ← Back and Esc all behave the same.
 
-import type { CarRule, GpState, RaceMode, Racer } from '../../toge/shared/protocol.ts';
-import type { TrackId } from '../../toge/shared/track.ts';
-import type { GhostRun } from '../../toge/shared/ghost.ts';
-import type { RaceNet } from '../../toge/client/racenet.ts';
+import type { CarRule, GpState, RaceMode, Racer } from '../../kanjo/shared/protocol.ts';
+import type { TrackId } from '../../kanjo/shared/track.ts';
+import type { GhostRun } from '../../kanjo/shared/ghost.ts';
+import type { RaceNet } from '../../kanjo/client/racenet.ts';
 
-/** `drive` is the landing page (TŌGE's garage / home), `drivelobby` a race lobby, `game` a race in progress. */
+/** `drive` is the landing page (KANJO's garage / home), `drivelobby` a race lobby, `game` a race in progress. */
 export type ScreenName = 'drive' | 'drivelobby' | 'account' | 'game';
 
 export interface Screen {
@@ -23,7 +23,7 @@ export interface Ctx {
   go(s: Screen): void;
   replace(s: Screen): void;
   back(): void;
-  /** Start a TOGE race: solo against AI rivals, or online once the lobby's countdown arrives. */
+  /** Start a KANJO race: solo against AI rivals, or online once the lobby's countdown arrives. */
   drive(opts: DriveOpts): void;
 }
 

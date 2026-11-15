@@ -1,16 +1,16 @@
-// Dev-only lab for the TŌGE race renderer: a solo race on any track, driven by the AI and stepped by hand, so the
+// Dev-only lab for the KANJO race renderer: a solo race on any track, driven by the AI and stepped by hand, so the
 // same shot can be taken before and after a visual change and its frame cost measured.
-// /dev/race.html?track=koripass&car=vanta&rivals=5 (track=toge: the open world; place() and look() frame shots of it) (Low graphics follows the Settings tab: localStorage atrous.graphics).
+// /dev/race.html?track=koripass&car=vanta&rivals=5 (track=kanjo: the open world; place() and look() frame shots of it) (Low graphics follows the Settings tab: localStorage atrous.graphics).
 // window.rl: drive(seconds) (the AI drives your car; the sim is stepped, nothing waits on frames), cam(name), place(x, z, yaw), look(...),
 // draw() (one frame), cost(frames) ({ ms per frame with the GPU drained, draw calls, triangles }).
 
-import { CAR_IDS, type CarId, newOwnedCar } from '../src/toge/shared/cars.ts';
-import { defaultRider } from '../src/toge/shared/rider.ts';
-import { type TrackId, heightAt, locate, newLoc } from '../src/toge/shared/track.ts';
-import { TICK_DT, placeCar } from '../src/toge/shared/vehicle.ts';
-import { aiDrive, newAi } from '../src/toge/shared/driver.ts';
+import { CAR_IDS, type CarId, newOwnedCar } from '../src/kanjo/shared/cars.ts';
+import { defaultRider } from '../src/kanjo/shared/rider.ts';
+import { type TrackId, heightAt, locate, newLoc } from '../src/kanjo/shared/track.ts';
+import { TICK_DT, placeCar } from '../src/kanjo/shared/vehicle.ts';
+import { aiDrive, newAi } from '../src/kanjo/shared/driver.ts';
 import { DataUtils } from 'three';
-import { RaceGame } from '../src/toge/client/racegame.ts';
+import { RaceGame } from '../src/kanjo/client/racegame.ts';
 
 const q = new URLSearchParams(location.search);
 const car = (q.get('car') ?? 'kitsune') as CarId;
@@ -30,8 +30,8 @@ type Inner = {
   tick(): void;
   render(dt: number, alpha: number): void;
   fx: { update(dt: number): void };
-  me: { car: import('../src/toge/shared/vehicle.ts').Car };
-  track: import('../src/toge/shared/track.ts').Track;
+  me: { car: import('../src/kanjo/shared/vehicle.ts').Car };
+  track: import('../src/kanjo/shared/track.ts').Track;
   controls: { input: { steer: number; throttle: number; brake: number; handbrake: number; drift: number } };
   cam: string;
   renderer: import('three').WebGLRenderer;

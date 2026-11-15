@@ -1,5 +1,5 @@
 // The site's graphics setting, saved per device: 'high' (everything on) or 'low' (laptops and older machines:
-// native-or-lower resolution, no shadows, no post effects, simple materials, a frame cap). TŌGE's Settings tab sets
+// native-or-lower resolution, no shadows, no post effects, simple materials, a frame cap). KANJO's Settings tab sets
 // it; both games read it when they build their renderer, so a change applies to the next race or match.
 
 export type Graphics = 'high' | 'low';

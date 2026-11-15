@@ -55,7 +55,7 @@ test('every WebGL renderer gives its context back', async () => {
   };
   walk('src');
   const makers = files.filter((f) => readFileSync(f, 'utf8').includes('new THREE.WebGLRenderer('));
-  assert.ok(makers.includes('src/toge/client/racegame.ts'), 'found the game renderers');
+  assert.ok(makers.includes('src/kanjo/client/racegame.ts'), 'found the game renderers');
   for (const f of makers) {
     if (singletons.has(f)) continue;
     const src = readFileSync(f, 'utf8');

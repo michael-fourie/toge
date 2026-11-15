@@ -3,7 +3,7 @@
 One Worker serves the built client (static assets) and the multiplayer backend. No VM, no separate hosting.
 
 ```
-browser ── https://<domain>/            → static assets (dist/client), free and unmetered
+browser ── https://kanjo.win/            → static assets (dist/client), free and unmetered
         ── GET  /api/races              → Worker → Directory DO "race" (open race lobbies)
         ── /api/me, /api/login, ...     → Worker → Accounts DO "all" (accounts, garages, best times, friends)
         ── WS   /ws?game=race&code=ABCD → Worker → RaceRoom DO "ABCD" (one per race)
@@ -11,7 +11,7 @@ browser ── https://<domain>/            → static assets (dist/client), fre
 ```
 
 - `src/server/worker.ts`: routing, origin check, region hint (`locationHint` from the host's continent), admin routes.
-- `src/toge/server/raceroom.ts`: the `RaceRoom` Durable Object, wrapping `race.ts` (runtime-agnostic). It exists while someone is connected.
+- `src/kanjo/server/raceroom.ts`: the `RaceRoom` Durable Object, wrapping `race.ts` (runtime-agnostic). It exists while someone is connected.
 - `src/server/directory.ts`: the `Directory` DO: allocates 4-letter codes, lists lobbies, expires entries that stop sending heartbeats.
 - `src/server/accounts.ts`: the `Accounts` DO (one, named "all"): users, sessions, garages, best times, boards, ghosts, friends.
 - `wrangler.jsonc`: Worker name, assets, bindings, the migration. Classes must be `new_sqlite_classes` to be allowed on the free plan.
@@ -27,7 +27,7 @@ npm run deploy    # typecheck, vite build, wrangler deploy
 
 1. **Create the Worker from this repo.** Cloudflare dashboard, Workers & Pages, Create, Import a repository, pick
    `michael-fourie/toge`. Build command `npm run build`, deploy command `npx wrangler deploy` (the defaults it
-   suggests). The Worker is named `toge` (`wrangler.jsonc`); it comes up at `https://toge.<account>.workers.dev`.
+   suggests). The Worker is named `kanjo` (`wrangler.jsonc`); it comes up at `https://kanjo.<account>.workers.dev`.
 2. **Production branch = `production`.** The Worker, Settings, Build, Branch control: set the production branch to
    `production`, and untick builds for non-production branches (each preview uses 3 Durable Object namespaces, and
    the free plan allows 100 per account, which Gambol's previews already use most of). Then run the "Deploy to
@@ -80,7 +80,7 @@ So production deploys from its own branch, `production`, and `.github/workflows/
 
 1. Cloudflare dashboard, Add a site, enter the domain, choose the Free plan.
 2. Namecheap, Domain List, Manage, Nameservers, "Custom DNS": enter the two Cloudflare nameservers. Propagation takes minutes to a few hours.
-3. The `toge` Worker, Settings, Domains & Routes, Add, Custom domain: pick `domain.com` (and `www`). Cloudflare creates DNS and TLS automatically.
+3. The `kanjo` Worker, Settings, Domains & Routes, Add, Custom domain: pick `kanjo.win` (and `www.kanjo.win`). Cloudflare creates DNS and TLS automatically.
 
 ## Free-plan budget (limits as of writing; check Cloudflare's pricing page)
 
@@ -95,7 +95,7 @@ Accounts are deliberately simple, for a group of friends. One global `Accounts` 
 
 - `POST /api/register`, `POST /api/login`, `POST /api/logout`, `GET /api/me`. Same-origin JSON only.
 - Passwords: PBKDF2-SHA256, 100k iterations (the workerd maximum), a random salt per user. Hashing runs inside the Durable Object because a free-plan Worker only gets about 10 ms of CPU per request and a Durable Object gets far more.
-- Sessions: a random 256-bit token in an HttpOnly, SameSite=Lax cookie (`toge_session`, Secure on https), 30 days. Only a hash of the token is stored. Five wrong passwords lock that username for 30 seconds.
+- Sessions: a random 256-bit token in an HttpOnly, SameSite=Lax cookie (`kanjo_session`, Secure on https), 30 days. Only a hash of the token is stored. Five wrong passwords lock that username for 30 seconds.
 - In a race lobby the Worker looks the cookie up: signed in means you play as your username whatever the client sends; a guest who types a registered name becomes "name (guest)".
 - Usernames are 3-16 letters, numbers, `_` or `-`, unique ignoring case. Passwords are 6-72 characters.
 - The `Accounts` class is in migration `v1` in `wrangler.jsonc`. Nothing is lost on later deploys.
@@ -121,7 +121,7 @@ curl -X POST https://kanjo.win/api/admin/reset-password \
 
 Send them the temporary password; they sign in and change it under Account -> Change password. The reset signs the account out everywhere and keeps everything else (garage, race money, friends, best times). Locally, put `ADMIN_KEY=...` in `.dev.vars` (gitignored) and use `http://localhost:5173`.
 
-### Clearing TŌGE best times set in races
+### Clearing KANJO best times set in races
 
 Since 2026-11-06 (still on Gambol's site) only time trials and hill climbs keep best times. Times from before that don't say which mode they came from, so the same key can wipe every best time, all-time board and record ghost on Kōri Pass, Saltwind Cliffs and Red Mesa Rally (`CLEAR_TRACKS` in src/server/accounts.ts, Michael's pick); every other track keeps its times. Preview first, then apply:
 

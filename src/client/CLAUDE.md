@@ -1,21 +1,21 @@
 # src/client: the page shell in the browser
 
-The page TŌGE runs inside: boot, the screen router, the account screen, controllers and touch setup, the Graphics
-setting and the small menu kit the screens use. The game itself is in `src/toge/client/` (guide: `src/toge/CLAUDE.md`).
-The shell came from the Gambol site this repo was split from; it imports TŌGE to wire it in, and TŌGE imports these
+The page KANJO runs inside: boot, the screen router, the account screen, controllers and touch setup, the Graphics
+setting and the small menu kit the screens use. The game itself is in `src/kanjo/client/` (guide: `src/kanjo/CLAUDE.md`).
+The shell came from the Gambol site this repo was split from; it imports KANJO to wire it in, and KANJO imports these
 pieces back.
 
 ## Files
 
 ```
-  main.ts         boots the page: touch + pad setup, account.refresh(), the screen router (SCREENS: `drive` = TŌGE's
+  main.ts         boots the page: touch + pad setup, account.refresh(), the screen router (SCREENS: `drive` = KANJO's
                   garage, the home page; `drivelobby` = a race lobby; `account`), the ?race=CODE deep link, and
-                  ctx.drive, which shows TŌGE's loading screen and starts a RaceGame
+                  ctx.drive, which shows KANJO's loading screen and starts a RaceGame
   menu/router.ts  the history-backed screen router (ScreenName, Screen, Ctx, DriveOpts); browser Back, ← Back and Esc
                   all match; Back at depth 0 goes to the garage
   menu/ui.ts      the menu kit: $(), esc() for HTML, playerName(), toast(), copy(), replay()
-  menu/account.ts the sign-in / create-account screen, and Change password when signed in, in TŌGE's look
-                  (account.css, built on the tg tokens and components from src/toge/client/hub.css)
+  menu/account.ts the sign-in / create-account screen, and Change password when signed in, in KANJO's look
+                  (account.css, built on the tg tokens and components from src/kanjo/client/hub.css)
   account.ts      who's signed in (asks `/api/me`; the session cookie is HttpOnly)
   pad.ts          gamepads for every menu (spatial focus, A/B/LB/RB) and for driving (readPad, padAxis, rumble)
   graphics.ts     the Graphics setting, High / Low, saved per device (`atrous.graphics`; picked in the Settings tab):

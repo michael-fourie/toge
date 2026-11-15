@@ -1,4 +1,4 @@
-# TŌGE's driving mechanics are locked (Michael, 2026-11-12). This runs tests/toge/drivinglock.test.ts on every PR
+# KANJO's driving mechanics are locked (Michael, 2026-11-12). This runs tests/kanjo/drivinglock.test.ts on every PR
 # and every push to master, so a change to how the cars drive shows up as a red check on GitHub.
 # See "Driving mechanics are locked" in CLAUDE.md.
 name: Driving lock
@@ -21,4 +21,4 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx tsx --test tests/toge/drivinglock.test.ts
+      - run: npx tsx --test tests/kanjo/drivinglock.test.ts

@@ -1,14 +1,14 @@
 {
-  "name": "toge",
+  "name": "kanjo",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "TŌGE: mountain-pass and circuit racing in the browser, against AI or friends, with a garage economy.",
+  "description": "KANJO: mountain-pass and circuit racing in the browser, against AI or friends, with a garage economy.",
   "scripts": {
     "dev": "vite",
     "build": "npm run typecheck && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
-    "test": "tsx --test tests/accounts.test.ts tests/toge/racephysics.test.ts tests/toge/drivinglock.test.ts tests/toge/garage.test.ts tests/toge/raceroom.test.ts tests/toge/teamgp.test.ts tests/toge/endurance.test.ts tests/toge/royale.test.ts tests/pad.test.ts tests/toge/raceinput.test.ts tests/security.test.ts tests/toge/standings.test.ts tests/toge/cups.test.ts tests/toge/headcam.test.ts tests/toge/cosmetics.test.ts tests/toge/pass.test.ts tests/toge/draft.test.ts tests/toge/highlight.test.ts tests/toge/rider.test.ts tests/toge/drivers.test.ts tests/toge/hands.test.ts tests/toge/look.test.ts tests/toge/damage.test.ts tests/toge/drift.test.ts tests/boundaries.test.ts tests/graphics.test.ts tests/toge/records.test.ts tests/toge/ghost.test.ts tests/toge/cardstats.test.ts tests/friends.test.ts tests/toge/loading.test.ts tests/toge/scenery.test.ts tests/toge/world.test.ts tests/toge/boost.test.ts",
+    "test": "tsx --test tests/accounts.test.ts tests/kanjo/racephysics.test.ts tests/kanjo/drivinglock.test.ts tests/kanjo/garage.test.ts tests/kanjo/raceroom.test.ts tests/kanjo/teamgp.test.ts tests/kanjo/endurance.test.ts tests/kanjo/royale.test.ts tests/pad.test.ts tests/kanjo/raceinput.test.ts tests/security.test.ts tests/kanjo/standings.test.ts tests/kanjo/cups.test.ts tests/kanjo/headcam.test.ts tests/kanjo/cosmetics.test.ts tests/kanjo/pass.test.ts tests/kanjo/draft.test.ts tests/kanjo/highlight.test.ts tests/kanjo/rider.test.ts tests/kanjo/drivers.test.ts tests/kanjo/hands.test.ts tests/kanjo/look.test.ts tests/kanjo/damage.test.ts tests/kanjo/drift.test.ts tests/boundaries.test.ts tests/graphics.test.ts tests/kanjo/records.test.ts tests/kanjo/ghost.test.ts tests/kanjo/cardstats.test.ts tests/friends.test.ts tests/kanjo/loading.test.ts tests/kanjo/scenery.test.ts tests/kanjo/world.test.ts tests/kanjo/boost.test.ts",
     "deploy": "npm run build && wrangler deploy"
   },
   "engines": {

@@ -1,4 +1,4 @@
-"""The four TŌGE drivers. Each is a MakeHuman body (realistic proportions from MPFB's phenotype
+"""The four KANJO drivers. Each is a MakeHuman body (realistic proportions from MPFB's phenotype
 sliders), recoloured MakeHuman clothes, and a kit of brass-and-neon parts from kit.py.
 
 Recolour rules pick pixels of a texture by hue / saturation / value (and optionally a UV box) and

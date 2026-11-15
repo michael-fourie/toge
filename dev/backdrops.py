@@ -1,4 +1,4 @@
-# Paints TŌGE's distant-scenery panoramas: public/race/backdrops/<theme>.webp.
+# Paints KANJO's distant-scenery panoramas: public/race/backdrops/<theme>.webp.
 #
 # Each image is a seamless 360° strip (4096 x 1024, RGBA) of far-off scenery: ridges of mountains, mesas,
 # headlands, hills or a city skyline, with haze between the layers and mist in the valleys. trackview.ts wraps
@@ -8,7 +8,7 @@
 #
 #   python3 dev/backdrops.py            (needs numpy + Pillow with WebP)
 #
-# Geometry (keep in step with BACKDROP in src/toge/client/trackview.ts): row 0 is tan(elevation) = TOP,
+# Geometry (keep in step with BACKDROP in src/kanjo/client/trackview.ts): row 0 is tan(elevation) = TOP,
 # the last row is BOTTOM, linear in tan(elevation) because the cylinder's height is linear. Column 0 is
 # azimuth 0 (+z) and azimuth grows with the column, the way three.js lays a CylinderGeometry's u.
 
