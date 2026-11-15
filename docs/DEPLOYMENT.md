@@ -34,8 +34,8 @@ npm run deploy    # typecheck, vite build, wrangler deploy
    production" Action once by hand (tick "even if people are playing") to create `production` and ship it.
 3. **Admin key.** `openssl rand -hex 32`, then the Worker, Settings, Variables and Secrets, Add, type Secret, name
    `ADMIN_KEY` (or `npx wrangler secret put ADMIN_KEY`). The admin routes don't exist without it.
-4. **GitHub settings** (repo, Settings, Secrets and variables, Actions): variable `SITE_URL` = the live site (the
-   workers.dev URL now, kanjo.win later), used by the nightly deploy to see if anyone is racing.
+4. **The live site is `https://kanjo.win`** (live since 2026-11-15). The nightly deploy and the account copy default
+   to it; an Actions variable `SITE_URL` / `TO_URL` overrides that if the domain ever changes.
 5. **Copy the accounts from Gambol** (below), then **add the domain** (Custom domain, below).
 
 ## Moving the accounts over from Gambol (one time)
@@ -55,8 +55,8 @@ run wins.
 
 1. Gambol needs the export route live (atrous PR "Admin export route", merged 2026-11-14; it ships with the next
    nightly deploy, or run atrous's "Deploy to production" Action) and its `ADMIN_KEY` secret set.
-2. Here: secrets `FROM_ADMIN_KEY` (Gambol's key) and `TO_ADMIN_KEY` (this Worker's key), variable `TO_URL` (this
-   site; `FROM_URL` defaults to `https://gambol.lol`).
+2. Here: secrets `FROM_ADMIN_KEY` (Gambol's key) and `TO_ADMIN_KEY` (this Worker's key). The copy goes from
+   `https://gambol.lol` to `https://kanjo.win` unless the variables `FROM_URL` / `TO_URL` say otherwise.
 3. Actions, "Copy accounts from Gambol", Run workflow with "Only read" ticked: it counts accounts, garages, best times
    and so on without writing. Then run it again unticked: it copies and prints "Copy matches exactly".
 
@@ -114,7 +114,7 @@ npx wrangler secret put ADMIN_KEY  # paste it (or Cloudflare dashboard -> the Wo
 Then, for a friend who forgot theirs:
 
 ```bash
-curl -X POST https://<your site>/api/admin/reset-password \
+curl -X POST https://kanjo.win/api/admin/reset-password \
   -H "Authorization: Bearer <ADMIN_KEY>" -d '{"username":"their-name"}'
 # {"ok":true,"name":"TheirName","password":"xjptxvq9c2bg"}
 ```
@@ -126,9 +126,9 @@ Send them the temporary password; they sign in and change it under Account -> Ch
 Since 2026-11-06 (still on Gambol's site) only time trials and hill climbs keep best times. Times from before that don't say which mode they came from, so the same key can wipe every best time, all-time board and record ghost on Kōri Pass, Saltwind Cliffs and Red Mesa Rally (`CLEAR_TRACKS` in src/server/accounts.ts, Michael's pick); every other track keeps its times. Preview first, then apply:
 
 ```bash
-curl -X POST https://<your site>/api/admin/clear-race-records -H "Authorization: Bearer <ADMIN_KEY>"
+curl -X POST https://kanjo.win/api/admin/clear-race-records -H "Authorization: Bearer <ADMIN_KEY>"
 # {"ok":true,"applied":false,"tracks":[...],"bests":[{"user":"mike","tracks":["koripass"]}],"boards":{...},"ghosts":[...]}
-curl -X POST https://<your site>/api/admin/clear-race-records -H "Authorization: Bearer <ADMIN_KEY>" -d '{"apply":true}'
+curl -X POST https://kanjo.win/api/admin/clear-race-records -H "Authorization: Bearer <ADMIN_KEY>" -d '{"apply":true}'
 ```
 
 Guests' own bests live in their browsers and aren't touched (they never reach the boards).
