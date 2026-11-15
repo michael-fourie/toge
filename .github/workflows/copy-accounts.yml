@@ -3,7 +3,7 @@
 # copies everything again, so run it as late as you like before switching players over (the last run wins).
 # Needs, under Settings > Secrets and variables > Actions:
 #   secrets FROM_ADMIN_KEY (atrous's ADMIN_KEY) and TO_ADMIN_KEY (this Worker's ADMIN_KEY);
-#   variable TO_URL (this site, e.g. https://toge.<you>.workers.dev or your domain). FROM_URL defaults to gambol.lol.
+#   optional variables TO_URL (defaults to https://kanjo.win) and FROM_URL (defaults to https://gambol.lol).
 # Details: tools/copy-accounts.mjs, docs/DEPLOYMENT.md "Moving the accounts over".
 name: Copy accounts from Gambol
 
@@ -34,6 +34,6 @@ jobs:
         env:
           FROM: ${{ vars.FROM_URL || 'https://gambol.lol' }}
           FROM_KEY: ${{ secrets.FROM_ADMIN_KEY }}
-          TO: ${{ vars.TO_URL }}
+          TO: ${{ vars.TO_URL || 'https://kanjo.win' }}
           TO_KEY: ${{ secrets.TO_ADMIN_KEY }}
           DRY_RUN: ${{ inputs.dry_run }}
