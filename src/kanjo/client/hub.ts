@@ -4,16 +4,12 @@
 // the window behind the glass rail, with your car framed in the free space and its card bottom right.
 
 import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, HOODS, LIPS, MIRRORS, RIMS, RIM_COLORS, RIM_COLOR_NAMES, ROOFS, SPOILERS, STRIPES, TINTS, TRIMS, type BaseCar, TUNE_RANGE, type Tune, carSpec, isBike, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
-import { CRATES, type CrateResult, MYSTERY_COST, TRACK_LENGTH_KM, current, payout, tunerCost } from '../shared/garage.ts';
+import { CRATES, type CrateResult, MYSTERY_COST, current, tunerCost } from '../shared/garage.ts';
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById, fitsModel } from '../shared/cosmetics.ts';
 import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
 import { type Rider, decodeRider, defaultRider, encodeRider, isRider, riderInfo } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
 import { cardData, openPlayerCard } from './playercard.ts';
-import { PHYSICS } from '../shared/protocol.ts';
-import { ROYALE } from '../shared/royale.ts';
-import { CPU_LEVELS, CPU_LEVEL_IDS, type CpuLevel } from '../shared/driver.ts';
-import { cpuLevel, setCpuLevel } from './racegame.ts';
 import { settingsTab } from './settingsui.ts';
 import { friendCar, friendsApi, friendsTab } from './friendsui.ts';
 import { type Leaders, boardApi, leaderboardTab, noticeText } from './leaderboardui.ts';
@@ -30,11 +26,10 @@ import { passChip, passRibbon, passTab } from './passui.ts';
 import { PASS, TIERS, type BgId, type TitleId, tierOf } from '../shared/pass.ts';
 import { garage } from './garageStore.ts';
 import { money } from './hud.ts';
-import { raceNet, roomRace } from './racenet.ts';
+import { raceNet } from './racenet.ts';
 import { Showroom } from './showroom.ts';
 import { GAME, ICON, LOGO } from './brand.ts';
-import { ROYALE_IDS, TRACK_IDS, cupCard, trackKind, trackMap, trackStyle, trackTile } from './trackart.ts';
-import { CUP_IDS, CUPS, GP_POINTS, type CupId } from '../shared/cups.ts';
+import { CUPS } from '../shared/cups.ts';
 import './race.css';
 import './hub.css';
 
@@ -53,15 +48,11 @@ const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
 const PAGES: Page[] = TABS.flatMap((t) => t.pages.map(([p]) => p));
 const tabOf = (p: Page) => TABS.find((t) => t.pages.some(([q]) => q === p))!;
 
-const TRACK_KEY = 'atrous.track';
-const RIVALS_KEY = 'atrous.rivals';
 /** The newest "time beaten" notice this browser has popped up (its `at`), so each pops up once. */
 const NOTICE_POP_KEY = 'atrous.noticePop';
 /** How often the garage checks for new notices while it's open, and how long the popup stays. */
 const NOTICE_POLL_MS = 90_000;
 const NOTICE_POP_MS = 9_000;
-/** Physics mode (crash damage) for solo races, on or off. */
-const PHYSICS_KEY = 'atrous.physics';
 /** A page's slide-in: the last child starts 0.09 s late and runs 0.24 s (hub.css `.tg-panel.enter`). */
 const ENTER_MS = 400;
 const read = (k: string, d: string) => {
@@ -116,10 +107,6 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   /** The page each tab opens on (the last one you looked at). */
   const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint', driver: 'driver', friends: 'friends', settings: 'settings' };
   lastPage[tabOf(page).id] = page;
-  let track = (read(TRACK_KEY, 'koripass') in TRACK_DEFS ? read(TRACK_KEY, 'koripass') : 'koripass') as TrackId;
-  let rivals = Number(read(RIVALS_KEY, '5'));
-  let physics = read(PHYSICS_KEY, '0') === '1';
-  let cpu = cpuLevel();
   let status = screen.notice ?? '';
   let draft: { look: Look; tune: Tune } | null = null;
   /** A dealer car being looked at (shown in the showroom and on the card until you leave the page). */
@@ -145,7 +132,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   const friendsView = () => ({ user: account.user, list: friendList, open: friendOpen, openCar: friendCarI, bests: garage.bests, status });
   const visiting = () => (page === 'friends' ? friendOpen : null);
   /** Leaderboard: the track whose board is open, every track's record, and the boards loaded so far. */
-  let lbTrack: TrackId = BOARD_TRACKS.includes(track) ? track : BOARD_TRACKS[0];
+  let lbTrack: TrackId = BOARD_TRACKS[0];
   let leaders: Leaders | null = null;
   let medals: MedalRow[] | null = null;
   const boards = new Map<TrackId, BoardRow[]>();
@@ -313,58 +300,12 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
 
   const statusLine = () => `<p class="tg-status" role="status" data-status>${esc(status)}</p>`;
 
-  const racePage = () => {
-    const d = TRACK_DEFS[track];
-    const prize = payout(1, rivals + 1, track, true);
-    return `
-    <section class="tg-hero" style="${trackStyle(track)}">
-      <span class="tg-hero-art" aria-hidden="true"></span>
-      <div class="tg-hero-map">${trackMap(track)}</div>
-      <div class="tg-hero-copy">
-        <small class="tg-eyebrow">${esc(trackKind(track))}</small>
-        <h1 class="tg-display">${esc(d.name)}</h1>
-        <p>${esc(d.tag)}</p>
-      </div>
-      <dl class="tg-hero-facts">
-        <div><dt>Distance</dt><dd class="tg-num">${TRACK_LENGTH_KM[track]}<small>km</small></dd></div>
-        <div><dt>Win pays</dt><dd class="tg-num gold">${money(prize)}</dd></div>
-      </dl>
-    </section>
-    <div class="tg-launch">
-      <div class="tg-seg" role="group" aria-label="Rivals">
-        <span class="tg-label">Rivals</span>
-        ${[0, 3, 5, 7].map((n) => `<button class="tg-pill" data-rivals="${n}" aria-pressed="${n === rivals}">${n}</button>`).join('')}
-      </div>
-      <div class="tg-seg" role="group" aria-label="CPU difficulty" title="How hard the CPU rivals push (also your online lobby's CPU racers when you host)">
-        <span class="tg-label">CPU</span>
-        ${CPU_LEVEL_IDS.map((l) => `<button class="tg-pill" data-cpu="${l}" aria-pressed="${l === cpu}">${CPU_LEVELS[l].name}</button>`).join('')}
-      </div>
-      <div class="tg-seg" role="group" aria-label="${esc(PHYSICS.name)}" title="${esc(PHYSICS.on.blurb)}">
-        <span class="tg-label">${esc(PHYSICS.name)}</span>
-        ${[false, true].map((on) => `<button class="tg-pill" data-physics="${on ? 1 : 0}" aria-pressed="${on === physics}">${on ? 'On' : 'Off'}</button>`).join('')}
-      </div>
-      <div class="tg-launch-go">
-        <button class="tg-go alt" data-trial title="Just you and the clock on this track. The server times the run, so signed in it counts for your best time and the leaderboard.">${ICON.clock}Time trial</button>
-        <button class="tg-go" data-solo data-autofocus>${ICON.flag}Race solo</button>
-      </div>
-    </div>
-    <p class="tg-blurb">${esc(d.blurb)}</p>
-    <h2 class="tg-h">Tracks <small>${TRACK_IDS.length}</small></h2>
-    <div class="tg-tracks">
-      ${TRACK_IDS.map((id) => trackTile(id, `data-track="${id}" aria-pressed="${id === track}" aria-label="${esc(TRACK_DEFS[id].name)}"`)).join('')}
-    </div>
-    <h2 class="tg-h">Grand Prix <small>4 tracks back to back · ${GP_POINTS.slice(0, 3).join('-')}… points · pick a cup to start</small></h2>
-    <div class="tg-cups">
-      ${CUP_IDS.map((id) => cupCard(id, `data-gp="${id}" aria-label="Race the ${esc(CUPS[id].name)}"`)).join('')}
-    </div>
-    <h2 class="tg-h">Battle royale <small>last car over the line each lap is destroyed · the last one left wins · pick an arena to start</small></h2>
-    <div class="tg-tracks">
-      ${ROYALE_IDS.map((id) => trackTile(id, `data-royale="${id}" aria-label="Battle royale on ${esc(TRACK_DEFS[id].name)}"`)).join('')}
-    </div>
-    <h2 class="tg-h">Online <small>up to 8 racers</small></h2>
+  /** The landing page: host a race or join one by code (or from the open list). Everything else is set up in the lobby. */
+  const racePage = () => `
+    <h2 class="tg-h">Race online <small>up to 8 racers</small></h2>
     <div class="tg-online tg-cardbox">
       <div class="tg-online-row">
-        <button class="tg-go alt" data-host>Host a race</button>
+        <button class="tg-go alt" data-host data-autofocus>Host a race</button>
         <span class="tg-or">or</span>
         <label class="tg-code"><span class="sr-only">Race code</span><input data-code maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" /></label>
         <button class="tg-pill" data-join>Join</button>
@@ -372,7 +313,6 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       <ul class="tg-lobbies" data-lobbies><li class="muted">Looking for open races…</li></ul>
     </div>
     ${statusLine()}`;
-  };
 
   const garagePage = () => {
     const g = garage.g;
@@ -639,47 +579,6 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
 
   const wire = (panel: HTMLElement) => {
     panel.querySelectorAll<HTMLElement>('[data-goto]').forEach((b) => b.addEventListener('click', () => switchPage(b.dataset.goto as Page)));
-    panel.querySelectorAll<HTMLElement>('[data-track]').forEach((b) =>
-      b.addEventListener('click', () => {
-        track = b.dataset.track as TrackId;
-        write(TRACK_KEY, track);
-        draw();
-      }),
-    );
-    panel.querySelectorAll<HTMLElement>('[data-rivals]').forEach((b) =>
-      b.addEventListener('click', () => {
-        rivals = Number(b.dataset.rivals);
-        write(RIVALS_KEY, String(rivals));
-        draw();
-      }),
-    );
-    panel.querySelectorAll<HTMLElement>('[data-cpu]').forEach((b) =>
-      b.addEventListener('click', () => {
-        cpu = b.dataset.cpu as CpuLevel;
-        setCpuLevel(cpu);
-        draw();
-      }),
-    );
-    panel.querySelectorAll<HTMLElement>('[data-physics]').forEach((b) =>
-      b.addEventListener('click', () => {
-        physics = b.dataset.physics === '1';
-        write(PHYSICS_KEY, physics ? '1' : '0');
-        draw();
-      }),
-    );
-    panel.querySelector('[data-solo]')?.addEventListener('click', () => ctx.drive({ track, rivals, physics }));
-    panel.querySelector('[data-trial]')?.addEventListener('click', () => soloTrial());
-    // A solo Grand Prix: the cup's first round, against your rivals (at least three: a cup needs a field).
-    panel.querySelectorAll<HTMLElement>('[data-gp]').forEach((b) =>
-      b.addEventListener('click', () => {
-        const cup = b.dataset.gp as CupId;
-        ctx.drive({ track: CUPS[cup].tracks[0], rivals: Math.max(3, rivals), physics, gp: { cup, round: 0, table: [] } });
-      }),
-    );
-    // A solo battle royale: you against your rivals (at least ROYALE.minRivals: someone has to be outlasted).
-    panel.querySelectorAll<HTMLElement>('[data-royale]').forEach((b) =>
-      b.addEventListener('click', () => ctx.drive({ track: b.dataset.royale as TrackId, rivals: Math.max(ROYALE.minRivals, rivals), physics })),
-    );
     panel.querySelectorAll<HTMLElement>('[data-lb-track]').forEach((b) =>
       b.addEventListener('click', () => {
         lbTrack = b.dataset.lbTrack as TrackId;
@@ -692,11 +591,6 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       void boardApi.seen(notices[0].at);
       notices = [];
       draw();
-    });
-    panel.querySelector<HTMLElement>('[data-lb-race]')?.addEventListener('click', (e) => {
-      track = (e.currentTarget as HTMLElement).dataset.lbRace as TrackId;
-      write(TRACK_KEY, track);
-      switchPage('race');
     });
     panel.querySelector('[data-host]')?.addEventListener('click', () => connect(null));
     const code = panel.querySelector<HTMLInputElement>('[data-code]');
@@ -1077,33 +971,6 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     else raceNet.host(playerName(), enc, rider);
   };
 
-  /**
-   * A solo time trial on the picked track: a private room of one (raceNet.hostSolo), so the server times the run and
-   * keeps it as a best time and on the leaderboard like any online time trial. Straight to the start, no lobby.
-   */
-  const soloTrial = () => {
-    flushDraft();
-    setStatus(`Opening a time trial on ${TRACK_DEFS[track].name}…`);
-    offNet?.();
-    let started = false;
-    offNet = raceNet.on((m) => {
-      if (m.t === 'room' && !started) {
-        started = true;
-        raceNet.send({ t: 'track', track });
-        raceNet.send({ t: 'start' });
-      } else if (m.t === 'load') {
-        offNet?.();
-        offNet = null;
-        ctx.drive(roomRace(m));
-      } else if (m.t === 'error') {
-        offNet?.();
-        offNet = null;
-        setStatus(m.message);
-      }
-    });
-    raceNet.hostSolo(playerName(), encodeCar(car()), encodeRider(viewedRider()));
-  };
-
   const refreshLobbies = async () => {
     clearTimeout(listTimer);
     const list = root.querySelector('[data-lobbies]');
@@ -1152,7 +1019,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   addEventListener('padtab', onPadTab);
   // Start: the Race page's main action.
   const onPadStart = () => {
-    if (root.querySelector<HTMLElement>('[data-modal]')!.hidden && page === 'race') root.querySelector<HTMLElement>('[data-solo]')?.click();
+    if (root.querySelector<HTMLElement>('[data-modal]')!.hidden && page === 'race') root.querySelector<HTMLElement>('[data-host]')?.click();
   };
   addEventListener('padstart', onPadStart);
   // Esc / B closes the crate reel before it backs out of the screen.
@@ -1214,10 +1081,10 @@ function focusId(el: Element | null): string | null {
   const dl = el.getAttribute('data-dl');
   if (dl) return el.hasAttribute('data-pick') ? `input[data-dl="${dl}"]` : `button[data-dl="${dl}"][data-v="${el.getAttribute('data-v')}"]`;
   if (el.hasAttribute('data-dl-random')) return '[data-dl-random]';
-  for (const attr of ['data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-track', 'data-gp', 'data-royale', 'data-rivals', 'data-cpu', 'data-physics', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
+  for (const attr of ['data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }
-  for (const attr of ['data-solo', 'data-trial', 'data-host', 'data-join', 'data-code', 'data-friend-name']) if (el.hasAttribute(attr)) return `[${attr}]`;
+  for (const attr of ['data-host', 'data-join', 'data-code', 'data-friend-name']) if (el.hasAttribute(attr)) return `[${attr}]`;
   return null;
 }

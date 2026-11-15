@@ -113,6 +113,9 @@ const MOTE_KIND: Record<NonNullable<Stage['motes']>, { colors: number[]; size: n
   stars: { colors: [0xffffff, 0xcfe4ff], size: 0.05, fall: 0, sway: 0 },
 };
 
+/** The fastest the turntable coasts after a flick (rad/s), so one hard drag can't leave it whirling. */
+const FLING_MAX = 4;
+
 export class Showroom {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -121,7 +124,7 @@ export class Showroom {
   private model: CarModel | null = null;
   private raf = 0;
   private spin = 0.6;
-  private vel = 0.25;
+  private vel = 0;
   private dragging = false;
   private last = performance.now();
   private ro: ResizeObserver;
@@ -494,7 +497,7 @@ export class Showroom {
       this.riderYaw += e.movementX * 0.01;
       return;
     }
-    this.vel = e.movementX * 0.5;
+    this.vel = Math.max(-FLING_MAX, Math.min(FLING_MAX, e.movementX * 0.5));
     this.spin += e.movementX * 0.008;
   };
 
@@ -543,7 +546,7 @@ export class Showroom {
       this.turntable.rotation.y += (this.spin - this.turntable.rotation.y) * Math.min(1, dt * 4);
     } else {
       if (Math.abs(stick) > 0.1) this.vel = stick * 2.5;
-      else if (!this.dragging) this.vel += (0.25 - this.vel) * Math.min(1, dt * 1.5);
+      else if (!this.dragging) this.vel -= this.vel * Math.min(1, dt * 3); // a flick coasts to a stop: no idle spin
       if (!this.dragging) this.spin += this.vel * dt;
       this.turntable.rotation.y = this.spin;
     }
