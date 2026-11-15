@@ -30,8 +30,8 @@ jobs:
   ship:
     runs-on: ubuntu-latest
     env:
-      # The live site, e.g. https://toge.<you>.workers.dev or your domain (Settings > Secrets and variables > Actions).
-      SITE: ${{ vars.SITE_URL }}
+      # The live site (override with an Actions variable SITE_URL).
+      SITE: ${{ vars.SITE_URL || 'https://kanjo.win' }}
     steps:
       - uses: actions/checkout@v4
         with:
