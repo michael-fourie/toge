@@ -1,10 +1,10 @@
 import { type Ctx, type DriveOpts, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
-import { driveHub } from '../toge/client/hub.ts';
-import { driveLobby } from '../toge/client/lobby.ts';
-import { RaceGame } from '../toge/client/racegame.ts';
-import { showTogeLoading } from '../toge/client/loading.ts';
-import { garage } from '../toge/client/garageStore.ts';
-import { current } from '../toge/shared/garage.ts';
+import { driveHub } from '../kanjo/client/hub.ts';
+import { driveLobby } from '../kanjo/client/lobby.ts';
+import { RaceGame } from '../kanjo/client/racegame.ts';
+import { showKanjoLoading } from '../kanjo/client/loading.ts';
+import { garage } from '../kanjo/client/garageStore.ts';
+import { current } from '../kanjo/shared/garage.ts';
 import { startMenuNav } from './pad.ts';
 import { accountScreen } from './menu/account.ts';
 import { account } from './account.ts';
@@ -18,7 +18,7 @@ const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { drive: driveHub, 
 let game: { exit(): void } | null = null;
 let leaveScreen: (() => void) | null = null;
 
-/** The page the screens swap in and out of (each TŌGE screen paints its own background). */
+/** The page the screens swap in and out of (each KANJO screen paints its own background). */
 function stage(): HTMLElement {
   let el = app.querySelector<HTMLElement>('.menu-stage');
   if (!el) {
@@ -68,7 +68,7 @@ async function drive(opts: DriveOpts, again = false) {
   leaveScreen?.();
   leaveScreen = null;
   if (!again) router.mark({ name: 'game' });
-  const hide = showTogeLoading({
+  const hide = showKanjoLoading({
     track: opts.track,
     rivals: opts.rivals,
     physics: opts.online ? opts.online.physics : opts.physics,

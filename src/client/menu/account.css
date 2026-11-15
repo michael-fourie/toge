@@ -1,5 +1,5 @@
-/* The account screen (menu/account.ts) in TŌGE's look: a dark card over the ink background, using the tokens and
-   components (tg-go, tg-pill, tg-home, the logo) from src/toge/client/hub.css. Rules: src/toge/DESIGN.md. */
+/* The account screen (menu/account.ts) in KANJO's look: a dark card over the ink background, using the tokens and
+   components (tg-go, tg-pill, tg-home, the logo) from src/kanjo/client/hub.css. Rules: src/kanjo/DESIGN.md. */
 .tg-account {
   display: grid;
   place-items: center;

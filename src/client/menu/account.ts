@@ -3,9 +3,9 @@ import { account } from '../account.ts';
 import type { Render } from './router.ts';
 import './account.css';
 import { $, esc } from './ui.ts';
-import { ICON, LOGO } from '../../toge/client/brand.ts';
+import { ICON, LOGO } from '../../kanjo/client/brand.ts';
 
-/** The account card in TŌGE's look (DESIGN.md): the logo, a back pill, the heading, then `body`. */
+/** The account card in KANJO's look (DESIGN.md): the logo, a back pill, the heading, then `body`. */
 const card = (body: string) => `
   <div class="tg tg-account">
     <main class="tg-acct" data-nav-scope>

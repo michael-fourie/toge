@@ -3,7 +3,7 @@
 # copies everything again, so run it as late as you like before switching players over (the last run wins).
 # Needs, under Settings > Secrets and variables > Actions:
 #   secrets FROM_ADMIN_KEY (atrous's ADMIN_KEY) and TO_ADMIN_KEY (this Worker's ADMIN_KEY);
-#   variable TO_URL (this site, e.g. https://toge.<you>.workers.dev or your domain). FROM_URL defaults to gambol.lol.
+#   variable TO_URL (this site, e.g. https://kanjo.<you>.workers.dev or https://kanjo.win). FROM_URL defaults to gambol.lol.
 # Details: tools/copy-accounts.mjs, docs/DEPLOYMENT.md "Moving the accounts over".
 name: Copy accounts from Gambol
 

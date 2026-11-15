@@ -1,5 +1,5 @@
 // Friends: who you've added (by username) and who has added you. Site-wide, kept by the Accounts DO
-// (src/server/friendStore.ts); a game decides what a friend can see (TŌGE: your garage and best times).
+// (src/server/friendStore.ts); a game decides what a friend can see (KANJO: your garage and best times).
 
 /** Most friends one account can add. */
 export const FRIENDS_MAX = 100;

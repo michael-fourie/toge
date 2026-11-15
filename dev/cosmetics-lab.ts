@@ -1,12 +1,12 @@
-// Dev-only lab for TŌGE cosmetics: the garage showroom with any kit on any car, and every item card.
+// Dev-only lab for KANJO cosmetics: the garage showroom with any kit on any car, and every item card.
 // window.cz: show(carId, kit, plate?), angle(rad) (holds the turntable still), cam(x, y, z, tx?, ty?, tz?),
 // cards() (every item card, by slot).
 
-import { CAR_IDS, type CarId, newOwnedCar } from '../src/toge/shared/cars.ts';
-import { COS_SLOTS, CATALOG, type CosKit } from '../src/toge/shared/cosmetics.ts';
-import { Showroom } from '../src/toge/client/showroom.ts';
-import { itemCard } from '../src/toge/client/cosmeticsui.ts';
-import '../src/toge/client/hub.css';
+import { CAR_IDS, type CarId, newOwnedCar } from '../src/kanjo/shared/cars.ts';
+import { COS_SLOTS, CATALOG, type CosKit } from '../src/kanjo/shared/cosmetics.ts';
+import { Showroom } from '../src/kanjo/client/showroom.ts';
+import { itemCard } from '../src/kanjo/client/cosmeticsui.ts';
+import '../src/kanjo/client/hub.css';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const room = new Showroom(canvas);

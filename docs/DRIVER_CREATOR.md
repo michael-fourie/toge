@@ -1,4 +1,4 @@
-# TŌGE driver creator: plan
+# KANJO driver creator: plan
 
 Goal: players build their own driver in the garage (body, face, skin, hair, outfit and its colours,
 brass-and-neon kit, glow colour, wheel), and the result looks like it belongs next to Marlowe, Kirika,
@@ -35,7 +35,7 @@ rivals and remote racers can be drawn from it.
 - **Kit materials are plain PBR**: metals, leathers and the glow are `palette()` entries, so the client
   swaps them per look (pick the metal, pick the glow colour) with no rebuild.
 
-## Data model (`src/toge/shared/look.ts`)
+## Data model (`src/kanjo/shared/look.ts`)
 
 ```
 Look {
@@ -63,7 +63,7 @@ Look {
   slots) and returns null for junk or an old version; the server uses it (`isDriver`) on `driver=`.
 - `withBase` keeps skin tone and age across frames; `withOutfit` resets to the outfit's palette;
   `withKit` keeps one piece per slot; `randomLook` for "Surprise me".
-- The catalogue mirrors the build's manifest; `tests/toge/look.test.ts` checks the two agree, file by file.
+- The catalogue mirrors the build's manifest; `tests/kanjo/look.test.ts` checks the two agree, file by file.
 
 ## Build (`tools/drivers/wardrobe.py`)
 
@@ -87,7 +87,7 @@ Per base:
 5. `drive`/`idle` clips (wheel radius 0.18 m), seat fitted, four wheels.
 6. Exported as `.gltf` (JSON minified) with `export_texture_dir` pointing at the shared `tex/`.
 
-## Client (`src/toge/client/wardrobe.ts`)
+## Client (`src/kanjo/client/wardrobe.ts`)
 
 - `assemble(look)`: loads base + parts (cached per URL, Draco via `public/draco/`), clones the base,
   rebinds each part's SkinnedMesh to the base skeleton by bone name, and applies the look:
@@ -110,23 +110,23 @@ Per base:
 ## Phases
 
 - [x] **0. Plan** (this file).
-- [x] **1. Look model**: `src/toge/shared/look.ts` (catalogue, `Look`, `encodeLook`/`decodeLook`/
-  `lookProblem`, `withOutfit`/`withKit`, `randomLook`); `tests/toge/look.test.ts` (round trips, junk refused,
+- [x] **1. Look model**: `src/kanjo/shared/look.ts` (catalogue, `Look`, `encodeLook`/`decodeLook`/
+  `lookProblem`, `withOutfit`/`withKit`, `randomLook`); `tests/kanjo/look.test.ts` (round trips, junk refused,
   kit slots, and the catalogue checked against the built manifest and files).
 - [x] **2. Pipeline, one base**: `tools/drivers/wardrobe.py` builds `m_avg` (3 outfits, 1 shoes, 3 hairs,
   11 kit pieces, 4 wheels; 7 skins and 6 irises shared) in ~25 s. `build.py` now exposes `zone_masks()`
   (used by `recolor()`) and only runs `main()` when run directly.
-- [x] **3. Assembler**: `src/toge/client/wardrobe.ts` (`assemble(look)`), recolour shader, body hiding,
+- [x] **3. Assembler**: `src/kanjo/client/wardrobe.ts` (`assemble(look)`), recolour shader, body hiding,
   role materials; `DriverRig` takes any scene; `loadDriver()` takes a legend id or a look code.
   `/dev/drivers.html` (`window.lab`) shows legends beside custom looks, standing or seated.
 - [x] **4. Creator UI**: a fifth card on the Driver tab ("Your driver") opens the creator underneath
-  (`src/toge/client/creator.ts`: face, hair, outfit + zone colours, shoes, kit, metal, leather, glow,
+  (`src/kanjo/client/creator.ts`: face, hair, outfit + zone colours, shoes, kit, metal, leather, glow,
   wheel, Surprise me). Saved in localStorage (`atrous.look`, and `atrous.driver` holds the code while
   you drive it); the showroom re-assembles 150 ms after a change.
 - [x] **5. Race + network**: `isDriver()` (legend or wearable look) on the server; `Racer.driver` is a
   string; racegame seats custom drivers (yours and remote racers'); rivals are the four legends when you
   drive your own; the lobby roster tags custom drivers "Own driver" in their glow. Tested in
-  `tests/toge/rider.test.ts`.
+  `tests/kanjo/rider.test.ts`.
 - [x] **6. Fill the wardrobe**: six bases (masculine/feminine × slim/average/heavy), all 12 MakeHuman
   outfits with colour zones, 6 shoes, 10 hairstyles, 12 brows, 10 skins per frame, 9 irises, 15 kit
   pieces incl. mechanical arms (sleeve cut + metal skin at runtime) and gloves (painted hands). Draco +
@@ -138,7 +138,7 @@ Per base:
   signed-in player and in `atrous.garage` for a guest, through the same rules. The client applies a
   change at once and sends it 400 ms after the last edit (`garage.setDriver`), so dragging a colour is
   one request. On first sign-in an account with no look adopts the guest's; the old `atrous.driver` /
-  `atrous.look` keys are folded into the guest garage once. Tests in `tests/toge/rider.test.ts`.
+  `atrous.look` keys are folded into the guest garage once. Tests in `tests/kanjo/rider.test.ts`.
   Still open: whether some parts should be unlocked with money or crates.
 
 ## Risks and open questions
@@ -153,14 +153,14 @@ Per base:
 
 ## Notes as we go
 
-- 2026-11-05: ported onto master's TŌGE (`src/toge/`, drivers are "riders"). `Rider` is now a legend id or a
+- 2026-11-05: ported onto master's KANJO (`src/kanjo/`, drivers are "riders"). `Rider` is now a legend id or a
   look code (`LookCode`, a template-literal type); the rider-code plumbing master already had (garage `rider`,
   the `rider` socket param and lobby message, records, portraits, the showroom) carries custom drivers as is,
   with `RIDER_CODE_MAX` raised to 200. The garage keeps your look in `look`; the `rider` action takes an
   optional `look`. The Driver page gets a fifth card and the creator, saved through master's rider draft
   (700 ms after the last change). Every wardrobe base also bakes master's `ride` pose (bikes). Low graphics
   keeps the recolour (lowgfx.ts copies `onBeforeCompile` onto its Lambert stand-ins). Superseded the
-  `toge-drivers` branch's `garage.driver` / `setDriver` (master's rider draft does the same job).
+  `kanjo-drivers` branch's `garage.driver` / `setDriver` (master's rider draft does the same job).
 
 - 2026-11-04 (Phase 6): the wardrobe is full. Findings:
   - The `.gltf` JSON was pretty-printed and repeats the skeleton in every part (~20 kB each): minified,

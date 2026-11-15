@@ -9,17 +9,17 @@ This guide covers the whole server side. The files:
 
 - `src/server/` (the platform): `worker.ts` (routing, `Env`, admin routes), `directory.ts`, `accounts.ts` +
   `accountStore.ts` + `friendStore.ts`, `limiter.ts`, `rooms.ts` (`Socket` and `HEARTBEAT_SECONDS`).
-- `src/toge/server/`: `raceroom.ts` (RaceRoom), `race.ts`, `garageStore.ts`, `recordStore.ts`.
+- `src/kanjo/server/`: `raceroom.ts` (RaceRoom), `race.ts`, `garageStore.ts`, `recordStore.ts`.
 
 All of them are typechecked by `tsconfig.worker.json` (Workers types, no DOM). They may import `src/shared` and
-`src/toge/shared`, never a `client/` folder.
+`src/kanjo/shared`, never a `client/` folder.
 
 ## Routing (`worker.ts`)
 
 | Route | Handled by |
 |---|---|
 | `/api/races` | Directory `"race"` `.listRaces()` (open race lobbies with someone in them; solo time trials flagged `solo`) |
-| `/api/me`, `POST /api/register`, `/api/login`, `/api/logout`, `/api/password` (change, signed in) | Accounts `"all"` (`accountApi`; cookie `toge_session`) |
+| `/api/me`, `POST /api/register`, `/api/login`, `/api/logout`, `/api/password` (change, signed in) | Accounts `"all"` (`accountApi`; cookie `kanjo_session`) |
 | `POST /api/admin/reset-password` (`Authorization: Bearer <ADMIN_KEY>`, `{username}`) | Accounts `"all"` `.resetPassword` (`adminReset`; 404 unless the `ADMIN_KEY` secret is set; how-to in docs/DEPLOYMENT.md) |
 | `POST /api/admin/clear-race-records` (same key; `{"apply": true}` to wipe, otherwise a preview) | Accounts `"all"` `.clearRaceRecords` (`adminClearRecords`): wipes bests, boards and ghosts on Kōri Pass, Saltwind and Red Mesa (`CLEAR_TRACKS`) |
 | `POST /api/admin/export` (same key; `{"after": <key or null>}`) | Accounts `"all"` `.exportPage`: one page (50 keys) of every stored key and value, read only. Backups, and the check after the copy from Gambol |
@@ -46,8 +46,8 @@ All of them are typechecked by `tsconfig.worker.json` (Workers types, no DOM). T
 | Class (file) | Role |
 |---|---|
 | `Directory` (`directory.ts`) | The `"race"` instance: 4-letter codes, the lobby list, entries expire after 3 missed 30 s heartbeats. Rate-limits hosting per IP. |
-| `Accounts` (`accounts.ts` + `accountStore.ts`, `friendStore.ts`, `toge/server/garageStore.ts` + `recordStore.ts`) | One global instance `"all"`: users, sessions, friends, garages, best times, boards, ghosts, notices. PBKDF2 runs here (the free-plan Worker only gets 10 ms CPU). |
-| `RaceRoom` (`toge/server/raceroom.ts`, logic in `race.ts`) | One race. Messages ≤ 2048 B, 60 msg/s. One prize per account per race. |
+| `Accounts` (`accounts.ts` + `accountStore.ts`, `friendStore.ts`, `kanjo/server/garageStore.ts` + `recordStore.ts`) | One global instance `"all"`: users, sessions, friends, garages, best times, boards, ghosts, notices. PBKDF2 runs here (the free-plan Worker only gets 10 ms CPU). |
+| `RaceRoom` (`kanjo/server/raceroom.ts`, logic in `race.ts`) | One race. Messages ≤ 2048 B, 60 msg/s. One prize per account per race. |
 
 Rooms use `ws.accept()` (not the hibernation API) and keep state in memory; a room ends when it empties.
 Rate limiters (`limiter.ts`, token bucket) and login lockouts are in memory too, so they reset if a DO is evicted.
@@ -66,7 +66,7 @@ that way: it's what makes the logic unit-testable.
   within −2/+0.5 s of the server's), results, eliminations, best times and boards, and **all money and XP for
   signed-in players**.
 - Netcode upgrade path: send inputs instead of state, run the shared physics on the server, add prediction and
-  reconciliation. Keep `src/toge/shared` (and `src/shared`) deterministic so that stays possible.
+  reconciliation. Keep `src/kanjo/shared` (and `src/shared`) deterministic so that stays possible.
 
 ## Accounts and economy
 
@@ -82,7 +82,7 @@ that way: it's what makes the logic unit-testable.
 - Cosmetic cases are a garage action like crates: the server rolls with `secureRandom` (crypto, garageStore.ts),
   charges, grants or refunds. `Accounts.raceCar(name, code)` strips cosmetics an account doesn't own from its race car
   code; the Worker runs it on `car=` when an account joins a race, RaceRoom on every `{t:'car'}` from an account.
-- Guests keep their garage in localStorage and run the same pure rules (`applyAction` in `toge/shared/garage.ts`).
+- Guests keep their garage in localStorage and run the same pure rules (`applyAction` in `kanjo/shared/garage.ts`).
   Signed in, the server runs them with its own dice and clock.
 - Paying: races call `Accounts.raceReward`, and `Accounts.raceTime` for each account's finish (a new best comes back
   and the room tells everyone with `records`), only for time trials and hill climbs (`recordMode`). Solo races keep no
@@ -95,7 +95,7 @@ that way: it's what makes the logic unit-testable.
    lengths, ids that must exist (`cleanGarage`, `decodeCar`, `cleanRider`). Relayed state reaches every racer.
 3. New POST route: through `jsonBody` with a size cap. New socket kind: a byte cap and a `Limiter`.
 4. Never send hidden state early.
-5. **New message type:** add it to the union in `toge/shared/protocol.ts`, handle it in `Race`, keep it under the
+5. **New message type:** add it to the union in `kanjo/shared/protocol.ts`, handle it in `Race`, keep it under the
    room's byte limit, add a test.
 6. **New Durable Object:** export it from `worker.ts`, add it to `Env`, add the binding to **both** `durable_objects`
    and `previews.durable_objects` in `wrangler.jsonc` (branch preview builds fail without the latter), and append a
@@ -106,7 +106,7 @@ that way: it's what makes the logic unit-testable.
 
 Tests never import `cloudflare:workers`; they construct the logic classes with fake sockets (`{readyState: 1, send}`):
 
-- `new Race(..., () => now, false)` with a hand-wound clock and no interval (`tests/toge/raceroom.test.ts`).
-- Storage tests use a `Map` as KV (`tests/accounts.test.ts`, `tests/toge/garage.test.ts`, `records.test.ts`).
+- `new Race(..., () => now, false)` with a hand-wound clock and no interval (`tests/kanjo/raceroom.test.ts`).
+- Storage tests use a `Map` as KV (`tests/accounts.test.ts`, `tests/kanjo/garage.test.ts`, `records.test.ts`).
 - The admin export/import pair and `tools/copy-accounts.mjs` were checked end to end against two local dev servers
   (`npm run dev` in both repos with `ADMIN_KEY` in `.dev.vars`): logins, garage and friends identical after the copy.

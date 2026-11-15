@@ -1,13 +1,13 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { ActionResult, Garage, GarageAction } from '../toge/shared/garage.ts';
-import { type Bests, type BoardRow, type MedalRow, type NewBest, type Notice, type TogeProfile, cleanBests, profileOf } from '../toge/shared/records.ts';
-import type { TrackId } from '../toge/shared/track.ts';
-import type { GhostRun, GhostTape } from '../toge/shared/ghost.ts';
+import type { ActionResult, Garage, GarageAction } from '../kanjo/shared/garage.ts';
+import { type Bests, type BoardRow, type MedalRow, type NewBest, type Notice, type KanjoProfile, cleanBests, profileOf } from '../kanjo/shared/records.ts';
+import type { TrackId } from '../kanjo/shared/track.ts';
+import type { GhostRun, GhostTape } from '../kanjo/shared/ghost.ts';
 import type { FriendAction, FriendList, FriendResult } from '../shared/friends.ts';
 import { AccountStore, type ResetResult, type Result } from './accountStore.ts';
 import { FriendStore } from './friendStore.ts';
-import { GarageStore } from '../toge/server/garageStore.ts';
-import { type ClearReport, RecordStore } from '../toge/server/recordStore.ts';
+import { GarageStore } from '../kanjo/server/garageStore.ts';
+import { type ClearReport, RecordStore } from '../kanjo/server/recordStore.ts';
 import { Limiter } from './limiter.ts';
 
 /** The tracks `clearRaceRecords` wipes: Kōri Pass, Saltwind Cliffs and Red Mesa Rally. */
@@ -83,10 +83,10 @@ export class Accounts extends DurableObject {
   }
 
   /**
-   * What `token`'s account may see of `name`'s TŌGE garage: their own, or a friend's they've added. Null otherwise
+   * What `token`'s account may see of `name`'s KANJO garage: their own, or a friend's they've added. Null otherwise
    * (guests, strangers, no such account).
    */
-  async profile(token: string | undefined, name: string): Promise<TogeProfile | null> {
+  async profile(token: string | undefined, name: string): Promise<KanjoProfile | null> {
     const me = await this.store.me(token);
     if (!me || typeof name !== 'string') return null;
     const user = await this.ctx.storage.get<{ name: string }>(`u:${name.toLowerCase()}`);
@@ -95,7 +95,7 @@ export class Accounts extends DurableObject {
   }
 
   /**
-   * TŌGE's all-time boards, open to anyone: one track's board (one row per account, their best there), or with no
+   * KANJO's all-time boards, open to anyone: one track's board (one row per account, their best there), or with no
    * track every track's record and the medal table (golds, silvers, bronzes across every board's top three).
    */
   async leaderboard(track: string | null): Promise<{ rows: BoardRow[] } | { leaders: Partial<Record<TrackId, BoardRow>>; medals: MedalRow[] }> {
@@ -103,13 +103,13 @@ export class Accounts extends DurableObject {
     return track === null ? await this.records.leaders() : { rows: await this.records.board(track) };
   }
 
-  /** TŌGE: a session's unseen "your time was beaten" notices (null for guests, who aren't on the boards). */
+  /** KANJO: a session's unseen "your time was beaten" notices (null for guests, who aren't on the boards). */
   async notices(token: string | undefined): Promise<Notice[] | null> {
     const user = await this.store.me(token);
     return user ? this.records.notices(user) : null;
   }
 
-  /** TŌGE: the session has seen its notices up to `upTo` (a notice's `at`). */
+  /** KANJO: the session has seen its notices up to `upTo` (a notice's `at`). */
   async seenNotices(token: string | undefined, upTo: number): Promise<boolean> {
     const user = await this.store.me(token);
     if (!user || !Number.isFinite(upTo)) return false;

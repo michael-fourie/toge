@@ -1,5 +1,5 @@
-// Hardening shared by every screen: typed names and rate limits. (TŌGE's own server-side checks, garage payouts and
-// race money, are in tests/toge/garage.test.ts, cosmetics.test.ts and raceroom.test.ts.)
+// Hardening shared by every screen: typed names and rate limits. (KANJO's own server-side checks, garage payouts and
+// race money, are in tests/kanjo/garage.test.ts, cosmetics.test.ts and raceroom.test.ts.)
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Limiter } from '../src/server/limiter.ts';

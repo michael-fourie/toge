@@ -1,14 +1,14 @@
 import type { Accounts } from './accounts.ts';
 import type { Directory } from './directory.ts';
-import type { RaceRoom } from '../toge/server/raceroom.ts';
-import type { GarageAction } from '../toge/shared/garage.ts';
-import { CAR_CODE_MAX } from '../toge/shared/cars.ts';
-import { RIDER_CODE_MAX } from '../toge/shared/rider.ts';
+import type { RaceRoom } from '../kanjo/server/raceroom.ts';
+import type { GarageAction } from '../kanjo/shared/garage.ts';
+import { CAR_CODE_MAX } from '../kanjo/shared/cars.ts';
+import { RIDER_CODE_MAX } from '../kanjo/shared/rider.ts';
 import type { FriendAction } from '../shared/friends.ts';
 
 export { Accounts } from './accounts.ts';
 export { Directory } from './directory.ts';
-export { RaceRoom } from '../toge/server/raceroom.ts';
+export { RaceRoom } from '../kanjo/server/raceroom.ts';
 
 export interface Env {
   RACE: DurableObjectNamespace<RaceRoom>;
@@ -18,7 +18,7 @@ export interface Env {
   ADMIN_KEY?: string;
 }
 
-const COOKIE = 'toge_session';
+const COOKIE = 'kanjo_session';
 const SESSION_SECONDS = 30 * 24 * 3600;
 
 function readCookie(req: Request): string | undefined {
@@ -87,7 +87,7 @@ async function adminReset(req: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Michael's one-off TŌGE cleanup: `POST /api/admin/clear-race-records` with `Authorization: Bearer <ADMIN_KEY>`.
+ * Michael's one-off KANJO cleanup: `POST /api/admin/clear-race-records` with `Authorization: Bearer <ADMIN_KEY>`.
  * With no body (or `{"apply": false}`) it only reports which best times, board rows and record ghosts would go; with
  * `{"apply": true}` it wipes them (Accounts.clearRaceRecords). Same lock as the password reset.
  */
@@ -197,7 +197,7 @@ async function garageApi(req: Request, url: URL, accounts: DurableObjectStub<Acc
   return Response.json(await accounts.garageAct(token, action));
 }
 
-/** TŌGE notices ("your time was beaten"): GET lists yours (null for guests), POST `{seen: <at>}` clears up to that one. */
+/** KANJO notices ("your time was beaten"): GET lists yours (null for guests), POST `{seen: <at>}` clears up to that one. */
 async function noticesApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
   const token = readCookie(req);
   if (req.method === 'GET') return Response.json({ notices: await accounts.notices(token) });

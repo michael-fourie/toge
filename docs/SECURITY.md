@@ -6,8 +6,8 @@ player sees is decided or checked by the server; anything the server can't check
 ## Money, cases and the battle pass
 
 - **Signed in:** the garage (cars, upgrades, cosmetics, race money, the battle pass, drivers) lives in the `Accounts`
-  Durable Object (`toge/server/garageStore.ts`, key `g:<user>`). The browser only asks: `/api/garage` GET reads it,
-  POST runs one `GarageAction` through `toge/shared/garage.ts` with the server's dice and clock.
+  Durable Object (`kanjo/server/garageStore.ts`, key `g:<user>`). The browser only asks: `/api/garage` GET reads it,
+  POST runs one `GarageAction` through `kanjo/shared/garage.ts` with the server's dice and clock.
 - **Guests** keep the garage in localStorage and run the same rules in the browser. It's only ever their own.
 - A race prize is paid once per account per race.
   - Cosmetic cases (`{a:'case'}` on `/api/garage`) are rolled on the server with `crypto.getRandomValues`, paid for
@@ -16,7 +16,7 @@ player sees is decided or checked by the server; anything the server can't check
   - What other racers see: an account's race car code has unowned cosmetics stripped by the Accounts DO, at join (the
     Worker) and on every `car` message (RaceRoom). Guests' codes are only checked to name real items. Plate text is
     `[A-Z0-9 ]`, at most 8 characters, and is only ever drawn on a canvas.
-  - The battle pass (`src/toge/shared/pass.ts`) is bought with garage money on the server (`{a:'pass'}`, 50,000) and its
+  - The battle pass (`src/kanjo/shared/pass.ts`) is bought with garage money on the server (`{a:'pass'}`, 50,000) and its
     XP is paid with the prize: by the race room for online races (`ResultRow.xp`, worked out from the room's own
     places and clamped drift) and by the `solo` action, under the same once per `SOLO_GAP_MS` limit. Tiers are handed
     over by the server (`givePass`: money and cosmetics, each tier once, tracked by `given`); a stored garage keeps
@@ -55,14 +55,14 @@ player sees is decided or checked by the server; anything the server can't check
 
 - **Driving is client-authoritative** (see CLAUDE.md, Netcode). A cheat client can drive impossibly; the server bounds
   what that earns (below). The fix is the planned server-side physics.
-- **TŌGE solo races** are paid from what the client reports (at most once per `SOLO_GAP_MS`); online finish times are
+- **KANJO solo races** are paid from what the client reports (at most once per `SOLO_GAP_MS`); online finish times are
   checked against the server's clock within a window.
-- **TŌGE drift bonus** (`src/toge/shared/drift.ts`) is scored on the client, since driving is. The server bounds it:
+- **KANJO drift bonus** (`src/kanjo/shared/drift.ts`) is scored on the client, since driving is. The server bounds it:
   online, a racer's drift total is capped at `DRIFT_MAX_RATE` × seconds since GO (only while racing, never after
   finishing). Either way drifting pays at most `DRIFT.payPerKm` per km of race, well under a win; solo pays its usual
   share and is still limited to one payout per `SOLO_GAP_MS`. A cheat client can max the cap, not exceed it. (There
   are no items any more, so nothing else in a race pays.)
-- **TŌGE best times** (`src/toge/shared/records.ts`, kept per account as `b:<user>`) never pay anything. They only
+- **KANJO best times** (`src/kanjo/shared/records.ts`, kept per account as `b:<user>`) never pay anything. They only
   come from online time trials and hill climbs (`recordMode`), timed by the room (within the window above, at least
   `MIN_RACE_SECONDS`), and bounded: nothing quicker than the track's length at `RECORDS.maxAvgSpeed` (130 m/s
   average, above every car's top speed) or slower than an hour. Solo races carry no time, so a client can't post a best on its own.
@@ -74,7 +74,7 @@ player sees is decided or checked by the server; anything the server can't check
   session's own account's (`seen` must be a number; it only drops notices up to it).
 - **Friends** (`/api/friends`, `src/server/friendStore.ts`) are one way, like following: anyone signed in can add any
   username (20 adds or removes per account at once, then one per 3 s), which also tells them the name exists (as
-  sign-up already does). Adding someone lets you open their TŌGE profile (`/api/garage?u=`): cars with their looks
+  sign-up already does). Adding someone lets you open their KANJO profile (`/api/garage?u=`): cars with their looks
   and cosmetics, driver, races, wins and best times, never money. Names reach the page only through `esc()`.
 - **No full Content-Security-Policy** yet (only `frame-ancestors`): a `script-src` policy needs a pass over inline
   styles and the asset loaders first.

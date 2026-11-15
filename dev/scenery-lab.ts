@@ -1,11 +1,11 @@
-// Dev-only lab for TŌGE track scenery: any track's view (trackview.ts) through the race's post chain, from any spot.
+// Dev-only lab for KANJO track scenery: any track's view (trackview.ts) through the race's post chain, from any spot.
 // window.scn: load(id, low?), at(s, d, height, ahead, turnDeg?) puts the camera at distance s along the road, d across
 // it, looking `ahead` metres down the road, render() draws a frame, info() is the renderer's draw calls and triangles.
 
 import * as THREE from 'three';
-import { type TrackId, getTrack, pointAt } from '../src/toge/shared/track.ts';
-import { type TrackView, buildTrackView } from '../src/toge/client/trackview.ts';
-import { Post } from '../src/toge/client/post.ts';
+import { type TrackId, getTrack, pointAt } from '../src/kanjo/shared/track.ts';
+import { type TrackView, buildTrackView } from '../src/kanjo/client/trackview.ts';
+import { Post } from '../src/kanjo/client/post.ts';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);

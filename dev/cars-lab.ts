@@ -1,14 +1,14 @@
-// Dev-only lab for the TŌGE car models: every car in a row (or one up close) under studio lights.
+// Dev-only lab for the KANJO car models: every car in a row (or one up close) under studio lights.
 // window.lab: show(id | 'all'), view(yawDeg, pitchDeg, dist), look({...}), cos({slot: itemId}), spin(on), rider(random), pose(steer, lat) (a bike leans
 // with lat, m/s²), cockpit(rpm) (the driver's / rider's eye of the one car shown).
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { CAR_IDS, type CarId, type Look, carSpec, newOwnedCar } from '../src/toge/shared/cars.ts';
-import { type CarModel, INTERIOR, buildCar } from '../src/toge/client/carmodel.ts';
-import type { CosKit } from '../src/toge/shared/cosmetics.ts';
-import { buildCockpit } from '../src/toge/client/cockpit.ts';
-import { type Rider, RIDER_IDS, defaultRider } from '../src/toge/shared/rider.ts';
+import { CAR_IDS, type CarId, type Look, carSpec, newOwnedCar } from '../src/kanjo/shared/cars.ts';
+import { type CarModel, INTERIOR, buildCar } from '../src/kanjo/client/carmodel.ts';
+import type { CosKit } from '../src/kanjo/shared/cosmetics.ts';
+import { buildCockpit } from '../src/kanjo/client/cockpit.ts';
+import { type Rider, RIDER_IDS, defaultRider } from '../src/kanjo/shared/rider.ts';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });

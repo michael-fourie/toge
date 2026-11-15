@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { RaceLobbyInfo } from '../toge/shared/protocol.ts';
+import type { RaceLobbyInfo } from '../kanjo/shared/protocol.ts';
 import { Limiter } from './limiter.ts';
 import { HEARTBEAT_SECONDS } from './rooms.ts';
 

@@ -30,7 +30,7 @@ jobs:
   ship:
     runs-on: ubuntu-latest
     env:
-      # The live site, e.g. https://toge.<you>.workers.dev or your domain (Settings > Secrets and variables > Actions).
+      # The live site, e.g. https://kanjo.<you>.workers.dev or your domain (Settings > Secrets and variables > Actions).
       SITE: ${{ vars.SITE_URL }}
     steps:
       - uses: actions/checkout@v4

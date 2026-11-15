@@ -1,5 +1,5 @@
-// Keeps the layers apart: the common code (src/shared) imports neither the game (src/toge) nor the browser shell
-// (src/client), so the Worker can use it. TŌGE's own shared code (src/toge/shared) stays free of three.js and the DOM.
+// Keeps the layers apart: the common code (src/shared) imports neither the game (src/kanjo) nor the browser shell
+// (src/client), so the Worker can use it. KANJO's own shared code (src/kanjo/shared) stays free of three.js and the DOM.
 
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -16,7 +16,7 @@ function filesIn(dir: string): string[] {
   });
 }
 
-/** Every import in `area`: relative ones resolved to a path under src/ (e.g. "toge/shared/track.ts"), packages as written. */
+/** Every import in `area`: relative ones resolved to a path under src/ (e.g. "kanjo/shared/track.ts"), packages as written. */
 function importsOf(area: string): { from: string; to: string }[] {
   const out: { from: string; to: string }[] = [];
   for (const file of filesIn(join(SRC, area))) {
@@ -35,9 +35,9 @@ const crossing = (area: string, banned: string[]) =>
     .map((i) => `${i.from} -> ${i.to}`);
 
 test('the common shared code imports neither the game nor the browser shell', () => {
-  assert.deepEqual(crossing('shared', ['toge', 'client', 'server']), []);
+  assert.deepEqual(crossing('shared', ['kanjo', 'client', 'server']), []);
 });
 
-test("TŌGE's shared rules stay pure: no three.js, no browser code", () => {
-  assert.deepEqual(crossing('toge/shared', ['three', 'client', 'toge/client']), []);
+test("KANJO's shared rules stay pure: no three.js, no browser code", () => {
+  assert.deepEqual(crossing('kanjo/shared', ['three', 'client', 'kanjo/client']), []);
 });
