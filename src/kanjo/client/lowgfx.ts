@@ -49,7 +49,11 @@ function lambertOf(m: Pbr): Cheap {
     p.color.setRGB(Math.max(p.color.r, 0.04), Math.max(p.color.g, 0.04), Math.max(p.color.b, 0.045));
   }
   // A custom shader tweak on the original (the terrain's macro texture) works on Lambert too: same chunk names.
-  if (m.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) c.onBeforeCompile = m.onBeforeCompile;
+  // Its cache key comes too: two tweaks can share their text and differ in what they close over (toon.ts).
+  if (m.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) {
+    c.onBeforeCompile = m.onBeforeCompile;
+    c.customProgramCacheKey = m.customProgramCacheKey;
+  }
   copies.set(m, c);
   const copy = c;
   m.addEventListener('dispose', function gone() {

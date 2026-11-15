@@ -2,8 +2,9 @@
 
 Goal: players build their own driver in the garage (body, face, skin, hair, outfit and its colours,
 brass-and-neon kit, glow colour, wheel), and the result looks like it belongs next to Marlowe, Kirika,
-Okonkwo and Inès: a realistic MakeHuman body, recoloured MakeHuman clothes, fitted hard-surface kit, the
-same materials, seated with hands on the wheel and standing in the showroom.
+Okonkwo and Inès: a cartoon MakeHuman body (the legends' anime restyle: docs/DRIVERS.md "The look"),
+recoloured MakeHuman clothes, fitted hard-surface kit, the same materials and soft cel shading, seated with
+hands on the wheel and standing in the showroom.
 
 This file is the plan *and* the progress log. Tick boxes as things land; add what we learn under
 "Notes as we go".
@@ -30,7 +31,8 @@ rivals and remote racers can be drawn from it.
   become morph targets later (Phase 7).
 - **GPU recolour, not baked colours**: the build bakes each outfit's colour *zones* (jacket, shirt,
   trim, ...) into a mask texture and records each zone's reference luminance. A shader patch repaints
-  `zoneColour × (lum / ref)` exactly like `build.py`'s `recolor()`, so colour pickers update live and
+  `zoneColour × (lum / ref) ^ contrast`, kept inside the look's shade range (`SHADE` in wardrobe.ts,
+  `STYLE['shade']` in build.py), exactly like `build.py`'s `recolor()`, so colour pickers update live and
   one texture serves every colour choice.
 - **Kit materials are plain PBR**: metals, leathers and the glow are `palette()` entries, so the client
   swaps them per look (pick the metal, pick the glow colour) with no rebuild.
@@ -74,12 +76,15 @@ texture and zone mask, shared by all bases), `skins/`, `eyes/` and `manifest.jso
 
 Per base:
 1. The MPFB human with the base phenotype wearing *every* outfit, shoe, hair and brow at once.
+   The body is the cartoon one (build.py `STYLE`: big head and eyes, small nose and mouth).
 2. Body: MPFB's helper mask applied, the clothes' `Delete.*` masks not: instead a `_hide` vertex
    attribute gets one bit per outfit/shoe (its delete group plus a raycast for skin under the cloth).
    Decimated to 0.6 (sparing the face) before the bits are computed.
-3. Clothes, hair and brows keep their MakeHuman textures; each outfit's zones (rules like the legends'
-   `recolor()`) become an RGBA mask with per-zone reference luminance. Hair, brows and shoes have one
-   zone over everything.
+3. Clothes, hair and brows keep their MakeHuman textures, softened (`build.soften`: weave blurred out,
+   darks lifted off black, no normal maps; brows and lashes thickened to brush strokes by `build.stroke`);
+   each outfit's zones (rules like the legends' `recolor()`) become an RGBA mask with per-zone reference
+   luminance, and each zone's contrast carries the look's softening. Hair, brows and shoes have one
+   zone over everything. The shared skins and irises are repainted (`build.toon_skin`, `build.anime_eye`).
 4. Kit with role materials. Head pieces fit once; cloth-hugging pieces (`CLOTH_FIT`) fit once per
    outfit and identical fits (within 8 mm) share a file. Mechanical arms are fitted to a sleeve-cut copy
    of each outfit. What the legends paint into the body (`kit.paint_region`: metal arm skin, gloves) is
@@ -94,7 +99,9 @@ Per base:
   - body: triangles under worn clothes dropped (`_hide`), except the arm under a cut sleeve; repaint
     groups from bone weights (`paint`); skin texture per look;
   - outfits lose the sleeve a mech arm cut (triangles with average arm weight > 0.5);
-  - recolour shader on outfits, shoes, hair, brows; role materials on kit and seat.
+  - recolour shader on outfits, shoes, hair, brows; role materials on kit and seat (`METAL`, `LEATHER`:
+    the legends' pale satin metals and dusky leathers; the battle pass metals keep their shine);
+  - soft cel shading on every material (`toonAll`, toon.ts).
 - `loadDriver(id | look)` covers legends and custom drivers; seating, showroom and culling are shared.
 
 ## Garage UI (Driver tab)
@@ -152,6 +159,20 @@ Per base:
   material after assembly if the grid gets heavy (6 drivers × ~25 calls today).
 
 ## Notes as we go
+
+- 2026-11-14 (the cartoon restyle; Michael: the characters "look default, dark and odd ... cartoonish, anime-like,
+  better softer colour ... nice and soft like our cars are", keeping every customisation): nothing left the
+  catalogue (six bases, 10 skins a frame, 9 irises, 12 brows, 10 hairstyles, 12 outfits and their zones, 6 shoes,
+  15 kit pieces, 10 metals, 3 leathers, 4 wheels, the pass gear) and look codes are unchanged; every part was
+  rebuilt in the new style (docs/DRIVERS.md "The look"). What changed for a look:
+  - Outfits come in new soft colours (`OUTFITS` here and in look.ts; the creator's swatches, `DEFAULT_LOOK`
+    and `randomLook` too). A look saved before keeps the colours in its code; picking the outfit again (or a
+    swatch) gives the new ones.
+  - Skins keep their ten tones and three ages per frame, but as flat cartoon tones (age shows as soft lines).
+  - The "Black" leather is a dusk grey now and is labelled Dusk; gunmetal and carbon are mid greys.
+  - The outfits' and hair's normal maps are gone (`tex/*_normal.webp`), so a look downloads a little less.
+  - Zone `contrast` in the manifest includes the softening, and the shader keeps the shade inside `SHADE`;
+    `wardrobe.py -- --zones` still retunes zones without rebuilding geometry.
 
 - 2026-11-05: ported onto master's KANJO (`src/kanjo/`, drivers are "riders"). `Rider` is now a legend id or a
   look code (`LookCode`, a template-literal type); the rider-code plumbing master already had (garage `rider`,

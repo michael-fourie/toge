@@ -7,7 +7,7 @@
 // The look is applied without rebuilding anything:
 // - skin under the clothes is dropped by the body's `_hide` bits (one per outfit/shoes that covers it);
 // - outfits, shoes, hair and brows are recoloured on the GPU from baked zone masks, the same maths as
-//   tools/drivers/build.py's `recolor()` (shade = (lum / zone ref) ^ contrast, in sRGB);
+//   tools/drivers/build.py's `recolor()` (shade = (lum / zone ref) ^ contrast kept inside `SHADE`, in sRGB);
 // - kit materials are roles (metal, trim, strap, glow, glow_soft, lens) swapped for the look's;
 // - what the legends bake into the body is done here from the bone weights: a kit piece's `paint`
 //   (a mechanical arm's metal skin, gloves) and `sleeve` (cut that sleeve off, show the arm under it).
@@ -18,6 +18,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { type GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { Look, MetalId, LeatherId } from '../shared/look.ts';
+import { toonAll } from './toon.ts';
 
 const ROOT = '/models/drivers/wardrobe/';
 
@@ -105,25 +106,30 @@ function texture(url: string, color: boolean): Promise<THREE.Texture> {
 // ---------------------------------------------------------------------------------------------
 // Materials
 
+/** How metallic the free metals are, as kit.py's `METAL`: mostly paint, so they sit with the soft cartoon bodies. */
+const SATIN = 0.55;
+// The free metals and the leathers are kit.py's `palette()`: pale and satin, the dark ones dusky rather than black.
 const METAL: Record<MetalId, { color: number; rough: number; metal: number; coat?: number; trim: number; glow?: number; iri?: boolean }> = {
-  brass: { color: 0xc8963e, rough: 0.32, metal: 1, trim: 0x7a5526 },
-  copper: { color: 0xb8643a, rough: 0.35, metal: 1, trim: 0x6e3a20 },
-  gunmetal: { color: 0x2b2e33, rough: 0.38, metal: 1, trim: 0x1a1c20 },
-  chrome: { color: 0xe8ecf0, rough: 0.08, metal: 1, trim: 0x9aa0a8 },
-  steel: { color: 0x9aa0a8, rough: 0.28, metal: 1, trim: 0x5c6168 },
-  carbon: { color: 0x141518, rough: 0.3, metal: 0.2, coat: 1, trim: 0x2b2e33 },
-  // Battle pass metals (pass.ts). Ember glows from within (`glow`, brighter than white so it blooms); prism is an
-  // iridescent film over dark chrome.
-  gold: { color: 0xffc94a, rough: 0.14, metal: 1, coat: 0.6, trim: 0xb8862b },
-  obsidian: { color: 0x07070a, rough: 0.12, metal: 0.6, coat: 1, trim: 0x2a1a3a },
-  ember: { color: 0x3a1a10, rough: 0.4, metal: 0.8, trim: 0x1a0c08, glow: 0xff5a1a },
-  prism: { color: 0x4a5060, rough: 0.1, metal: 1, coat: 1, trim: 0x2b2e33, iri: true },
+  brass: { color: 0xecc878, rough: 0.42, metal: SATIN, trim: 0xb9945e },
+  copper: { color: 0xe6a283, rough: 0.44, metal: SATIN, trim: 0xb47a62 },
+  gunmetal: { color: 0x737a8c, rough: 0.46, metal: SATIN, trim: 0x565c6c },
+  chrome: { color: 0xf2f5f9, rough: 0.2, metal: 0.85, trim: 0xc5cbd6 },
+  steel: { color: 0xc5cbd6, rough: 0.4, metal: SATIN, trim: 0x959cab },
+  carbon: { color: 0x555869, rough: 0.4, metal: 0.2, coat: 0.6, trim: 0x737a8c },
+  // Battle pass metals (pass.ts): the showpieces, so they keep their shine. Ember glows from within (`glow`,
+  // brighter than white so it blooms); prism is an iridescent film over dark chrome.
+  gold: { color: 0xffd76a, rough: 0.2, metal: 0.9, coat: 0.6, trim: 0xd9a94e },
+  obsidian: { color: 0x2c2a3a, rough: 0.16, metal: 0.6, coat: 1, trim: 0x5a4670 },
+  ember: { color: 0x7a4634, rough: 0.4, metal: 0.7, trim: 0x4f2c22, glow: 0xff7a3a },
+  prism: { color: 0x7d86a0, rough: 0.12, metal: 1, coat: 1, trim: 0x565c6c, iri: true },
 };
 const LEATHER: Record<LeatherId, { color: number; rough: number }> = {
-  leather: { color: 0x3b2316, rough: 0.55 },
-  leather_black: { color: 0x151313, rough: 0.5 },
-  leather_tan: { color: 0x7a4a28, rough: 0.6 },
+  leather: { color: 0x96705c, rough: 0.7 },
+  leather_black: { color: 0x56525f, rough: 0.65 },
+  leather_tan: { color: 0xd2a57c, rough: 0.72 },
 };
+/** The darkest and lightest a zone's colour is shaded by the cloth's own folds (build.py `STYLE['shade']`). */
+const SHADE = [0.62, 1.3];
 
 /** The look's version of a role material (the GLB's copy carries the rest: emissive strength, etc.). */
 function roleMaterial(src: THREE.MeshStandardMaterial | null, role: string, look: Look): THREE.Material | null {
@@ -132,7 +138,7 @@ function roleMaterial(src: THREE.MeshStandardMaterial | null, role: string, look
     const out = new THREE.MeshPhysicalMaterial({ name: role, color: role === 'metal' ? m.color : m.trim, roughness: m.rough + (role === 'trim' ? 0.1 : 0), metalness: m.metal, clearcoat: m.coat ?? 0 });
     if (m.glow !== undefined && role === 'metal') {
       out.emissive.setHex(m.glow);
-      out.emissiveIntensity = 1.6;
+      out.emissiveIntensity = 1.3;
     }
     if (m.iri) {
       out.iridescence = 1;
@@ -159,7 +165,7 @@ interface Recolour {
 
 /**
  * Patches a standard material so its albedo is repainted per zone, as build.py's recolor() does:
- * each zone's pixels become the zone colour times (lum / ref) ^ contrast, in sRGB. Without a mask the
+ * each zone's pixels become the zone colour times (lum / ref) ^ contrast (inside `SHADE`), in sRGB. Without a mask the
  * one zone covers everything (hair).
  */
 function recoloured(src: THREE.MeshStandardMaterial, r: Recolour): THREE.MeshStandardMaterial {
@@ -202,7 +208,7 @@ vec3 zToL(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), s
   vec4 k = zAll > 0.5 ? vec4(1.0, 0.0, 0.0, 0.0) : texture2D(zMask, vMapUv);
   vec3 o = s;
   for (int i = 0; i < 4; i++) {
-    float sh = pow(clamp(lum / max(zRef[i], 0.02), 0.25, 1.9), zCon[i]);
+    float sh = clamp(pow(lum / max(zRef[i], 0.02), zCon[i]), ${SHADE[0].toFixed(3)}, ${SHADE[1].toFixed(3)});
     o = mix(o, clamp(zColor[i] * sh, 0.0, 1.0), k[i]);
   }
   diffuseColor.rgb = zToL(o);
@@ -413,5 +419,6 @@ export async function assemble(look: Look): Promise<Assembled> {
   });
   // Battle pass gear (passgear.ts), on the head bone.
   owned.push(...addGear(scene, look));
+  toonAll(scene);
   return { scene, animations: base.animations, owned };
 }

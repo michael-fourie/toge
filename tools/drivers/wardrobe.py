@@ -5,11 +5,14 @@ the same skeleton, plus `manifest.json`. The client assembles a driver from them
     blender -b --python tools/drivers/wardrobe.py -- [bases...]
     blender -b --python tools/drivers/wardrobe.py -- --zones     # only redo colour zones (masks, refs)
 
-Same human, materials and kit as the legends (build.py, kit.py), with these differences:
+Same human, cartoon look (build.STYLE), materials and kit as the legends (build.py, kit.py), with these
+differences:
 - the body keeps all its skin; instead each vertex gets a `_hide` bit per outfit/shoes that covers it,
   so the client drops exactly the skin the chosen clothes hide;
-- clothes, hair and brows keep their original textures; each outfit's colour zones are baked to an RGBA
-  mask (zone k in channel k) with the zone's reference luminance, for the client's recolour shader;
+- clothes, hair and brows keep their own textures, softened (build.soften: no weave, no black; brows and
+  lashes as brush strokes); each outfit's colour zones are baked to an RGBA mask (zone k in channel k)
+  with the zone's reference luminance, for the client's recolour shader;
+- skins and irises are shared textures, repainted (build.toon_skin, build.anime_eye);
 - kit materials are *roles* (metal, trim, strap, glow, glow_soft, lens) the client swaps per look;
 - what the legends bake into the body (a mechanical arm's metal skin, gloves, the cut-off sleeve) is
   recorded in the manifest as bone lists, and the client applies it per look.
@@ -22,6 +25,7 @@ import json
 import math
 import os
 import sys
+import time
 
 import bmesh
 import bpy
@@ -42,8 +46,9 @@ TEX = os.path.join(OUT, 'tex')
 WHEEL_R = 0.18
 
 # ---------------------------------------------------------------------------------------------
-# Catalogue (mirrored in src/shared/race/look.ts; tests/look.test.ts checks the two agree).
+# Catalogue (mirrored in src/kanjo/shared/look.ts; tests/kanjo/look.test.ts checks the two agree).
 # Zones: (name, pick rule as in build.recolor, default colour). At most 4 per outfit, first rule wins.
+# The default colours are the legends' palette (cast.py): pastel-leaning, mid-light, never near black.
 # UV boxes are (u0, v0, u1, v1) with v up from the bottom of the texture.
 
 TRIM = {'hue': (0.03, 0.14), 'sat': (0.45, 1.0)}  # the orange piping on the MakeHuman tees
@@ -51,63 +56,63 @@ PINK = {'hue': (0.85, 0.05), 'sat': (0.25, 1.0)}  # pinstripes
 OUTFITS = {
     'male_elegantsuit01': [
         # The tie's navy stripes (its white ones go with the shirt).
-        ('tie', {'uv': (0.34, 0.8, 0.5, 0.99), 'sat': (0.12, 1.0)}, '#b8862b'),
-        ('suit', {'val': (0.0, 0.45), 'sat': (0.0, 0.6)}, '#1f3a2c'),
-        ('shirt', {'val': (0.6, 1.0), 'sat': (0.0, 0.25)}, '#e9dcc0'),
+        ('tie', {'uv': (0.34, 0.8, 0.5, 0.99), 'sat': (0.12, 1.0)}, '#f0c26a'),
+        ('suit', {'val': (0.0, 0.45), 'sat': (0.0, 0.6)}, '#6fa08c'),
+        ('shirt', {'val': (0.6, 1.0), 'sat': (0.0, 0.25)}, '#fbf2de'),
     ],
     'male_worksuit01': [
-        ('overalls', {'hue': (0.5, 0.75), 'sat': (0.12, 1.0)}, '#5a3420'),
-        ('tee', {'sat': (0.0, 0.2), 'val': (0.4, 1.0)}, '#2b2b2e'),
+        ('overalls', {'hue': (0.5, 0.75), 'sat': (0.12, 1.0)}, '#d08a62'),
+        ('tee', {'sat': (0.0, 0.2), 'val': (0.4, 1.0)}, '#7d8aa3'),
     ],
     'male_casualsuit05': [
-        ('stripes', PINK, '#b3121e'),
-        ('jeans', {'uv': (0.0, 0.0, 0.6, 0.45), 'sat': (0.12, 1.0)}, '#25252a'),
-        ('jacket', {}, '#17130f'),
+        ('stripes', PINK, '#f27d7a'),
+        ('jeans', {'uv': (0.0, 0.0, 0.6, 0.45), 'sat': (0.12, 1.0)}, '#8e97b5'),
+        ('jacket', {}, '#565f85'),
     ],
     'male_casualsuit02': [
-        ('trim', TRIM, '#ffae3c'),
-        ('jeans', {'uv': (0.0, 0.0, 0.76, 0.53)}, '#1f2a3a'),
-        ('tee', {}, '#2f4a5c'),
+        ('trim', TRIM, '#ffc46b'),
+        ('jeans', {'uv': (0.0, 0.0, 0.76, 0.53)}, '#6f84a8'),
+        ('tee', {}, '#8fb7c9'),
     ],
     'male_casualsuit03': [
-        ('stripes', PINK, '#c9a26b'),
-        ('jeans', {'uv': (0.0, 0.5, 0.56, 1.0)}, '#2a2f3a'),
-        ('shirt', {}, '#1a1a20'),
+        ('stripes', PINK, '#e6c79a'),
+        ('jeans', {'uv': (0.0, 0.5, 0.56, 1.0)}, '#7c86a3'),
+        ('shirt', {}, '#5f6488'),
     ],
     'male_casualsuit04': [
-        ('trim', TRIM, '#3dff8e'),
-        ('jeans', {'uv': (0.0, 0.0, 0.78, 0.55)}, '#22262e'),
-        ('tee', {}, '#151518'),
+        ('trim', TRIM, '#7df0b0'),
+        ('jeans', {'uv': (0.0, 0.0, 0.78, 0.55)}, '#737c94'),
+        ('tee', {}, '#585c78'),
     ],
     'male_casualsuit06': [
-        ('jeans', {'uv': (0.0, 0.0, 1.0, 0.55), 'sat': (0.12, 1.0)}, '#3a4a66'),
-        ('tee', {}, '#e9dcc0'),
+        ('jeans', {'uv': (0.0, 0.0, 1.0, 0.55), 'sat': (0.12, 1.0)}, '#7f95c2'),
+        ('tee', {}, '#fbf2de'),
     ],
     'male_casualsuit01': [
-        ('patches', {'hue': (0.04, 0.16), 'sat': (0.3, 1.0)}, '#7a4a28'),
-        ('clothes', {}, '#3a3e45'),
+        ('patches', {'hue': (0.04, 0.16), 'sat': (0.3, 1.0)}, '#d9a274'),
+        ('clothes', {}, '#8a93a6'),
     ],
     'female_casualsuit01': [
-        ('trim', TRIM, '#ff2fd2'),
-        ('jeans', {'uv': (0.0, 0.0, 0.72, 0.58)}, '#1f2a3a'),
-        ('top', {}, '#18171d'),
+        ('trim', TRIM, '#ff8fe3'),
+        ('jeans', {'uv': (0.0, 0.0, 0.72, 0.58)}, '#6f84a8'),
+        ('top', {}, '#6a6f9e'),
     ],
     'female_casualsuit02': [
-        ('trim', TRIM, '#ffae3c'),
-        ('shorts', {'uv': (0.0, 0.0, 0.72, 0.58)}, '#2f4a5c'),
-        ('top', {}, '#e9dcc0'),
+        ('trim', TRIM, '#ffc46b'),
+        ('shorts', {'uv': (0.0, 0.0, 0.72, 0.58)}, '#8fb7c9'),
+        ('top', {}, '#fbf2de'),
     ],
     'female_elegantsuit01': [
         # A pinstriped shirt on a near-black base (v ~0.13) over a grey-green knit skirt (v ~0.3).
-        ('stripes', PINK, '#b8862b'),
-        ('shirt', {'val': (0.0, 0.2)}, '#1a1a20'),
-        ('skirt', {}, '#1f3a2c'),
+        ('stripes', PINK, '#f0c26a'),
+        ('shirt', {'val': (0.0, 0.2)}, '#5f6488'),
+        ('skirt', {}, '#6fa08c'),
     ],
     'female_sportsuit01': [
-        ('trim', TRIM, '#ff2fd2'),
-        ('stripe', {'uv': (0.0, 0.0, 0.72, 0.58), 'val': (0.7, 1.0)}, '#ff2fd2'),
-        ('leggings', {'uv': (0.0, 0.0, 0.72, 0.58)}, '#121116'),
-        ('top', {}, '#18171d'),
+        ('trim', TRIM, '#ff8fe3'),
+        ('stripe', {'uv': (0.0, 0.0, 0.72, 0.58), 'val': (0.7, 1.0)}, '#ff8fe3'),
+        ('leggings', {'uv': (0.0, 0.0, 0.72, 0.58)}, '#6a6f9e'),
+        ('top', {}, '#8d92c8'),
     ],
 }
 SHOES = ['shoes01', 'shoes02', 'shoes03', 'shoes04', 'shoes05', 'shoes06']
@@ -169,9 +174,9 @@ def role_palette():
     P = kit.palette('#ffffff')
     for k in ('glow', 'glow_soft', 'lens'):
         P[k].name = k
-    P['metal'] = kit.mat('metal', '#c8963e', 0.32, 1.0)
-    P['trim'] = kit.mat('trim', '#7a5526', 0.45, 1.0)
-    P['strap'] = kit.mat('strap', '#3b2316', 0.55)
+    P['metal'] = kit.mat('metal', '#ecc878', 0.42, kit.METAL)
+    P['trim'] = kit.mat('trim', '#b9945e', 0.5, kit.METAL)
+    P['strap'] = kit.mat('strap', '#96705c', 0.7)
     return P
 
 
@@ -213,12 +218,14 @@ def save_image(path, a, fmt, data=False):
 
 
 def zone_entry(key, a, zones):
-    """Zone masks (shared `tex/<key>_mask.png`, same for every base) and refs for one outfit or shoe.
-    `zones` None: one zone over everything (hair, brows, shoes), no mask."""
+    """Zone masks (shared `tex/<key>_mask.png`, same for every base) and refs for one outfit or shoe, from
+    its texture `a` as MakeHuman made it (the refs are read off its softened shading, which is what ships).
+    `zones` None: one zone over everything (hair, brows, shoes), no mask. Contrasts carry the cartoon
+    look's softening (build.STYLE['contrast']); the client keeps the shade inside STYLE['shade']."""
     if zones is None:
         _, refs, _ = build.zone_masks(a, [{'color': '#000000'}])
-        contrast = HAIR_CONTRAST.get(key, 0.85) if key in HAIRS else 1.0
-        return {'zones': [{'name': 'all', 'ref': round(refs[0], 4), 'contrast': contrast}], 'mask': None}
+        contrast = (HAIR_CONTRAST.get(key, 0.85) if key in HAIRS else 1.0) * build.STYLE['contrast']
+        return {'zones': [{'name': 'all', 'ref': round(refs[0], 4), 'contrast': round(contrast, 4)}], 'mask': None}
     masks, refs, _ = build.zone_masks(a, [{**r, 'color': c} for _, r, c in zones])
     path = os.path.join(TEX, f'{key}_mask.png')
     if not os.path.exists(path):
@@ -227,16 +234,17 @@ def zone_entry(key, a, zones):
             m[..., i] = mk
         save_image(path, m, 'PNG', data=True)
     return {
-        'zones': [{'name': n, 'ref': round(ref, 4), 'color': c, 'contrast': r.get('contrast', 1.0)} for (n, r, c), ref in zip(zones, refs)],
+        'zones': [{'name': n, 'ref': round(ref, 4), 'color': c, 'contrast': round(r.get('contrast', 1.0) * build.STYLE['contrast'], 4)}
+                  for (n, r, c), ref in zip(zones, refs)],
         'mask': f'tex/{key}_mask.png',
     }
 
 
 def dress(body, parts, entries):
-    """Plain glTF materials on the original textures; zone entries for outfits, shoes, hair and brows.
+    """Plain glTF materials on the softened textures; zone entries for outfits, shoes, hair and brows.
     The body and irises get a tiny placeholder: the client loads the look's skin and eye textures."""
     for key, o in [('body', body)] + list(parts.items()):
-        diffuse, normal = build.images_of(o.data.materials[0])
+        diffuse = build.images_of(o.data.materials[0])
         kind = 'body' if key == 'body' else 'eyes' if key == 'low-poly' else 'small' if key.startswith(('eyebrow', 'eyelash')) else 'hair' if key in HAIRS else 'clothes'
         if kind in ('body', 'eyes'):
             a = np.full((4, 4, 4), 0.6, np.float32)
@@ -246,12 +254,16 @@ def dress(body, parts, entries):
             entries[key] = zone_entry(key, a, OUTFITS[key])
         elif key in SHOES or key in HAIRS or key in BROWS:
             entries[key] = zone_entry(key, a, None)
+        if kind in ('clothes', 'hair'):
+            a = build.soften(a)
+        elif kind == 'small':
+            # Brows are repainted in the hair colour by the client; lashes are painted here.
+            a = build.stroke(a) if key in BROWS else build.stroke(a, build.STYLE['lash'], lash=True)
         col = build.write(f'{key}_color', a)
-        nrm = build.write(f'{key}_normal', build.read(normal, build.TEX['normal']), True) if normal is not None and kind in ('clothes', 'hair') else None
         group = 'hair' if kind == 'hair' else key if key in build.ROUGH else 'eyebrows' if kind == 'small' else 'cloth'
         # Names the client keys on: 'skin', 'iris', or the part id.
         name = 'skin' if key == 'body' else 'iris' if key == 'low-poly' else key
-        m = build.textured(name, col, nrm, build.ROUGH.get(group, 0.78), kind in ('hair', 'small'))
+        m = build.textured(name, col, None, build.ROUGH[group], kind in ('hair', 'small'))
         o.data.materials.clear()
         o.data.materials.append(m)
 
@@ -322,12 +334,25 @@ def _record_paint(obj, bones, material, min_w=0.5):
 kit.paint_region = _record_paint
 
 
+def _retry(write, tries=5):
+    """Runs `write`, again after a pause if the file was busy: on Windows a virus scanner or a dev server
+    watching public/ can hold a file the last export just wrote (seen as OSError 22 half way through a
+    base)."""
+    for i in range(tries):
+        try:
+            return write()
+        except (OSError, RuntimeError):
+            if i == tries - 1:
+                raise
+            time.sleep(2)
+
+
 def export(path, arm, objs, animations=False):
     bpy.ops.object.select_all(action='DESELECT')
     arm.select_set(True)
     for o in objs:
         o.select_set(True)
-    bpy.ops.export_scene.gltf(
+    _retry(lambda: bpy.ops.export_scene.gltf(
         filepath=path, export_format='GLTF_SEPARATE', export_texture_dir=os.path.relpath(TEX, os.path.dirname(path)),
         use_selection=True, export_apply=True,
         export_animations=animations, export_animation_mode='ACTIONS', export_force_sampling=True,
@@ -336,7 +361,7 @@ def export(path, arm, objs, animations=False):
         export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=7,
         export_draco_position_quantization=14, export_draco_normal_quantization=10,
         export_draco_texcoord_quantization=12, export_draco_generic_quantization=0,
-    )
+    ))
     minify(path)
     return os.path.getsize(path) + os.path.getsize(path[:-5] + '.bin')
 
@@ -479,10 +504,10 @@ def shared_textures(manifest):
         mhmat = os.path.join(build.MH, 'skins', s, s + '.mhmat')
         tex = next(line.split()[1] for line in open(mhmat) if line.startswith('diffuseTexture'))
         img = bpy.data.images.load(os.path.join(build.MH, 'skins', s, os.path.basename(tex)))
-        save_image(os.path.join(OUT, 'skins', s + '.webp'), build.read(img, build.TEX['body']), 'WEBP')
+        save_image(os.path.join(OUT, 'skins', s + '.webp'), build.toon_skin(build.read(img, build.TEX['body'])), 'WEBP')
     for e in EYES:
         img = bpy.data.images.load(os.path.join(build.MH, 'eyes', 'materials', e + '_eye.png'))
-        save_image(os.path.join(OUT, 'eyes', e + '.webp'), build.read(img, build.TEX['eyes']), 'WEBP')
+        save_image(os.path.join(OUT, 'eyes', e + '.webp'), build.anime_eye(build.read(img, build.TEX['eyes'])), 'WEBP')
     manifest['skins'] = SKINS
     manifest['eyes'] = EYES
 
@@ -530,6 +555,32 @@ def main():
         print(f'BASE {bid}: base {m["base"]["tris"]} tris, {len(m["parts"])} parts, {total / 1e6:.1f} MB')
         with open(path, 'w') as f:
             json.dump(manifest, f, indent=1)
+        prune(manifest, bid)
+
+
+def prune(manifest, bid):
+    """Deletes what an earlier build left behind that nothing uses now: a base's models the manifest no
+    longer lists (kit fits are shared differently when bodies change) and, once every base's models are
+    read, textures no model or mask points at."""
+    m = manifest['bases'][bid]
+    keep = {m['base']['file']} | {p['file'] for p in m['parts'].values()}
+    keep |= {f[:-5] + '.bin' for f in keep}
+    folder = os.path.join(OUT, bid)
+    for f in os.listdir(folder):
+        if f not in keep:
+            os.remove(os.path.join(folder, f))
+    if set(manifest['bases']) != set(BASES):
+        return
+    used = set()
+    for b, mb in manifest['bases'].items():
+        used |= {os.path.basename(p['mask']) for p in mb['parts'].values() if p.get('mask')}
+        for f in os.listdir(os.path.join(OUT, b)):
+            if f.endswith('.gltf'):
+                with open(os.path.join(OUT, b, f)) as g:
+                    used |= {os.path.basename(i['uri']) for i in json.load(g).get('images', [])}
+    for f in os.listdir(TEX):
+        if f not in used:
+            os.remove(os.path.join(TEX, f))
 
 
 main()

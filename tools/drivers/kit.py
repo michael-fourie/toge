@@ -51,25 +51,31 @@ def mat(name, color='#ffffff', rough=0.5, metal=0.0, emit=None, strength=0.0, al
     return m
 
 
+#: How metallic the kit's metals are (1 is a mirror of the scene; the cartoon look wants mostly paint).
+METAL = 0.55
+
+
 def palette(theme):
     """The shared metals and leathers, plus one glow colour per driver."""
+    # Toy-box versions: pale, satin, only part metal (METAL), so they sit with the soft cartoon bodies
+    # instead of mirroring the scene; the darkest ("black" leather, gunmetal, carbon) are dusky, not black.
     return {
-        'brass': mat('brass', '#c8963e', 0.32, 1.0),
-        'brass_dark': mat('brass_dark', '#7a5526', 0.45, 1.0),
-        'copper': mat('copper', '#b8643a', 0.35, 1.0),
-        'steel': mat('steel', '#9aa0a8', 0.28, 1.0),
-        'gunmetal': mat('gunmetal', '#2b2e33', 0.38, 1.0),
-        'chrome': mat('chrome', '#e8ecf0', 0.08, 1.0),
-        'carbon': mat('carbon', '#141518', 0.3, 0.2, coat=1.0),
-        'leather': mat('leather', '#3b2316', 0.55),
-        'leather_black': mat('leather_black', '#151313', 0.5),
-        'leather_tan': mat('leather_tan', '#7a4a28', 0.6),
-        'rubber': mat('rubber', '#121212', 0.85),
-        'wood': mat('wood', '#4a2412', 0.35, coat=1.0),
-        'glass': mat('glass', '#0b1014', 0.05, 0.0, alpha=0.55),
-        'glow': mat('glow_' + theme.lstrip('#'), theme, 0.4, 0.0, emit=theme, strength=6.0),
-        'glow_soft': mat('glowsoft_' + theme.lstrip('#'), theme, 0.4, 0.0, emit=theme, strength=2.0),
-        'lens': mat('lens_' + theme.lstrip('#'), '#05070a', 0.05, 0.0, emit=theme, strength=3.0),
+        'brass': mat('brass', '#ecc878', 0.42, METAL),
+        'brass_dark': mat('brass_dark', '#b9945e', 0.5, METAL),
+        'copper': mat('copper', '#e6a283', 0.44, METAL),
+        'steel': mat('steel', '#c5cbd6', 0.4, METAL),
+        'gunmetal': mat('gunmetal', '#737a8c', 0.46, METAL),
+        'chrome': mat('chrome', '#f2f5f9', 0.2, 0.85),
+        'carbon': mat('carbon', '#555869', 0.4, 0.2, coat=0.6),
+        'leather': mat('leather', '#96705c', 0.7),
+        'leather_black': mat('leather_black', '#56525f', 0.65),
+        'leather_tan': mat('leather_tan', '#d2a57c', 0.72),
+        'rubber': mat('rubber', '#4a4a54', 0.85),
+        'wood': mat('wood', '#b27e58', 0.5, coat=0.5),
+        'glass': mat('glass', '#33404e', 0.1, 0.0, alpha=0.5),
+        'glow': mat('glow_' + theme.lstrip('#'), theme, 0.4, 0.0, emit=theme, strength=4.0),
+        'glow_soft': mat('glowsoft_' + theme.lstrip('#'), theme, 0.4, 0.0, emit=theme, strength=1.6),
+        'lens': mat('lens_' + theme.lstrip('#'), '#232c3a', 0.1, 0.0, emit=theme, strength=2.2),
     }
 
 
@@ -318,6 +324,16 @@ class Body:
         vs = [self.eyes.matrix_world @ v.co for v in self.eyes.data.vertices if (v.co.x > 0) == (side > 0)]
         return sum(vs, Vector()) / len(vs)
 
+    def eye_front(self, side):
+        """How far forward (y) that eyeball reaches. The cartoon eyes are wide open: a ray at one goes
+        through the lids to the back of the socket, so eyepieces sit no deeper than this."""
+        return min((self.eyes.matrix_world @ v.co).y for v in self.eyes.data.vertices if (v.co.x > 0) == (side > 0))
+
+    def eye_radius(self, side):
+        """Half that eyeball's width: eyepieces are sized to cover it."""
+        xs = [(self.eyes.matrix_world @ v.co).x for v in self.eyes.data.vertices if (v.co.x > 0) == (side > 0)]
+        return (max(xs) - min(xs)) / 2
+
     def hit(self, tree, origin, direction, dist=1.0):
         loc, nrm, _, _ = tree.ray_cast(Vector(origin), Vector(direction).normalized(), dist)
         return (loc, nrm) if loc is not None else (None, None)
@@ -527,6 +543,10 @@ def arm_bones(side, upper=True):
 # Pieces
 
 
+#: An eyepiece's radius, in eyeball radii (the cartoon eyes are big; a lens has to cover one).
+EYEPIECE = 1.15
+
+
 def eyecup(name, P, at, normal, up, lens, R=0.024, depth=0.026):
     """One goggle eyepiece: a brass barrel, a knurled rim, a lens stack, and a little adjuster screw."""
     parts = []
@@ -569,10 +589,10 @@ def goggles(b, P, lens, where='eyes', lift=0.0, tilt=0.0, strap='leather_black',
         loc, _ = b.hit(tree, o + fwd * 0.2, -fwd, 0.25)
         base = (loc if loc is not None else o + fwd * 0.03) + fwd * 0.004
         if where == 'eyes':
-            base = Vector((base.x, min(base.y, (e + fwd * 0.012).y), base.z))
+            base = Vector((base.x, min(base.y, b.eye_front(side) - 0.002), base.z))
         cups.append(base)
         mat_lens = single if (single is not None and (side < 0) != flip) else lens
-        parts += eyecup(f'goggle{side}', P, base, fwd, up, mat_lens)
+        parts += eyecup(f'goggle{side}', P, base, fwd, up, mat_lens, R=max(0.024, b.eye_radius(side) * EYEPIECE))
     # Bridge between the cups.
     a, c = cups
     bridge = tube('goggle_bridge', bezier(a + fwd * 0.01 + Vector((-0.02, 0, 0)), a + fwd * 0.02 + up * 0.012 + Vector((-0.03, 0, 0)), c + fwd * 0.02 + up * 0.012 + Vector((0.03, 0, 0)), c + fwd * 0.01 + Vector((0.02, 0, 0)), 10), 0.0035, P['brass_dark'])
@@ -596,11 +616,13 @@ def monocle(b, P, lens, side=-1):
     tree = b.outer()
     loc, _ = b.hit(tree, e + fwd * 0.2 + Vector((0, 0, 0.004)), -fwd, 0.25)
     base = (loc if loc is not None else e + fwd * 0.03) + fwd * 0.006
-    parts = eyecup('monocle', P, base, fwd, Vector((0, 0, 1)), lens, R=0.021, depth=0.022)
+    base.y = min(base.y, b.eye_front(side) - 0.002)
+    R = max(0.021, b.eye_radius(side) * EYEPIECE)
+    parts = eyecup('monocle', P, base, fwd, Vector((0, 0, 1)), lens, R=R, depth=0.022)
     for i in range(10):
         a = 2 * math.pi * i / 10
         r = sphere(f'mono_rivet{i}', 0.0017, P['brass_dark'], 8, 4)
-        r.data.transform(Matrix.Translation(base + fwd * 0.022 + Vector((math.cos(a), 0, math.sin(a))) * 0.0235))
+        r.data.transform(Matrix.Translation(base + fwd * 0.022 + Vector((math.cos(a), 0, math.sin(a))) * (R + 0.0025)))
         parts.append(r)
     ear = Vector((e.x + side * 0.065, b.head('head').y + 0.01, e.z - 0.01))
     side_v = Vector((side, 0, 0))

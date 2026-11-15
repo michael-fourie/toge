@@ -1,21 +1,52 @@
 # KANJO drivers
 
-Four drivers sit in every car: a realistic human (MakeHuman body, real proportions) dressed in a
-steampunk-meets-cyberpunk kit, seated with their hands on their own steering wheel, or tucked over the bike's tank.
+Four drivers sit in every car: a cartoon human (a MakeHuman body restyled anime-fashion: big head, big eyes,
+flat soft colours) dressed in a steampunk-meets-cyberpunk kit, seated with their hands on their own steering wheel,
+or tucked over the bike's tank.
 You pick yours on the garage's **Driver** tab; rivals get the other three; online, everyone sees who you picked.
 
 | | Driver | Kit | Wheel | Glow |
 | --- | --- | --- | --- | --- |
-| `marlowe` | **Marlowe Vance**, "The Governor": clockwork gentleman, 55 | bottle-green suit, brass mechanical right arm (sleeve cut off, riveted shoulder cap, elbow gears, pistons), goggles pushed up, brass collar | wooden rim, brass spokes | amber |
-| `kirika` | **Kirika Sato**, "Volt": neon courier, 23 | black racing top and leggings with glowing seams, carbon left arm, half-face respirator with brass filters, temple implants, lit collar | carbon yoke with a light strip | magenta |
-| `okonkwo` | **Okonkwo Adeyemi**, "Boiler": steam-age mechanic, 38 | rust canvas overalls, copper pauldron with a pressure gauge, brass and copper bracers (one with a gauge), welding goggles up, tan work gloves and belt | riveted iron | green |
-| `ines` | **Inès Varga**, "Wraith": night-run ghost, 38 | black jacket, red striped shirt, brass cyber-monocle with a cable to the ear, stacked collar with lit seams, bandolier, leather gloves | dished leather, red top mark | red |
+| `marlowe` | **Marlowe Vance**, "The Governor": clockwork gentleman, 55 | sage-green suit, cream shirt, silver hair, brass mechanical right arm (sleeve cut off, riveted shoulder cap, elbow gears, pistons), goggles pushed up, brass collar | wooden rim, brass spokes | amber |
+| `kirika` | **Kirika Sato**, "Volt": neon courier, 23 | periwinkle racing top and dusk-blue leggings with glowing seams, white bob, carbon left arm, half-face respirator with brass filters, temple implants, lit collar | carbon yoke with a light strip | magenta |
+| `okonkwo` | **Okonkwo Adeyemi**, "Boiler": steam-age mechanic, 38 | terracotta canvas overalls over a slate-blue tee, copper pauldron with a pressure gauge, brass and copper bracers (one with a gauge), welding goggles up, tan work gloves and belt | riveted iron | green |
+| `ines` | **Inès Varga**, "Wraith": night-run ghost, 38 | dusk-blue jacket, coral striped shirt, rose ponytail, brass cyber-monocle with a cable to the ear, stacked collar with lit seams, bandolier, leather gloves | dished leather, red top mark | red |
+
+## The look
+
+Michael asked for it on 2026-11-14: the drivers looked "default, dark and odd"; make them cartoonish and anime-like,
+in better, softer colour, "nice and soft like our cars are". Everything is redone in that style, legends and the
+creator's wardrobe alike, by the same few rules:
+
+- **Shape** (`STYLE['targets']`, `STYLE['head']` in build.py): on top of each body's MakeHuman phenotype, a younger,
+  rounder head scaled up by a fifth, eyes at about twice MakeHuman's largest (and taller), a small nose and mouth, a
+  narrow chin and a slim neck. Bodies keep their builds; the game's skeleton, clips and fits all follow.
+- **Skin** (`toon_skin`): MakeHuman's photo skins blurred smooth and pulled most of the way to their own mean tone
+  (lips, age lines and the tone itself survive as soft shapes), a little lighter, with a blush on each cheek.
+- **Eyes** (`anime_eye`): the iris texture is painted, in the colour of MakeHuman's: a big iris dark at the top and
+  bright at the bottom, a dark rim, a large pupil, two catchlights, a clean white with the lid's shadow.
+- **Brows and lashes** (`stroke`): single hairs thickened into one brush stroke; brows in the hair's colour, lashes a
+  soft plum-brown, never black.
+- **Cloth and hair** (`soften`, `recolor`): the weave and strands are blurred out, no normal maps, and each zone is
+  its colour in gentle shades (contrast × `STYLE['contrast']`, kept inside `STYLE['shade']`); anything left over is
+  lifted off black (`STYLE['floor']`).
+- **Palette** (cast.py, `OUTFITS` in wardrobe.py, `palette()` in kit.py): pastel-leaning, mid-light, gently saturated,
+  never near black, in the mood of the cars' paints (Sakura, Lagoon, Champagne): sage, periwinkle, dusk blue, coral,
+  terracotta, cream, honey. Metals are pale and satin (`kit.METAL`: about half metal, half paint), "black" leather
+  and gunmetal are dusky greys. A driver's glow colour is the one bright note; it glows a little less than it did.
+- **Shading** (src/kanjo/client/toon.ts): in the game every driver material gets soft cel shading: light falls in two
+  bands with a soft edge instead of fading round the form, the shade band still gets `TOON.shade` of the light and a
+  small glow of the surface's own colour (`TOON.floor`), so nobody goes dark under one spot or at night. It is a
+  patch on the standard material's shader (and on Low graphics' stand-ins), so maps, skinning, the wardrobe's
+  recolour and the glows work as before. Drivers don't receive shadow maps (the bands are their shading).
 
 ## In the game
 
 - `src/kanjo/shared/rider.ts`: the catalogue (`RIDER_IDS`, `RIDERS`: names, bios, glow colours), `cleanRider`,
   `rivalRider`. The garage stores your pick (`rider`); a rider's code is its id, carried as `Racer.rider` (the room
   cleans anything else to the default).
+- `src/kanjo/client/toon.ts`: the soft cel shading above (`toon`, `toonAll`, tunables `TOON`), applied by driver.ts
+  to a legend's materials as it loads and by wardrobe.ts to an assembled driver's.
 - `src/kanjo/client/driver.ts`: loads each GLB once and hands out skinned clones (`loadDriver`). A rig `sit()`s
   (the `drive` clip held at the steering angle; seat and wheel shown, shoes hidden), `ride()`s (the bike) or
   `stand()`s (the `idle` loop). `arrive()` seats one in a car or on a bike once it has loaded (and fades a
@@ -36,7 +67,7 @@ You pick yours on the garage's **Driver** tab; rivals get the other three; onlin
 - `showroom.ts`: your driver stands by the driver's door; the Driver tab walks the camera in.
   `riderportrait.ts` draws each driver once for the lobby's crew.
 
-Budgets per driver: about 30-36k triangles, ~22 draw calls, 1.6-1.7 MB (WebP textures). Six on a grid
+Budgets per driver: about 29-36k triangles, ~22 draw calls, 1.4-1.6 MB (WebP textures). Six on a grid
 is about +130 draw calls and +190k triangles, which is why far ones are culled.
 
 ## Building them
@@ -64,12 +95,14 @@ Then `npx tsx --test tests/kanjo/drivers.test.ts` checks every GLB still has wha
 What each file does:
 
 - `cast.py`: the four designs. A MakeHuman phenotype (gender, age, muscle, weight, proportions, height,
-  ethnicity), skin, eyes, hair, clothes, recolour rules for the clothes' textures (pick pixels by hue,
-  saturation, value or a UV box; repaint keeping the cloth's shading; optionally glow), the kit, the seat,
-  the wheel, and the stance.
-- `build.py`: makes the MPFB human (game-engine skeleton), bakes the body shape, replaces the materials with
-  plain glTF ones on recoloured, downscaled textures, cuts sleeves off for mechanical arms, deletes skin
-  hidden under clothes, decimates (sparing the face), builds the kit, poses, and exports.
+  ethnicity; `targets` can add to or override the cartoon head's), skin, eyes, hair, clothes, recolour rules for
+  the clothes' textures (pick pixels by hue, saturation, value or a UV box; repaint in soft shades of a colour;
+  optionally glow), the kit, the seat, the wheel, and the stance.
+- `build.py`: `STYLE` (every number of the look above), makes the MPFB human (game-engine skeleton) with the
+  cartoon targets, bakes the body shape, enlarges the head (`big_head`), replaces the materials with plain glTF
+  ones on repainted, downscaled textures (`toon_skin`, `anime_eye`, `stroke`, `soften`, `recolor`), cuts sleeves
+  off for mechanical arms, deletes skin hidden under clothes, decimates (sparing the face), builds the kit, poses,
+  and exports.
 - `kit.py`: the hard-surface parts, fitted to each body by raycasting (rings cast inward round a bone for
   bands, bracers and collars; ray grids for shells like the respirator and pauldron), then bound to the rig
   (rigid to one bone, or skinned by copying the nearest body or cloth weights). Also the seat and the wheels.
@@ -77,14 +110,15 @@ What each file does:
   IK targets parented to the wheel bone, the head turning into the bend), the `ride` clip (tucked over the
   tank, hands on the bike's grips, feet on its pegs; `BIKE` holds bikemodel.ts's touch points) and the `idle`
   loop; all baked to plain keys.
-- `render.py`: EEVEE preview renders (standing, face, seated, full lock).
+- `render.py`: EEVEE preview renders (standing, face, seated, full lock) in a soft bright studio. They show
+  shape, textures and palette; the cel shading is the game's, so check `/dev/drivers.html` too.
 
 Adding a driver: a spec in `cast.py`, an entry in `RIDER_IDS` / `RIDERS` (append), build it, run the tests.
 
 ## Custom drivers
 
 Players can also build their own on the Driver page: `tools/drivers/wardrobe.py` builds six body bases and
-swappable parts with the same human, materials and kit code, and the client assembles them per look. See
+swappable parts with the same human, cartoon look, materials and kit code, and the client assembles them per look. See
 `docs/DRIVER_CREATOR.md` (plan and progress).
 
 ```bash

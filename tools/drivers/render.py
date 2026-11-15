@@ -22,16 +22,18 @@ def _setup(sc):
     sc.render.engine = 'BLENDER_EEVEE'
     sc.render.resolution_x = 800
     sc.render.resolution_y = 1000
-    sc.view_settings.view_transform = 'AgX'
+    # Standard, not AgX: the colours on screen are the textures' own, as the game's soft shading shows them.
+    sc.view_settings.view_transform = 'Standard'
     if not sc.world:
         sc.world = bpy.data.worlds.new('w')
     sc.world.use_nodes = True
     bg = sc.world.node_tree.nodes.get('Background')
-    bg.inputs[0].default_value = (0.03, 0.035, 0.045, 1)
-    _light(sc, 'key', (-2.2, -3.0, 2.8), 380, (1, 0.95, 0.88))
-    _light(sc, 'fill', (2.8, -2.2, 1.4), 110, (0.8, 0.88, 1.0))
-    _light(sc, 'rimc', (-2.5, 2.5, 2.2), 300, (0.25, 0.75, 1.0))
-    _light(sc, 'rimm', (2.5, 2.5, 2.2), 220, (1.0, 0.25, 0.6))
+    # A soft studio: a bright even world, a big gentle key and pale rims, so nothing falls into black.
+    bg.inputs[0].default_value = (0.36, 0.38, 0.43, 1)
+    _light(sc, 'key', (-2.2, -3.0, 2.8), 150, (1, 0.96, 0.9), 4.0)
+    _light(sc, 'fill', (2.8, -2.2, 1.4), 60, (0.86, 0.92, 1.0), 4.0)
+    _light(sc, 'rimc', (-2.5, 2.5, 2.2), 90, (0.6, 0.85, 1.0))
+    _light(sc, 'rimm', (2.5, 2.5, 2.2), 70, (1.0, 0.65, 0.8))
     cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam'))
     sc.collection.objects.link(cam)
     sc.camera = cam
@@ -63,21 +65,22 @@ def previews(did, arm, prefix, views=('idle', 'face', 'drive', 'lock', 'top')):
         sc.frame_set(24)
         _show(('seat', 'wheel'), False)
         if 'idle' in views:
-            _shoot(sc, cam, prefix + '_idle.png', (0, 0, head_z * 0.52), 5.0, 50, 0.45)
-            _shoot(sc, cam, prefix + '_back.png', (0, 0, head_z * 0.52), 5.0, 50, math.pi - 0.5)
+            _shoot(sc, cam, prefix + '_idle.png', (0, 0, head_z * 0.5), 3.0, 50, 0.45)
+            _shoot(sc, cam, prefix + '_back.png', (0, 0, head_z * 0.5), 3.0, 50, math.pi - 0.5)
         if 'face' in views:
             _shoot(sc, cam, prefix + '_face.png', (0, -0.05, head_z - 0.02), 1.0, 85, 0.4, 0.02)
+            _shoot(sc, cam, prefix + '_front.png', (0, -0.05, head_z - 0.02), 1.0, 85, 0.0, 0.02)
     if {'drive', 'lock', 'top'} & set(views):
         arm.animation_data.action = acts['drive']
         _show(('seat', 'wheel'), True)
         sc.frame_set(8)
         if 'drive' in views:
-            _shoot(sc, cam, prefix + '_drive.png', (0, -0.2, 0.45), 3.4, 50, 1.25, 0.15)
-            _shoot(sc, cam, prefix + '_drive_front.png', (0, -0.2, 0.55), 3.0, 50, 0.35, 0.25)
+            _shoot(sc, cam, prefix + '_drive.png', (0, -0.2, 0.45), 2.4, 50, 1.25, 0.15)
+            _shoot(sc, cam, prefix + '_drive_front.png', (0, -0.2, 0.55), 2.2, 50, 0.35, 0.25)
             _shoot(sc, cam, prefix + '_hands.png', (0, -0.3, 0.42), 1.3, 50, 0.25, 0.35)
         if 'lock' in views:
             sc.frame_set(0)
-            _shoot(sc, cam, prefix + '_lock.png', (0, -0.2, 0.55), 3.0, 50, 0.35, 0.25)
+            _shoot(sc, cam, prefix + '_lock.png', (0, -0.2, 0.55), 2.2, 50, 0.35, 0.25)
         if 'ride' in acts:
             arm.animation_data.action = acts['ride']
             _show(('seat', 'wheel'), False)

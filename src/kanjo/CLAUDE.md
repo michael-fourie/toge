@@ -317,8 +317,9 @@ a component or a page.
   spec). Kits with their own wing set `ownWing` (no garage spoiler) and skip it when a cosmetic wing is on (`k.wing`).
   A new kit: a `ShellStyle`, an item appended to `CATALOG.shell`, a `SHELLS` entry, a card silhouette (`SHELL_ART` in
   cosmeticsui.ts); check it with `lab.show('vanta'); lab.cos({ shell: 'vk_kaido' })` in `/dev/cars.html`.
-- **Drivers** (rider.ts): four realistic characters, steampunk crossed with cyberpunk (Marlowe, Kirika, Okonkwo,
-  Inès), GLBs built in Blender by `tools/drivers` (docs/DRIVERS.md). Free, saved in the garage (`rider`, the `rider`
+- **Drivers** (rider.ts): four cartoon characters, anime-styled (big heads and eyes, soft pastel colour, soft cel
+  shading from client/toon.ts; Michael asked for the restyle 2026-11-14), steampunk crossed with cyberpunk (Marlowe,
+  Kirika, Okonkwo, Inès), GLBs built in Blender by `tools/drivers` (docs/DRIVERS.md). Free, saved in the garage (`rider`, the `rider`
   action; a rider's code is its id). Your driver sits in your car (seen through the tinted glass, hands on their own
   wheel, turning it with the steering), rides your bike, stands by your car in the showroom (the Driver tab walks the
   camera in), and the lobby shows every racer's driver in the Crew row. AI rivals get the other three. Drivers are

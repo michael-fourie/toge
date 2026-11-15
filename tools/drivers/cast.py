@@ -1,5 +1,7 @@
-"""The four KANJO drivers. Each is a MakeHuman body (realistic proportions from MPFB's phenotype
-sliders), recoloured MakeHuman clothes, and a kit of brass-and-neon parts from kit.py.
+"""The four KANJO drivers. Each is a MakeHuman body (MPFB's phenotype sliders, then build.py's cartoon
+`STYLE`), MakeHuman clothes recoloured in soft colours, and a kit of brass-and-neon parts from kit.py.
+The palette is pastel-leaning: mid-light, gently saturated, never near black (the cars' paints are the
+mood: Sakura, Lagoon, Champagne); each driver's `theme` is the one bright note.
 
 Recolour rules pick pixels of a texture by hue / saturation / value (and optionally a UV box) and
 repaint them in a new colour, keeping the cloth's shading. `emit` makes the picked pixels glow.
@@ -20,14 +22,14 @@ MARLOWE = {
     'clothes': ['male_elegantsuit01', 'shoes03'],
     'sleeveless': ['r'],
     'recolor': {
-        # A bottle-green tailcoat suit, cream shirt, amber silk tie.
+        # A sage-green tailcoat suit, cream shirt, honey silk tie.
         'male_elegantsuit01': [
-            {'uv': (0.76, 0.74, 0.87, 1.0), 'val': (0.0, 0.85), 'color': '#b8862b'},
-            {'val': (0.0, 0.45), 'sat': (0.0, 0.6), 'color': '#1f3a2c'},
-            {'val': (0.6, 1.0), 'sat': (0.0, 0.25), 'color': '#e9dcc0'},
+            {'uv': (0.76, 0.74, 0.87, 1.0), 'val': (0.0, 0.85), 'color': '#f0c26a'},
+            {'val': (0.0, 0.45), 'sat': (0.0, 0.6), 'color': '#6fa08c'},
+            {'val': (0.6, 1.0), 'sat': (0.0, 0.25), 'color': '#fbf2de'},
         ],
-        'short02': [{'color': '#8d8a85', 'contrast': 1.3}],
-        'shoes03': [{'color': '#2a1a10'}],
+        'short02': [{'color': '#d4d3dc', 'contrast': 1.3}],
+        'shoes03': [{'color': '#8a6350'}],
     },
     'kit': [
         ('goggles', {'lens': '@glass', 'single': '@lens', 'where': 'forehead', 'lift': 0.062, 'tilt': 0.45, 'strap': 'leather'}),
@@ -53,15 +55,15 @@ KIRIKA = {
     'hair': 'bob02',
     'clothes': ['female_sportsuit01', 'shoes05'],
     'recolor': {
-        # Black racing top and leggings; the leggings' side stripe glows.
+        # Periwinkle racing top and dusk-blue leggings; the leggings' side stripe glows.
         'female_sportsuit01': [
-            {'hue': (0.03, 0.16), 'sat': (0.5, 1.0), 'color': '#ff2fd2', 'emit': '#ff2fd2'},
-            {'val': (0.85, 1.0), 'sat': (0.0, 0.15), 'color': '#ff2fd2', 'emit': '#ff2fd2'},
-            {'hue': (0.5, 0.75), 'sat': (0.25, 1.0), 'color': '#18171d'},
-            {'val': (0.0, 0.6), 'color': '#121116'},
+            {'hue': (0.03, 0.16), 'sat': (0.5, 1.0), 'color': '#ff7fe0', 'emit': '#ff2fd2'},
+            {'val': (0.85, 1.0), 'sat': (0.0, 0.15), 'color': '#ff7fe0', 'emit': '#ff2fd2'},
+            {'hue': (0.5, 0.75), 'sat': (0.25, 1.0), 'color': '#8d92c8'},
+            {'val': (0.0, 0.6), 'color': '#6a6f9e'},
         ],
-        'bob02': [{'color': '#e6e9f2'}],
-        'shoes05': [{'val': (0.5, 1.0), 'color': '#202027'}, {'val': (0.0, 0.5), 'color': '#ff2fd2'}],
+        'bob02': [{'color': '#f3effa'}],
+        'shoes05': [{'val': (0.5, 1.0), 'color': '#f4f1fa'}, {'val': (0.0, 0.5), 'color': '#ff8fe3'}],
     },
     'kit': [
         ('respirator', {'glow': '@glow'}),
@@ -88,13 +90,13 @@ OKONKWO = {
     'hair': 'short04',
     'clothes': ['male_worksuit01', 'shoes03'],
     'recolor': {
-        # Oiled canvas overalls in rust brown, a charcoal tee.
+        # Canvas overalls in terracotta, a slate-blue tee.
         'male_worksuit01': [
-            {'hue': (0.5, 0.75), 'sat': (0.12, 1.0), 'color': '#5a3420'},
-            {'sat': (0.0, 0.2), 'val': (0.4, 1.0), 'color': '#2b2b2e'},
+            {'hue': (0.5, 0.75), 'sat': (0.12, 1.0), 'color': '#d08a62'},
+            {'sat': (0.0, 0.2), 'val': (0.4, 1.0), 'color': '#7d8aa3'},
         ],
-        'short04': [{'color': '#141110'}],
-        'shoes03': [{'color': '#1c1410'}],
+        'short04': [{'color': '#4a3f44'}],
+        'shoes03': [{'color': '#7a5f55'}],
     },
     'kit': [
         ('goggles', {'lens': '@lens', 'where': 'forehead', 'lift': 0.07, 'tilt': 0.5, 'strap': 'leather_tan'}),
@@ -122,14 +124,15 @@ INES = {
     'hair': 'ponytail01',
     'clothes': ['male_casualsuit05', 'shoes03'],
     'recolor': {
-        # Black leather jacket, blood-red shirt, charcoal jeans.
+        # Dusk-blue jacket, coral shirt, pale slate jeans.
         'male_casualsuit05': [
-            {'uv': (0.0, 0.0, 0.6, 0.45), 'color': '#25252a', 'contrast': 0.6},
-            {'hue': (0.8, 0.06), 'sat': (0.3, 1.0), 'color': '#b3121e'},
-            {'hue': (0.15, 0.55), 'sat': (0.03, 1.0), 'color': '#17130f', 'contrast': 1.2},
+            {'uv': (0.0, 0.0, 0.6, 0.45), 'color': '#8e97b5', 'contrast': 0.6},
+            {'hue': (0.8, 0.06), 'sat': (0.3, 1.0), 'color': '#f27d7a'},
+            {'hue': (0.15, 0.55), 'sat': (0.03, 1.0), 'color': '#565f85', 'contrast': 1.2},
+            {'val': (0.0, 0.3), 'color': '#5a6187'},  # the shirt's dark stripes
         ],
-        'ponytail01': [{'color': '#6e0d16'}],
-        'shoes03': [{'color': '#121010'}],
+        'ponytail01': [{'color': '#c2586e'}],
+        'shoes03': [{'color': '#5c586b'}],
     },
     'kit': [
         ('monocle', {'lens': '@lens', 'side': -1}),
