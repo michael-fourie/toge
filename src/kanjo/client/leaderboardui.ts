@@ -104,7 +104,6 @@ export function leaderboardTab(v: BoardView): string {
     </section>
     <div class="tg-lb-launch">
       <p class="tg-muted">${mineLine(v, myRow, top)}</p>
-      ${d.climb ? '' : `<button class="tg-go small" data-lb-race="${v.track}">Race it</button>`}
     </div>
     <h2 class="tg-h">All-time board <small>${d.climb ? 'Hill climbs' : 'Time trials'} only · one time per racer · top ${BOARD.size}</small></h2>
     ${boardTable(v, myRow)}

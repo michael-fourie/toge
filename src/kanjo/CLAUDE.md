@@ -55,7 +55,7 @@ the stick whichever way the car was going, so backing up with the wheel right sw
 with the direction of travel (`backing` in `arcade()`, eased in over the first 2 m/s backwards), so wheel right in
 reverse swings the tail right and the nose left, as in the simulation underneath (racephysics "reversing steers").
 
-**CPU difficulty** (driver.ts `CPU_LEVELS`, `rivalAi`; the Race page's CPU pills, saved as `atrous.cpu`, read by
+**CPU difficulty** (driver.ts `CPU_LEVELS`, `rivalAi`; no menu sets it since the Race page became Host / Join only; saved as `atrous.cpu`, read by
 racegame.ts `cpuLevel()`): Easy (pace 0.66, about where the CPUs were before), Normal (0.86, the default; its slowest
 CPUs about match full throttle) and Hard (1: skills 0.84-0.94). The host's level also drives an online lobby's CPU racers.
 
@@ -194,7 +194,7 @@ a component or a page.
   Online the room judges it (race.ts `stepRoyale` every tick, from the `state` / `cpus` poses' `s`), sends `out` (id,
   lap, place, left) and stops relaying or counting a knocked-out car; the race ends when one is left
   (`maybeRoyaleOver`: the winner timed, the rest by place, `ResultRow.out` = the lap they went out on; paid like a race
-  by place, CPU racers never). Solo (the Race page's Battle royale tiles, at least `ROYALE.minRivals` rivals) the
+  by place, CPU racers never). Solo (`DriveOpts` from `/dev/race.html`; no menu starts one now, at least `ROYALE.minRivals` rivals) the
   client judges it the same way (racegame.ts `judgeRoyale`, you are key 0). Either way racegame.ts `knockOut` blows
   the car up (the Physics mode's `Blasts`, built for a royale too), hides it (`stowCar`: its meshes, never its night
   headlight and tail glow, which go dark but stay in the scene: hiding the whole car took two lights out, recompiled
@@ -224,7 +224,7 @@ a component or a page.
   Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
   more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
   test checks every one is in one, and only Velocity and Overdrive repeat tracks); a new cup is an append to `CupId` / `CUPS`.
-  Solo: the Race page's cup cards start round 1 (`DriveOpts.gp`, at least 3 rivals); racegame.ts `soloCup` adds the
+  Solo (no menu starts one now): `DriveOpts.gp` starts round 1 (at least 3 rivals); racegame.ts `soloCup` adds the
   places to the table (you are key `me`, rivals by name: the same every round) and Next race hands `onNext` the next
   round, so each round is a fresh RaceGame with its own loading screen. Every round pays like a solo race.
   Online: mode `gp` (race rules; `cleanMode` / `recordMode` false; no record ghost). The host picks a cup
@@ -609,7 +609,7 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   spacing test skips the crossing; `figure 8` in racephysics tests the bridge. Put the start line well clear of the bridge.
 - Time trial (`mode: 'trial'` on the room, picked by the host in the lobby; switching to it puts up Kodama Ring, the short circuit built for it): the other racers' cars are see-through ghosts (`ghostly()` in carmodel.ts) and never collide. Clients send their best lap with `finish` (shown only, never paid on); the results add each racer's gap to the winner and best lap.
 - **Solo time trial** (2026-11-10, Andrew: time trials "accessible when playing Solo (ie. without having to Host a Race)
-  ... so you are able to put times on the Leaderboard"): the Race page's Time trial button (hub.ts `soloTrial`) opens a
+  ... so you are able to put times on the Leaderboard"): hub.ts's `soloTrial` (removed when the Race page became Host / Join only, 2026-11-15; `raceNet.hostSolo` and `Race.makeSolo` remain) opened a
   private room of one on the picked track (`raceNet.hostSolo`, socket param `solo=1`; the Worker passes it only to a
   new room) and goes straight to the start, no lobby. The room (`Race.makeSolo`) is always a time trial, full at one
   racer, ignores `mode` / `cpu` / `cup`, and says `solo` on its `room` message and its directory entry: the lobby list
