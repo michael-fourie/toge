@@ -120,6 +120,63 @@ export function leaderboardTab(v: BoardView): string {
     ${status(v.failed ? 'Could not load the leaderboard.' : v.status)}`;
 }
 
+/**
+ * The leaderboard as a large modal (Race home's Leaderboard button; 2026-11-15, Michael): a header, every track down the
+ * left with its record, and the open track's hero, your standing, its board and the overall medal table on the right.
+ * Same pieces and hooks as `leaderboardTab` (`data-lb-track`, `data-notices-seen`).
+ */
+export function leaderboardModal(v: BoardView): string {
+  const d = TRACK_DEFS[v.track];
+  const rows = v.rows;
+  const top = rows?.[0];
+  const me = v.user?.toLowerCase();
+  const myRow = rows && me ? rows.findIndex((r) => r.name.toLowerCase() === me) : -1;
+  return `
+    <header class="tg-lbm-head">
+      <div><small class="tg-eyebrow">All-time · one time per racer</small><h2 class="tg-display" id="tg-lbm-title">Leaderboard</h2></div>
+      <button class="tg-go alt small" data-lbm-close data-autofocus>Close</button>
+    </header>
+    <div class="tg-lbm-cols">
+      <nav class="tg-lbm-tracks" aria-label="Tracks">
+        ${ALL_TRACKS.map((id) => {
+          const r = v.leaders?.[id];
+          return `<button class="tg-lb-track" data-lb-track="${id}" aria-pressed="${id === v.track}">
+            <span><b>${esc(TRACK_DEFS[id].name)}</b><small>${esc(trackKind(id))}</small></span>
+            <span class="tg-num">${r ? `<b>${fmtTime(r.time)}</b><small>${esc(r.name)}</small>` : `<small>${v.leaders ? 'No record' : '…'}</small>`}</span>
+          </button>`;
+        }).join('')}
+      </nav>
+      <div class="tg-lbm-main">
+        ${noticesCard(v.notices)}
+        <section class="tg-hero tg-lb-hero" style="${trackStyle(v.track)}">
+          <span class="tg-hero-art" aria-hidden="true"></span>
+          <div class="tg-hero-map">${trackMap(v.track)}</div>
+          <div class="tg-hero-copy">
+            <small class="tg-eyebrow">${esc(trackKind(v.track))} · ${TRACK_LENGTH_KM[v.track]} km</small>
+            <h1 class="tg-display">${esc(d.name)}</h1>
+            <p>${top ? `Record held by <b>${esc(top.name)}</b>` : rows ? 'No record yet. Set the first time.' : 'Loading the board…'}</p>
+          </div>
+          <dl class="tg-hero-facts">
+            <div><dt>Track record</dt><dd class="tg-num">${top ? fmtTime(top.time) : '—'}</dd></div>
+            <div><dt>Racers</dt><dd class="tg-num">${rows ? rows.length : '—'}</dd></div>
+          </dl>
+        </section>
+        <p class="tg-muted">${mineLine(v, myRow, top)}</p>
+        <div class="tg-lbm-grid">
+          <div>
+            <h2 class="tg-h">Board <small>${d.climb ? 'Hill climbs' : 'Time trials'} only · top ${BOARD.size}</small></h2>
+            ${boardTable(v, myRow)}
+          </div>
+          <div>
+            <h2 class="tg-h">Overall <small>Medals on every board</small></h2>
+            ${medalsTable(v)}
+          </div>
+        </div>
+        ${status(v.failed ? 'Could not load the leaderboard.' : v.status)}
+      </div>
+    </div>`;
+}
+
 /** How many medal rows to show before folding the rest (you're always shown). */
 const MEDAL_ROWS = 10;
 

@@ -111,6 +111,7 @@ function room(runs: Partial<Record<TrackId, GhostRun>>) {
   const results: Map<number, GhostTape>[] = [];
   const race = new Race('GHST', () => {}, () => {}, (_rows, _users, _track, tapes) => results.push(tapes), () => now, false);
   race.ghostSource = async (t) => runs[t] ?? null;
+  race.fetchGhost(); // as raceroom.ts does: the ghost is on by default
   const join = (id: number): RaceClient => {
     inbox.set(id, []);
     const c: RaceClient = { id, ws: { readyState: 1, send: (d: string) => inbox.get(id)!.push(JSON.parse(d)) }, name: `p${id}`, car: CAR, rider: '', user: true };
@@ -127,14 +128,13 @@ function room(runs: Partial<Record<TrackId, GhostRun>>) {
   return { race, join, advance, last, results, flush: () => new Promise((r) => setTimeout(r, 0)) };
 }
 
-test('the host turns the record ghost on; the lobby says whose it is and the race loads with it', async () => {
+test('the record ghost is on by default; the lobby says whose it is and the race loads with it', async () => {
   const run: GhostRun = { name: 'Ann', time: 200, ...drive(200) };
   const r = room({ koripass: run });
   const a = r.join(1);
   const b = r.join(2);
-  r.race.handle(b, { t: 'ghost', on: true });
-  assert.equal(r.race.ghost, false, 'only the host');
-  r.race.handle(a, { t: 'ghost', on: true });
+  r.race.handle(b, { t: 'ghost', on: false });
+  assert.equal(r.race.ghost, true, 'only the host can turn it off');
   await r.flush();
   const rm = r.last(2, 'room');
   assert.ok(rm && rm.t === 'room' && rm.ghost && rm.record?.name === 'Ann' && rm.record.time === 200);
@@ -155,6 +155,7 @@ test('the host turns the record ghost on; the lobby says whose it is and the rac
 test('with the ghost off, the race loads without one', async () => {
   const r = room({ koripass: { name: 'Ann', time: 200, ...drive(200) } });
   const a = r.join(1);
+  r.race.handle(a, { t: 'ghost', on: false });
   r.race.handle(a, { t: 'start' });
   const ld = r.last(1, 'load');
   assert.ok(ld && ld.t === 'load' && ld.ghost === null);

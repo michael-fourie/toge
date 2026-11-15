@@ -376,7 +376,7 @@ a component or a page.
 - **Record ghost** (ghost.ts, client/ghostcar.ts): each track record keeps its run (`gh:<track>`, only while it's the
   record; a record set without a usable run clears it). A run is the car's pose every `GHOST.every` s from GO (compact
   ints, `cleanTape` checks it). Online runs are recorded by the room from the `state` poses (race.ts `Member.rec`,
-  handed to `onResults` as `tapes`); solo runs keep none. The lobby host's Record ghost toggle (`{t:'ghost'}`, `RECORD_GHOST`) has the room fetch the track's ghost
+  handed to `onResults` as `tapes`); solo runs keep none. The Record ghost is always on (2026-11-15, Michael: no lobby option; `Race.ghost` starts true, raceroom.ts fetches the first track's, the `{t:'ghost'}` message still works but no menu sends it) and the room fetches the track's ghost
   (`Accounts.recordGhost`); the room message says whose it is (`record`) and `load` carries it. In the race it's a
   see-through car with a "TR" name tag and a map dot, never a racer (no place, contact or prize).
 - **Best Moment** (highlight.ts; Michael 2026-11-11: "After a game show a 5 second highlight from the winner ... going
@@ -518,7 +518,7 @@ src/kanjo/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road,
   a single offscreen 3D shot of your car and driver, is both what you see and the PNG you download or share), settingsui.ts
   (the Settings page: graphics), friendsui.ts (the Friends page: list, add, a friend's
   profile and best times), leaderboardui.ts (Race → Leaderboard: a track's all-time board and every track's record), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
-  styled by hub.css), lobby.ts (`drivelobby`; the picked track's all-time top 5 under its hero (leaderboardui.ts `lobbyBoard`, refetched on a track change, after a race and once a minute); its Your car card switches cars, and Edit car mounts the garage over the lobby with `pitGarage(root, ctx, { close })`: hub.ts with a `Pit`, only the car and driver tabs, a lobby strip in the top bar; the room shows `Racer.pit` as a Garage tag, and the lobby re-sends your car and driver whenever the room's copy is stale), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
+  styled by hub.css), lobby.ts (`drivelobby`; the picked track's all-time top 5 under its hero (leaderboardui.ts `lobbyBoard`, refetched on a track change, after a race and once a minute); its Your car card switches cars (no Edit car and no car-rule pick any more, 2026-11-15: cars are always your own; hub.ts's `pitGarage` and the `pit` message are unused now), the Crew shows each racer's car with their driver in front (riderportrait.ts `racerPortrait`), and the lobby re-sends your car and driver whenever the room's copy is stale), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
   garageStore.ts, racenet.ts, race.css, propview.ts (props, boost pads), trafficview.ts (instanced city traffic),

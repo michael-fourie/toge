@@ -1,4 +1,5 @@
-// KANJO's home: the garage. Seven tabs (DESIGN.md §6): Race (Race, Leaderboard: leaderboardui.ts, Battle pass: passui.ts); Garage (My cars, Dealer); Performance (Upgrades,
+// KANJO's home: the garage. Seven tabs (DESIGN.md §6): Race (the landing: your car and driver centred, Host / Join below, cards round
+// them for the Battle pass (passui.ts, its own page) and the Leaderboard (leaderboardui.ts, a large modal)); Garage (My cars, Dealer); Performance (Upgrades,
 // Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts); Driver (your character: riderui.ts); Settings (graphics:
 // settingsui.ts); Friends (friendsui.ts: add friends, their garages and best times). LB / RB walk every page in that order. The showroom fills
 // the window behind the glass rail, with your car framed in the free space and its card bottom right.
@@ -12,31 +13,30 @@ import { driverCard, driverTab } from './riderui.ts';
 import { cardData, openPlayerCard } from './playercard.ts';
 import { settingsTab } from './settingsui.ts';
 import { friendCar, friendsApi, friendsTab } from './friendsui.ts';
-import { type Leaders, boardApi, leaderboardTab, noticeText } from './leaderboardui.ts';
+import { type Leaders, boardApi, leaderboardModal, noticeText } from './leaderboardui.ts';
 import type { FriendList } from '../../shared/friends.ts';
 import { BOARD_TRACKS, type BoardRow, type MedalRow, type Notice, type KanjoProfile } from '../shared/records.ts';
 import { type Graphics, graphics, setGraphics } from '../../client/graphics.ts';
-import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
+import type { TrackId } from '../shared/track.ts';
 import { account } from '../../client/account.ts';
 import type { Ctx, Render, Screen } from '../../client/menu/router.ts';
 import { $, esc, playerName } from '../../client/menu/ui.ts';
 import { DEFAULT_LOOK, decodeLook, encodeLook, type Look as DriverLook } from '../shared/look.ts';
 import { lookAfter } from './creator.ts';
-import { passChip, passRibbon, passTab } from './passui.ts';
+import { passCard, passChip, passRibbon, passTab } from './passui.ts';
 import { PASS, TIERS, type BgId, type TitleId, tierOf } from '../shared/pass.ts';
 import { garage } from './garageStore.ts';
 import { money } from './hud.ts';
 import { raceNet } from './racenet.ts';
 import { Showroom } from './showroom.ts';
 import { GAME, ICON, LOGO } from './brand.ts';
-import { CUPS } from '../shared/cups.ts';
 import './race.css';
 import './hub.css';
 
-type Page = 'race' | 'leaderboard' | 'pass' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'friends' | 'settings';
+type Page = 'race' | 'pass' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'friends' | 'settings';
 type TabId = 'race' | 'garage' | 'perf' | 'style' | 'driver' | 'friends' | 'settings';
 const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
-  { id: 'race', label: 'Race', pages: [['race', 'Race'], ['leaderboard', 'Leaderboard'], ['pass', 'Battle pass']] },
+  { id: 'race', label: 'Race', pages: [['race', 'Race'], ['pass', 'Battle pass']] },
   { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['dealer', 'Dealer']] },
   { id: 'perf', label: 'Performance', pages: [['upgrades', 'Upgrades'], ['tuning', 'Tuning']] },
   { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['cases', 'Cases']] },
@@ -122,7 +122,6 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   let lookShow = 0;
   const ownLook = (): DriverLook => lookDraft ?? decodeLook(garage.g.look) ?? DEFAULT_LOOK;
   let saveTimer = 0;
-  let listTimer = 0;
   let busy = false;
   /** Friends: the list (null until loaded), the friend whose garage is open and which of their cars is shown. */
   let friendList: FriendList | null = null;
@@ -137,6 +136,10 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   let medals: MedalRow[] | null = null;
   const boards = new Map<TrackId, BoardRow[]>();
   let lbFailed = false;
+  /** The leaderboard modal is up (opened from the Race home's Leaderboard card). */
+  let lbOpen = false;
+  /** The Race home: no rail, your car and driver centred with the cards round them (not in the lobby's garage). */
+  const landing = () => !pit && page === 'race';
   /** Your unseen "your time was beaten" notices (signed in), checked on arrival and every NOTICE_POLL_MS. */
   let notices: Notice[] = [];
   let noticeTimer = 0;
@@ -182,7 +185,9 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     const s = stage.getBoundingClientRect();
     const W = innerWidth;
     const H = innerHeight;
-    if (W > 900) showroom.place((r.right + W) / 2 / W, (s.top + s.bottom * 0.84) / 2 / H);
+    // The landing has no rail: the car and driver stand in the middle, above the Host button.
+    if (W > 900 && landing()) showroom.place(0.5, (s.top + s.bottom * 0.8) / 2 / H);
+    else if (W > 900) showroom.place((r.right + W) / 2 / W, (s.top + s.bottom * 0.84) / 2 / H);
     else showroom.place(0.5, (s.top + s.bottom) / 2 / H, Math.min(1, ((s.bottom - s.top) / H) * 1.6));
   };
   const ro = new ResizeObserver(frameCar);
@@ -237,6 +242,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       chip.setAttribute('aria-label', `Battle pass, tier ${tierOf(garage.g.xp)} of ${PASS.tiers}`);
       chip.classList.toggle('on', page === 'pass');
     }
+    root.querySelector('main.tg')?.classList.toggle('tg-landing', landing());
     const who = root.querySelector<HTMLElement>('[data-who]');
     if (who) who.innerHTML = account.user
       ? `${ICON.user}<span>${esc(account.user)}</span><small>${garage.g.wins} wins · Player card</small>`
@@ -248,10 +254,9 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       b.classList.toggle('on', b.dataset.tab === tab.id);
     });
     const sub = $(root, '[data-subtabs]');
-    sub.hidden = tab.pages.length < 2;
-    // The Leaderboard tab counts your unseen "time beaten" notices.
-    const badge = (p: Page) => (p === 'leaderboard' && notices.length ? `<b class="tg-badge" aria-label="${notices.length} times beaten">${notices.length}</b>` : '');
-    sub.innerHTML = tab.pages.map(([p, label]) => `<button role="tab" data-page="${p}" aria-selected="${p === page}" class="${p === page ? 'on' : ''}">${esc(label)}${badge(p)}</button>`).join('');
+    // The landing has no sub-tabs: the Battle pass is a card on it (and Race is the first sub-tab back from the pass).
+    sub.hidden = tab.pages.length < 2 || landing();
+    sub.innerHTML = tab.pages.map(([p, label]) => `<button role="tab" data-page="${p}" aria-selected="${p === page}" class="${p === page ? 'on' : ''}">${esc(label)}</button>`).join('');
     sub.querySelectorAll<HTMLElement>('[data-page]').forEach((b) => b.addEventListener('click', () => switchPage(b.dataset.page as Page)));
   };
 
@@ -300,19 +305,40 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
 
   const statusLine = () => `<p class="tg-status" role="status" data-status>${esc(status)}</p>`;
 
-  /** The landing page: host a race or join one by code (or from the open list). Everything else is set up in the lobby. */
-  const racePage = () => `
-    <h2 class="tg-h">Race online <small>up to 8 racers</small></h2>
-    <div class="tg-online tg-cardbox">
-      <div class="tg-online-row">
-        <button class="tg-go alt" data-host data-autofocus>Host a race</button>
-        <span class="tg-or">or</span>
-        <label class="tg-code"><span class="sr-only">Race code</span><input data-code maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" /></label>
-        <button class="tg-pill" data-join>Join</button>
+  /**
+   * The landing page (2026-11-15, Michael: "much better like Fortnite"): no rail. Your car and driver stand in the middle
+   * (the showroom), the Battle pass bottom left, the Leaderboard and your record top right, and the one red action,
+   * Host a race, with the code box under the car. Everything else is set up in the lobby.
+   */
+  const racePage = () => {
+    const g = garage.g;
+    const rate = g.races ? Math.round((g.wins / g.races) * 100) : 0;
+    const beaten = notices.length ? `<b class="tg-badge" aria-label="${notices.length} times beaten">${notices.length}</b>` : '';
+    return `
+    <div class="tg-land">
+      <button class="tg-hc tg-hc-pass" data-pass-open aria-label="Open the Battle pass">${passCard(g)}</button>
+      <div class="tg-land-r">
+        <button class="tg-hc tg-hc-lb" data-lb-open aria-label="Open the leaderboard">
+          <span class="tg-hc-eyebrow">All-time boards</span>
+          <span class="tg-hc-row"><span class="tg-hc-copy"><b class="tg-title">Leaderboard</b><small>Records, medals and where you stand</small></span>${beaten}<span class="tg-hc-go" aria-hidden="true">${ICON.back}</span></span>
+        </button>
+        <dl class="tg-hc tg-hc-stats">
+          <div><dt>Races</dt><dd class="tg-num">${g.races}</dd></div>
+          <div><dt>Wins</dt><dd class="tg-num">${g.wins}</dd></div>
+          <div><dt>Win rate</dt><dd class="tg-num">${rate}<small>%</small></dd></div>
+        </dl>
       </div>
-      <ul class="tg-lobbies" data-lobbies><li class="muted">Looking for open races…</li></ul>
-    </div>
-    ${statusLine()}`;
+      <div class="tg-play">
+        ${statusLine()}
+        <button class="tg-go tg-play-go" data-host data-autofocus>Host a race</button>
+        <div class="tg-play-join">
+          <span class="tg-or">or join with a code</span>
+          <label class="tg-code"><span class="sr-only">Race code</span><input data-code maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" /></label>
+          <button class="tg-pill" data-join>Join</button>
+        </div>
+      </div>
+    </div>`;
+  };
 
   const garagePage = () => {
     const g = garage.g;
@@ -458,9 +484,15 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   const driverPage = () => driverTab(viewedRider(), ownLook(), garage.g, status);
   const passPage = () => passTab({ g: garage.g, sel: passSel, car: CARS[car().model].name, status });
   const settingsPage = () => settingsTab(graphics(), status);
-  const leaderboardPage = () => {
+  /** The leaderboard modal's body, redrawn in place (keeps its scroll and the focused track). */
+  const renderLb = () => {
+    const card = root.querySelector<HTMLElement>('.tg-lbm');
+    if (!card) return;
     if (account.user && !friendList) void loadFriends();
-    return leaderboardTab({
+    const main = card.querySelector('.tg-lbm-main');
+    const keep = [card.querySelector('.tg-lbm-tracks')?.scrollTop ?? 0, main?.scrollTop ?? 0];
+    const hadFocus = card.contains(document.activeElement);
+    card.innerHTML = leaderboardModal({
       track: lbTrack,
       leaders,
       medals,
@@ -472,12 +504,37 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       failed: lbFailed,
       status,
     });
+    wire(card);
+    const tracks = card.querySelector<HTMLElement>('.tg-lbm-tracks');
+    if (tracks) tracks.scrollTop = keep[0];
+    const m = card.querySelector<HTMLElement>('.tg-lbm-main');
+    if (m) m.scrollTop = keep[1];
+    if (hadFocus) (card.querySelector<HTMLElement>(`[data-lb-track="${lbTrack}"]`) ?? card.querySelector<HTMLElement>('[data-lbm-close]'))?.focus({ preventScroll: true });
+  };
+  const openLb = () => {
+    if (busy || lbOpen) return;
+    lbOpen = true;
+    const modal = $(root, '[data-modal]');
+    modal.innerHTML = '<div class="tg-lbm" role="dialog" aria-modal="true" aria-labelledby="tg-lbm-title" data-nav-scope></div>';
+    modal.hidden = false;
+    // A click on the dim backdrop closes it, like Esc.
+    modal.onclick = (e) => e.target === modal && closeLb();
+    renderLb();
+    void loadBoard(lbTrack);
+    root.querySelector<HTMLElement>('.tg-lbm [data-lbm-close]')?.focus({ preventScroll: true });
+  };
+  const closeLb = () => {
+    if (!lbOpen) return;
+    lbOpen = false;
+    $(root, '[data-modal]').onclick = null;
+    closeModal();
+    root.querySelector<HTMLElement>('[data-lb-open]')?.focus({ preventScroll: true });
   };
   const friendsPage = () => {
     if (account.user && !friendList) void loadFriends();
     return friendsTab(friendsView(), classBadge);
   };
-  const BODIES: Record<Page, () => string> = { race: racePage, leaderboard: leaderboardPage, pass: passPage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, friends: friendsPage, settings: settingsPage };
+  const BODIES: Record<Page, () => string> = { race: racePage, pass: passPage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, friends: friendsPage, settings: settingsPage };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -491,7 +548,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     drawCard();
     const again = focusKey && panel.querySelector<HTMLElement>(focusKey);
     if (again) again.focus({ preventScroll: true });
-    if (page === 'race') void refreshLobbies();
+    frameCar(); // the landing frames the car in the middle, the other pages beside the rail
   };
 
   /** Fetches every track's record and `t`'s board (fresh each time the page opens or the track changes). */
@@ -500,7 +557,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     lbFailed = !l || !rows;
     if (l) ({ leaders, medals } = l);
     if (rows) boards.set(t, rows);
-    if (page === 'leaderboard') draw();
+    if (lbOpen) renderLb();
   };
 
   /**
@@ -525,7 +582,8 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       write(NOTICE_POP_KEY, String(fresh[0].at));
       popNotice(fresh.length === 1 ? noticeText(fresh[0]) : `${noticeText(fresh[0])} And ${fresh.length - 1} more.`);
     }
-    if (page === 'leaderboard') draw();
+    if (lbOpen) renderLb();
+    if (page === 'race') draw();
     else drawTop();
   };
 
@@ -540,7 +598,8 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     el.querySelector('p')!.textContent = text;
     el.querySelector('[data-notice-view]')!.addEventListener('click', () => {
       el.remove();
-      switchPage('leaderboard');
+      if (page !== 'race') switchPage('race');
+      openLb();
     });
     // Inside the garage's own element: its design tokens (colours, skew) are set there.
     $(root, 'main.tg').appendChild(el);
@@ -564,7 +623,6 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     status = '';
     if (pit) pitPage = p;
     else history.replaceState({ ...(history.state ?? {}), dtab: p }, '');
-    if (p === 'leaderboard') void loadBoard(lbTrack);
     const panel = $(root, '[data-panel]');
     draw(false);
     panel.scrollTop = 0;
@@ -582,7 +640,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     panel.querySelectorAll<HTMLElement>('[data-lb-track]').forEach((b) =>
       b.addEventListener('click', () => {
         lbTrack = b.dataset.lbTrack as TrackId;
-        draw();
+        renderLb();
         void loadBoard(lbTrack);
       }),
     );
@@ -590,8 +648,12 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       if (!notices.length) return;
       void boardApi.seen(notices[0].at);
       notices = [];
+      renderLb();
       draw();
     });
+    panel.querySelector('[data-lb-open]')?.addEventListener('click', openLb);
+    panel.querySelector('[data-pass-open]')?.addEventListener('click', () => switchPage('pass'));
+    panel.querySelector('[data-lbm-close]')?.addEventListener('click', closeLb);
     panel.querySelector('[data-host]')?.addEventListener('click', () => connect(null));
     const code = panel.querySelector<HTMLInputElement>('[data-code]');
     code?.addEventListener('input', () => (code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '')));
@@ -805,7 +867,8 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     friendsLoading = false;
     friendList = list ?? { friends: [], mutual: [], fans: [] };
     if (!list) status = 'Could not load your friends.';
-    if (page === 'friends' || page === 'leaderboard') draw();
+    if (lbOpen) renderLb();
+    if (page === 'friends') draw();
   };
   const friendAct = async (a: 'add' | 'remove', name: string) => {
     if (busy) return;
@@ -971,26 +1034,6 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     else raceNet.host(playerName(), enc, rider);
   };
 
-  const refreshLobbies = async () => {
-    clearTimeout(listTimer);
-    const list = root.querySelector('[data-lobbies]');
-    if (!list || page !== 'race') return;
-    try {
-      // Solo time trials are rooms too, but private: nobody can join one.
-      const lobbies = (await raceNet.lobbies()).filter((l) => !l.solo);
-      if (!root.querySelector('[data-lobbies]')) return;
-      list.innerHTML = lobbies.length
-        ? lobbies
-            .map((l) => `<li><b>${esc(l.code)}</b><span>${esc(l.host)}'s ${l.mode === 'trial' ? 'time trial' : l.mode === 'climb' ? 'hill climb' : l.mode === 'roam' ? 'free roam' : l.mode === 'royale' ? 'battle royale' : l.mode === 'endurance' ? `endurance race (${Number(l.laps) || 1} ${Number(l.laps) === 1 ? 'lap' : 'laps'})` : l.mode === 'gp' || l.mode === 'team' ? `${l.mode === 'team' ? 'Team ' : ''}Grand Prix (${esc(CUPS[l.cup ?? 'torii']?.name ?? 'cup')})` : 'race'}${l.physics ? ' · physics' : ''} · ${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${l.phase === 'lobby' ? '' : l.mode === 'roam' ? ' · driving, drop in' : ' · racing'}</span><button class="tg-pill" data-joincode="${esc(l.code)}" ${l.players >= l.max ? 'disabled' : ''}>${l.players >= l.max ? 'Full' : 'Join'}</button></li>`)
-            .join('')
-        : `<li class="muted">No open races right now. Host one and share the code.</li>`;
-      list.querySelectorAll<HTMLElement>('[data-joincode]').forEach((b) => b.addEventListener('click', () => connect(b.dataset.joincode!)));
-    } catch {
-      list.innerHTML = `<li class="muted">Can't reach the game server${import.meta.env.DEV ? ' (is <code>npm run dev</code> running?)' : ''}. Solo races still work.</li>`;
-    }
-    listTimer = window.setTimeout(() => void refreshLobbies(), 3000);
-  };
-
   // --- events ------------------------------------------------------------------------------------
 
   root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => b.addEventListener('click', () => switchPage(lastPage[b.dataset.tab as TabId])));
@@ -1028,6 +1071,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     if (e.key === 'Escape' && !modal.hidden) {
       e.stopImmediatePropagation();
       if (modal.querySelector<HTMLElement>('[data-ok]:not([hidden])')) closeReel();
+      else if (lbOpen) closeLb();
       else modal.querySelector<HTMLElement>('[data-pcard-close]')?.click();
     } else if (e.key === 'Escape' && pit) {
       // In the lobby's garage Back returns to the lobby, not out of it.
@@ -1044,19 +1088,18 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     friendList = null;
     friendOpen = null;
     void loadNotices();
-    if (page === 'friends' || page === 'leaderboard') draw();
+    if (lbOpen) renderLb();
+    if (page === 'friends') draw();
     else drawTop();
   });
   void garage.refresh();
   void loadNotices();
-  if (page === 'leaderboard') void loadBoard(lbTrack);
   draw(false);
   frameCar();
   root.querySelector<HTMLElement>('[data-panel] [data-autofocus]')?.focus({ preventScroll: true });
 
   return () => {
     flushDraft();
-    clearTimeout(listTimer);
     clearTimeout(enterTimer);
     clearTimeout(noticeTimer);
     clearTimeout(popTimer);
@@ -1081,7 +1124,7 @@ function focusId(el: Element | null): string | null {
   const dl = el.getAttribute('data-dl');
   if (dl) return el.hasAttribute('data-pick') ? `input[data-dl="${dl}"]` : `button[data-dl="${dl}"][data-v="${el.getAttribute('data-v')}"]`;
   if (el.hasAttribute('data-dl-random')) return '[data-dl-random]';
-  for (const attr of ['data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
+  for (const attr of ['data-lb-open', 'data-pass-open', 'data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }

@@ -1,13 +1,13 @@
 // The race lobby: the code to share, the host's track pick, who's in and what they drive (and the crew: every
 // racer's driver, standing in a row), the picked track's leaderboard (leaderboardui.ts lobbyBoard), your car
-// (switch it, or open the garage over the lobby to edit it), and Start.
+// (switch between your cars), and Start. Cars are always your own and the record ghost is always on.
 // When the host starts, everyone drops into the race together (even from the garage); the race itself waits for
 // every racer to load.
 
 import { CARS, CLASS_COLORS, PAINTS, PAINT_NAMES, carSpec, decodeCar, encodeCar, isBike, peakPower, rating } from '../shared/cars.ts';
 import { current } from '../shared/garage.ts';
 import { lapsLabel, raceKm } from './loadingcopy.ts';
-import { CAR_RULES, ENDURANCE, PHYSICS, RACE, RECORD_GHOST, RACE_MODES, TEAMS, cleanLaps, cleanMode, isGp, modeTracks, recordMode, type CarRule, type RaceMode, type RaceServerMsg, type Team } from '../shared/protocol.ts';
+import { ENDURANCE, PHYSICS, RACE, RACE_MODES, TEAMS, cleanLaps, isGp, modeTracks, recordMode, type RaceMode, type RaceServerMsg, type Team } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { copy, esc, playerName } from '../../client/menu/ui.ts';
@@ -15,7 +15,6 @@ import { garage } from './garageStore.ts';
 import { raceNet, roomRace } from './racenet.ts';
 import { fmtTime } from './hud.ts';
 import { ICON, LOGO } from './brand.ts';
-import { pitGarage } from './hub.ts';
 import { boardApi, lobbyBoard } from './leaderboardui.ts';
 import type { BoardRow } from '../shared/records.ts';
 import { account } from '../../client/account.ts';
@@ -23,7 +22,7 @@ import { cupCard, trackClimb, trackKind, trackMap, trackStyle, trackTile } from 
 import { CUP_IDS, CUPS, roundsOf, type CupId } from '../shared/cups.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { encodeRider } from '../shared/rider.ts';
-import { PORTRAIT, releasePortraits, riderPortrait } from './riderportrait.ts';
+import { CREW_PORTRAIT, racerPortrait, releasePortraits, riderPortrait } from './riderportrait.ts';
 import './race.css';
 import './hub.css';
 
@@ -45,15 +44,10 @@ const BOARD_FRESH_MS = 60_000;
 
 export const driveLobby: Render = (root, ctx, screen) => {
   let starting = false;
-  // The lobby draws into `view`; the garage (when it's open) sits over it in `pitHost`.
   // The screen's shell (`.tg`, which fades in) is made once; every room update only redraws what's inside it.
   // Rebuilding the shell replayed that fade from transparent, so each join or car change flashed the whole screen.
-  root.innerHTML = '<div data-lobby-view><main class="tg tg-lobby" aria-label="Race lobby" tabindex="-1"></main></div><div data-pit-host></div>';
+  root.innerHTML = '<div data-lobby-view><main class="tg tg-lobby" aria-label="Race lobby" tabindex="-1"></main></div>';
   const view = root.querySelector<HTMLElement>('.tg-lobby')!;
-  const pitHost = root.querySelector<HTMLElement>('[data-pit-host]')!;
-  /** The open garage's cleanup (null when it's closed). */
-  let pitOff: (() => void) | null = null;
-  let pitFade = 0;
   let busy = false;
   // A deep link (/?race=CODE) or a reload: connect first.
   if (!raceNet.connected) {
@@ -97,7 +91,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const scroll = view.querySelector('.tg-lobby-body')?.scrollTop ?? 0;
     const isHost = room.hostId === raceNet.id;
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
-    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.random !== undefined ? '[data-random]' : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.rule ? `[data-rule="${focus.rule}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.ghost ? `[data-ghost="${focus.ghost}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.edit !== undefined ? '[data-edit]' : focus?.swap ? `[data-swap="${focus.swap}"]` : focus?.team ? `[data-team="${focus.team}"]` : focus?.lapstep ? `[data-lapstep="${focus.lapstep}"]` : focus?.lapset ? `[data-lapset="${focus.lapset}"]` : focus?.lapin !== undefined ? '[data-lapin]' : null;
+    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.random !== undefined ? '[data-random]' : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.swap ? `[data-swap="${focus.swap}"]` : focus?.team ? `[data-team="${focus.team}"]` : focus?.lapstep ? `[data-lapstep="${focus.lapstep}"]` : focus?.lapset ? `[data-lapset="${focus.lapset}"]` : focus?.lapin !== undefined ? '[data-lapin]' : null;
     const max = RACE.maxPlayers;
     // Free roam: the open world, no CPU racers, no record ghost, and friends can drive in while it's on.
     const roam = room.mode === 'roam';
@@ -120,7 +114,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
           const cls = c ? rating(carSpec(c)) : null;
           return `<li class="${r.id === raceNet.id ? 'me' : ''}"${teamMode && r.team !== undefined ? ` style="--team:${TEAMS[r.team].color}" data-team-row` : ''}>
           <span class="tg-slot">${i + 1}</span>
-          <div class="tg-racer"><i class="tg-face" aria-hidden="true" style="--paint:${c ? hex(PAINTS[c.look.paint]) : '#888'};${face(r.rider, redraw)}"></i><b>${esc(r.name)}</b>${teamChip(r)}${r.id === room.hostId ? '<span class="tg-tag">Host</span>' : ''}${r.id === raceNet.id ? '<span class="tg-tag you">You</span>' : ''}${r.cpu ? '<span class="tg-tag cpu">CPU</span>' : ''}${r.pit ? `<span class="tg-tag pit" title="Editing their car">${ICON.wrench}Garage</span>` : ''}${r.cpu && canPick ? `<button class="tg-kick" data-kick="${r.id}" aria-label="Remove ${esc(r.name)}" title="Remove">×</button>` : ''}</div>
+          <div class="tg-racer"><i class="tg-face" aria-hidden="true" style="--paint:${c ? hex(PAINTS[c.look.paint]) : '#888'};${face(r.rider, redraw)}"></i><b>${esc(r.name)}</b>${teamChip(r)}${r.id === room.hostId ? '<span class="tg-tag">Host</span>' : ''}${r.id === raceNet.id ? '<span class="tg-tag you">You</span>' : ''}${r.cpu ? '<span class="tg-tag cpu">CPU</span>' : ''}${r.cpu && canPick ? `<button class="tg-kick" data-kick="${r.id}" aria-label="Remove ${esc(r.name)}" title="Remove">×</button>` : ''}</div>
           <span class="car">${c ? esc(CARS[c.model].name) : ''}</span>
           ${cls ? `<span class="tg-class" style="--c:${CLASS_COLORS[cls.cls]}"><b>${cls.cls}</b>${cls.pi}</span>` : '<span></span>'}
         </li>`;
@@ -134,11 +128,11 @@ export const driveLobby: Render = (root, ctx, screen) => {
     // The crew: everyone's driver side by side, you in the middle of the light.
     const crew = room.racers
       .map((r) => {
-        const pic = riderPortrait(r.rider, redraw);
+        const pic = racerPortrait(r.car, r.rider, redraw);
         const c = decodeCar(r.car);
         return `<figure class="tg-crew-m ${r.id === raceNet.id ? 'me' : ''} ${crewShown.has(r.id) ? '' : 'new'}">
-          ${pic ? `<img src="${pic}" alt="" width="${PORTRAIT.w}" height="${PORTRAIT.h}" />` : '<span class="tg-crew-none"></span>'}
-          <figcaption><b>${esc(r.name)}</b><small>${r.pit ? 'In the garage' : c ? esc(CARS[c.model].name) : ''}</small></figcaption>
+          ${pic ? `<img src="${pic}" alt="" width="${CREW_PORTRAIT.w}" height="${CREW_PORTRAIT.h}" />` : '<span class="tg-crew-none"></span>'}
+          <figcaption><b>${esc(r.name)}</b><small>${c ? esc(CARS[c.model].name) : ''}</small></figcaption>
         </figure>`;
       })
       .join('');
@@ -155,13 +149,6 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const modes = (Object.keys(RACE_MODES) as RaceMode[])
       .map((id) => `<button class="tg-mode" data-mode="${id}" aria-pressed="${id === room.mode}" ${canPick ? '' : 'disabled'}><b>${esc(RACE_MODES[id].name)}</b><small>${esc(RACE_MODES[id].blurb)}</small></button>`)
       .join('');
-    // A time trial's or hill climb's car rule: own cars, everyone in a maxed Vanta, or everyone's car maxed out.
-    const rules =
-      cleanMode(room.mode)
-        ? `<h2 class="tg-h">Cars</h2><div class="tg-modes">${(Object.keys(CAR_RULES) as CarRule[])
-            .map((id) => `<button class="tg-mode" data-rule="${id}" aria-pressed="${id === room.cars}" ${canPick ? '' : 'disabled'}><b>${esc(CAR_RULES[id].name)}</b><small>${esc(CAR_RULES[id].blurb)}</small></button>`)
-            .join('')}</div>`
-        : '';
     // Physics mode: crash damage, for either mode.
     const physics = (['off', 'on'] as const)
       .map((k) => `<button class="tg-mode" data-physics="${k}" aria-pressed="${(k === 'on') === room.physics}" ${canPick ? '' : 'disabled'}><b>${esc(PHYSICS[k].name)}</b><small>${esc(PHYSICS[k].blurb)}</small></button>`)
@@ -186,17 +173,11 @@ export const driveLobby: Render = (root, ctx, screen) => {
               <div class="tg-row tg-laps-picks">${LAP_PICKS.map((n) => `<button class="tg-pill" data-lapset="${n}" aria-pressed="${n === laps}" ${off}>${lapsLabel(n)}</button>`).join('')}</div>
             </div>`
       : '';
-    const ghost = gp || roam || royale || endurance ? '' : (['off', 'on'] as const)
-      .map((k) => `<button class="tg-mode" data-ghost="${k}" aria-pressed="${(k === 'on') === !!room.ghost}" ${canPick ? '' : 'disabled'}><b>${esc(RECORD_GHOST[k].name)}</b><small>${esc(RECORD_GHOST[k].blurb)}</small></button>`)
-      .join('');
     const ghostNote = gp || roam || royale || endurance || !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
-    // Who's still in the garage (the host can wait for them, or not).
-    const tuning = room.racers.filter((r) => r.pit && r.id !== raceNet.id).map((r) => r.name);
-    const tuningLine = tuning.length ? ` ${tuning.length === 1 ? `${esc(tuning[0])} is` : `${tuning.length} racers are`} in the garage.` : '';
     const state =
       room.phase === 'lobby'
         ? isHost
-          ? `<button class="tg-go" data-start data-autofocus>${ICON.flag}${START[room.mode]}</button><span class="tg-muted">${roam ? 'Share the code: friends can drive in any time while it’s on.' : room.racers.length < 2 ? (royale ? 'Share the code or add CPU racers: a battle royale needs someone to outlast.' : 'Share the code, add CPU racers, or start now and race the clock.') : `${room.racers.length} racers on the grid.`}${tuningLine}</span>`
+          ? `<button class="tg-go" data-start data-autofocus>${ICON.flag}${START[room.mode]}</button><span class="tg-muted">${roam ? 'Share the code: friends can drive in any time while it’s on.' : room.racers.length < 2 ? (royale ? 'Share the code or add CPU racers: a battle royale needs someone to outlast.' : 'Share the code, add CPU racers, or start now and race the clock.') : `${room.racers.length} racers on the grid.`}</span>`
           : `<span class="tg-muted">Waiting for the host to start…</span>`
         : roam
           ? `<span class="tg-muted">Free roam is on. Driving in…</span>`
@@ -242,11 +223,8 @@ export const driveLobby: Render = (root, ctx, screen) => {
             <h2 class="tg-h">Mode ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${modes}</div>
             ${lapPicker}
-            ${rules}
             <h2 class="tg-h">${esc(PHYSICS.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-modes">${physics}</div>
-            ${gp || roam || endurance ? '' : `<h2 class="tg-h">${esc(RECORD_GHOST.name)} ${canPick ? '<small>you pick</small>' : ''}</h2>
-            <div class="tg-modes">${ghost}</div>`}
             ${ghostNote}
             ${
               gp
@@ -258,7 +236,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
           </div>
           <div class="tg-lobby-col">
             <h2 class="tg-h">Your car</h2>
-            ${myCar(room.cars)}
+            ${myCar()}
             <h2 class="tg-h">Crew</h2>
             <div class="tg-crew" style="--n:${room.racers.length}">${crew}</div>
             <h2 class="tg-h">Grid <small>${room.racers.length} / ${max}</small></h2>
@@ -278,9 +256,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     });
     view.querySelectorAll<HTMLElement>('[data-cup]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cup', cup: b.dataset.cup as CupId })));
     view.querySelectorAll<HTMLElement>('[data-mode]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'mode', mode: b.dataset.mode as RaceMode })));
-    view.querySelectorAll<HTMLElement>('[data-rule]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'cars', cars: b.dataset.rule as CarRule })));
     view.querySelectorAll<HTMLElement>('[data-physics]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'physics', on: b.dataset.physics === 'on' })));
-    view.querySelectorAll<HTMLElement>('[data-ghost]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'ghost', on: b.dataset.ghost === 'on' })));
     const setLaps = (n: number) => {
       const next = cleanLaps(n);
       if (next !== null && next !== laps) raceNet.send({ t: 'laps', laps: next });
@@ -305,16 +281,12 @@ export const driveLobby: Render = (root, ctx, screen) => {
     );
     view.querySelector('[data-copy]')?.addEventListener('click', () => void copy(room.code, 'Code'));
     view.querySelector('[data-link]')?.addEventListener('click', () => void copy(`${location.origin}/?race=${room.code}`, 'Invite link'));
-    view.querySelector('[data-edit]')?.addEventListener('click', openPit);
     view.querySelectorAll<HTMLElement>('[data-swap]').forEach((b) => b.addEventListener('click', () => void swap(Number(b.dataset.swap))));
-    drawPitBar();
-    // With the garage open, focus stays in the garage.
-    if (pitOff) return;
     (view.querySelector<HTMLElement>(focusKey ?? '[data-autofocus]') ?? view.querySelector<HTMLElement>('[data-copy]'))?.focus({ preventScroll: true });
   };
 
-  /** Your car's card: what you'll line up in, the arrows to switch to another of your cars, and Edit car. */
-  const myCar = (rule: CarRule) => {
+  /** Your car's card: what you'll line up in, and the arrows to switch to another of your cars. */
+  const myCar = () => {
     const g = garage.g;
     const c = current(g);
     const b = CARS[c.model];
@@ -322,7 +294,6 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const r = rating(sp);
     const cos = Object.values(c.cos ?? {}).filter(Boolean).length;
     const many = g.cars.length > 1;
-    const note = rule === 'vanta' && cleanMode(raceNet.room?.mode ?? 'race') ? "Maxed Vanta: you'll race a Vanta V10 with every part at level 5, in your paint." : rule === 'maxed' && cleanMode(raceNet.room?.mode ?? 'race') ? 'Maxed out: every part goes to level 5 for this race.' : '';
     return `<div class="tg-mycar tg-cardbox" style="--paint:${hex(PAINTS[c.look.paint])}">
       <i class="tg-mycar-paint" aria-hidden="true"></i>
       <div class="tg-mycar-head">
@@ -330,9 +301,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         <span class="tg-class" style="--c:${CLASS_COLORS[r.cls]}"><b>${r.cls}</b>${r.pi}</span>
       </div>
       <p class="tg-mycar-meta tg-num">${Math.round(peakPower(sp).kw * 1.341)} hp · ${Math.round(sp.mass)} kg · ${esc(PAINT_NAMES[c.look.paint])}${cos ? ` · ${cos} cosmetic${cos === 1 ? '' : 's'}` : ''}</p>
-      ${note ? `<p class="tg-mycar-note">${note}</p>` : ''}
       <div class="tg-mycar-act">
-        <button class="tg-go alt small" data-edit>${ICON.wrench}Edit car</button>
         ${many ? `<div class="tg-mycar-swap" role="group" aria-label="Switch car"><button class="tg-pill" data-swap="-1" aria-label="Previous car">${ICON.back}</button><span class="tg-num">${g.sel + 1} / ${g.cars.length}</span><button class="tg-pill flip" data-swap="1" aria-label="Next car">${ICON.back}</button></div>` : ''}
       </div>
     </div>`;
@@ -345,54 +314,6 @@ export const driveLobby: Render = (root, ctx, screen) => {
     busy = true;
     await garage.act({ a: 'select', i: (garage.g.sel + dir + n) % n });
     busy = false;
-  };
-
-  /** The strip in the garage's top bar: the lobby at a glance, and the host's Start. */
-  const drawPitBar = () => {
-    const bar = pitHost.querySelector<HTMLElement>('[data-pitbar]');
-    const room = raceNet.room;
-    if (!bar || !room) return;
-    const isHost = room.hostId === raceNet.id;
-    const others = room.racers.length - 1;
-    const line =
-      room.phase !== 'lobby'
-        ? 'Race under way · you race the next one'
-        : isHost
-          ? others ? `${others} other racer${others === 1 ? '' : 's'} waiting on you` : 'Just you so far'
-          : 'Waiting for the host';
-    const had = (document.activeElement as HTMLElement | null)?.dataset;
-    bar.innerHTML = `<span class="tg-pitbar-code"><small>Lobby</small><b class="tg-num">${esc(room.code)}</b></span>
-      <span class="tg-pitbar-state"><i class="${room.phase === 'lobby' && !isHost ? 'live' : ''}" aria-hidden="true"></i>${esc(TRACK_DEFS[room.track].name)} · ${room.racers.length}/${RACE.maxPlayers}<small>${esc(line)}</small></span>
-      <button class="tg-pill" data-pit-done>Done</button>
-      ${isHost && room.phase === 'lobby' ? `<button class="tg-go small" data-pit-start>${ICON.flag}Start</button>` : ''}`;
-    bar.setAttribute('role', 'status');
-    bar.querySelector('[data-pit-start]')?.addEventListener('click', () => raceNet.send({ t: 'start' }));
-    bar.querySelector('[data-pit-done]')?.addEventListener('click', closePit);
-    if (had?.pitStart !== undefined) bar.querySelector<HTMLElement>('[data-pit-start]')?.focus({ preventScroll: true });
-    else if (had?.pitDone !== undefined) bar.querySelector<HTMLElement>('[data-pit-done]')?.focus({ preventScroll: true });
-  };
-
-  /** Open the garage over the lobby; the others see a Garage tag on you until you close it. */
-  const openPit = () => {
-    if (pitOff || !raceNet.room) return;
-    clearTimeout(pitFade);
-    pitHost.innerHTML = '';
-    pitOff = pitGarage(pitHost, ctx, { close: closePit });
-    raceNet.send({ t: 'pit', on: true });
-    drawPitBar();
-  };
-  const closePit = () => {
-    if (!pitOff) return;
-    const off = pitOff;
-    pitOff = null;
-    off();
-    raceNet.send({ t: 'pit', on: false });
-    // Slide it away, then focus Edit car again.
-    const el = pitHost.firstElementChild as HTMLElement | null;
-    el?.classList.add('out');
-    pitFade = window.setTimeout(() => (pitHost.innerHTML = ''), matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 200);
-    draw();
-    view.querySelector<HTMLElement>('[data-edit]')?.focus({ preventScroll: true });
   };
 
   /** Free roam is on and we're not out in it (we just joined): ask to drive in, once per session. */
@@ -431,16 +352,13 @@ export const driveLobby: Render = (root, ctx, screen) => {
   };
   const offGarage = garage.onChange(() => {
     sync();
-    if (!pitOff) draw();
+    draw();
   });
   const quick = () => view.querySelector<HTMLButtonElement>('[data-start]')?.click();
   addEventListener('padstart', quick);
   draw();
   driveIn();
   return () => {
-    pitOff?.();
-    pitOff = null;
-    clearTimeout(pitFade);
     off();
     offGarage();
     removeEventListener('padstart', quick);

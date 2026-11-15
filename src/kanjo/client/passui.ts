@@ -185,6 +185,21 @@ export function passTab(v: PassView): string {
 /** The car card ribbon while a reward is previewed. */
 export const passRibbon = (n: number) => `<p class="tg-card-ribbon cyan">Battle pass · Tier ${n} preview</p>`;
 
+/** The Race home's Battle pass button: tier, the XP bar and the next reward (opens the pass page). */
+export function passCard(g: Garage): string {
+  const p = tierProgress(g.xp);
+  const done = p.tier >= PASS.tiers;
+  const next = TIERS[Math.min(PASS.tiers, p.tier + 1) - 1];
+  return `<span class="tg-hc-eyebrow">${esc(PASS.season)} · Battle pass${g.pass ? '' : ' · Free track'}</span>
+    <span class="tg-hc-row" style="--r:${rewardColor(next)}">
+      <b class="tg-hc-tier tg-num" aria-hidden="true">${p.tier}</b>
+      <span class="tg-hc-copy"><b class="tg-title">${esc(PASS.name)}</b><small>${done ? 'Season complete' : `Next · ${esc(rewardName(next))}`}</small></span>
+      <span class="tg-hc-art" aria-hidden="true">${rewardArt(next)}</span>
+    </span>
+    <span class="tg-pass-bar" style="--v:${p.into / p.need}"><i></i></span>
+    <small class="tg-num tg-hc-foot">${done ? `${g.xp.toLocaleString('en-US')} XP` : `${p.into} / ${p.need} XP to tier ${p.tier + 1}`}</small>`;
+}
+
 /** The top bar's tier chip. */
 export function passChip(g: Garage): string {
   const p = tierProgress(g.xp);

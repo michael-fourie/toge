@@ -77,8 +77,8 @@ export class Race {
   cars: CarRule = 'own';
   /** Physics mode: crash damage (damage.ts, run by each client for its own car). */
   physics = false;
-  /** The track record's ghost races too (the host's toggle; never in a Grand Prix, whose track changes every round). */
-  ghost = false;
+  /** The track record's ghost races too (always on, 2026-11-15: no toggle in the lobby; never in a Grand Prix, whose track changes every round). */
+  ghost = true;
   /**
    * A solo time trial (2026-11-10, Andrew: time trials "accessible when playing Solo ... so you are able to put times
    * on the Leaderboard"): a private room of one, always a time trial, that nobody else can join and the lobby list
@@ -715,7 +715,7 @@ export class Race {
   }
 
   /** The host wants the record ghost: fetch the current track's (the lobby shows whose it is, or that there's none). */
-  private fetchGhost() {
+  fetchGhost() {
     if (!this.ghost || !this.ghostSource) return;
     const track = this.track;
     this.ghostSource(track).then(
