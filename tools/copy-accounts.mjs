@@ -29,7 +29,7 @@ async function post(site, key, path, body) {
         body: JSON.stringify(body),
       });
       const text = await res.text();
-      if (res.status === 404) throw Object.assign(new Error(`${site}${path} is 404: the route isn't deployed there yet, or its ADMIN_KEY secret isn't set (32+ characters).`), { fatal: true });
+      if (res.status === 404) throw Object.assign(new Error(`${site}${path} is 404: ${await why404(site)}`), { fatal: true });
       if (res.status === 403) throw Object.assign(new Error(`${site}${path} said 403: wrong admin key.`), { fatal: true });
       if (!res.ok) throw new Error(`${site}${path}: HTTP ${res.status} ${text.slice(0, 200)}`);
       const json = JSON.parse(text);
@@ -40,6 +40,21 @@ async function post(site, key, path, body) {
       console.warn(`  retrying (${e.message})`);
       await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
     }
+  }
+}
+
+/**
+ * Why an admin route 404s. The password reset has been on both sites for a long time and answers 403 to a wrong key
+ * once ADMIN_KEY is set, 404 while it isn't: so it tells "key missing" apart from "export not deployed".
+ */
+async function why404(site) {
+  try {
+    const res = await fetch(`${base(site)}/api/admin/reset-password`, { method: 'POST', headers: { Authorization: 'Bearer not-the-key', 'Content-Type': 'application/json' }, body: '{}' });
+    if (res.status === 403) return "the site's ADMIN_KEY is set, but this build doesn't have the export route yet: deploy the latest master to production there.";
+    if (res.status === 404) return "the Worker behind this site can't see an ADMIN_KEY. In Cloudflare: Workers & Pages > that Worker > Settings > Variables and Secrets (the runtime ones, not Build > Variables), add ADMIN_KEY as type Secret, 32+ characters, and Deploy. It takes effect at once.";
+    return `couldn't tell why (the password reset answered ${res.status}).`;
+  } catch (e) {
+    return `couldn't tell why (${e.message}).`;
   }
 }
 
