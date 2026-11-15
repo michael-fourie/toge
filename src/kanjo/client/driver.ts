@@ -12,6 +12,7 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { decodeLook } from '../shared/look.ts';
 import { isLegend, type Legend, type Rider } from '../shared/rider.ts';
 import { gripClips } from './hands.ts';
+import { cloneToon, toonAll } from './toon.ts';
 import { assemble } from './wardrobe.ts';
 
 /** Measured once per driver. Seated: the eyes and the top of the head (hair and gear) from the hip point, +z behind
@@ -48,6 +49,7 @@ function load(id: Legend) {
           }
         }
       });
+      toonAll(gltf.scene);
       gltf.animations = gripClips(gltf.scene, gltf.animations);
       return { gltf, fit: measure(gltf.scene, gltf.animations) };
     });
@@ -117,7 +119,9 @@ export class DriverRig {
       // Skinned bounds are the bind pose; the seated pose sits well outside them.
       m.frustumCulled = false;
       m.castShadow = !!opts.shadows;
-      m.receiveShadow = !!opts.shadows;
+      // Never shadowed by themselves: the soft cel bands (toon.ts) are the figure's own shading, and a shadow map
+      // across light that wraps round a form shows as stripes.
+      m.receiveShadow = false;
       if (CAR_ONLY.test(m.name)) this.carOnly.push(m);
       if (LEGS_ONLY.test(m.name)) this.legs.push(m);
     });
@@ -217,7 +221,7 @@ export function arrive(root: THREE.Object3D, rider: Rider | null, seat: (rig: Dr
             if (!m.isMesh) return;
             // A custom driver's body has a material per group (skin, painted arm, gloves).
             const fade = (src: THREE.Material) => {
-              const c = src.clone();
+              const c = cloneToon(src);
               c.transparent = true;
               c.opacity *= ghost;
               c.depthWrite = false;

@@ -1,5 +1,5 @@
 // Your driver: who sits in your car (or on your bike), stands next to it on the home screen, and lines up with your
-// crew in a race lobby. One of four legends (realistic characters, steampunk crossed with cyberpunk, built in Blender:
+// crew in a race lobby. One of four legends (cartoon characters, steampunk crossed with cyberpunk, built in Blender:
 // tools/drivers, docs/DRIVERS.md), or your own, made in the creator from the same parts (look.ts,
 // docs/DRIVER_CREATOR.md). Free to change any time, like paint. Pure and shared: the garage stores the pick (garage.ts),
 // the race room relays it (`Racer.rider`); a legend's code is its id, your own's is its look code.

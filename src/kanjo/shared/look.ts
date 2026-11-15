@@ -18,20 +18,23 @@ export const SKINS = {
 export const EYES = ['brown', 'brownlight', 'blue', 'bluegreen', 'deepblue', 'lightblue', 'green', 'grey', 'ice'] as const;
 export const HAIRS = ['none', 'short01', 'short02', 'short03', 'short04', 'bob01', 'bob02', 'ponytail01', 'braid01', 'long01', 'afro01'] as const;
 export const BROWS = ['eyebrow001', 'eyebrow002', 'eyebrow003', 'eyebrow004', 'eyebrow005', 'eyebrow006', 'eyebrow007', 'eyebrow008', 'eyebrow009', 'eyebrow010', 'eyebrow011', 'eyebrow012'] as const;
-/** Outfits: their colour zones (the manifest's `zones`, in order) and the colours they come in. */
+/**
+ * Outfits: their colour zones (the manifest's `zones`, in order) and the colours they come in: the drivers' soft
+ * palette (pastel-leaning, mid-light, never near black; tools/drivers/cast.py).
+ */
 export const OUTFITS = {
-  male_elegantsuit01: { zones: ['tie', 'suit', 'shirt'], colors: [0xb8862b, 0x1f3a2c, 0xe9dcc0] },
-  male_worksuit01: { zones: ['overalls', 'tee'], colors: [0x5a3420, 0x2b2b2e] },
-  male_casualsuit05: { zones: ['stripes', 'jeans', 'jacket'], colors: [0xb3121e, 0x25252a, 0x17130f] },
-  male_casualsuit02: { zones: ['trim', 'jeans', 'tee'], colors: [0xffae3c, 0x1f2a3a, 0x2f4a5c] },
-  male_casualsuit03: { zones: ['stripes', 'jeans', 'shirt'], colors: [0xc9a26b, 0x2a2f3a, 0x1a1a20] },
-  male_casualsuit04: { zones: ['trim', 'jeans', 'tee'], colors: [0x3dff8e, 0x22262e, 0x151518] },
-  male_casualsuit06: { zones: ['jeans', 'tee'], colors: [0x3a4a66, 0xe9dcc0] },
-  male_casualsuit01: { zones: ['patches', 'clothes'], colors: [0x7a4a28, 0x3a3e45] },
-  female_casualsuit01: { zones: ['trim', 'jeans', 'top'], colors: [0xff2fd2, 0x1f2a3a, 0x18171d] },
-  female_casualsuit02: { zones: ['trim', 'shorts', 'top'], colors: [0xffae3c, 0x2f4a5c, 0xe9dcc0] },
-  female_elegantsuit01: { zones: ['stripes', 'shirt', 'skirt'], colors: [0xb8862b, 0x1a1a20, 0x1f3a2c] },
-  female_sportsuit01: { zones: ['trim', 'stripe', 'leggings', 'top'], colors: [0xff2fd2, 0xff2fd2, 0x121116, 0x18171d] },
+  male_elegantsuit01: { zones: ['tie', 'suit', 'shirt'], colors: [0xf0c26a, 0x6fa08c, 0xfbf2de] },
+  male_worksuit01: { zones: ['overalls', 'tee'], colors: [0xd08a62, 0x7d8aa3] },
+  male_casualsuit05: { zones: ['stripes', 'jeans', 'jacket'], colors: [0xf27d7a, 0x8e97b5, 0x565f85] },
+  male_casualsuit02: { zones: ['trim', 'jeans', 'tee'], colors: [0xffc46b, 0x6f84a8, 0x8fb7c9] },
+  male_casualsuit03: { zones: ['stripes', 'jeans', 'shirt'], colors: [0xe6c79a, 0x7c86a3, 0x5f6488] },
+  male_casualsuit04: { zones: ['trim', 'jeans', 'tee'], colors: [0x7df0b0, 0x737c94, 0x585c78] },
+  male_casualsuit06: { zones: ['jeans', 'tee'], colors: [0x7f95c2, 0xfbf2de] },
+  male_casualsuit01: { zones: ['patches', 'clothes'], colors: [0xd9a274, 0x8a93a6] },
+  female_casualsuit01: { zones: ['trim', 'jeans', 'top'], colors: [0xff8fe3, 0x6f84a8, 0x6a6f9e] },
+  female_casualsuit02: { zones: ['trim', 'shorts', 'top'], colors: [0xffc46b, 0x8fb7c9, 0xfbf2de] },
+  female_elegantsuit01: { zones: ['stripes', 'shirt', 'skirt'], colors: [0xf0c26a, 0x5f6488, 0x6fa08c] },
+  female_sportsuit01: { zones: ['trim', 'stripe', 'leggings', 'top'], colors: [0xff8fe3, 0xff8fe3, 0x6a6f9e, 0x8d92c8] },
 } as const satisfies Record<string, { zones: readonly string[]; colors: readonly number[] }>;
 export const SHOES = ['shoes01', 'shoes02', 'shoes03', 'shoes04', 'shoes05', 'shoes06'] as const;
 /** Kit pieces and the slot each takes: one piece per slot. */
@@ -121,11 +124,11 @@ export const DEFAULT_LOOK: Look = {
   eyes: 'grey',
   brows: 'eyebrow007',
   hair: 'short02',
-  hairColor: 0x3a2a20,
+  hairColor: 0x7a5a4a,
   outfit: 'male_elegantsuit01',
   colors: outfitColors('male_elegantsuit01'),
   shoes: 'shoes03',
-  shoeColor: 0x2a1a10,
+  shoeColor: 0x8a6350,
   kit: ['goggles_up', 'collar'],
   metal: 'brass',
   leather: 'leather',
@@ -241,7 +244,7 @@ export function randomLook(rand: () => number = Math.random): Look {
   const any = <T>(list: readonly T[]) => list[Math.floor(rand() * list.length)];
   const base = any(BASE_IDS);
   const outfit = any(OUTFIT_IDS);
-  const hairColors = [0x141110, 0x3a2a20, 0x6b4a2b, 0x8d8a85, 0xe6e9f2, 0x6e0d16, 0xc9a26b];
+  const hairColors = [0x4a3f44, 0x7a5a4a, 0xa87c5a, 0xd4d3dc, 0xf3effa, 0xc2586e, 0xe6c79a];
   const glows = [0xffae3c, 0xff2fd2, 0x3dff8e, 0xff3b30, 0x38c8ff, 0xb46bff, 0xfff04a];
   let l: Look = {
     base,
@@ -253,7 +256,7 @@ export function randomLook(rand: () => number = Math.random): Look {
     outfit,
     colors: outfitColors(outfit),
     shoes: any(SHOES),
-    shoeColor: any([0x1c1410, 0x121010, 0x5a3420, 0xe9dcc0]),
+    shoeColor: any([0x7a5f55, 0x5c586b, 0x8a6350, 0xfbf2de]),
     kit: [],
     metal: any(FREE_METALS),
     leather: any(LEATHERS),

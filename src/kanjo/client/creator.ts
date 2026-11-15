@@ -32,27 +32,27 @@ const FRAMES = { m: 'Masculine', f: 'Feminine' } as const;
 const BUILDS = { slim: 'Slim', avg: 'Average', heavy: 'Heavy' } as const;
 /** Tone and age of each skin, by its place in the frame's list (both frames share the order). */
 const SKIN_LOOK: [tone: string, age: string][] = [
-  ['#e8c3a4', '20s'],
-  ['#f3d6c0', '20s'],
-  ['#6b4430', '20s'],
-  ['#dcb48e', '20s'],
-  ['#dcb294', '40s'],
-  ['#5c3a28', '40s'],
-  ['#cfa682', '40s'],
-  ['#d8b29c', '70s'],
-  ['#5a3b2c', '70s'],
-  ['#c9a284', '70s'],
+  ['#ddb399', '20s'],
+  ['#d4ac94', '20s'],
+  ['#775647', '20s'],
+  ['#d5ae94', '20s'],
+  ['#d9b49b', '40s'],
+  ['#7d5849', '40s'],
+  ['#ddb89e', '40s'],
+  ['#e7c3a9', '70s'],
+  ['#7e523f', '70s'],
+  ['#cf9e7e', '70s'],
 ];
 const EYE: Record<(typeof EYES)[number], string> = {
-  brown: '#5a3a22',
-  brownlight: '#8a5a30',
-  blue: '#3a6ea8',
-  bluegreen: '#3f8a86',
-  deepblue: '#24407a',
-  lightblue: '#8ab4dc',
-  green: '#4f7a3a',
-  grey: '#8a949c',
-  ice: '#a9d8ea',
+  brown: '#b27a6d',
+  brownlight: '#b99e76',
+  blue: '#7faab6',
+  bluegreen: '#9bc2b6',
+  deepblue: '#9090b4',
+  lightblue: '#91b7c1',
+  green: '#90b58a',
+  grey: '#b2beb6',
+  ice: '#a5c0ad',
 };
 const HAIR: Record<(typeof HAIRS)[number], string> = {
   none: 'Bald',
@@ -99,25 +99,25 @@ const KIT_NAME: Record<KitId, string> = {
   chest_strap: 'Harness',
 };
 const METAL: Record<(typeof METALS)[number], [string, string]> = {
-  brass: ['Brass', '#c8963e'],
-  copper: ['Copper', '#b8643a'],
-  gunmetal: ['Gunmetal', '#3a3e45'],
-  chrome: ['Chrome', '#e8ecf0'],
-  steel: ['Steel', '#9aa0a8'],
-  carbon: ['Carbon', '#1c1d21'],
-  gold: ['24k Gold', '#ffc94a'],
-  obsidian: ['Obsidian', '#2a1a3a'],
-  ember: ['Ember', '#ff5a1a'],
+  brass: ['Brass', '#ecc878'],
+  copper: ['Copper', '#e6a283'],
+  gunmetal: ['Gunmetal', '#737a8c'],
+  chrome: ['Chrome', '#f2f5f9'],
+  steel: ['Steel', '#c5cbd6'],
+  carbon: ['Carbon', '#555869'],
+  gold: ['24k Gold', '#ffd76a'],
+  obsidian: ['Obsidian', '#3a3350'],
+  ember: ['Ember', '#ff7a3a'],
   prism: ['Prism', 'conic-gradient(#ff6ad5, #6ad5ff, #6aff9e, #ffe66a, #ff6ad5)'],
 };
-const LEATHER: Record<(typeof LEATHERS)[number], [string, string]> = { leather: ['Brown', '#3b2316'], leather_black: ['Black', '#151313'], leather_tan: ['Tan', '#7a4a28'] };
+const LEATHER: Record<(typeof LEATHERS)[number], [string, string]> = { leather: ['Brown', '#96705c'], leather_black: ['Dusk', '#56525f'], leather_tan: ['Tan', '#d2a57c'] };
 const WHEEL: Record<(typeof WHEELS)[number], string> = { wood: 'Wood rim', yoke: 'Yoke', iron: 'Riveted iron', deep: 'Deep dish' };
 
-/** House palettes; the last swatch of each row is a free colour picker. */
-const CLOTH = [0x1f3a2c, 0x25252a, 0x17130f, 0x2f4a5c, 0x5a3420, 0x6e0d16, 0xb3121e, 0xb8862b, 0xe9dcc0, 0xd8d2c4, 0x2b2b2e, 0x4b2e5c];
-const HAIR_COLORS = [0x141110, 0x3a2a20, 0x6b4a2b, 0xc9a26b, 0x8d8a85, 0xe6e9f2, 0x6e0d16, 0x2f6fb0];
+/** House palettes, soft like the drivers (look.ts `OUTFITS`); the last swatch of each row is a free colour picker. */
+const CLOTH = [0x6fa08c, 0x8e97b5, 0x565f85, 0x8fb7c9, 0xd08a62, 0xc2586e, 0xf27d7a, 0xf0c26a, 0xfbf2de, 0xf4b8c8, 0x7d8aa3, 0xa58fd0];
+const HAIR_COLORS = [0x4a3f44, 0x7a5a4a, 0xa87c5a, 0xe6c79a, 0xd4d3dc, 0xf3effa, 0xc2586e, 0x7fa8e0];
 const GLOWS = [0xffae3c, 0xff2fd2, 0x3dff8e, 0xff3b30, 0x38c8ff, 0xb46bff, 0xfff04a];
-const SHOE_COLORS = [0x2a1a10, 0x121010, 0x5a3420, 0x7a4a28, 0xe9dcc0, 0x2f4a5c];
+const SHOE_COLORS = [0x8a6350, 0x5c586b, 0x7a5f55, 0xd2a57c, 0xfbf2de, 0x8fb7c9];
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
