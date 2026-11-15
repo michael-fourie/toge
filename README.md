@@ -3,9 +3,6 @@
 Mountain-pass and circuit racing in the browser, against AI or friends, with a garage economy. Free, no download,
 works with a controller (the D-pad or left stick moves, Ⓐ selects, Ⓑ goes back, LB/RB switch tabs) and on phones.
 
-KANJO started as a channel of [Gambol](https://gambol.lol) (github.com/michael-fourie/atrous) and moved into its own
-repo on 2026-11-14 with its full git history. Developer guide: [CLAUDE.md](CLAUDE.md). Hosting and the one-time move of
-the accounts from Gambol's site: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## The game
 
