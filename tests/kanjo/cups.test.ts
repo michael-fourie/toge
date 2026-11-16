@@ -4,7 +4,7 @@ import { CUPS, CUP_IDS, GP_POINTS, addRound, pointsFor, roundLabel, roundsOf } f
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../../src/kanjo/shared/track.ts';
 import { MODE_TRACK, cleanMode, recordMode } from '../../src/kanjo/shared/protocol.ts';
 
-test('every race track is in a cup of four (the Postcard Cup has five), only the Velocity and Overdrive Cups borrow; the hill climb is in none', () => {
+test('every race track is in a cup of four (the Postcard Cup has five), only the Velocity, Overdrive and Gravity Cups borrow; the hill climb is in none', () => {
   const seen = new Map<TrackId, string>();
   for (const id of CUP_IDS) {
     const c = CUPS[id];
@@ -15,12 +15,13 @@ test('every race track is in a cup of four (the Postcard Cup has five), only the
     for (const t of c.tracks) {
       assert.ok(Object.hasOwn(TRACK_DEFS, t), `${id}: ${t} is a track`);
       assert.ok(!TRACK_DEFS[t].climb, `${id}: ${t} is not a hill climb`);
-      if (id !== 'velocity' && id !== 'rush') assert.ok(!seen.has(t), `${t} is in ${seen.get(t)} and ${id}`);
+      if (id !== 'velocity' && id !== 'rush' && id !== 'gravity') assert.ok(!seen.has(t), `${t} is in ${seen.get(t)} and ${id}`);
       if (!seen.has(t)) seen.set(t, id);
     }
   }
   assert.deepEqual(CUPS.velocity.tracks.filter((t) => seen.get(t) === 'velocity'), ['hayate', 'seatosky', 'futamata', 'ryusei'], 'the fast roads live in Velocity');
   assert.deepEqual(CUPS.rush.tracks.filter((t) => seen.get(t) === 'rush'), ['isonami', 'shiden'], 'the six-lane grand prix roads live in Overdrive');
+  assert.deepEqual(CUPS.gravity.tracks.filter((t) => seen.get(t) === 'gravity'), ['sakamichi', 'nadare'], 'the obstacle-course downhills live in Gravity');
   assert.deepEqual(CUPS.sprint.tracks, ['mizuumi', 'hibari', 'kamome', 'shiokaze'], 'Sprint is the four sprint rings, easiest first, all its own');
   assert.ok(CUPS.sprint.tracks.every((t) => TRACK_DEFS[t].laps === 4), 'Sprint is all short 4-lap circuits');
   assert.deepEqual(CUPS.postcard.tracks, ['taketomi', 'hallstatt', 'goreme', 'oia', 'chefchaouen'], 'Postcard is the five town circuits, easiest first, all its own');

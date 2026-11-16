@@ -60,6 +60,10 @@ export function placeProps(t: Track): Prop[] {
     t.boosts.some((b) => s1 > b.s - 40 && s0 < b.s + b.len + 40);
   // With traffic on the road there's enough to dodge.
   if (t.def.traffic) return props;
+  if (t.def.obstacles) {
+    obstacleCourse(t, rng, add, busy, curvMax);
+    return props.sort((a, b) => a.s - b.s);
+  }
   let s = t.startS + 400;
   let k = 0;
   while (s < t.finishS - 200) {
@@ -92,6 +96,50 @@ export function placeProps(t: Track): Prop[] {
   }
   props.sort((a, b) => a.s - b.s);
   return props;
+}
+
+/** An obstacle course's spacing: something on the road every `gap` to `gap + spread` metres (m). */
+export const COURSE = { gap: 110, spread: 90, slalom: 26 };
+
+/**
+ * An obstacle course (TrackDef.obstacles): the same bales, barrels and cones, but every 110-200 m instead of every
+ * 400-700, and two more layouts to weave through: a slalom (bales on alternate edges, COURSE.slalom m apart) and a
+ * gate (barrels on both edges, the middle open). Like every other layout, never across the whole road: there's
+ * always at least the middle 4 m, or the far side of the road, clear.
+ */
+function obstacleCourse(
+  t: Track, rng: () => number, add: (kind: PropKind, s: number, d: number) => void,
+  busy: (s0: number, s1: number) => boolean, curvMax: (s0: number, s1: number) => number,
+): void {
+  let s = t.startS + 260;
+  while (s < t.finishS - 200) {
+    if (busy(s, s + 80) || curvMax(s, s + 80) > 1 / 90) {
+      s += 20;
+      continue;
+    }
+    const side = rng() < 0.5 ? -1 : 1;
+    const pick = rng();
+    if (pick < 0.22) for (let i = 0; i < 3; i++) add('bale', s + i * 1.7, side * (t.half - 1));
+    else if (pick < 0.42) {
+      add('barrel', s, side * (t.half - 0.8));
+      add('barrel', s + 1.2, side * (t.half - 1.9));
+      add('barrel', s + 2.2, side * (t.half - 0.9));
+    } else if (pick < 0.62) for (let i = 0; i < 5; i++) add('cone', s + i * 7, (i % 2 ? 1 : -1) * 1.6);
+    else if (pick < 0.84)
+      // A slalom: bales on one edge, then the other, then back.
+      for (let i = 0; i < 3; i++) {
+        const e = (i % 2 ? -side : side) * (t.half - 1.2);
+        add('bale', s + i * COURSE.slalom, e);
+        add('bale', s + i * COURSE.slalom + 1.7, e);
+      }
+    else
+      // A gate: barrels in from both edges, the middle open.
+      for (const e of [-1, 1]) {
+        add('barrel', s, e * (t.half - 0.7));
+        add('barrel', s + 0.4, e * (t.half - 1.7));
+      }
+    s += COURSE.gap + rng() * COURSE.spread;
+  }
 }
 
 /** The narrowest the road gets between a fallen boulder or rock and the far edge of the asphalt (m). */
