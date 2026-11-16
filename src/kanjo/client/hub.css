@@ -1327,11 +1327,206 @@ html:not(.pad) .tg-bumper {
   box-shadow: 0 0 0 3px var(--tg-cyan);
 }
 
-/* The driver creator (creator.ts): rows of pills and swatches under the driver cards. A dot shows a pill's colour
-   (skin tone, iris, metal); the last swatch of a row is a free colour picker: a ring round the current colour with
-   the native input on top. */
-.tg-creator .tg-label {
+/* The driver creator (creator.ts), under the driver cards: a head that stays put while the page scrolls (the
+   toolbar, then the category tabs: sub-tabs), and the open category's choices as option tiles, swatches and pills. A
+   dot shows a pill's or a zone's colour (metal, leather, the zone as it is now); the last swatch of a row is a free
+   colour picker: a ring round the current colour with the native input on top. */
+.tg-creator {
   margin-top: 6px;
+}
+.tg-cr-head {
+  position: sticky;
+  top: -18px;
+  z-index: 2;
+  margin: 0 calc(-1 * var(--tg-gutter));
+  padding: 10px var(--tg-gutter) 0;
+  background: var(--tg-ink-0);
+}
+.tg-cr-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.tg-cr-bar .tg-pill:disabled {
+  opacity: 0.4;
+}
+.tg-cr-gap {
+  flex: 1;
+}
+.tg-cr-tabs {
+  padding: 8px 0 0;
+  gap: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tg-cr-tabs [role='tab'] {
+  flex: none;
+  padding: 10px 11px 12px;
+}
+.tg-cr-page .tg-h {
+  margin: 20px 0 10px;
+}
+.tg-cr-page .tg-h .tg-pill {
+  min-height: 28px;
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.tg-cr-hint {
+  margin-top: 18px;
+}
+/* Option tile: one choice of a set, with a small picture (a garment's silhouette in its own colour), a name and a
+   line or its colour chips. Picked = cyan frame, like a track tile. */
+.tg-opts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+}
+.tg-opts.tight {
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+}
+.tg-opt {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 4px;
+  min-height: 64px;
+  padding: 10px 8px;
+  border: 1px solid var(--tg-line-2);
+  border-radius: 6px;
+  text-align: center;
+  color: var(--tg-text);
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+/* Named, so the old site's cream button:hover doesn't show. */
+.tg-opt,
+.tg-swname {
+  background: var(--tg-ink-2);
+}
+.tg-opt:hover,
+.tg-swname:hover {
+  background: var(--tg-ink-3);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.tg-opt b {
+  font: 700 14px/1.15 var(--tg-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.tg-opt small {
+  color: var(--tg-dim);
+  font-size: 12px;
+}
+.tg-opt[aria-pressed='true'],
+.tg-swname[aria-pressed='true'] {
+  border-color: var(--tg-cyan);
+  box-shadow:
+    inset 0 0 0 1px var(--tg-cyan),
+    0 0 18px rgba(56, 201, 255, 0.22);
+}
+.tg-opt-art {
+  width: 44px;
+  height: 44px;
+  fill: var(--sw);
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.tg-opt-chips {
+  display: inline-flex;
+  gap: 4px;
+}
+.tg-opt-chips i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--sw);
+}
+/* A swatch with its name under it (eyes). */
+.tg-swname {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  border: 1px solid var(--tg-line-2);
+  border-radius: 6px;
+  font: 700 13px/1 var(--tg-display) !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tg-text);
+}
+.tg-swname .tg-sw {
+  display: block;
+  width: 30px;
+  height: 30px;
+}
+/* A colour zone: its name (with the colour it has now) beside its swatches. */
+.tg-zone {
+  display: grid;
+  grid-template-columns: 104px 1fr;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 8px 0;
+}
+.tg-zone + .tg-zone {
+  border-top: 1px solid var(--tg-line);
+}
+.tg-zone .tg-label {
+  display: flex;
+  align-items: center;
+}
+.tg-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--tg-cyan);
+  border-radius: 0 6px 6px 0;
+  background: var(--tg-ink-2);
+  color: var(--tg-dim);
+}
+.tg-note b {
+  color: var(--tg-text);
+}
+/* Phones held sideways: while the creator is open the driver gets the left of the screen and the creator the
+   right, instead of a strip of showroom over it (hub.ts frameCar centres the view on the stage). */
+@media (orientation: landscape) and (max-width: 900px) {
+  html.touch .tg-body:has(.tg-creator) {
+    grid-template-columns: 1fr minmax(340px, 54%);
+    grid-template-rows: 1fr;
+  }
+  html.touch .tg-body:has(.tg-creator) .tg-stage {
+    grid-row: 1;
+    grid-column: 1;
+  }
+  html.touch .tg-body:has(.tg-creator) .tg-rail {
+    grid-row: 1;
+    grid-column: 2;
+    border-top: 0;
+    border-left: 1px solid var(--tg-line);
+  }
+}
+/* Phones: fatter targets, and a zone's swatches under its name. */
+html.touch .tg-creator .tg-sw {
+  width: 40px;
+  height: 40px;
+}
+html.touch .tg-swname .tg-sw {
+  width: 32px;
+  height: 32px;
+}
+html.touch .tg-zone {
+  grid-template-columns: 1fr;
+}
+html.touch .tg-cr-bar .tg-pill,
+html.touch .tg-cr-page .tg-pill {
+  min-height: 42px;
+}
+html.touch .tg-cr-tabs [role='tab'] {
+  padding: 14px 13px 14px;
 }
 .tg-dot {
   display: inline-block;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { BASES, BROWS, DEFAULT_LOOK, decodeLook, encodeLook, EYES, HAIRS, KIT, type Look, lookProblem, OUTFITS, randomLook, SHOES, SKINS, WHEELS, withBase, withKit, withOutfit } from '../../src/kanjo/shared/look.ts';
+import { BASES, BOTTOM_IDS, BOTTOMS, BROWS, DEFAULT_LOOK, decodeLook, encodeLook, EYES, HAIRS, isFull, KIT, type Look, lookProblem, NO_BOTTOM, randomLook, SHOES, SKINS, TOP_IDS, TOPS, WHEELS, withBase, withBottom, withKit, withTop } from '../../src/kanjo/shared/look.ts';
 
 const DIR = new URL('../../public/models/drivers/wardrobe/', import.meta.url);
 
@@ -9,6 +9,7 @@ interface Part {
   slot: string;
   file: string;
   hide?: number;
+  full?: boolean;
   zones?: { name: string; color?: string }[];
   mask?: string | null;
   paint?: { bones: string[]; min: number; role: string }[];
@@ -41,15 +42,20 @@ test('random looks round-trip', () => {
 
 test('junk codes are refused', () => {
   const good = encodeLook(DEFAULT_LOOK);
-  for (const bad of [undefined, 42, '', 'marlowe', 'L2.', good + '.', good + '.0.0', good.replace('L2.', 'L1.'), good.replace(/\.[0-9a-f]{6}\./, '.zzzzzz.'), 'L2.' + 'x'.repeat(300)]) {
+  assert.ok(good.startsWith('L3.'));
+  for (const bad of [undefined, 42, '', 'marlowe', 'L3.', 'L2.', good + '.', good + '.0.0', good.replace('L3.', 'L1.'), good.replace('L3.', 'L2.'), good.replace(/\.[0-9a-f]{6}\./, '.zzzzzz.'), 'L3.' + 'x'.repeat(300)]) {
     assert.equal(decodeLook(bad), null, String(bad));
   }
   const f = good.split('.');
   f[2] = 'z'; // a skin past the end
   assert.equal(decodeLook(f.join('.')), null);
   const g = good.split('.');
-  g[8] = '000000'; // one colour for a three-zone outfit
+  g[8] = '000000'; // one colour for a three-zone top
   assert.equal(decodeLook(g.join('.')), null);
+  const h = good.split('.');
+  h[9] = '0'; // no bottom under a jacket
+  h[10] = '';
+  assert.equal(decodeLook(h.join('.')), null);
 });
 
 test('a skin belongs to its frame; changing frame keeps tone and age', () => {
@@ -73,10 +79,74 @@ test('kit: one piece per slot, a cap on the total', () => {
   assert.equal(lookProblem(l), null);
 });
 
-test('a new outfit comes in its own colours; the same one keeps yours', () => {
-  const mine = { ...DEFAULT_LOOK, colors: [1, 2, 3] };
-  assert.deepEqual(withOutfit(mine, 'male_elegantsuit01').colors, [1, 2, 3]);
-  assert.deepEqual(withOutfit(mine, 'female_sportsuit01').colors, [...OUTFITS.female_sportsuit01.colors]);
+test('a new top or bottom comes in its own colours; the other half and the same one keep yours', () => {
+  const mine: Look = { ...DEFAULT_LOOK, topColors: [1, 2, 3], bottomColors: [4] };
+  assert.equal(withTop(mine, 'suit_jacket'), mine);
+  const tee = withTop(mine, 'trim_tee');
+  assert.deepEqual(tee.topColors, [...TOPS.trim_tee.colors]);
+  assert.deepEqual([tee.bottom, tee.bottomColors], ['suit_trousers', [4]]);
+  const skirt = withBottom(tee, 'skirt');
+  assert.deepEqual([skirt.top, skirt.topColors], ['trim_tee', tee.topColors]);
+  assert.deepEqual(skirt.bottomColors, [...BOTTOMS.skirt.colors]);
+  assert.equal(lookProblem(skirt), null);
+});
+
+test('a one-piece takes both places; taking it off gives the other half back', () => {
+  assert.deepEqual(TOP_IDS.filter(isFull), ['overalls', 'denim_suit']);
+  const one = withTop(DEFAULT_LOOK, 'overalls');
+  assert.deepEqual([one.bottom, one.bottomColors], [NO_BOTTOM, []]);
+  assert.equal(lookProblem(one), null);
+  assert.deepEqual(decodeLook(encodeLook(one)), one);
+  assert.equal(lookProblem({ ...one, bottom: 'skirt', bottomColors: [...BOTTOMS.skirt.colors] }), 'bottom', 'no bottom under a one-piece');
+  assert.equal(lookProblem({ ...DEFAULT_LOOK, bottom: NO_BOTTOM, bottomColors: [] }), 'bottom', 'a top needs a bottom');
+  // A top put on over a one-piece brings a bottom; a bottom brings a top.
+  const top = withTop(one, 'blouse');
+  assert.ok(top.bottom !== NO_BOTTOM && top.bottomColors.length === BOTTOMS[top.bottom].zones.length);
+  assert.equal(lookProblem(top), null);
+  const bottom = withBottom(one, 'shorts');
+  assert.ok(!isFull(bottom.top));
+  assert.equal(bottom.bottom, 'shorts');
+  assert.equal(lookProblem(bottom), null);
+});
+
+test('every pairing of a top and a bottom can be worn and survives the wire', () => {
+  for (const t of TOP_IDS) {
+    for (const b of isFull(t) ? [] : BOTTOM_IDS) {
+      const l = withBottom(withTop(DEFAULT_LOOK, t), b);
+      assert.deepEqual([l.top, l.bottom], [t, b]);
+      assert.equal(lookProblem(l), null);
+      assert.deepEqual(decodeLook(encodeLook(l)), l);
+    }
+  }
+});
+
+test('looks saved as whole outfits (L2 codes) still load, as their top and bottom in the same colours', () => {
+  // What encodeLook wrote before separates: base, skin, eyes, brows, hair, hair colour, outfit, its zone colours,
+  // shoes, shoe colour, kit, metal, leather, glow, wheel (, gear).
+  const old = (outfit: number, colors: string, gear = '') => `L2.1.0.7.6.2.7a5a4a.${outfit.toString(36)}.${colors}.2.8a6350.0-5.0.0.ffae3c.0${gear}`;
+  const rest = { base: 'm_avg', skin: 'young_caucasian_male', eyes: 'grey', brows: 'eyebrow007', hair: 'short02', hairColor: 0x7a5a4a, shoes: 'shoes03', shoeColor: 0x8a6350, kit: ['goggles_up', 'collar'], metal: 'brass', leather: 'leather', glow: 0xffae3c, wheel: 'wood', gear: [] };
+  // The default look of the day: a three-piece (tie, suit, shirt).
+  assert.deepEqual(decodeLook(old(0, 'f0c26a-6fa08c-fbf2de')), { ...rest, top: 'suit_jacket', topColors: [0xf0c26a, 0x6fa08c, 0xfbf2de], bottom: 'suit_trousers', bottomColors: [0x6fa08c] });
+  // Overalls (overalls, tee) and the denim suit (patches, clothes) stay whole.
+  assert.deepEqual(decodeLook(old(1, '111111-222222')), { ...rest, top: 'overalls', topColors: [0x111111, 0x222222], bottom: NO_BOTTOM, bottomColors: [] });
+  assert.deepEqual(decodeLook(old(7, '111111-222222'))!.top, 'denim_suit');
+  // Zones were in the outfit's own order: (jeans, tee), (stripes, shirt, skirt), (trim, stripe, leggings, top).
+  assert.deepEqual(decodeLook(old(6, '111111-222222')), { ...rest, top: 'plain_tee', topColors: [0x222222], bottom: 'blue_jeans', bottomColors: [0x111111] });
+  assert.deepEqual(decodeLook(old(10, '111111-222222-333333')), { ...rest, top: 'blouse', topColors: [0x111111, 0x222222], bottom: 'skirt', bottomColors: [0x333333] });
+  assert.deepEqual(decodeLook(old(11, '111111-222222-333333-444444')), { ...rest, top: 'crop_top', topColors: [0x111111, 0x444444], bottom: 'leggings', bottomColors: [0x222222, 0x333333] });
+  // All twelve outfits load with a full set of colours, and re-encode as L3.
+  const zones = [3, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 4];
+  zones.forEach((n, o) => {
+    const l = decodeLook(old(o, Array.from({ length: n }, (_, i) => `${i + 1}0${i + 1}0${i + 1}0`).join('-')));
+    assert.ok(l, `outfit ${o}`);
+    assert.equal(lookProblem(l), null);
+    assert.ok(encodeLook(l).startsWith('L3.'));
+    assert.deepEqual(decodeLook(encodeLook(l)), l);
+    assert.equal(decodeLook(old(o, '101010')), null, `outfit ${o} with one colour`);
+  });
+  assert.equal(decodeLook(old(12, '111111-222222')), null, 'an outfit past the end');
+  // Battle pass gear rode on the end, as it does now.
+  assert.deepEqual(decodeLook(old(0, 'f0c26a-6fa08c-fbf2de', '.3'))!.gear, ['halo']);
 });
 
 test('the catalogue matches what the wardrobe build made', () => {
@@ -98,20 +168,27 @@ test('the catalogue matches what the wardrobe build made', () => {
       return p;
     };
     const bits = new Set<number>();
-    for (const [o, info] of Object.entries(OUTFITS)) {
-      const p = has(o, 'outfit');
-      assert.deepEqual(p.zones!.map((z) => z.name), [...info.zones], `${o} zones`);
-      assert.deepEqual(p.zones!.map((z) => parseInt(z.color!.slice(1), 16)), [...info.colors], `${o} colours`);
-      bits.add(p.hide!);
+    for (const [slot, list] of [['top', TOPS], ['bottom', BOTTOMS]] as const) {
+      for (const [g, info] of Object.entries(list) as [string, { zones: readonly string[]; colors: readonly number[]; full?: true }][]) {
+        const p = has(g, slot);
+        assert.deepEqual(p.zones!.map((z) => z.name), [...info.zones], `${g} zones`);
+        assert.deepEqual(p.zones!.map((z) => parseInt(z.color!.slice(1), 16)), [...info.colors], `${g} colours`);
+        assert.equal(!!p.full, !!info.full, `${g} one-piece`);
+        // One zone over a whole garment needs no mask; more are told apart by one.
+        assert.equal(!!p.mask, info.zones.length > 1, `${g} mask`);
+        bits.add(p.hide!);
+      }
     }
     for (const s of SHOES) bits.add(has(s, 'shoes').hide!);
-    assert.equal(bits.size, Object.keys(OUTFITS).length + SHOES.length, 'every outfit and shoe hides with its own bit');
-    assert.ok(Math.max(...bits) < 31, 'hide bits fit an int');
+    assert.equal(bits.size, TOP_IDS.length + BOTTOM_IDS.length + SHOES.length, 'every garment and shoe hides with its own bit');
+    // Sixteen bits to a `_hide` attribute (a float holds 24 exactly); the client reads `_hide` and `_hide2`.
+    assert.ok(Math.max(...bits) < 32, 'hide bits fit two attributes');
     for (const h of HAIRS) if (h !== 'none') has(h, 'hair');
     for (const br of BROWS) has(br, 'brows');
     for (const [k, slot] of Object.entries(KIT)) {
-      // Either one fit for every outfit, or one per outfit.
-      const fits = m.parts['kit_' + k] ? [has('kit_' + k, slot)] : Object.keys(OUTFITS).map((o) => has(`kit_${k}@${o}`, slot));
+      // One fit for everything, or one per top; where a top doesn't reach the piece (a belt under a crop top), one
+      // per bottom instead.
+      const fits = m.parts['kit_' + k] ? [has('kit_' + k, slot)] : TOP_IDS.flatMap((t) => (m.parts[`kit_${k}@${t}`] ? [has(`kit_${k}@${t}`, slot)] : BOTTOM_IDS.map((bt) => has(`kit_${k}@_${bt}`, slot))));
       for (const p of fits) {
         if (k.startsWith('mech_arm')) {
           assert.equal(p.sleeve, k.slice(-1), `${k} cuts its sleeve`);

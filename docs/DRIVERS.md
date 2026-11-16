@@ -7,7 +7,7 @@ You pick yours on the garage's **Driver** tab; rivals get the other three; onlin
 
 | | Driver | Kit | Wheel | Glow |
 | --- | --- | --- | --- | --- |
-| `marlowe` | **Marlowe Vance**, "The Governor": clockwork gentleman, 55 | sage-green suit, cream shirt, silver hair, brass mechanical right arm (sleeve cut off, riveted shoulder cap, elbow gears, pistons), goggles pushed up, brass collar | wooden rim, brass spokes | amber |
+| `marlowe` | **Marlowe Vance**, "The Governor": clockwork gentleman, 55 | dusty sage suit, cream shirt, silver hair, brass mechanical right arm (sleeve cut off, riveted shoulder cap, elbow gears, pistons), goggles pushed up, brass collar | wooden rim, brass spokes | amber |
 | `kirika` | **Kirika Sato**, "Volt": neon courier, 23 | periwinkle racing top and dusk-blue leggings with glowing seams, white bob, carbon left arm, half-face respirator with brass filters, temple implants, lit collar | carbon yoke with a light strip | magenta |
 | `okonkwo` | **Okonkwo Adeyemi**, "Boiler": steam-age mechanic, 38 | terracotta canvas overalls over a slate-blue tee, copper pauldron with a pressure gauge, brass and copper bracers (one with a gauge), welding goggles up, tan work gloves and belt | riveted iron | green |
 | `ines` | **Inès Varga**, "Wraith": night-run ghost, 38 | dusk-blue jacket, coral striped shirt, rose ponytail, brass cyber-monocle with a cable to the ear, stacked collar with lit seams, bandolier, leather gloves | dished leather, red top mark | red |
@@ -30,15 +30,49 @@ creator's wardrobe alike, by the same few rules:
 - **Cloth and hair** (`soften`, `recolor`): the weave and strands are blurred out, no normal maps, and each zone is
   its colour in gentle shades (contrast × `STYLE['contrast']`, kept inside `STYLE['shade']`); anything left over is
   lifted off black (`STYLE['floor']`).
-- **Palette** (cast.py, `OUTFITS` in wardrobe.py, `palette()` in kit.py): pastel-leaning, mid-light, gently saturated,
-  never near black, in the mood of the cars' paints (Sakura, Lagoon, Champagne): sage, periwinkle, dusk blue, coral,
+- **Palette** (cast.py, `GARMENTS` in wardrobe.py, `palette()` in kit.py): dusty pastels, mid-light, never near
+  black, in the mood of the cars' paints (Sakura, Lagoon, Champagne): sage, periwinkle, dusk blue, coral,
   terracotta, cream, honey. Metals are pale and satin (`kit.METAL`: about half metal, half paint), "black" leather
   and gunmetal are dusky greys. A driver's glow colour is the one bright note; it glows a little less than it did.
+  Muted on 2026-11-15 (Michael: the first cartoon palette was "a bit too bright"): every cloth, hair, shoe, metal
+  and leather colour kept its hue with about three quarters of its saturation and 95% of its value (sage `#6fa08c`
+  became `#75988a`, cream `#fbf2de` `#eee8da`, brass `#ecc878` `#e0c68c`); skin is a little less lifted and less
+  saturated (`skin_lift` 0.11, `skin_sat` 0.88), the blush fainter and dustier (`blush` mix 0.22), irises less
+  jewel-bright (`iris_sat`, `iris_sat_max`, `iris_val`), and the shade band's own glow (`TOON.floor`) is 0.04.
+  The glow colours were left alone. Keep new colours in that range: dusty, not dark.
 - **Shading** (src/kanjo/client/toon.ts): in the game every driver material gets soft cel shading: light falls in two
   bands with a soft edge instead of fading round the form, the shade band still gets `TOON.shade` of the light and a
   small glow of the surface's own colour (`TOON.floor`), so nobody goes dark under one spot or at night. It is a
   patch on the standard material's shader (and on Low graphics' stand-ins), so maps, skinning, the wardrobe's
   recolour and the glows work as before. Drivers don't receive shadow maps (the bands are their shading).
+
+## The fit: nothing poking through
+
+Michael, 2026-11-15: clothing "merges behind the character". What was wrong, and what `build.py` does about it
+(`FIT` holds the numbers; legends and the wardrobe share the code):
+
+- **Skin came through cloth, from behind most of all** (slits at the shoulder blades and upper arms, thighs
+  through a skirt). The skin under clothes is dropped, but the test for "under clothes" was one ray out along
+  the skin's normal, 3.5 cm long. Skin whose normal runs along the cloth instead of at it (armpits, the inside
+  of the upper arm, between the legs) or that sits further from loose cloth (thighs in a skirt) was kept, and
+  swung out through sleeves, jacket backs and skirts as soon as the arms came down from the rest pose.
+  `under_cloth()` now also counts skin with cloth close by whose inner face looks at it, and skin with cloth all
+  round it (eight level rays).
+- **Cloth dipped into the skin**: MakeHuman fits clothes with next to no gap, and the bigger cartoon head and
+  neck, the decimated body and the decimated clothes each move a surface a few millimetres. `lift()` moves
+  every cloth vertex to at least 3 mm off the skin. Clothes are decimated before the fit, so it is worked out
+  on the meshes that ship.
+- **Hair sank into collars and backs**: the cartoon head is a fifth bigger, so ponytails, braids and long hair
+  hang lower and closer to the back. `comb()` moves hair below the chin out of whatever can be worn with it.
+- **Layers** (`over()`): trouser legs clear the shoes (leggings go inside them instead: `tuck`), and in the
+  wardrobe every top clears every bottom, so any pairing works. A top is pushed level, straight out from the
+  bone it hangs on (`level`), not along its normals: a hem's normals point every which way, and following them
+  pulled a tee's hem into spikes over the jeans.
+- **The seat** is fitted to the bulkiest clothes a body can wear (it was fitted to one tee, and a jacket's back
+  sank into the backrest).
+
+Check a change with the preview renders (`--preview`, both builds: front, both back quarters, the side, and
+seated) and in `/dev/drivers.html`.
 
 ## In the game
 
@@ -98,18 +132,21 @@ What each file does:
   ethnicity; `targets` can add to or override the cartoon head's), skin, eyes, hair, clothes, recolour rules for
   the clothes' textures (pick pixels by hue, saturation, value or a UV box; repaint in soft shades of a colour;
   optionally glow), the kit, the seat, the wheel, and the stance.
-- `build.py`: `STYLE` (every number of the look above), makes the MPFB human (game-engine skeleton) with the
-  cartoon targets, bakes the body shape, enlarges the head (`big_head`), replaces the materials with plain glTF
-  ones on repainted, downscaled textures (`toon_skin`, `anime_eye`, `stroke`, `soften`, `recolor`), cuts sleeves
-  off for mechanical arms, deletes skin hidden under clothes, decimates (sparing the face), builds the kit, poses,
-  and exports.
+- `build.py`: `STYLE` (every number of the look above) and `FIT` (the fit), makes the MPFB human (game-engine
+  skeleton) with the cartoon targets, bakes the body shape, enlarges the head (`big_head`), replaces the
+  materials with plain glTF ones on repainted, downscaled textures (`toon_skin`, `anime_eye`, `stroke`, `soften`,
+  `recolor`), cuts sleeves off for mechanical arms, fits the clothes and hair (`lift`, `over`, `comb`), deletes
+  skin hidden under clothes (`cull_hidden`), decimates (sparing the face), builds the kit, poses, and exports.
 - `kit.py`: the hard-surface parts, fitted to each body by raycasting (rings cast inward round a bone for
   bands, bracers and collars; ray grids for shells like the respirator and pauldron), then bound to the rig
   (rigid to one bone, or skinned by copying the nearest body or cloth weights). Also the seat and the wheels.
 - `pose.py`: the `drive` clip (seated, hip point at the origin; 17 keys sweep the wheel ±110°, the hands on
   IK targets parented to the wheel bone, the head turning into the bend), the `ride` clip (tucked over the
   tank, hands on the bike's grips, feet on its pegs; `BIKE` holds bikemodel.ts's touch points) and the `idle`
-  loop; all baked to plain keys.
+  loop; all baked to plain keys. The idle's `relaxed` arms (`hang`, tunables `HANG`; Michael, 2026-11-15: the
+  old ones stood out with "locked elbows", hands held in front) are set by direction, not by turns from the A
+  pose: each arm hangs straight down just outside the widest thing at the hips (body or any clothes it can
+  wear), elbow soft, palm turned to the thigh.
 - `render.py`: EEVEE preview renders (standing, face, seated, full lock) in a soft bright studio. They show
   shape, textures and palette; the cel shading is the game's, so check `/dev/drivers.html` too.
 
@@ -122,7 +159,8 @@ swappable parts with the same human, cartoon look, materials and kit code, and t
 `docs/DRIVER_CREATOR.md` (plan and progress).
 
 ```bash
-blender -b --python tools/drivers/wardrobe.py              # all six bases, ~3.5 min each
+blender -b --python tools/drivers/wardrobe.py              # all six bases, ~4 min each
+blender -b --python tools/drivers/wardrobe.py -- m_avg --preview /tmp/wardrobe   # one base, with fit renders
 blender -b --python tools/drivers/wardrobe.py -- --zones    # only colour zones
 ```
 

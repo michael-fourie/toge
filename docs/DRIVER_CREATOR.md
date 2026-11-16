@@ -1,7 +1,7 @@
 # KANJO driver creator: plan
 
-Goal: players build their own driver in the garage (body, face, skin, hair, outfit and its colours,
-brass-and-neon kit, glow colour, wheel), and the result looks like it belongs next to Marlowe, Kirika,
+Goal: players build their own driver in the garage (body, face, skin, hair, a top and a bottom and their
+colours, shoes, brass-and-neon kit, glow colour, wheel), and the result looks like it belongs next to Marlowe, Kirika,
 Okonkwo and Inès: a cartoon MakeHuman body (the legends' anime restyle: docs/DRIVERS.md "The look"),
 recoloured MakeHuman clothes, fitted hard-surface kit, the same materials and soft cel shading, seated with
 hands on the wheel and standing in the showroom.
@@ -14,7 +14,7 @@ This file is the plan *and* the progress log. Tick boxes as things land; add wha
 The four legends are each one baked GLB. A custom driver can't be baked per player, so the creator
 **assembles a driver at runtime from parts built by the same Blender pipeline**. For each *body base*
 (a MakeHuman phenotype: frame and build) the pipeline exports one base GLB (body, eyes, rig, the `drive`
-and `idle` clips, seat) plus a small GLB per wardrobe part (each hair, outfit, shoes, kit piece, wheel),
+and `idle` clips, seat) plus a small GLB per wardrobe part (each hair, top, bottom, shoes, kit piece, wheel),
 all skinned to that base's skeleton. The client loads the base plus the chosen parts, binds every part
 to the base's skeleton, and recolours on the GPU from masks baked at build time. A driver's look is a
 short code (`Look`), shared by client and server like the car code, so it travels in `driver=` and
@@ -29,7 +29,7 @@ rivals and remote racers can be drawn from it.
   fit redone at runtime. A small set of bases keeps all of that baked and correct. Face shape is
   different: face targets only move head vertices (the game-engine rig has no face bones), so faces can
   become morph targets later (Phase 7).
-- **GPU recolour, not baked colours**: the build bakes each outfit's colour *zones* (jacket, shirt,
+- **GPU recolour, not baked colours**: the build bakes each garment's colour *zones* (jacket, shirt,
   trim, ...) into a mask texture and records each zone's reference luminance. A shader patch repaints
   `zoneColour × (lum / ref) ^ contrast`, kept inside the look's shade range (`SHADE` in wardrobe.ts,
   `STYLE['shade']` in build.py), exactly like `build.py`'s `recolor()`, so colour pickers update live and
@@ -47,8 +47,10 @@ Look {
   brows     BrowId        12 MakeHuman brows, coloured with the hair
   hair      HairId        10 MakeHuman hairstyles or 'none'
   hairColor RGB           hair and brows
-  outfit    OutfitId      12 MakeHuman outfits, worn by any base
-  colors    RGB[]         one per zone of the outfit (each outfit has its own palette)
+  top       TopId         10 tops and 2 one-pieces (overalls, denim suit), worn by any base
+  topColors RGB[]         one per zone of the top (each garment has its own palette)
+  bottom    BottomId|none 10 bottoms; 'none' exactly when the top is a one-piece
+  bottomColors RGB[]      one per zone of the bottom
   shoes     ShoeId        6
   shoeColor RGB
   kit       KitId[]       up to 5 pieces, one per slot (brow, eyes, mouth, temple, neck, arm_l, arm_r,
@@ -60,11 +62,18 @@ Look {
 }
 ```
 
-- `encodeLook` / `decodeLook`: `L2.` + 15 dot-separated fields (catalogue indices in base 36, colours as
-  6 hex). `decodeLook` validates everything (ids in range, skin of the right frame, colours per zone, kit
-  slots) and returns null for junk or an old version; the server uses it (`isDriver`) on `driver=`.
-- `withBase` keeps skin tone and age across frames; `withOutfit` resets to the outfit's palette;
-  `withKit` keeps one piece per slot; `randomLook` for "Surprise me".
+- `encodeLook` / `decodeLook`: `L3.` + 17 dot-separated fields (catalogue indices in base 36, colours as
+  6 hex; an 18th with battle pass gear). `decodeLook` validates everything (ids in range, skin of the right
+  frame, colours per zone, a bottom unless the top is a one-piece, kit slots) and returns null for junk; the
+  server uses it (`isRider`) on `rider=` and for the garage's `look`.
+- **`L2.` codes still decode** (looks saved before separates, 2026-11-15): the outfit index maps through
+  `L2_OUTFITS` to the top and bottom that outfit was cut into, and its zone colours go to the zones they
+  painted (a three-piece's suit colour is both the jacket's and the trousers'). Nothing stored is rewritten:
+  a garage or a lobby keeps the `L2.` string until the player next changes their driver, and every reader
+  decodes it. `encodeLook` only writes `L3.`.
+- `withBase` keeps skin tone and age across frames; `withTop` / `withBottom` put a garment on in its own
+  palette and leave the other half alone (a one-piece takes the bottom off; taking one off puts the spare
+  half on: a plain tee or blue jeans); `withKit` keeps one piece per slot; `randomLook` for "Surprise me".
 - The catalogue mirrors the build's manifest; `tests/kanjo/look.test.ts` checks the two agree, file by file.
 
 ## Build (`tools/drivers/wardrobe.py`)
@@ -72,46 +81,76 @@ Look {
 `blender -b --python tools/drivers/wardrobe.py -- [bases...]` writes `public/models/drivers/wardrobe/`:
 `<base>/base.gltf` + one `<part>.gltf` per part (Draco-compressed `.bin` beside each), `tex/` (every
 texture and zone mask, shared by all bases), `skins/`, `eyes/` and `manifest.json`. About 3.5 min a base.
-`-- --zones` only recomputes colour zones and hair contrast (masks + manifest), no geometry.
+`-- --zones` only recomputes colour zones and hair contrast (masks + manifest), no models (it makes one
+human to read the garments' UVs). `-- [bases] --preview DIR` also renders a few looks per base from the
+front, both back quarters, the side and seated, as the client would assemble them, to check the fit.
 
 Per base:
 1. The MPFB human with the base phenotype wearing *every* outfit, shoe, hair and brow at once.
    The body is the cartoon one (build.py `STYLE`: big head and eyes, small nose and mouth).
-2. Body: MPFB's helper mask applied, the clothes' `Delete.*` masks not: instead a `_hide` vertex
-   attribute gets one bit per outfit/shoe (its delete group plus a raycast for skin under the cloth).
-   Decimated to 0.6 (sparing the face) before the bits are computed.
-3. Clothes, hair and brows keep their MakeHuman textures, softened (`build.soften`: weave blurred out,
+2. **Separates** (`GARMENTS`, `split()`): each MakeHuman outfit is a mesh of loose parts, and they are sorted
+   by the bones they hang on: parts on the hips and legs are the outfit's bottom, the rest its top (a
+   jacket, its shirt and tie are one top). Overalls (the bib and the tee under it) and the denim suit (one
+   mesh) stay whole: `slot: 'full'`, worn as a top with no bottom. A garment keeps its outfit's texture
+   (both halves share the file) and gets its own zones, picked only on its own share of that texture
+   (`uv_cover`), so no UV boxes are needed to tell a tee from the jeans it came with.
+3. Body and clothes are decimated (body 0.6, sparing the face; clothes 0.55, shoes 0.3), then **fitted**
+   (`fit()`, build.py `FIT`; docs/DRIVERS.md "The fit"): cloth lifted off the skin, shoes over the leggings,
+   every other leg over every shoe, every top over every bottom, hair combed out of every top.
+4. Body: MPFB's helper mask applied, the clothes' `Delete.*` masks not: instead the `_hide` and `_hide2`
+   vertex attributes get one bit per garment/shoe (16 to an attribute; the manifest's `hide` is the
+   number): the vertices its outfit's delete group names (each to the nearer half of a cut outfit) plus
+   skin under its cloth (`build.under_cloth`).
+5. Clothes, hair and brows keep their MakeHuman textures, softened (`build.soften`: weave blurred out,
    darks lifted off black, no normal maps; brows and lashes thickened to brush strokes by `build.stroke`);
-   each outfit's zones (rules like the legends' `recolor()`) become an RGBA mask with per-zone reference
-   luminance, and each zone's contrast carries the look's softening. Hair, brows and shoes have one
-   zone over everything. The shared skins and irises are repainted (`build.toon_skin`, `build.anime_eye`).
-4. Kit with role materials. Head pieces fit once; cloth-hugging pieces (`CLOTH_FIT`) fit once per
-   outfit and identical fits (within 8 mm) share a file. Mechanical arms are fitted to a sleeve-cut copy
-   of each outfit. What the legends paint into the body (`kit.paint_region`: metal arm skin, gloves) is
-   recorded as `paint` (bones, threshold, role) and mech arms as `sleeve`.
-5. `drive`/`idle` clips (wheel radius 0.18 m), seat fitted, four wheels.
-6. Exported as `.gltf` (JSON minified) with `export_texture_dir` pointing at the shared `tex/`.
+   each garment's zones (rules like the legends' `recolor()`) become an RGBA mask with per-zone reference
+   luminance, and each zone's contrast carries the look's softening. A garment with one zone has no mask;
+   hair, brows and shoes have one zone over everything. The shared skins and irises are repainted
+   (`build.toon_skin`, `build.anime_eye`).
+6. Kit with role materials. Head pieces fit once; cloth-hugging pieces (`CLOTH_FIT`) fit once per top
+   (`kit_<id>@<top>`) and identical fits (within 8 mm) share a file. The belt and harness also touch the
+   bottom (`WAIST_FIT`): they are fitted over the top with every bottom under it, and where a top is too
+   short to reach the piece (a belt under a crop top) once per bottom instead (`kit_<id>@_<bottom>`).
+   Mechanical arms are fitted to a sleeve-cut copy of each top. What the legends paint into the body
+   (`kit.paint_region`: metal arm skin, gloves) is recorded as `paint` (bones, threshold, role) and mech
+   arms as `sleeve`.
+7. `drive`/`idle` clips (wheel radius 0.18 m), the seat fitted to everything the body can wear, four wheels.
+8. Exported as `.gltf` (JSON minified) with `export_texture_dir` pointing at the shared `tex/`.
 
 ## Client (`src/kanjo/client/wardrobe.ts`)
 
 - `assemble(look)`: loads base + parts (cached per URL, Draco via `public/draco/`), clones the base,
   rebinds each part's SkinnedMesh to the base skeleton by bone name, and applies the look:
-  - body: triangles under worn clothes dropped (`_hide`), except the arm under a cut sleeve; repaint
-    groups from bone weights (`paint`); skin texture per look;
-  - outfits lose the sleeve a mech arm cut (triangles with average arm weight > 0.5);
-  - recolour shader on outfits, shoes, hair, brows; role materials on kit and seat (`METAL`, `LEATHER`:
+  - body: triangles under worn clothes dropped (`_hide`, `_hide2`), except the arm under a cut sleeve;
+    repaint groups from bone weights (`paint`); skin texture per look;
+  - tops lose the sleeve a mech arm cut (triangles with average arm weight > 0.5);
+  - recolour shader on tops (`topColors`), bottoms (`bottomColors`), shoes, hair, brows; role materials on kit and seat (`METAL`, `LEATHER`:
     the legends' pale satin metals and dusky leathers; the battle pass metals keep their shine);
   - soft cel shading on every material (`toonAll`, toon.ts).
 - `loadDriver(id | look)` covers legends and custom drivers; seating, showroom and culling are shared.
 
 ## Garage UI (Driver tab)
 
-- Two modes: **Legends** (today's four cards) and **Your driver** (the creator).
-- Creator sections: Body (base), Face & skin (skin, eyes, brows), Hair (style, colour), Outfit (suit,
-  zone colours, shoes), Kit (slots, metal, leather), Glow, Wheel. Swatch palettes in the house style plus
-  a free picker; "Surprise me"; a name/nick field.
-- The showroom's driver focus (camera walk-in, portrait light) shows the live rig; a "seated" preview
-  toggle sits them in the car's seat with the wheel.
+- Two modes: **Legends** (today's four cards) and **Your driver** (the creator, `creator.ts`).
+- The creator (redone 2026-11-15; Michael asked for a UX overhaul with separates) is a head that stays put
+  while the page scrolls, and the open category under it:
+  - a toolbar: **Undo** (hub.ts keeps the last 40 looks; a colour drag is one step), **Surprise me**,
+    **Reset** (the default look; undoable), and **Standing / Seated** (the showroom sits the driver in
+    their own seat at their wheel);
+  - category tabs (sub-tabs): **Body** (frame, build, skin by age), **Face** (eyes, brows), **Hair**
+    (style tiles, colour), **Top** (tops, then the one-pieces, then the worn top's colour zones),
+    **Bottom** (bottoms and the worn one's zones; under a one-piece, a note that it covers both and that
+    picking a bottom brings separates back), **Shoes**, **Kit** (by where it's worn, metal, leather, glow,
+    battle pass gear), **Wheel**;
+  - garments are option tiles (`.tg-opt`): a silhouette in the garment's own colour, its name and a chip
+    per zone; each zone is a row of the house cloth swatches plus a free picker, with a dot showing the
+    colour it has now and "Stock colours" to go back.
+- The showroom is the live preview: it frames what the open tab is about (`Showroom.frameRider`: the whole
+  driver, the head for Face and Hair, the feet for Shoes; the Wheel tab seats them), a drag turns the
+  driver (the turn stays), the mouse wheel or a pinch zooms.
+- Phones (`html.touch`): bigger swatches and pills, a zone's swatches under its name, the tabs scroll
+  sideways; held sideways (up to 900 px wide) the driver takes the left of the screen and the creator the
+  right, instead of the usual strip of showroom over the rail (hub.ts `frameCar` centres the view on the stage).
 - Gamepad navigable like the rest of the hub.
 
 ## Phases
@@ -159,6 +198,23 @@ Per base:
   material after assembly if the grid gets heavy (6 drivers × ~25 calls today).
 
 ## Notes as we go
+
+- 2026-11-15 (separates, the fit, muted colours, the new creator; Michael): outfits became tops and bottoms.
+  - 12 outfits are now 10 tops, 2 one-pieces and 10 bottoms (`GARMENTS` in wardrobe.py, `TOPS` / `BOTTOMS` in
+    look.ts): 100 pairings plus the two one-pieces. Nothing left the wardrobe; six of the bottoms are the same
+    jeans mesh with different washes, as MakeHuman ships them.
+  - Look codes are `L3.` now; `L2.` codes decode to the same clothes in the same colours (look.ts
+    `L2_OUTFITS`, tests in look.test.ts).
+  - Clipping: see docs/DRIVERS.md "The fit". The preview renders (`--preview`) are how to check it.
+  - The hide bits outgrew one float attribute (28 covers): `_hide` and `_hide2`, 16 bits each.
+  - One hair mesh serves every top, so `comb()` lays hair on the bulkiest top's surface: over a crop top a
+    braid sits a centimetre or two off the back. Per-top hair would fix it and multiply the hair files by 12.
+  - Kit that touches the waist (belt, harness) is fitted over each top with every bottom under it; the tops
+    are pushed clear of every waistband first, so that fit holds for any pairing.
+  - The palette was muted (docs/DRIVERS.md "The look"); a look saved earlier keeps the brighter colours in
+    its code until a garment or a swatch is picked again.
+  - Standing arms hang naturally now (pose.py `hang`; the old idle held the hands out in front with stiff
+    elbows), and tops are pushed level over bottoms (build.py `over(level=True)`; a tee's hem had spiked).
 
 - 2026-11-14 (the cartoon restyle; Michael: the characters "look default, dark and odd ... cartoonish, anime-like,
   better softer colour ... nice and soft like our cars are", keeping every customisation): nothing left the

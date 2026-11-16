@@ -107,9 +107,9 @@ test('driver pieces: locked until unlocked, stripped from what others see', () =
   assert.equal(ownedRider(g, halo), halo);
 });
 
-test('look codes: gear travels as an optional 17th field; old codes still read', () => {
+test('look codes: gear travels as an optional last field; codes without it still read', () => {
   const plain = encodeLook(DEFAULT_LOOK);
-  assert.equal(plain.split('.').length, 16, 'no gear, same code as before the pass');
+  assert.equal(plain.split('.').length, 18, 'no gear, no field for it');
   assert.deepEqual(decodeLook(plain), DEFAULT_LOOK);
   const geared = { ...DEFAULT_LOOK, gear: [...GEAR], metal: 'prism' as const };
   assert.deepEqual(decodeLook(encodeLook(geared)), geared);

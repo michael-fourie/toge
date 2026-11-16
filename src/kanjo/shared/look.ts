@@ -2,8 +2,9 @@
 // tools/drivers/wardrobe.py (docs/DRIVER_CREATOR.md); this catalogue mirrors its manifest so the server
 // can check a look without loading files (tests/look.test.ts keeps the two in step).
 //
-// On the wire a look is a short code, `L2.` + dot-separated fields (catalogue indices in base 36,
-// colours as 6 hex digits), carried in `driver=` where a legend's id would be.
+// On the wire a look is a short code, `L3.` + dot-separated fields (catalogue indices in base 36,
+// colours as 6 hex digits), carried in `driver=` where a legend's id would be. `L2.` codes, from when
+// clothes were whole outfits, still decode: each outfit becomes its top and bottom (`L2_OUTFITS`).
 
 /** Body bases: a MakeHuman frame ('m' or 'f') and build each, with their own skeleton and seated pose. */
 export const BASES = { m_slim: 'm', m_avg: 'm', m_heavy: 'm', f_slim: 'f', f_avg: 'f', f_heavy: 'f' } as const;
@@ -19,23 +20,48 @@ export const EYES = ['brown', 'brownlight', 'blue', 'bluegreen', 'deepblue', 'li
 export const HAIRS = ['none', 'short01', 'short02', 'short03', 'short04', 'bob01', 'bob02', 'ponytail01', 'braid01', 'long01', 'afro01'] as const;
 export const BROWS = ['eyebrow001', 'eyebrow002', 'eyebrow003', 'eyebrow004', 'eyebrow005', 'eyebrow006', 'eyebrow007', 'eyebrow008', 'eyebrow009', 'eyebrow010', 'eyebrow011', 'eyebrow012'] as const;
 /**
- * Outfits: their colour zones (the manifest's `zones`, in order) and the colours they come in: the drivers' soft
- * palette (pastel-leaning, mid-light, never near black; tools/drivers/cast.py).
+ * Clothes are separates: a top and a bottom, each with its own colour zones (the manifest's `zones`, in order)
+ * and the colours it comes in: the drivers' soft palette (dusty pastels, mid-light, never near black;
+ * tools/drivers/cast.py). A `full` top is a one-piece (overalls, the denim suit): it takes both places, so it is
+ * worn with no bottom (`NO_BOTTOM`). Wire order: append only.
  */
-export const OUTFITS = {
-  male_elegantsuit01: { zones: ['tie', 'suit', 'shirt'], colors: [0xf0c26a, 0x6fa08c, 0xfbf2de] },
-  male_worksuit01: { zones: ['overalls', 'tee'], colors: [0xd08a62, 0x7d8aa3] },
-  male_casualsuit05: { zones: ['stripes', 'jeans', 'jacket'], colors: [0xf27d7a, 0x8e97b5, 0x565f85] },
-  male_casualsuit02: { zones: ['trim', 'jeans', 'tee'], colors: [0xffc46b, 0x6f84a8, 0x8fb7c9] },
-  male_casualsuit03: { zones: ['stripes', 'jeans', 'shirt'], colors: [0xe6c79a, 0x7c86a3, 0x5f6488] },
-  male_casualsuit04: { zones: ['trim', 'jeans', 'tee'], colors: [0x7df0b0, 0x737c94, 0x585c78] },
-  male_casualsuit06: { zones: ['jeans', 'tee'], colors: [0x7f95c2, 0xfbf2de] },
-  male_casualsuit01: { zones: ['patches', 'clothes'], colors: [0xd9a274, 0x8a93a6] },
-  female_casualsuit01: { zones: ['trim', 'jeans', 'top'], colors: [0xff8fe3, 0x6f84a8, 0x6a6f9e] },
-  female_casualsuit02: { zones: ['trim', 'shorts', 'top'], colors: [0xffc46b, 0x8fb7c9, 0xfbf2de] },
-  female_elegantsuit01: { zones: ['stripes', 'shirt', 'skirt'], colors: [0xf0c26a, 0x5f6488, 0x6fa08c] },
-  female_sportsuit01: { zones: ['trim', 'stripe', 'leggings', 'top'], colors: [0xff8fe3, 0xff8fe3, 0x6a6f9e, 0x8d92c8] },
-} as const satisfies Record<string, { zones: readonly string[]; colors: readonly number[] }>;
+export const TOPS = {
+  suit_jacket: { zones: ['tie', 'jacket', 'shirt'], colors: [0xe4c383, 0x75988a, 0xeee8da] },
+  field_jacket: { zones: ['stripes', 'jacket'], colors: [0xe6918f, 0x5c637e] },
+  long_tee: { zones: ['trim', 'tee'], colors: [0xf2c887, 0x95b2bf] },
+  pinstripe_shirt: { zones: ['stripes', 'shirt'], colors: [0xdac4a4, 0x646781] },
+  trim_tee: { zones: ['trim', 'tee'], colors: [0x91e4b6, 0x5b5e72] },
+  plain_tee: { zones: ['tee'], colors: [0xeee8da] },
+  fitted_tee: { zones: ['trim', 'tee'], colors: [0xf2a1de, 0x717496] },
+  cap_tee: { zones: ['trim', 'tee'], colors: [0xf2c887, 0xeee8da] },
+  blouse: { zones: ['stripes', 'shirt'], colors: [0xe4c383, 0x646781] },
+  crop_top: { zones: ['trim', 'top'], colors: [0xf2a1de, 0x9397be] },
+  overalls: { zones: ['overalls', 'tee'], colors: [0xc69376, 0x7f899b], full: true },
+  denim_suit: { zones: ['patches', 'denim'], colors: [0xcea685, 0x89909e], full: true },
+} as const satisfies Record<string, Garment>;
+export const BOTTOMS = {
+  suit_trousers: { zones: ['trousers'], colors: [0x75988a] },
+  field_jeans: { zones: ['jeans'], colors: [0x9096ac] },
+  washed_jeans: { zones: ['jeans'], colors: [0x7686a0] },
+  dark_jeans: { zones: ['jeans'], colors: [0x7f869b] },
+  grey_jeans: { zones: ['jeans'], colors: [0x757b8d] },
+  blue_jeans: { zones: ['jeans'], colors: [0x8898b8] },
+  slim_jeans: { zones: ['jeans'], colors: [0x7686a0] },
+  shorts: { zones: ['shorts'], colors: [0x95b2bf] },
+  skirt: { zones: ['skirt'], colors: [0x75988a] },
+  leggings: { zones: ['stripe', 'leggings'], colors: [0xf2a1de, 0x717496] },
+} as const satisfies Record<string, Garment>;
+interface Garment {
+  zones: readonly string[];
+  colors: readonly number[];
+  /** A one-piece: worn as the top, with no bottom. */
+  full?: true;
+}
+/** What `bottom` is under a one-piece. */
+export const NO_BOTTOM = 'none';
+/** What goes on when a one-piece comes off and only the other half was picked. */
+const SPARE_TOP = 'plain_tee';
+const SPARE_BOTTOM = 'blue_jeans';
 export const SHOES = ['shoes01', 'shoes02', 'shoes03', 'shoes04', 'shoes05', 'shoes06'] as const;
 /** Kit pieces and the slot each takes: one piece per slot. */
 export const KIT = {
@@ -68,7 +94,7 @@ export const GEAR = ['horns', 'ears', 'visor', 'halo'] as const;
 export const LEATHERS = ['leather', 'leather_black', 'leather_tan'] as const;
 export const WHEELS = ['wood', 'yoke', 'iron', 'deep'] as const;
 /** At most this many kit pieces at once. */
-const KIT_MAX = 5;
+export const KIT_MAX = 5;
 
 export type BaseId = keyof typeof BASES;
 type Frame = (typeof BASES)[BaseId];
@@ -76,7 +102,8 @@ export type SkinId = (typeof SKINS)[Frame][number];
 type EyeId = (typeof EYES)[number];
 type HairId = (typeof HAIRS)[number];
 type BrowId = (typeof BROWS)[number];
-export type OutfitId = keyof typeof OUTFITS;
+export type TopId = keyof typeof TOPS;
+export type BottomId = keyof typeof BOTTOMS;
 type ShoeId = (typeof SHOES)[number];
 export type KitId = keyof typeof KIT;
 export type MetalId = (typeof METALS)[number];
@@ -84,8 +111,8 @@ export type LeatherId = (typeof LEATHERS)[number];
 type WheelId = (typeof WHEELS)[number];
 export type GearId = (typeof GEAR)[number];
 
-/** A look on the wire. */
-export type LookCode = `L2.${string}`;
+/** A look on the wire (`L2.`: one saved before clothes were separates). */
+export type LookCode = `L3.${string}` | `L2.${string}`;
 
 export interface Look {
   base: BaseId;
@@ -96,9 +123,13 @@ export interface Look {
   hair: HairId;
   /** Hair and brows. */
   hairColor: number;
-  outfit: OutfitId;
-  /** One colour per zone of the outfit. */
-  colors: number[];
+  top: TopId;
+  /** One colour per zone of the top. */
+  topColors: number[];
+  /** `NO_BOTTOM` exactly when the top is a one-piece. */
+  bottom: BottomId | typeof NO_BOTTOM;
+  /** One colour per zone of the bottom (none under a one-piece). */
+  bottomColors: number[];
   shoes: ShoeId;
   shoeColor: number;
   kit: KitId[];
@@ -113,10 +144,35 @@ export interface Look {
 
 const BASE_IDS = Object.keys(BASES) as BaseId[];
 const ALL_SKINS: readonly SkinId[] = [...SKINS.m, ...SKINS.f];
-const OUTFIT_IDS = Object.keys(OUTFITS) as OutfitId[];
+export const TOP_IDS = Object.keys(TOPS) as TopId[];
+export const BOTTOM_IDS = Object.keys(BOTTOMS) as BottomId[];
+/** Bottoms on the wire: no bottom first, so a one-piece's is index 0. */
+const BOTTOM_WIRE: readonly (BottomId | typeof NO_BOTTOM)[] = [NO_BOTTOM, ...BOTTOM_IDS];
 const KIT_IDS = Object.keys(KIT) as KitId[];
 
-const outfitColors = (o: OutfitId) => [...OUTFITS[o].colors] as number[];
+/** Is this top a one-piece (worn with no bottom)? */
+export const isFull = (t: TopId): boolean => (TOPS[t] as Garment).full === true;
+const topColors = (t: TopId) => [...TOPS[t].colors] as number[];
+const bottomColors = (b: BottomId | typeof NO_BOTTOM) => (b === NO_BOTTOM ? [] : ([...BOTTOMS[b].colors] as number[]));
+
+/**
+ * The outfits of `L2.` codes, in their wire order, as separates: the top and bottom each became, how many zone
+ * colours the outfit had, and which of them each garment takes (in the garment's zone order).
+ */
+const L2_OUTFITS: readonly { top: TopId; bottom: BottomId | typeof NO_BOTTOM; zones: number; topZones: number[]; bottomZones: number[] }[] = [
+  { top: 'suit_jacket', bottom: 'suit_trousers', zones: 3, topZones: [0, 1, 2], bottomZones: [1] }, // tie, suit, shirt
+  { top: 'overalls', bottom: NO_BOTTOM, zones: 2, topZones: [0, 1], bottomZones: [] }, // overalls, tee
+  { top: 'field_jacket', bottom: 'field_jeans', zones: 3, topZones: [0, 2], bottomZones: [1] }, // stripes, jeans, jacket
+  { top: 'long_tee', bottom: 'washed_jeans', zones: 3, topZones: [0, 2], bottomZones: [1] }, // trim, jeans, tee
+  { top: 'pinstripe_shirt', bottom: 'dark_jeans', zones: 3, topZones: [0, 2], bottomZones: [1] }, // stripes, jeans, shirt
+  { top: 'trim_tee', bottom: 'grey_jeans', zones: 3, topZones: [0, 2], bottomZones: [1] }, // trim, jeans, tee
+  { top: 'plain_tee', bottom: 'blue_jeans', zones: 2, topZones: [1], bottomZones: [0] }, // jeans, tee
+  { top: 'denim_suit', bottom: NO_BOTTOM, zones: 2, topZones: [0, 1], bottomZones: [] }, // patches, clothes
+  { top: 'fitted_tee', bottom: 'slim_jeans', zones: 3, topZones: [0, 2], bottomZones: [1] }, // trim, jeans, top
+  { top: 'cap_tee', bottom: 'shorts', zones: 3, topZones: [0, 2], bottomZones: [1] }, // trim, shorts, top
+  { top: 'blouse', bottom: 'skirt', zones: 3, topZones: [0, 1], bottomZones: [2] }, // stripes, shirt, skirt
+  { top: 'crop_top', bottom: 'leggings', zones: 4, topZones: [0, 3], bottomZones: [1, 2] }, // trim, stripe, leggings, top
+];
 
 export const DEFAULT_LOOK: Look = {
   base: 'm_avg',
@@ -124,11 +180,13 @@ export const DEFAULT_LOOK: Look = {
   eyes: 'grey',
   brows: 'eyebrow007',
   hair: 'short02',
-  hairColor: 0x7a5a4a,
-  outfit: 'male_elegantsuit01',
-  colors: outfitColors('male_elegantsuit01'),
+  hairColor: 0x745d51,
+  top: 'suit_jacket',
+  topColors: topColors('suit_jacket'),
+  bottom: 'suit_trousers',
+  bottomColors: bottomColors('suit_trousers'),
   shoes: 'shoes03',
-  shoeColor: 0x8a6350,
+  shoeColor: 0x836759,
   kit: ['goggles_up', 'collar'],
   metal: 'brass',
   leather: 'leather',
@@ -144,8 +202,10 @@ export function lookProblem(l: Look): string | null {
   if (!EYES.includes(l.eyes)) return 'eyes';
   if (!BROWS.includes(l.brows)) return 'brows';
   if (!HAIRS.includes(l.hair)) return 'hair';
-  if (!(l.outfit in OUTFITS)) return 'outfit';
-  if (l.colors.length !== OUTFITS[l.outfit].zones.length) return 'colors';
+  if (!(l.top in TOPS)) return 'top';
+  if (l.topColors.length !== TOPS[l.top].zones.length) return 'top colours';
+  if (isFull(l.top) ? l.bottom !== NO_BOTTOM : !(l.bottom in BOTTOMS)) return 'bottom';
+  if (l.bottomColors.length !== (l.bottom === NO_BOTTOM ? 0 : BOTTOMS[l.bottom].zones.length)) return 'bottom colours';
   if (!SHOES.includes(l.shoes)) return 'shoes';
   if (l.kit.length > KIT_MAX) return 'too much kit';
   const slots = new Set<string>();
@@ -158,7 +218,7 @@ export function lookProblem(l: Look): string | null {
   if (!LEATHERS.includes(l.leather)) return 'leather';
   if (!WHEELS.includes(l.wheel)) return 'wheel';
   if (l.gear.length > GEAR.length || new Set(l.gear).size !== l.gear.length || l.gear.some((x) => !GEAR.includes(x))) return 'gear';
-  for (const c of [l.hairColor, l.shoeColor, l.glow, ...l.colors]) if (!Number.isInteger(c) || c < 0 || c > 0xffffff) return 'colour';
+  for (const c of [l.hairColor, l.shoeColor, l.glow, ...l.topColors, ...l.bottomColors]) if (!Number.isInteger(c) || c < 0 || c > 0xffffff) return 'colour';
   return null;
 }
 
@@ -169,9 +229,21 @@ export function withBase(l: Look, base: BaseId): Look {
   return { ...l, base, skin: to[Math.max(0, from.indexOf(l.skin))] };
 }
 
-/** Puts on another outfit in its own colours (zones differ in meaning: a tie's gold makes poor jeans). */
-export function withOutfit(l: Look, outfit: OutfitId): Look {
-  return outfit === l.outfit ? l : { ...l, outfit, colors: outfitColors(outfit) };
+/**
+ * Puts on another top in its own colours (zones differ in meaning: a tie's gold makes a poor tee); the bottom stays.
+ * A one-piece takes the bottom's place too, and taking one off for a top puts the spare bottom on.
+ */
+export function withTop(l: Look, top: TopId): Look {
+  if (top === l.top) return l;
+  const bottom = isFull(top) ? NO_BOTTOM : l.bottom === NO_BOTTOM ? SPARE_BOTTOM : l.bottom;
+  return { ...l, top, topColors: topColors(top), bottom, bottomColors: bottom === l.bottom ? l.bottomColors : bottomColors(bottom) };
+}
+
+/** Puts on another bottom in its own colours; the top stays, unless it was a one-piece (then the spare top goes on). */
+export function withBottom(l: Look, bottom: BottomId): Look {
+  if (bottom === l.bottom) return l;
+  const top = isFull(l.top) ? SPARE_TOP : l.top;
+  return { ...l, top, topColors: top === l.top ? l.topColors : topColors(top), bottom, bottomColors: bottomColors(bottom) };
 }
 
 /** Adds a kit piece, taking off whatever held its slot (and the oldest piece if over the limit). */
@@ -186,15 +258,17 @@ const idx = <T>(list: readonly T[], v: T) => list.indexOf(v).toString(36);
 
 export function encodeLook(l: Look): LookCode {
   return [
-    'L2',
+    'L3',
     idx(BASE_IDS, l.base),
     idx(ALL_SKINS, l.skin),
     idx(EYES, l.eyes),
     idx(BROWS, l.brows),
     idx(HAIRS, l.hair),
     hex(l.hairColor),
-    idx(OUTFIT_IDS, l.outfit),
-    l.colors.map(hex).join('-'),
+    idx(TOP_IDS, l.top),
+    l.topColors.map(hex).join('-'),
+    idx(BOTTOM_WIRE, l.bottom),
+    l.bottomColors.map(hex).join('-'),
     idx(SHOES, l.shoes),
     hex(l.shoeColor),
     l.kit.map((k) => idx(KIT_IDS, k)).join('-'),
@@ -202,21 +276,39 @@ export function encodeLook(l: Look): LookCode {
     idx(LEATHERS, l.leather),
     hex(l.glow),
     idx(WHEELS, l.wheel),
-    // A 17th field only when there's gear, so every look from before the pass keeps its code.
+    // A last field only when there's gear (as in `L2.` codes), so a look without any has one spelling.
     ...(l.gear.length ? [l.gear.map((x) => idx(GEAR, x)).join('-')] : []),
   ].join('.') as LookCode;
 }
 
-/** A look from its code, or null if the code is junk (or an old version) or the look can't be worn. */
+/** A look from its code (`L3.`, or an `L2.` from before separates), or null if the code is junk or the look can't be worn. */
 export function decodeLook(code: unknown): Look | null {
-  if (typeof code !== 'string' || !code.startsWith('L2.') || code.length > 200) return null;
+  if (typeof code !== 'string' || code.length > 200) return null;
+  const old = code.startsWith('L2.');
+  if (!old && !code.startsWith('L3.')) return null;
   const f = code.split('.');
-  // 16 fields, or 17 with battle pass gear (never an empty 17th: a code has one spelling).
-  if (f.length !== 16 && !(f.length === 17 && f[16])) return null;
+  // `L2.`: 16 fields, `L3.`: 18 (the outfit and its colours became top, bottom and theirs); one more with battle pass
+  // gear (never an empty one: a code has one spelling).
+  const n = old ? 16 : 18;
+  if (f.length !== n && !(f.length === n + 1 && f[n])) return null;
   const pick = <T>(list: readonly T[], s: string): T | undefined => (/^[0-9a-z]{1,2}$/.test(s) ? list[parseInt(s, 36)] : undefined);
   const col = (s: string) => (/^[0-9a-f]{6}$/.test(s) ? parseInt(s, 16) : NaN);
-  const kit = f[11] === '' ? [] : f[11].split('-').map((s) => pick(KIT_IDS, s));
-  const gear = f[16] ? f[16].split('-').map((s) => pick(GEAR, s)) : [];
+  const cols = (s: string) => (s === '' ? [] : s.split('-').map(col));
+  let clothes: Pick<Look, 'top' | 'topColors' | 'bottom' | 'bottomColors'> | undefined;
+  if (old) {
+    const o = pick(L2_OUTFITS, f[7]);
+    const c = cols(f[8]);
+    if (o && c.length === o.zones) clothes = { top: o.top, topColors: o.topZones.map((i) => c[i]), bottom: o.bottom, bottomColors: o.bottomZones.map((i) => c[i]) };
+  } else {
+    const top = pick(TOP_IDS, f[7]);
+    const bottom = pick(BOTTOM_WIRE, f[9]);
+    if (top && bottom) clothes = { top, topColors: cols(f[8]), bottom, bottomColors: cols(f[10]) };
+  }
+  if (!clothes) return null;
+  // The fields after the clothes are the same in both versions, two places further on in `L3.`.
+  const g = f.slice(old ? 9 : 11);
+  const kit = g[2] === '' ? [] : g[2].split('-').map((s) => pick(KIT_IDS, s));
+  const gear = g[7] ? g[7].split('-').map((s) => pick(GEAR, s)) : [];
   const l = {
     base: pick(BASE_IDS, f[1]),
     skin: pick(ALL_SKINS, f[2]),
@@ -224,43 +316,50 @@ export function decodeLook(code: unknown): Look | null {
     brows: pick(BROWS, f[4]),
     hair: pick(HAIRS, f[5]),
     hairColor: col(f[6]),
-    outfit: pick(OUTFIT_IDS, f[7]),
-    colors: f[8].split('-').map(col),
-    shoes: pick(SHOES, f[9]),
-    shoeColor: col(f[10]),
+    ...clothes,
+    shoes: pick(SHOES, g[0]),
+    shoeColor: col(g[1]),
     kit,
-    metal: pick(METALS, f[12]),
-    leather: pick(LEATHERS, f[13]),
-    glow: col(f[14]),
-    wheel: pick(WHEELS, f[15]),
+    metal: pick(METALS, g[3]),
+    leather: pick(LEATHERS, g[4]),
+    glow: col(g[5]),
+    wheel: pick(WHEELS, g[6]),
     gear,
   };
   if (Object.values(l).some((v) => v === undefined) || kit.some((k) => k === undefined) || gear.some((x) => x === undefined)) return null;
   return lookProblem(l as Look) ? null : (l as Look);
 }
 
+/** Soft hair colours (the creator's swatches; `randomLook` picks from them). */
+export const HAIR_COLORS = [0x463e42, 0x745d51, 0xa08067, 0xdac4a4, 0xcbcbd1, 0xe8e6ed, 0xb86c7c, 0x8facd5];
+/** Shoe leathers and canvas. */
+export const SHOE_COLORS = [0x836759, 0x5b5866, 0x746059, 0xc7a789, 0xeee8da, 0x95b2bf];
+/** Glow colours: the one bright note on a driver. */
+export const GLOW_COLORS = [0xffae3c, 0xff2fd2, 0x3dff8e, 0xff3b30, 0x38c8ff, 0xb46bff, 0xfff04a];
+
 /** A random but tasteful look (rivals, "Surprise me"). `rand` returns [0, 1). */
 export function randomLook(rand: () => number = Math.random): Look {
   const any = <T>(list: readonly T[]) => list[Math.floor(rand() * list.length)];
   const base = any(BASE_IDS);
-  const outfit = any(OUTFIT_IDS);
-  const hairColors = [0x4a3f44, 0x7a5a4a, 0xa87c5a, 0xd4d3dc, 0xf3effa, 0xc2586e, 0xe6c79a];
-  const glows = [0xffae3c, 0xff2fd2, 0x3dff8e, 0xff3b30, 0x38c8ff, 0xb46bff, 0xfff04a];
+  const top = any(TOP_IDS);
+  const bottom = isFull(top) ? NO_BOTTOM : any(BOTTOM_IDS);
   let l: Look = {
     base,
     skin: any(SKINS[BASES[base]] as readonly SkinId[]),
     eyes: any(EYES),
     brows: any(BROWS),
     hair: any(HAIRS),
-    hairColor: any(hairColors),
-    outfit,
-    colors: outfitColors(outfit),
+    hairColor: any(HAIR_COLORS),
+    top,
+    topColors: topColors(top),
+    bottom,
+    bottomColors: bottomColors(bottom),
     shoes: any(SHOES),
-    shoeColor: any([0x7a5f55, 0x5c586b, 0x8a6350, 0xfbf2de]),
+    shoeColor: any(SHOE_COLORS),
     kit: [],
     metal: any(FREE_METALS),
     leather: any(LEATHERS),
-    glow: any(glows),
+    glow: any(GLOW_COLORS),
     wheel: any(WHEELS),
     gear: [],
   };

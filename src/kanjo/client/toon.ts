@@ -21,7 +21,7 @@ export const TOON = {
   /** Scales the lit band: wrapped light is brighter all round than Lambert's, so it's brought back down. */
   gain: 0.66,
   /** Light every surface gives off in its own colour, so the deepest shade is still a colour, not black. */
-  floor: 0.05,
+  floor: 0.04,
 };
 
 // Only the diffuse light is banded. Highlights keep the true angle: a GGX highlight fed light on a face turned away

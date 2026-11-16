@@ -56,10 +56,10 @@ STYLE = {
     # Skin: blurred over this share of the texture's width (pores, stubble and veins go), then pulled
     # toward its own mean tone (its light and dark by `skin_flat`, its colour, lips and all, by
     # `skin_even`), lifted toward white and given back a little colour.
-    'skin_blur': 0.008, 'skin_flat': 0.75, 'skin_even': 0.35, 'skin_lift': 0.14, 'skin_sat': 1.0,
+    'skin_blur': 0.008, 'skin_flat': 0.75, 'skin_even': 0.35, 'skin_lift': 0.11, 'skin_sat': 0.88,
     # A soft blush on each cheek: (u, v) on MakeHuman's skin UVs (the face lies on its side there: u runs
     # down it), its size in u and v, how strong, and the pink it leans to.
-    'blush': {'at': ((0.886, 0.538), (0.886, 0.428)), 'size': (0.02, 0.03), 'mix': 0.3, 'color': (1.0, 0.56, 0.58)},
+    'blush': {'at': ((0.886, 0.538), (0.886, 0.428)), 'size': (0.02, 0.03), 'mix': 0.22, 'color': (0.93, 0.6, 0.6)},
     # Cloth and hair: the texture's own shading is blurred, softened (contrast times this) and kept inside
     # `shade`, so folds read as gentle bands and nothing is crushed to black or blown out.
     'shade_blur': 0.003, 'contrast': 0.55, 'shade': (0.62, 1.3),
@@ -74,6 +74,29 @@ STYLE = {
     'brow_mix': 0.5,
     # Eyes (anime_eye): iris radius as a share of the eye texture (MakeHuman's own is 0.115).
     'iris': 0.168,
+    # The iris is MakeHuman's colour, its saturation times `iris_sat` (at most `iris_sat_max`) and its
+    # value lifted to `iris_val[0] + iris_val[1] * sqrt(v)`: clear, but dusty rather than jewel-bright.
+    'iris_sat': 1.2, 'iris_sat_max': 0.58, 'iris_val': (0.4, 0.4),
+}
+
+#: How clothes are fitted so nothing pokes through or sinks in (metres). Cloth is lifted off the skin
+#: (`lift`), an outer garment is pushed clear of the one under it (`over`: tops over bottoms, trouser legs
+#: over shoes), hair is combed out of collars and backs (`comb`), and skin counts as hidden when cloth lies
+#: over it along its normal or close above it in any direction (`under_cloth`).
+FIT = {
+    # Cloth sits at least `skin_gap` off the skin; only cloth within `skin_reach` of it is looked at.
+    'skin_gap': 0.003, 'skin_reach': 0.025,
+    # An outer layer clears the inner one by `layer_gap`, looking `layer_reach` out along its normal.
+    'layer_gap': 0.004, 'layer_reach': 0.045,
+    # Hair below the chin is moved out of the clothes, away from the spine, by up to `hair_reach`.
+    'hair_gap': 0.006, 'hair_reach': 0.1,
+    # Neighbours of a moved vertex follow by this share, this many rings out, so no step shows.
+    'ease': 0.5, 'ease_rings': 3,
+    # Skin is hidden by cloth `cover_reach` out along its normal, or by cloth within `near_reach` whose
+    # inner face looks at it (inside `near_cone`, the cosine): armpits, the crotch, behind a collar; or by
+    # cloth all round it: of `ring` level rays, at least `ring_hits` meet the garment within `ring_reach`
+    # (thighs inside a skirt or wide trouser legs, where the cloth hangs well off the skin).
+    'cover_reach': 0.035, 'near_reach': 0.04, 'near_cone': 0.6, 'ring': 8, 'ring_hits': 7, 'ring_reach': 0.6,
 }
 
 
@@ -196,15 +219,16 @@ def srgb(hexc):
     return np.array([int(hexc[i:i + 2], 16) / 255 for i in (0, 2, 4)], np.float32)
 
 
-def zone_masks(a, rules):
+def zone_masks(a, rules, within=None):
     """Soft masks of the pixels each rule picks (first rule wins, picked on the texture as MakeHuman made
     it), and each zone's mean luminance on the softened texture (the shade reference; also returned). The
-    wardrobe bakes these for the client's recolour shader; recolor() uses them."""
+    wardrobe bakes these for the client's recolour shader; recolor() uses them. `within`: only these
+    pixels count (a garment's own share of an outfit's texture: wardrobe.uv_cover)."""
     rgb = a[..., :3]
     h, s, v = hsv(rgb)
     lum = soften(a)[..., :3] @ np.array([0.299, 0.587, 0.114], np.float32)
     alpha = a[..., 3]
-    claimed = np.zeros(lum.shape, np.float32)
+    claimed = np.zeros(lum.shape, np.float32) if within is None else 1 - within.astype(np.float32)
     H, W = lum.shape
     vv, uu = np.mgrid[0:H, 0:W]
     uu = uu / W
@@ -330,8 +354,8 @@ def anime_eye(a):
     d = np.hypot(uu - cu, vv - cv)
     c = a[..., :3][(d > 0.055) & (d < 0.095)].mean(0)
     h, s, v = (float(x) for x in hsv(c))
-    # Brighter and a touch richer than life, but still that colour (greys stay grey).
-    s, v = min(s * 1.5, 0.75), 0.42 + 0.45 * v ** 0.5
+    # Clearer than life, but still that colour (greys stay grey), and soft like the rest of the palette.
+    s, v = min(s * STYLE['iris_sat'], STYLE['iris_sat_max']), STYLE['iris_val'][0] + STYLE['iris_val'][1] * v ** 0.5
     i, f = int(h * 6) % 6, h * 6 - int(h * 6)
     p, q, t = v * (1 - s), v * (1 - s * f), v * (1 - s * (1 - f))
     c = np.array([(v, t, p), (q, v, p), (p, v, t), (p, q, v), (t, p, v), (v, p, q)][i], np.float32)
@@ -489,23 +513,164 @@ def sleeveless(body, parts, side):
             g.remove(arm_verts)
 
 
-def cull_hidden(body, cover, reach=0.035):
-    """Deletes skin that clothes hide: a vertex is hidden when a ray out along its normal meets cloth
-    within `reach`. Saves triangles, and hidden skin can't poke through when the body bends."""
-    import bmesh
+def tree_of(objs):
+    """A BVH over `objs` in world space."""
     from mathutils.bvhtree import BVHTree
     verts, polys = [], []
-    for o in cover:
+    for o in objs:
         base = len(verts)
         verts += [o.matrix_world @ v.co for v in o.data.vertices]
         polys += [[base + i for i in p.vertices] for p in o.data.polygons]
-    tree = BVHTree.FromPolygons(verts, polys)
+    return BVHTree.FromPolygons(verts, polys)
+
+
+def _move(o, moves):
+    """Applies world-space `moves` ({vertex: Vector}) to `o`, easing them out over the neighbouring rings
+    (FIT['ease']) so a pushed patch blends into the cloth round it. Returns how many vertices moved."""
+    if not moves:
+        return 0
+    me = o.data
+    near = [[] for _ in me.vertices]
+    for e in me.edges:
+        a, b = e.vertices
+        near[a].append(b)
+        near[b].append(a)
+    moves = dict(moves)
+    for _ in range(FIT['ease_rings']):
+        ring = {}
+        for i in list(moves):
+            for j in near[i]:
+                if j not in moves and j not in ring:
+                    got = [moves[k] for k in near[j] if k in moves]
+                    ring[j] = sum(got, Vector()) / len(got) * FIT['ease']
+        moves.update(ring)
+    inv = o.matrix_world.inverted()
+    for i, d in moves.items():
+        me.vertices[i].co = inv @ (o.matrix_world @ me.vertices[i].co + d)
+    me.update()
+    return len(moves)
+
+
+def lift(o, body_tree):
+    """Cloth `o` off the skin: every vertex in the skin, on it or closer than FIT['skin_gap'] is moved out
+    along the skin's normal. MakeHuman fits clothes with next to no gap, and the cartoon proportions and
+    the decimated body leave tight cloth (sleeves, leggings, the seat of trousers) dipping under it."""
+    mw = o.matrix_world
+    moves = {}
+    for v in o.data.vertices:
+        p = mw @ v.co
+        loc, nrm, _, _ = body_tree.find_nearest(p, FIT['skin_reach'])
+        if loc is None:
+            continue
+        s = (p - loc).dot(nrm)
+        if s < FIT['skin_gap']:
+            moves[v.index] = nrm * (FIT['skin_gap'] - s)
+    return _move(o, moves)
+
+
+def _way_out(tree, p, d, reach, gap):
+    """How far `p` must go along `d` to stand `gap` outside every surface of `tree` it is inside of (it is
+    inside when the first thing a ray meets is a face seen from behind), or 0."""
+    out, at = 0.0, p
+    for _ in range(6):
+        loc, nrm, _, dist = tree.ray_cast(at + d * 1e-4, d, reach - out)
+        if loc is None or nrm.dot(d) <= 0:
+            break
+        out += dist + gap
+        at = p + d * out
+    return out
+
+
+def over(o, inner, groups=None, level=False):
+    """Garment `o` over the garments in `inner`: wherever a vertex of `o` lies under one of them it is
+    pushed out along its normal to clear it (tops hang over waistbands, trouser legs over boots).
+    `groups`: only vertices weighted to bones whose names start with these are looked at.
+    `level`: push straight out, level, from the bone the vertex hangs on, not along its normal: a hem's
+    normals point every which way, and pushing along them pulled a tee's hem into spikes over the jeans."""
+    tree = tree_of(inner)
+    mw = o.matrix_world
+    rot = mw.to_3x3()
+    idx = None if groups is None else {g.index for g in o.vertex_groups if g.name.startswith(groups)}
+    arm = o.find_armature() if level else None
+    lines = {}
+    if arm is not None:
+        for g in o.vertex_groups:
+            b = arm.data.bones.get(g.name)
+            if b is not None:
+                lines[g.index] = (arm.matrix_world @ b.head_local, arm.matrix_world @ b.tail_local)
+    moves = {}
+    for v in o.data.vertices:
+        if idx is not None and sum(g.weight for g in v.groups if g.group in idx) < 0.3:
+            continue
+        n = (rot @ v.normal).normalized()
+        own = [g for g in v.groups if g.group in lines]
+        if own:
+            a, b = lines[max(own, key=lambda g: g.weight).group]
+            p = mw @ v.co
+            t = max(0.0, min(1.0, (p - a).dot(b - a) / max((b - a).length_squared, 1e-9)))
+            r = p - (a + (b - a) * t)
+            r.z = 0
+            if r.length > 1e-4:
+                n = r.normalized()
+        d = _way_out(tree, mw @ v.co, n, FIT['layer_reach'], FIT['layer_gap'])
+        if d > 0:
+            moves[v.index] = n * d
+    return _move(o, moves)
+
+
+def comb(hair, arm, cover):
+    """Hair out of the clothes: the bigger cartoon head hangs ponytails, braids and long hair lower and
+    closer to the back, where they sank into collars, jackets and shoulders. Every hair vertex below the
+    chin that is inside `cover` (the body and whatever can be worn with this hair) moves straight away from
+    the spine until it lies on top."""
+    tree = tree_of(cover)
+    mw = hair.matrix_world
+    chin = (arm.matrix_world @ arm.data.bones['head'].head_local).z + 0.02
+    spine = arm.matrix_world @ arm.data.bones['spine_03'].head_local
+    moves = {}
+    for v in hair.data.vertices:
+        p = mw @ v.co
+        if p.z > chin:
+            continue
+        d = Vector((p.x - spine.x, p.y - spine.y, 0))
+        if d.length < 1e-4:
+            continue
+        d.normalize()
+        out = _way_out(tree, p, d, FIT['hair_reach'], FIT['hair_gap'])
+        if out > 0:
+            moves[v.index] = d * out
+    return _move(hair, moves)
+
+
+def under_cloth(body, tree):
+    """Per body vertex: does the cloth in `tree` hide it? A ray out along the skin's normal meets cloth
+    within FIT['cover_reach'], or cloth lies within FIT['near_reach'] with its inner face toward the vertex,
+    or the cloth is all round it (FIT['ring']). The last two catch skin the first misses because its normal
+    points along the cloth, not at it, or the cloth hangs too far off (armpits, the inside of the upper
+    arm, between the legs, thighs under a skirt): that skin swung out through sleeves, jacket backs and
+    skirts as soon as the body left its rest pose."""
     mw = body.matrix_world
-    hidden = []
+    rot = mw.to_3x3()
+    ring = [Vector((math.cos(a), math.sin(a), 0)) for a in (2 * math.pi * k / FIT['ring'] for k in range(FIT['ring']))]
+    out = []
     for v in body.data.vertices:
         p = mw @ v.co
-        n = (mw.to_3x3() @ v.normal).normalized()
-        hidden.append(tree.ray_cast(p + n * 0.001, n, reach)[0] is not None)
+        n = (rot @ v.normal).normalized()
+        hit = tree.ray_cast(p + n * 0.001, n, FIT['cover_reach'])[0] is not None
+        if not hit:
+            loc, nrm, _, dist = tree.find_nearest(p, FIT['near_reach'])
+            hit = loc is not None and dist > 1e-6 and (p - loc).dot(nrm) / dist < -FIT['near_cone']
+        if not hit:
+            hit = sum(tree.ray_cast(p, d, FIT['ring_reach'])[0] is not None for d in ring) >= FIT['ring_hits']
+        out.append(hit)
+    return out
+
+
+def cull_hidden(body, cover):
+    """Deletes skin that clothes hide (under_cloth). Saves triangles, and hidden skin can't poke through
+    when the body bends."""
+    import bmesh
+    hidden = under_cloth(body, tree_of(cover))
     bm = bmesh.new()
     bm.from_mesh(body.data)
     dead = [f for f in bm.faces if all(hidden[v.index] for v in f.verts)]
@@ -578,6 +743,21 @@ def build(did, spec, preview=None):
     apply_masks(body)
     hair = parts.get(spec['hair'])
     clothes = [o for k, o in parts.items() if k in spec['clothes']]
+    # The fit (FIT): cloth off the skin, trouser legs over the shoes, hair out of the collar and off the back.
+    skin = tree_of([body])
+    for o in clothes:
+        lift(o, skin)
+    shoes = [o for k, o in parts.items() if k in spec['clothes'] and k.startswith('shoes')]
+    for o in clothes:
+        if o in shoes:
+            continue
+        if spec.get('tuck'):
+            for sh in shoes:
+                over(sh, [o], ('calf', 'foot'))
+        elif shoes:
+            over(o, shoes, ('calf', 'foot'))
+    if hair is not None:
+        comb(hair, arm, [body, *clothes])
     cull_hidden(body, clothes)
     b = kit.Body(arm, body, clothes, hair, parts['low-poly'])
     P = kit.palette(spec['theme'])

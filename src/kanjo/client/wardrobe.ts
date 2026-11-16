@@ -1,12 +1,12 @@
 // Custom drivers: assembles a driver from the wardrobe (public/models/drivers/wardrobe, built by
 // tools/drivers/wardrobe.py; docs/DRIVER_CREATOR.md). A base model holds the rig, both clips, the body,
-// eyes, lashes and the seat; each chosen part (outfit, shoes, hair, brows, kit, wheel) is its own model
+// eyes, lashes and the seat; each chosen part (top, bottom, shoes, hair, brows, kit, wheel) is its own model
 // skinned to the same bone names, rebound here to the base's skeleton. Models are Draco-compressed
 // .gltf with textures shared between bases (`tex/`).
 //
 // The look is applied without rebuilding anything:
-// - skin under the clothes is dropped by the body's `_hide` bits (one per outfit/shoes that covers it);
-// - outfits, shoes, hair and brows are recoloured on the GPU from baked zone masks, the same maths as
+// - skin under the clothes is dropped by the body's `_hide` bits (one per garment/shoes that covers it);
+// - tops, bottoms, shoes, hair and brows are recoloured on the GPU from baked zone masks, the same maths as
 //   tools/drivers/build.py's `recolor()` (shade = (lum / zone ref) ^ contrast kept inside `SHADE`, in sRGB);
 // - kit materials are roles (metal, trim, strap, glow, glow_soft, lens) swapped for the look's;
 // - what the legends bake into the body is done here from the bone weights: a kit piece's `paint`
@@ -17,7 +17,7 @@ import { addGear } from './passgear.ts';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { type GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import type { Look, MetalId, LeatherId } from '../shared/look.ts';
+import { type Look, type MetalId, type LeatherId, NO_BOTTOM } from '../shared/look.ts';
 import { toonAll } from './toon.ts';
 
 const ROOT = '/models/drivers/wardrobe/';
@@ -33,8 +33,10 @@ interface PartInfo {
   file: string;
   tris: number;
   bytes: number;
-  /** Outfits and shoes: their bit in the body's `_hide`. */
+  /** Tops, bottoms and shoes: which of the body's hide bits is theirs (`HIDE_BITS` to an attribute). */
   hide?: number;
+  /** A top that is a one-piece (worn with no bottom). */
+  full?: boolean;
   zones?: Zone[];
   /** The zone mask, relative to the wardrobe root (shared by every base). */
   mask?: string | null;
@@ -110,12 +112,12 @@ function texture(url: string, color: boolean): Promise<THREE.Texture> {
 const SATIN = 0.55;
 // The free metals and the leathers are kit.py's `palette()`: pale and satin, the dark ones dusky rather than black.
 const METAL: Record<MetalId, { color: number; rough: number; metal: number; coat?: number; trim: number; glow?: number; iri?: boolean }> = {
-  brass: { color: 0xecc878, rough: 0.42, metal: SATIN, trim: 0xb9945e },
-  copper: { color: 0xe6a283, rough: 0.44, metal: SATIN, trim: 0xb47a62 },
-  gunmetal: { color: 0x737a8c, rough: 0.46, metal: SATIN, trim: 0x565c6c },
-  chrome: { color: 0xf2f5f9, rough: 0.2, metal: 0.85, trim: 0xc5cbd6 },
-  steel: { color: 0xc5cbd6, rough: 0.4, metal: SATIN, trim: 0x959cab },
-  carbon: { color: 0x555869, rough: 0.4, metal: 0.2, coat: 0.6, trim: 0x737a8c },
+  brass: { color: 0xe0c68c, rough: 0.42, metal: SATIN, trim: 0xb0956e },
+  copper: { color: 0xdaa993, rough: 0.44, metal: SATIN, trim: 0xab8170 },
+  gunmetal: { color: 0x737885, rough: 0.46, metal: SATIN, trim: 0x575b67 },
+  chrome: { color: 0xe7eaed, rough: 0.2, metal: 0.85, trim: 0xbfc3cb },
+  steel: { color: 0xbfc3cb, rough: 0.4, metal: SATIN, trim: 0x9398a2 },
+  carbon: { color: 0x555764, rough: 0.4, metal: 0.2, coat: 0.6, trim: 0x737885 },
   // Battle pass metals (pass.ts): the showpieces, so they keep their shine. Ember glows from within (`glow`,
   // brighter than white so it blooms); prism is an iridescent film over dark chrome.
   gold: { color: 0xffd76a, rough: 0.2, metal: 0.9, coat: 0.6, trim: 0xd9a94e },
@@ -124,9 +126,9 @@ const METAL: Record<MetalId, { color: number; rough: number; metal: number; coat
   prism: { color: 0x7d86a0, rough: 0.12, metal: 1, coat: 1, trim: 0x565c6c, iri: true },
 };
 const LEATHER: Record<LeatherId, { color: number; rough: number }> = {
-  leather: { color: 0x96705c, rough: 0.7 },
-  leather_black: { color: 0x56525f, rough: 0.65 },
-  leather_tan: { color: 0xd2a57c, rough: 0.72 },
+  leather: { color: 0x8e7365, rough: 0.7 },
+  leather_black: { color: 0x54515a, rough: 0.65 },
+  leather_tan: { color: 0xc7a789, rough: 0.72 },
 };
 /** The darkest and lightest a zone's colour is shaded by the cloth's own folds (build.py `STYLE['shade']`). */
 const SHADE = [0.62, 1.3];
@@ -256,7 +258,7 @@ function weightOn(mesh: THREE.SkinnedMesh, match: (bone: string) => boolean): Fl
 /** A geometry sharing `src`'s attributes with its own index, one material group per list. */
 function reindexed(src: THREE.BufferGeometry, groups: number[][]): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
-  for (const [name, attr] of Object.entries(src.attributes)) if (name !== '_hide') g.setAttribute(name, attr);
+  for (const [name, attr] of Object.entries(src.attributes)) if (!name.startsWith('_hide')) g.setAttribute(name, attr);
   g.setIndex(groups.flat());
   let start = 0;
   groups.forEach((idx, i) => {
@@ -269,20 +271,25 @@ function reindexed(src: THREE.BufferGeometry, groups: number[][]): THREE.BufferG
 }
 
 const cut = new Map<string, THREE.BufferGeometry>();
+/** Hide bits per attribute (`_hide`, `_hide2`, ...): a float attribute is exact to 24 bits (wardrobe.py `HIDE_BITS`). */
+const HIDE_BITS = 16;
 
 /**
- * The body for a look: triangles covered by what's `worn` dropped (except a cut-off sleeve's arm), the
- * rest split into material groups: 0 skin, then one per paint (later paints win).
+ * The body for a look: triangles covered by what's `worn` (the parts' `hide` numbers) dropped (except a cut-off
+ * sleeve's arm), the rest split into material groups: 0 skin, then one per paint (later paints win).
  */
-function bodyFor(body: THREE.SkinnedMesh, key: string, worn: number, sleeves: string[], paints: Paint[]): THREE.BufferGeometry {
-  const k = `${key}:${worn}:${sleeves.join()}:${paints.map((p) => p.bones.join('+') + p.min).join('|')}`;
+function bodyFor(body: THREE.SkinnedMesh, key: string, worn: number[], sleeves: string[], paints: Paint[]): THREE.BufferGeometry {
+  const k = `${key}:${worn.join('.')}:${sleeves.join()}:${paints.map((p) => p.bones.join('+') + p.min).join('|')}`;
   let g = cut.get(k);
   if (g) return g;
   const src = body.geometry;
-  const hide = src.getAttribute('_hide');
+  // One mask per hide attribute.
+  const masks: number[] = [];
+  for (const h of worn) masks[Math.floor(h / HIDE_BITS)] = (masks[Math.floor(h / HIDE_BITS)] ?? 0) | (1 << (h % HIDE_BITS));
+  const hides = masks.map((m, i) => (m ? { m, attr: src.getAttribute(i ? `_hide${i + 1}` : '_hide') } : null)).filter((x) => x !== null);
   const index = src.getIndex()!;
   const bare = sleeves.map((s) => weightOn(body, (b) => ARM(s).test(b)));
-  const covered = (v: number) => (Math.round(hide.getX(v)) & worn) !== 0 && !bare.some((w) => w[v] > 0.35);
+  const covered = (v: number) => hides.some((h) => (Math.round(h.attr.getX(v)) & h.m) !== 0) && !bare.some((w) => w[v] > 0.35);
   const pw = paints.map((p) => weightOn(body, (b) => p.bones.includes(b)));
   const groups: number[][] = [[], ...paints.map(() => [])];
   for (let i = 0; i < index.count; i += 3) {
@@ -299,7 +306,7 @@ function bodyFor(body: THREE.SkinnedMesh, key: string, worn: number, sleeves: st
   return g;
 }
 
-/** An outfit without the sleeves on `sides` (the build's sleeve_cut test: average arm weight > 0.5). */
+/** A top without the sleeves on `sides` (the build's sleeve_cut test: average arm weight > 0.5). */
 function sleeveless(mesh: THREE.SkinnedMesh, key: string, sides: string[]): THREE.BufferGeometry {
   if (!sides.length) return mesh.geometry;
   const k = `${key}:${sides.join()}`;
@@ -332,9 +339,11 @@ export async function assemble(look: Look): Promise<Assembled> {
   const info = man.bases[look.base];
   if (!info) throw new Error(`no wardrobe base ${look.base}`);
   const dir = `${ROOT}${look.base}/`;
-  // Kit that hugs the clothes is fitted per outfit (`kit_<id>@<outfit>`); head kit is shared.
-  const kitPart = (k: string) => (info.parts[`kit_${k}@${look.outfit}`] ? `kit_${k}@${look.outfit}` : `kit_${k}`);
-  const ids = [look.outfit, look.shoes, look.brows, ...(look.hair === 'none' ? [] : [look.hair]), ...look.kit.map(kitPart), 'wheel_' + look.wheel];
+  // Kit that hugs the clothes is fitted per top (`kit_<id>@<top>`), or per bottom where the top doesn't reach it
+  // (`kit_<id>@_<bottom>`: a belt under a crop top); head kit is shared.
+  const kitPart = (k: string) => [`kit_${k}@${look.top}`, `kit_${k}@_${look.bottom}`].find((id) => info.parts[id]) ?? `kit_${k}`;
+  const clothes = look.bottom === NO_BOTTOM ? [look.top] : [look.top, look.bottom];
+  const ids = [...clothes, look.shoes, look.brows, ...(look.hair === 'none' ? [] : [look.hair]), ...look.kit.map(kitPart), 'wheel_' + look.wheel];
   for (const id of ids) if (!info.parts[id]) throw new Error(`wardrobe base ${look.base} has no ${id}`);
   const masks = ids.map((id) => info.parts[id].mask).filter((m): m is string => !!m);
   const [base, parts, skin, iris, maskTex] = await Promise.all([
@@ -377,14 +386,14 @@ export async function assemble(look: Look): Promise<Assembled> {
       const mat = sm.material as THREE.MeshStandardMaterial;
       let m: THREE.Material = mat;
       if (p.zones) {
-        const colors = p.slot === 'outfit' ? look.colors : p.slot === 'shoes' ? [look.shoeColor] : [look.hairColor];
+        const colors = p.slot === 'top' ? look.topColors : p.slot === 'bottom' ? look.bottomColors : p.slot === 'shoes' ? [look.shoeColor] : [look.hairColor];
         m = own(recoloured(mat, { mask: p.mask ? maskOf.get(p.mask)! : null, colors, zones: p.zones }));
       } else {
         m = roleMaterial(mat, mat.name, look) ?? mat;
         if (m !== mat) own(m);
       }
       cards(m);
-      const geo = p.slot === 'outfit' ? sleeveless(sm, `${look.base}/${id}`, sleeves) : sm.geometry;
+      const geo = p.slot === 'top' ? sleeveless(sm, `${look.base}/${id}`, sleeves) : sm.geometry;
       const mesh = new THREE.SkinnedMesh(geo, m);
       mesh.name = sm.name;
       inv.clone().multiply(sm.matrixWorld).decompose(mesh.position, mesh.quaternion, mesh.scale);
@@ -394,8 +403,7 @@ export async function assemble(look: Look): Promise<Assembled> {
   });
 
   // The base's own meshes: body (minus covered skin, plus repaints), eyes, lashes, seat.
-  let worn = 0;
-  for (const id of ids) if (info.parts[id].hide !== undefined) worn |= 1 << info.parts[id].hide!;
+  const worn = ids.map((id) => info.parts[id].hide).filter((h): h is number => h !== undefined);
   scene.traverse((o) => {
     const m = o as THREE.SkinnedMesh;
     if (!m.isSkinnedMesh || !m.geometry) return;

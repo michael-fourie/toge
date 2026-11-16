@@ -17,6 +17,13 @@ STEER_KEYS = 17
 #: Full lock turns the wheel this far each way (rad). Kept short of hand-over-hand, so the hands stay on.
 WHEEL_LOCK = math.radians(110)
 IDLE_FRAMES = 96
+#: The relaxed standing arms (`hang`): hanging straight down by the sides, the hands `clear` (m) outside the
+#: widest thing at the hips (body or clothes), the upper arm swung `back` (rad) behind the shoulder, the
+#: elbow soft (`bend`, rad, forearm forward), palms toward the thighs and turned `palm_back` (rad) behind;
+#: the outward lean is kept within `out` (rad). Michael, 2026-11-15: the arms stood out with "locked
+#: elbows", hands held in front; set by direction now, not by fixed turns from the A pose.
+HANG = {'clear': 0.04, 'back': math.radians(4), 'bend': math.radians(12), 'palm_back': math.radians(20),
+        'out': (math.radians(3), math.radians(22))}
 
 
 def update():
@@ -338,6 +345,71 @@ def bake(arm, f0, f1, step=1):
 # Idle
 
 
+ARM_BONES = ('clavicle', 'upperarm', 'lowerarm', 'hand', 'thumb', 'index', 'middle', 'ring', 'pinky')
+
+
+def aim(arm, bone, d):
+    """Turns a pose bone (by the shortest way) so it points along `d` (armature space)."""
+    pb = arm.pose.bones[bone]
+    cur = (pb.tail - pb.head).normalized()
+    axis = cur.cross(d)
+    if axis.length > 1e-6:
+        rot_world(arm, bone, axis, cur.angle(d))
+
+
+def hip_width(arm, side, sx, z):
+    """How far out (armature x, on `side`) the meshes on `arm` reach around height `z`, arms left out."""
+    inv = arm.matrix_world.inverted()
+    w = 0.0
+    for o in bpy.data.objects:
+        if o.type != 'MESH' or o.find_armature() is not arm:
+            continue
+        armish = {g.index for g in o.vertex_groups if g.name.startswith(ARM_BONES)}
+        M = inv @ o.matrix_world
+        for v in o.data.vertices:
+            if sum(g.weight for g in v.groups if g.group in armish) > 0.3:
+                continue
+            p = M @ v.co
+            if abs(p.z - z) < 0.12:
+                w = max(w, sx * p.x)
+    return w
+
+
+def palm(arm, side):
+    """The hand's palm normal as posed."""
+    _, _, p, _, _ = hand_frame(arm, side)
+    rest = arm.data.bones['hand_' + side].matrix_local.to_3x3()
+    return (arm.pose.bones['hand_' + side].matrix.to_3x3() @ (rest.inverted() @ p)).normalized()
+
+
+def hang(arm, s, sx):
+    """Arm `s` hanging relaxed by the side (HANG): straight down past the hips, elbow soft, palm in."""
+    up, lo = 'upperarm_' + s, 'lowerarm_' + s
+    sh = head(arm, up)
+    length = arm.data.bones[up].length + arm.data.bones[lo].length
+    hips = hip_width(arm, s, sx, sh.z - length)
+    out = math.asin(max(-1.0, min(1.0, (hips + HANG['clear'] - sx * sh.x) / length)))
+    out = max(HANG['out'][0], min(HANG['out'][1], out))
+    down = Vector((sx * math.sin(out), 0, -math.cos(out)))
+    aim(arm, up, (down + Vector((0, math.sin(HANG['back']), 0))).normalized())
+    fore = (down + Vector((0, -math.sin(HANG['bend']), 0))).normalized()
+    aim(arm, lo, fore)
+    # Palm toward the thigh: turn the whole arm about its length (the forearm has no twist bone), then put
+    # the forearm back on its line.
+    want = Vector((-sx * math.cos(HANG['palm_back']), math.sin(HANG['palm_back']), 0))
+    for _ in range(2):
+        u = (arm.pose.bones[up].tail - arm.pose.bones[up].head).normalized()
+        p, w = palm(arm, s), want - u * want.dot(u)
+        p = p - u * p.dot(u)
+        if p.length > 1e-4 and w.length > 1e-4:
+            ang = p.angle(w)
+            if p.cross(w).dot(u) < 0:
+                ang = -ang
+            rot_world(arm, up, u, ang)
+        aim(arm, lo, fore)
+    curl(arm, s, 0.35, 0.3)
+
+
 def idle(arm, spec):
     """A relaxed stand with a slow breathing loop; `spec['stance']` picks the arms."""
     arm.animation_data_create()
@@ -365,11 +437,7 @@ def idle(arm, spec):
     for s, sx in (('l', 1), ('r', -1)):
         a = stance if isinstance(stance, str) else stance[s]
         if a in ('relaxed', 'pocket'):
-            # Arms down by the sides from the A pose, elbows soft.
-            rot_world(arm, 'upperarm_' + s, Y, math.radians(sx * 38))
-            rot_world(arm, 'upperarm_' + s, X, math.radians(4))
-            rot_world(arm, 'lowerarm_' + s, X, math.radians(-14))
-            curl(arm, s, 0.35, 0.3)
+            hang(arm, s, sx)
         elif a == 'hip':
             # Hand on the hip, elbow out.
             hip = head(arm, 'thigh_' + s) + Vector((sx * 0.07, 0.0, 0.1))
