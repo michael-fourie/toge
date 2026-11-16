@@ -36,7 +36,7 @@ export function trackKind(id: TrackId, laps?: number): string {
   const d = TRACK_DEFS[id];
   if (d.world) return 'Open world · free roam';
   if (d.royale) return `Battle royale arena · ${d.laps} laps`;
-  if (d.traffic) return 'City · live traffic';
+  if (d.traffic) return d.fork ? 'Parkway · live traffic · the road forks' : 'City · live traffic';
   // (`laps`: an Endurance race's own count.)
   const n = laps ?? d.laps;
   if (n) return `Circuit · ${n} ${n === 1 ? 'lap' : 'laps'}`;
@@ -63,8 +63,10 @@ export function trackMap(id: TrackId): string {
   if (hit) return hit;
   const d = TRACK_DEFS[id];
   const pts = d.points.map(([x, , z]) => [x, z] as [number, number]);
-  const xs = pts.map((p) => p[0]);
-  const zs = pts.map((p) => p[1]);
+  // A fork's second road, with the main road's points either side of it (the curve needs them).
+  const alt = d.fork ? [d.points[d.fork.at - 1], d.points[d.fork.at], ...d.fork.points, d.points[d.fork.to], d.points[d.fork.to + 1]].map(([x, , z]) => [x, z] as [number, number]) : [];
+  const xs = [...pts, ...alt].map((p) => p[0]);
+  const zs = [...pts, ...alt].map((p) => p[1]);
   const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
   const W = 100;
   const H = 60;
@@ -85,6 +87,14 @@ export function trackMap(id: TrackId): string {
     path += ` C${f(c1[0])} ${f(c1[1])} ${f(c2[0])} ${f(c2[1])} ${f(c[0])} ${f(c[1])}`;
   }
   if (closed) path += 'Z';
+  if (alt.length) {
+    const q = alt.map(([x, z]) => [ox + (x - x0) * k, oz + (z - z0) * k] as [number, number]);
+    path += ` M${f(q[1][0])} ${f(q[1][1])}`;
+    for (let i = 1; i < q.length - 2; i++) {
+      const [a, b, c, e] = [q[i - 1], q[i], q[i + 1], q[i + 2]];
+      path += ` C${f(b[0] + (c[0] - a[0]) / 6)} ${f(b[1] + (c[1] - a[1]) / 6)} ${f(c[0] - (e[0] - b[0]) / 6)} ${f(c[1] - (e[1] - b[1]) / 6)} ${f(c[0])} ${f(c[1])}`;
+    }
+  }
   const end = p[p.length - 1];
   const svg = `<svg class="tg-map" viewBox="0 0 ${W} ${H}" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
     <path d="${path}" class="tg-map-under"/><path d="${path}" class="tg-map-road"/>

@@ -487,6 +487,7 @@ export class RaceHud {
       g.translate(-me.x, -me.z);
       const i0 = Math.max(0, Math.floor((me.s - 700) / 2));
       const i1 = Math.min(t.n - 1, Math.floor((me.s + 900) / 2));
+      const fork = t.fork;
       g.lineJoin = 'round';
       g.lineCap = 'round';
       g.strokeStyle = 'rgba(255,255,255,0.18)';
@@ -495,12 +496,19 @@ export class RaceHud {
       if (!this.roadPath) {
         this.roadPath = new Path2D();
         for (let i = 0; i < t.n; i += 6) (i ? this.roadPath.lineTo(t.x[i], t.z[i]) : this.roadPath.moveTo(t.x[i], t.z[i]));
+        // A fork's second road.
+        if (fork) for (let k = 0; k < fork.m; k += 6) (k ? this.roadPath.lineTo(t.x[fork.o + k], t.z[fork.o + k]) : this.roadPath.moveTo(t.x[fork.o], t.z[fork.o]));
       }
       g.stroke(this.roadPath);
       g.strokeStyle = 'rgba(255,255,255,0.85)';
       g.lineWidth = 18;
       g.beginPath();
       for (let i = i0; i <= i1; i += 2) (i === i0 ? g.moveTo(t.x[i], t.z[i]) : g.lineTo(t.x[i], t.z[i]));
+      if (fork && i1 > fork.a && i0 < fork.b) {
+        const k0 = Math.max(0, i0 - fork.a);
+        const k1 = Math.min(fork.m - 1, i1 - fork.a);
+        for (let k = k0; k <= k1; k += 2) (k === k0 ? g.moveTo(t.x[fork.o + k], t.z[fork.o + k]) : g.lineTo(t.x[fork.o + k], t.z[fork.o + k]));
+      }
       g.stroke();
       const f = Math.floor(t.finishS / 2);
       g.fillStyle = '#ffd400';

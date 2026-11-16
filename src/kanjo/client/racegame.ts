@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { CARS, type CarId, type CarSpec, type OwnedCar, PAINTS, carSpec, decodeCar, encodeCar, myRaceCar, newOwnedCar, rivalCar } from '../shared/cars.ts';
-import { type Ai, type CpuLevel, aiDrive, isCpuLevel, newAi, rivalAi } from '../shared/driver.ts';
+import { type Ai, type CpuLevel, aiDrive, isCpuLevel, newAi, resetOnRoad, rivalAi } from '../shared/driver.ts';
 import { DRAFT, type Body, stepDraft, strongestWake } from '../shared/draft.ts';
 import { DAMAGE, type Damage, ZONES, damagedInput, newDamage, packZones, repair, takeHit, unpackZones } from '../shared/damage.ts';
 import { Blasts, CarDents } from './damageview.ts';
@@ -15,9 +15,9 @@ import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, TEAMS, cleanMode, ghostMode,
 import type { NewBest } from '../shared/records.ts';
 import { ROYALE, Royale } from '../shared/royale.ts';
 import { standings } from '../shared/standings.ts';
-import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc } from '../shared/track.ts';
+import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc, onFork } from '../shared/track.ts';
 import { skyFall } from '../shared/skyfall.ts';
-import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, placeCar, resetCar, speedOf, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
+import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, placeCar, speedOf, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
 import { WORLD, respawnAt, trapCrossed } from '../shared/world.ts';
 import { collideWorldTraffic, newNearMisses, roamClock, stepNearMisses } from '../shared/worldtraffic.ts';
 import { WorldTrafficView } from './worldtrafficview.ts';
@@ -1123,9 +1123,9 @@ export class RaceGame {
     else {
       const back = Math.max(4, c.s - DAMAGE.respawnBack);
       const d = Math.max(-t.half + 1.5, Math.min(t.half - 1.5, c.d));
-      resetCar(c, t, back, d);
+      resetOnRoad(c, t, back, d, onFork(t, c.hint));
     }
-    if (r.ai) r.ai = newAi(r.ai.skill, r.ai.lane);
+    if (r.ai) r.ai = newAi(r.ai.skill, r.ai.lane, r.ai.alt);
     r.prevP.set(c.p.x, c.p.y, c.p.z);
     r.prevQ.set(c.q.x, c.q.y, c.q.z, c.q.w);
     repair(r.dmg);
@@ -1167,7 +1167,8 @@ export class RaceGame {
   /** Back on the road: on a race track where the car is along it, in free roam on the nearest road, facing the way it was. */
   private respawn(c: Car) {
     const w = this.track.world?.world;
-    if (!w) return resetCar(c, this.track);
+    // (At a fork, on whichever of the two roads it was on.)
+    if (!w) return resetOnRoad(c, this.track, c.s, 0, onFork(this.track, c.hint));
     const at = respawnAt(w, c.p.x, c.p.z, yawOf(c));
     placeCar(c, at.x, at.y, at.z, at.yaw, at.i);
   }

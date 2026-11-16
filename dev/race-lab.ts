@@ -74,6 +74,10 @@ const out = { steer: 0, throttle: 0, brake: 0, handbrake: 0, drift: 0 };
       if (seconds - t < 1 && Math.round(t / TICK_DT) % 6 === 0) r.render(TICK_DT * 6, 1);
     }
   },
+  /** Which road the AI takes where the track forks (Track.fork): the second one, or the main one. */
+  fork(second: boolean) {
+    ai.alt = second;
+  },
   cam(name: string) {
     r.cam = name;
   },

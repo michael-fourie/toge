@@ -183,6 +183,31 @@ a component or a page.
   the exit and fell every lap in the AI test; at 44 m it still hung two wheels off, which `skyFall` now counts) and its last straight 185 m, because `placeBoosts` drops a pad whose
   lap position is within `startS` of the lap's end (the grid): at 170 m the last corner's pad was lost and the lap
   had one.
+  A forked parkway (2026-11-16, Andrew: "traffic moving in the same direction as the race ... fast pace race with wider
+  turns, start and finish in different places ... a section of the race where the road splits off in two directions,
+  but the time between the two different directions are very very similar and negligible ... about 10km total"):
+  `futamata` (Futamata Parkway: autumn, point to point, 10.0 km, 16 m wide, `traffic: 'highway'`, `clean`). Sweepers of
+  300-500 m, four corners you brake for (160-190 m), and from 4.4 km the road forks for 1.5 km: the left road dips 7 m
+  and swings out early, the right climbs 7 m and swings out late. Each is the other turned end for end, so they're the
+  same length to the metre and the AI's times differ by under 0.2 s in every car (tests/kanjo/fork.test.ts holds 0.4 s).
+  It's in the Velocity Cup (it took Monza's round). Laid out as straights and arcs with a small generator, like Sea-to-Sky.
+- **A fork in the road** (`fork` on a point-to-point TrackDef: `at` / `to` control points and the second road's
+  `points`; `Track.fork`, track.ts `Fork`). The second road's samples go after the main road's in every per-sample
+  array (`t.n` still counts only the main road), sampled alike (`s` is the same on both, so standings, the finish and
+  the strip never care which road a car took; build throws unless the lengths agree within `FORK.slack`). The spatial
+  hash holds both, so the ground and `locate` work on either: a car's `hint` may be a second-road sample (`onFork`,
+  `mainSample` for the main road's index), and `locate` searches the same stretch of the other road too, so a car is
+  on whichever centreline is nearer: that's how it takes a road at the split and comes back at the merge, with nothing
+  changed in vehicle.ts (the barrier reads the located road). So the two roads must part and meet as mirror images
+  (same radius, opposite hands, same heights) until they're two rails apart, or the ground steps between them (the
+  fork test checks). `pointAt(t, s, d, alt)` gives a point on the second road. No runoff and no boost pads between
+  `fork.s0` and `s1` (both are stored per main sample). Traffic: every other car takes the second road
+  (`TrafficCar.alt`); `trafficBetween` tags obstacles there with `alt` except in the last `FORK_MERGE` m, where the two
+  run together. The AI: `Ai.alt` (odd rivals take the second road), `forkSide` (the road it's on once past the split),
+  `resetOnRoad` (a reset keeps the road; racegame.ts uses it for wrecks and R). trackview.ts draws the second road
+  through `forkView(t)` (ribbon, rails, posts), each road's tarmac and rails stopping at the line midway (`divide`);
+  the minimap (hud.ts) and the menu map (trackart.ts) draw both. `rl.fork(true)` in `/dev/race.html` sends the lab's
+  AI down the second road. Not for circuits.
 - **Battle royale** (mode `royale`, royale.ts; Michael, 2026-11-12: "a battle royale type in Kanjo where each lap the
   last person gets killed. Do laps til one left. Make a cool custom map for it"): an elimination race on a `royale`
   arena (only this mode runs them: `modeTracks`; they're out of the solo track list, the other modes and the cups).
@@ -216,11 +241,11 @@ a component or a page.
 - **Grand Prix cups** (cups.ts; Michael asked for "4 set maps, each group of 4 a cup like Mario Kart", 2026-11-08): `CUPS`
   puts every race track in a cup of four, raced in order: Torii (nagare, sakura, momiji, koripass), Mirage
   (saltwind, kazeoka, redmesa, akane), Lantern (minato, monaco, neonbay, tsukiyo), Apex (kodama, hachi, spa, monza) and
-  Velocity (hayate, seatosky, monza, ryusei: the three speed roads plus Monza) and Overdrive (id `rush`, first named Rush Hour;
+  Velocity (hayate, seatosky, futamata, ryusei: the four speed roads; Monza was its third round until Futamata Parkway, 2026-11-16) and Overdrive (id `rush`, first named Rush Hour;
   neonbay, isonami, ryusei, shiden: the two grand prix roads with the city and the expressway) and Sprint (mizuumi,
   hibari, kamome, shiokaze: the four 4-lap sprint rings, easiest first) and Postcard (taketomi, hallstatt, goreme, oia,
   chefchaouen: the five town circuits, the only cup of five; `roundsOf(cup)` is a cup's round count, so every
-  "Round 2 of 4" reads it). Only Velocity and Overdrive borrow tracks from other cups.
+  "Round 2 of 4" reads it). Only Overdrive borrows tracks from other cups now (Neon Bay and Ryūsei).
   Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
   more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
   test checks every one is in one, and only Velocity and Overdrive repeat tracks); a new cup is an append to `CupId` / `CUPS`.
@@ -660,6 +685,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in kanjo/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records`, `highlight` (Best Moment), `royale` (battle royale) in `tests/kanjo/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records`, `highlight` (Best Moment), `royale` (battle royale), `fork` (Futamata Parkway and forks in the road) in `tests/kanjo/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

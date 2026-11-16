@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { CUT_HALF, type Crossing, SAMPLE, type Theme, type Track, type TrackId, dirtFrom, fbm, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
+import { CUT_HALF, type Crossing, SAMPLE, type Theme, type Track, type TrackId, dirtFrom, fbm, forkView, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
 import type { Grade } from './post.ts';
 import { envLevel } from './envlevel.ts';
 import { decor, type Site } from './scenery.ts';
@@ -375,53 +375,88 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   const gravelTex = gravel(t.def.theme, t.def.seed, aniso);
   for (const tex of Object.values(gravelTex)) keep(tex);
   const gravelMat = keep(new THREE.MeshStandardMaterial({ ...gravelTex, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-  // Ribbon pieces: at most ROAD_CHUNK samples, and a new piece wherever the surface changes.
-  const pieces: [number, number][] = [];
-  for (let i0 = 0; i0 < t.n - 1; ) {
-    let i1 = Math.min(t.n - 1, i0 + 100);
-    for (let i = i0 + 1; i < i1; i++)
-      if (t.gravel[i] !== t.gravel[i0]) {
-        i1 = i;
-        break;
-      }
-    pieces.push([i0, i1]);
-    i0 = i1;
-  }
   // Across: (runoff) | verge | shoulder | road | shoulder | verge | (runoff), matching the texture's columns.
   // The runoff columns have no width where there's none; where there is, the dirt below covers them.
   const crossU = [0, 0, 0.12, 0.2, 0.8, 0.88, 1, 1];
   const ROAD_CHUNK = 100;
-  for (const [i0, i1] of pieces) {
-    const pos: number[] = [];
-    const uvs: number[] = [];
-    const idx: number[] = [];
-    for (let i = i0; i <= i1; i++) {
-      // A sky road is only the road and its lip, out to the deck's edge.
-      const cross = skyRoad ? SKY_CROSS.map((k) => k * t.rail) : [-(railOf(t, i, -1) + 1.2), -(t.rail + 1.2), -(t.half + t.shoulder), -t.half, t.half, t.half + t.shoulder, t.rail + 1.2, railOf(t, i, 1) + 1.2];
-      const us = skyRoad ? SKY_CROSS_U : crossU;
-      for (let k = 0; k < cross.length; k++) {
-        const d = skyRoad ? cross[k] * (k === 1 || k === 2 ? t.half / t.rail : 1) : cross[k];
-        const x = t.x[i] - t.tz[i] * d;
-        const z = t.z[i] + t.tx[i] * d;
-        const y = skyRoad || Math.abs(d) <= railOf(t, i, d) + t.edge - t.rail ? t.y[i] - t.bank[i] * d : heightAt(t, x, z);
-        pos.push(x, y + 0.03, z);
-        uvs.push(us[k], (i * SAMPLE) / ROAD_TILE);
-      }
-      if (i < i1) {
-        const a = (i - i0) * cross.length;
-        const c = cross.length;
-        for (let k = 0; k < c - 1; k++) idx.push(a + k, a + k + 1, a + k + c, a + k + 1, a + k + 1 + c, a + k + c);
-      }
+  // A fork (Track.fork): the second road is drawn like the first. Where the two part and meet, each one's tarmac and
+  // rails stop at the line midway between them, where the ground is the other's.
+  const fork = t.fork;
+  const branch = forkView(t);
+  const roads = branch ? [t, branch] : [t];
+  const divide = (rd: Track, i: number): [number, number] | null => {
+    if (!fork || (rd === t && (i < fork.a || i > fork.b))) return null;
+    const k = rd === t ? i - fork.a : i;
+    const sep = (q: number) => Math.hypot(t.x[fork.o + q] - t.x[fork.a + q], t.z[fork.o + q] - t.z[fork.a + q]);
+    // Which way the other road lies: at the very ends, where they're one, the way it goes from there.
+    let q = k;
+    const step = k < fork.m / 2 ? 1 : -1;
+    while (sep(q) < 0.05 && q + step >= 0 && q + step < fork.m) q += step;
+    const l = sep(q);
+    if (l < 0.05) return null;
+    const to = rd === t ? 1 : -1;
+    const ux = ((t.x[fork.o + q] - t.x[fork.a + q]) / l) * to;
+    const uz = ((t.z[fork.o + q] - t.z[fork.a + q]) / l) * to;
+    const across = -rd.tz[i] * ux + rd.tx[i] * uz;
+    if (Math.abs(across) < 0.05) return null;
+    const at = sep(k) / 2 / across;
+    return across > 0 ? [-Infinity, at] : [at, Infinity];
+  };
+  /** The texture column at offset `d` across the road, between the ribbon's own columns. */
+  const uAcross = (cross: number[], us: number[], d: number) => {
+    for (let k = 0; k < cross.length - 1; k++)
+      if (d <= cross[k + 1]) return cross[k + 1] > cross[k] ? us[k] + ((us[k + 1] - us[k]) * (d - cross[k])) / (cross[k + 1] - cross[k]) : us[k + 1];
+    return us[us.length - 1];
+  };
+  const ribbon = (rd: Track) => {
+    // Ribbon pieces: at most ROAD_CHUNK samples, and a new piece wherever the surface changes.
+    const pieces: [number, number][] = [];
+    for (let i0 = 0; i0 < rd.n - 1; ) {
+      let i1 = Math.min(rd.n - 1, i0 + 100);
+      for (let i = i0 + 1; i < i1; i++)
+        if (rd.gravel[i] !== rd.gravel[i0]) {
+          i1 = i;
+          break;
+        }
+      pieces.push([i0, i1]);
+      i0 = i1;
     }
-    const geo = keep(new THREE.BufferGeometry());
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-    const m = new THREE.Mesh(geo, t.gravel[i0] ? gravelMat : roadMat);
-    m.receiveShadow = true;
-    scene.add(m);
-  }
+    for (const [i0, i1] of pieces) {
+      const pos: number[] = [];
+      const uvs: number[] = [];
+      const idx: number[] = [];
+      for (let i = i0; i <= i1; i++) {
+        // A sky road is only the road and its lip, out to the deck's edge.
+        const cross = skyRoad ? SKY_CROSS.map((k) => k * t.rail) : [-(railOf(rd, i, -1) + 1.2), -(t.rail + 1.2), -(t.half + t.shoulder), -t.half, t.half, t.half + t.shoulder, t.rail + 1.2, railOf(rd, i, 1) + 1.2];
+        const us = skyRoad ? SKY_CROSS_U : crossU;
+        const lim = divide(rd, i);
+        for (let k = 0; k < cross.length; k++) {
+          const d0 = skyRoad ? cross[k] * (k === 1 || k === 2 ? t.half / t.rail : 1) : cross[k];
+          const d = lim ? Math.max(lim[0], Math.min(lim[1], d0)) : d0;
+          const x = rd.x[i] - rd.tz[i] * d;
+          const z = rd.z[i] + rd.tx[i] * d;
+          const y = skyRoad || Math.abs(d) <= railOf(rd, i, d) + t.edge - t.rail ? rd.y[i] - rd.bank[i] * d : heightAt(t, x, z);
+          pos.push(x, y + 0.03, z);
+          uvs.push(d === d0 ? us[k] : uAcross(cross, us, d), rd.s[i] / ROAD_TILE);
+        }
+        if (i < i1) {
+          const a = (i - i0) * cross.length;
+          const c = cross.length;
+          for (let k = 0; k < c - 1; k++) idx.push(a + k, a + k + 1, a + k + c, a + k + 1, a + k + 1 + c, a + k + c);
+        }
+      }
+      const geo = keep(new THREE.BufferGeometry());
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, rd.gravel[i0] ? gravelMat : roadMat);
+      m.receiveShadow = true;
+      scene.add(m);
+    }
+
+  };
+  for (const rd of roads) ribbon(rd);
 
   // --- Kerbs on a circuit's bends
   if (t.lap) kerbs(scene, t, keep);
@@ -516,13 +551,18 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
       railMat.emissiveIntensity = NIGHT_RAIL;
     }
     // Where a shortcut leaves the road the rail has a gap.
-    const gap = (i: number, side: number) => t.cuts.length > 0 && onCut(t, t.x[i] - t.tz[i] * side * t.rail, t.z[i] + t.tx[i] * side * t.rail, 2.5);
-    for (const side of [-1, 1]) {
+    const gap = (rd: Track, i: number, side: number) => {
+      if (t.cuts.length > 0 && onCut(t, rd.x[i] - rd.tz[i] * side * t.rail, rd.z[i] + rd.tx[i] * side * t.rail, 2.5)) return true;
+      // A fork: no rail between the two roads until they're a rail's width apart each.
+      const lim = divide(rd, i);
+      return !!lim && (side * t.rail < lim[0] || side * t.rail > lim[1]);
+    };
+    for (const rd of roads) for (const side of [-1, 1]) {
       const runs: [number, number][] = [];
-      for (let i = 0; i < t.n - 1; ) {
-        while (i < t.n - 1 && gap(i, side)) i++;
+      for (let i = 0; i < rd.n - 1; ) {
+        while (i < rd.n - 1 && gap(rd, i, side)) i++;
         let j = i;
-        while (j < t.n - 1 && j - i < ROAD_CHUNK && !gap(j + 1, side)) j++;
+        while (j < rd.n - 1 && j - i < ROAD_CHUNK && !gap(rd, j + 1, side)) j++;
         if (j > i) runs.push([i, j]);
         i = j + 1;
       }
@@ -530,12 +570,12 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
         const pos: number[] = [];
         const idx: number[] = [];
         for (let i = i0; i <= i1; i++) {
-          const d = side * (railOf(t, i, side) + 0.15);
-          const x = t.x[i] - t.tz[i] * d;
-          const z = t.z[i] + t.tx[i] * d;
-          const y = t.y[i] - t.bank[i] * d;
+          const d = side * (railOf(rd, i, side) + 0.15);
+          const x = rd.x[i] - rd.tz[i] * d;
+          const z = rd.z[i] + rd.tx[i] * d;
+          const y = rd.y[i] - rd.bank[i] * d;
           // A W-beam: three points in profile (low, bulge, high).
-          pos.push(x, y + 0.42, z, x - t.tz[i] * side * 0.06, y + 0.6, z + t.tx[i] * side * 0.06, x, y + 0.78, z);
+          pos.push(x, y + 0.42, z, x - rd.tz[i] * side * 0.06, y + 0.6, z + rd.tx[i] * side * 0.06, x, y + 0.78, z);
           if (i < i1) {
             const a = (i - i0) * 3;
             idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
@@ -552,7 +592,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
       }
     }
     const postEvery = 2; // samples (4 m)
-    const nPosts = Math.ceil(t.n / postEvery) * 2;
+    const nPosts = Math.ceil((t.n + (branch?.n ?? 0)) / postEvery + 1) * 2;
     const postMat = look.whiteRail ? railMat : keep(new THREE.MeshStandardMaterial({ color: 0x8e9399, metalness: 0.7, roughness: 0.5, emissive: 0x9aa6bc, emissiveIntensity: look.moon ? NIGHT_RAIL : 0 }));
     const posts = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(0.12, 0.85, 0.08)), postMat, nPosts);
     const m4 = new THREE.Matrix4();
@@ -561,30 +601,32 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     const v = new THREE.Vector3();
     const one = new THREE.Vector3(1, 1, 1);
     let pi = 0;
-    for (let i = 0; i < t.n; i += postEvery)
-      for (const side of [-1, 1]) {
-        if (gap(i, side)) continue;
-        const d = side * (railOf(t, i, side) + 0.3);
-        v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 0.42, t.z[i] + t.tx[i] * d);
-        q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]), 0));
-        posts.setMatrixAt(pi++, m4.compose(v, q, one));
-      }
+    for (const rd of roads)
+      for (let i = 0; i < rd.n; i += postEvery)
+        for (const side of [-1, 1]) {
+          if (gap(rd, i, side)) continue;
+          const d = side * (railOf(rd, i, side) + 0.3);
+          v.set(rd.x[i] - rd.tz[i] * d, rd.y[i] - rd.bank[i] * d + 0.42, rd.z[i] + rd.tx[i] * d);
+          q.setFromEuler(e.set(0, Math.atan2(-rd.tx[i], -rd.tz[i]), 0));
+          posts.setMatrixAt(pi++, m4.compose(v, q, one));
+        }
     posts.count = pi;
     posts.castShadow = true;
     scene.add(posts);
     // Round amber reflectors on every fifth post: they catch the headlights (and the bloom) at night.
     const reflGeo = keep(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 12).rotateX(Math.PI / 2));
     const reflMat = keep(new THREE.MeshStandardMaterial({ color: 0xffa020, emissive: 0xff8a10, emissiveIntensity: look.moon ? 14 : 0.5, roughness: 0.3 }));
-    const refl = new THREE.InstancedMesh(reflGeo, reflMat, Math.ceil(t.n / (postEvery * 5)) * 2);
+    const refl = new THREE.InstancedMesh(reflGeo, reflMat, Math.ceil((t.n + (branch?.n ?? 0)) / (postEvery * 5) + 1) * 2);
     let ri = 0;
-    for (let i = 0; i < t.n; i += postEvery * 5)
-      for (const side of [-1, 1]) {
-        if (gap(i, side)) continue;
-        const d = side * (railOf(t, i, side) + 0.3);
-        v.set(t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + 0.95, t.z[i] + t.tx[i] * d);
-        q.setFromEuler(e.set(0, Math.atan2(-t.tx[i], -t.tz[i]), 0));
-        refl.setMatrixAt(ri++, m4.compose(v, q, one));
-      }
+    for (const rd of roads)
+      for (let i = 0; i < rd.n; i += postEvery * 5)
+        for (const side of [-1, 1]) {
+          if (gap(rd, i, side)) continue;
+          const d = side * (railOf(rd, i, side) + 0.3);
+          v.set(rd.x[i] - rd.tz[i] * d, rd.y[i] - rd.bank[i] * d + 0.95, rd.z[i] + rd.tx[i] * d);
+          q.setFromEuler(e.set(0, Math.atan2(-rd.tx[i], -rd.tz[i]), 0));
+          refl.setMatrixAt(ri++, m4.compose(v, q, one));
+        }
     refl.count = ri;
     scene.add(refl);
 
