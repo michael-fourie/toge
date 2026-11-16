@@ -84,6 +84,10 @@ export function releasePortraits() {
 /** The crew's picture of a racer: their car with their driver standing in front of it. */
 export const CREW_PORTRAIT = { w: 320, h: 270 };
 
+/** The crew picture's usual camera distance, and the margin kept either side of the car and driver (m). */
+const CREW_DIST = 7.6;
+const CREW_PAD = 0.25;
+
 const crewCache = new Map<string, string>();
 const crewPending = new Map<string, Promise<void>>();
 let crewKit: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; env: THREE.Texture } | null = null;
@@ -112,7 +116,7 @@ function crewSetup() {
   rimM.position.set(5, 2.5, -3);
   scene.add(key, rimC, rimM);
   const camera = new THREE.PerspectiveCamera(30, CREW_PORTRAIT.w / CREW_PORTRAIT.h, 0.1, 40);
-  camera.position.set(0, 1.4, 7.6);
+  camera.position.set(0, 1.4, CREW_DIST);
   camera.lookAt(0, 0.8, 0);
   return { renderer, scene, camera, env };
 }
@@ -144,7 +148,17 @@ export function racerPortrait(carCode: string, riderCode: string, ready?: () => 
         rig.root.rotation.y = Math.PI + 0.25;
         rig.root.position.set(-0.7, 0, 2.3);
         crewKit.scene.add(rig.root);
-        crewKit.renderer.render(crewKit.scene, crewKit.camera);
+        // Long cars (the Vanta) ran off the sides of the fixed camera: centre on what's in the picture and back
+        // off until its width fits. Shorter cars keep the usual framing.
+        const { camera } = crewKit;
+        const box = new THREE.Box3().setFromObject(car.root).union(new THREE.Box3().setFromObject(rig.root));
+        const cx = (box.min.x + box.max.x) / 2;
+        const halfW = (box.max.x - box.min.x) / 2 + CREW_PAD;
+        const reach = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
+        const dist = Math.max(CREW_DIST, halfW / reach + Math.max(0, box.max.z));
+        camera.position.set(cx, 1.4 + (dist - CREW_DIST) * 0.12, dist);
+        camera.lookAt(cx, 0.8, 0);
+        crewKit.renderer.render(crewKit.scene, camera);
         crewCache.set(key, crewKit.renderer.domElement.toDataURL('image/png'));
       } catch {
         crewCache.set(key, ''); // no WebGL: the lobby still lists names and cars

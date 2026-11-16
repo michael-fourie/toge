@@ -5,6 +5,7 @@ import type { GarageAction } from '../kanjo/shared/garage.ts';
 import { CAR_CODE_MAX } from '../kanjo/shared/cars.ts';
 import { RIDER_CODE_MAX } from '../kanjo/shared/rider.ts';
 import type { FriendAction } from '../shared/friends.ts';
+import type { ClubAction } from '../shared/clubs.ts';
 
 export { Accounts } from './accounts.ts';
 export { Directory } from './directory.ts';
@@ -215,6 +216,15 @@ async function friendsApi(req: Request, url: URL, accounts: DurableObjectStub<Ac
   return Response.json(await accounts.friendAct(token, action));
 }
 
+/** Clubs (site-wide): GET lists the ones you're in, POST a `ClubAction`. Signed-in only. */
+async function clubsApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
+  const token = readCookie(req);
+  if (req.method === 'GET') return Response.json({ clubs: await accounts.clubs(token) });
+  const action = await jsonBody<ClubAction>(req, url, 256);
+  if (!action || typeof action !== 'object') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
+  return Response.json(await accounts.clubAct(token, action));
+}
+
 /** Joins or hosts a race lobby: a fresh 4-letter code from the 'race' directory, or the room behind a code. */
 async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, url: URL, env: Env, name: string, user: boolean): Promise<Response> {
   const dir = env.DIRECTORY.getByName('race');
@@ -276,6 +286,7 @@ export default {
     if (url.pathname === '/api/races') return Response.json(await env.DIRECTORY.getByName('race').listRaces());
     if (url.pathname === '/api/garage') return garageApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/friends') return friendsApi(req, url, env.ACCOUNTS.getByName('all'));
+    if (url.pathname === '/api/clubs') return clubsApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/notices') return noticesApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/leaderboard') return Response.json(await env.ACCOUNTS.getByName('all').leaderboard(url.searchParams.get('t')?.slice(0, 32) ?? null));
     if (url.pathname === '/api/admin/reset-password') return adminReset(req, env);

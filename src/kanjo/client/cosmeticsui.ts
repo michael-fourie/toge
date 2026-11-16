@@ -1,6 +1,6 @@
-// The garage's Cases and Locker tabs: buy and open cosmetic cases (the roll is the server's for accounts,
-// so the reel only ever spins to a drop that's already decided), and browse what you own by slot, try
-// things on in the showroom and equip them on the car you drive. hub.ts hosts both tabs.
+// The Style → Locker page and the case reel: browse what you own by slot, try things on in the showroom and equip them
+// on the car you drive; and the reel that spins to a drop (the roll is the server's for accounts, so it only ever spins
+// to a drop that's already decided). The cases are sold on the Shop (shopui.ts, which reuses `crateArt` and `contents`).
 
 import { type OwnedCar } from '../shared/cars.ts';
 import { COS_CASES, COS_ITEMS, COS_SLOTS, CATALOG, type CosCase, type CosItem, type CosSlot, RARITIES, type ShellStyle, RARITY, SLOT_INFO, caseItems, caseOdds, cosById, PLATE_MAX, passOnly, rollCosCase } from '../shared/cosmetics.ts';
@@ -113,14 +113,14 @@ export function itemCard(it: CosItem, extra = ''): string {
 
 const pct = (p: number) => (p * 100).toFixed(p < 0.01 ? 2 : 1) + '%';
 
-function oddsRow(box: CosCase): string {
+export function oddsRow(box: CosCase): string {
   const o = caseOdds(box.id);
   return `<div class="cz-odds">${RARITIES.filter((r) => o[r])
     .map((r) => `<span style="--r:${hex(RARITY[r].color)}"><i></i>${RARITY[r].name} <b>${pct(o[r]!)}</b></span>`)
     .join('')}</div>`;
 }
 
-function contents(box: CosCase, owned: Set<string>): string {
+export function contents(box: CosCase, owned: Set<string>): string {
   const items = caseItems(box.id);
   const o = caseOdds(box.id);
   return [...RARITIES]
@@ -134,7 +134,7 @@ function contents(box: CosCase, owned: Set<string>): string {
     .join('');
 }
 
-const crateArt = (box: CosCase) => `
+export const crateArt = (box: CosCase) => `
   <svg viewBox="0 0 96 80" aria-hidden="true">
     <rect x="8" y="24" width="80" height="52" rx="7" fill="#1a2030" stroke="${hex(box.color)}" stroke-width="3"/>
     <rect x="4" y="12" width="88" height="20" rx="6" fill="${hex(box.color)}"/>
@@ -142,39 +142,6 @@ const crateArt = (box: CosCase) => `
     <circle cx="48" cy="46" r="7" fill="${hex(box.color)}"/>
     <path d="M80 2 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3z" fill="#fff"/>
   </svg>`;
-
-/** The Cases tab: every case with its price, odds and contents. */
-export function casesTab(g: Garage, status: string): string {
-  const owned = new Set(g.cos);
-  return `
-    <h2 class="tg-h">Cosmetic cases <small>${owned.size}/${COS_ITEMS.length} collected · duplicates pay money back</small></h2>
-    <div class="cz-cases">
-      ${COS_CASES.map(
-        (box) => `<article class="cz-case" style="--c:${hex(box.color)}">
-          <div class="cz-case-art">${crateArt(box)}</div>
-          <div class="cz-case-info">
-            <h3>${esc(box.name)}</h3>
-            <p>${esc(box.blurb)}</p>
-            ${oddsRow(box)}
-            <button class="tg-go small" data-case-open="${box.id}" ${g.money < box.price ? 'disabled title="Not enough money"' : ''}>Open · ${money(box.price)}</button>
-          </div>
-          <details class="cz-inside"><summary>What's inside (${caseItems(box.id).length} items, ${caseItems(box.id).filter((i) => owned.has(i.id)).length} owned)</summary><div data-inside="${box.id}"></div></details>
-        </article>`,
-      ).join('')}
-    </div>
-    <p class="tg-muted">Duplicate refunds: ${RARITIES.map((r) => `${RARITY[r].name} ${money(RARITY[r].refund)}`).join(' · ')}</p>
-    <p class="tg-status" role="status" data-status>${esc(status)}</p>`;
-}
-
-/** Fills a case's contents when its drawer is first opened (the lists are long). */
-export function wireCases(panel: HTMLElement, g: Garage) {
-  for (const d of panel.querySelectorAll<HTMLDetailsElement>('.cz-inside')) {
-    d.addEventListener('toggle', () => {
-      const box = $(d, '[data-inside]');
-      if (d.open && !box.innerHTML) box.innerHTML = contents(COS_CASES.find((c) => c.id === box.dataset.inside)!, new Set(g.cos));
-    });
-  }
-}
 
 /** The Locker tab: slots down the side, that slot's items (owned first), equip or try on. */
 export function lockerTab(g: Garage, car: OwnedCar, carName: string, slot: CosSlot, trying: string | null, status: string): string {

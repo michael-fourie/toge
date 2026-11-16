@@ -548,6 +548,17 @@ html:not(.pad) .tg-bumper {
   font-size: 11px;
   color: var(--tg-dim);
 }
+/* A guest's chip invites you to sign in: red edge, a faint pulse. */
+.tg-who.guest {
+  border-color: rgba(255, 59, 48, 0.6);
+  background: linear-gradient(100deg, rgba(255, 59, 48, 0.22), rgba(255, 122, 43, 0.08));
+}
+.tg-who.guest svg {
+  color: var(--tg-red);
+}
+.tg-who.guest small {
+  color: #ffb4ae;
+}
 
 .tg-body {
   position: relative;
@@ -1765,6 +1776,77 @@ button.tg-mode:hover:not([aria-pressed='true']) {
   font: italic 800 18px var(--tg-display);
   color: var(--tg-dim);
 }
+/* Clubs (friendsui.ts clubsTab): a card per club with its members, an owner's add-a-friend pick. */
+.tg-clubs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 12px;
+}
+.tg-club {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+.tg-club header {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+.tg-club header small {
+  color: var(--tg-dim);
+}
+.tg-club-badge {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--tg-red), var(--tg-red-2));
+  font: italic 800 20px/1 var(--tg-display);
+  letter-spacing: 0.04em;
+  transform: skewX(-8deg);
+}
+.tg-club-members {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tg-club-members li {
+  display: grid;
+  grid-template-columns: 30px 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.tg-club-members .tg-friend-av {
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+}
+.tg-club-add {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+}
+.tg-club-add label {
+  flex: 1;
+  display: grid;
+  gap: 6px;
+}
+.tg-club-add select {
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--tg-line-2);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font: 500 15px var(--tg-body);
+}
 .tg-friends-guest {
   padding: 4px 18px 18px;
 }
@@ -2373,6 +2455,40 @@ button.tg-mode:hover:not([aria-pressed='true']) {
   letter-spacing: 0.04em;
   color: var(--tg-dim);
   text-transform: uppercase;
+}
+/* A guest's sign-in strip over the card: on screen at once, red like every action. */
+.tg-pcard-signin {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 14px 12px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 59, 48, 0.45);
+  background: linear-gradient(100deg, rgba(255, 59, 48, 0.2), rgba(255, 122, 43, 0.08)), var(--tg-ink-1);
+  box-shadow: 0 0 30px rgba(255, 59, 48, 0.18);
+}
+.tg-pcard-signin b {
+  display: block;
+  font: italic 800 20px/1.1 var(--tg-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.tg-pcard-signin small {
+  color: var(--tg-dim);
+}
+.tg-pcard-signin .tg-go {
+  flex: none;
+}
+.tg-pcard.guest .tg-pcard-tilt {
+  height: min(calc(100dvh - 240px), calc((100vw - 32px) * 1.25), 860px);
+}
+@media (max-width: 600px) {
+  .tg-pcard-signin {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    gap: 10px;
+  }
 }
 .tg-pcard-act {
   display: flex;

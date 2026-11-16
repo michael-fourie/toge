@@ -27,7 +27,7 @@ Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs
 | royale (`tests/kanjo/`) | KANJO battle royale: the elimination rules, the arena's place in the modes, an online royale room with a CPU racer |
 | racephysics, garage, raceroom, standings, raceinput, pad, headcam, cosmetics, records | KANJO: every car down every track with the AI, economy, cosmetics and cases, race server, cockpit camera head, best times and friend profiles |
 | drivers, hands | KANJO drivers: every GLB has what the game needs; hands hold the wheel from outside the rim, fingers round it |
-| friends | friend lists (one-way adds, "added you", caps, bad names) |
+| friends, clubs | friend lists (one-way adds, "added you", caps, bad names); clubs (owner-only adds from friends, leave / disband, caps) |
 | accounts, security | accounts and sessions, password rules, name cleaning, rate limits |
 | graphics, pad | the Graphics setting (every WebGL renderer gives its context back), gamepad menu navigation |
 | boundaries | the layers: `src/shared` imports no game/shell/server; `src/kanjo/shared` stays free of three.js and the DOM |

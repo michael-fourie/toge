@@ -4,8 +4,10 @@ import { type Bests, type BoardRow, type MedalRow, type NewBest, type Notice, ty
 import type { TrackId } from '../kanjo/shared/track.ts';
 import type { GhostRun, GhostTape } from '../kanjo/shared/ghost.ts';
 import type { FriendAction, FriendList, FriendResult } from '../shared/friends.ts';
+import type { ClubAction, ClubResult, ClubView } from '../shared/clubs.ts';
 import { AccountStore, type ResetResult, type Result } from './accountStore.ts';
 import { FriendStore } from './friendStore.ts';
+import { ClubStore } from './clubStore.ts';
 import { GarageStore } from '../kanjo/server/garageStore.ts';
 import { type ClearReport, RecordStore } from '../kanjo/server/recordStore.ts';
 import { Limiter } from './limiter.ts';
@@ -28,11 +30,14 @@ export class Accounts extends DurableObject {
   private garages = new GarageStore(this.ctx.storage);
   private records = new RecordStore(this.ctx.storage);
   private friendStore = new FriendStore(this.ctx.storage);
+  private clubStore = new ClubStore(this.ctx.storage, this.friendStore);
   /** Per IP: password guesses (on top of the per-username lockout), and sign-ups (each one is a costly hash). */
   private logins = new Limiter(10, 1 / 6);
   private signups = new Limiter(5, 1 / 600);
   /** Per account: friend adds and removes (each add says whether a username exists). */
   private friendActs = new Limiter(20, 1 / 3);
+  /** Per account: club actions (adding a member says whether a username is a friend). */
+  private clubActs = new Limiter(20, 1 / 3);
 
   register(username: string, password: string, ip = ''): Promise<Result> {
     if (!this.signups.take(ip)) return Promise.resolve({ ok: false, error: 'Too many new accounts from here. Try again later.' });
@@ -139,6 +144,18 @@ export class Accounts extends DurableObject {
     if (!user) return { ok: false, error: 'Sign in to add friends.' };
     if (!this.friendActs.take(user.toLowerCase())) return { ok: false, error: 'Slow down a little.' };
     return this.friendStore.act(user, action);
+  }
+
+  async clubs(token: string | undefined): Promise<ClubView[] | null> {
+    const user = await this.store.me(token);
+    return user ? this.clubStore.list(user) : null;
+  }
+
+  async clubAct(token: string | undefined, action: ClubAction): Promise<ClubResult> {
+    const user = await this.store.me(token);
+    if (!user) return { ok: false, error: 'Sign in to use clubs.' };
+    if (!this.clubActs.take(user.toLowerCase())) return { ok: false, error: 'Slow down a little.' };
+    return this.clubStore.act(user, action);
   }
 
   /** A driver code as an account may show it: battle pass pieces it hasn't unlocked are taken off. Guests' pass as they are. */

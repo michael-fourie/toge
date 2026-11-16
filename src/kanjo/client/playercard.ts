@@ -634,16 +634,21 @@ const SHARE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7 8
  * where the browser can share files, and Account. `close` is the hub's (it puts the modal away).
  */
 export function openPlayerCard(modal: HTMLElement, d: CardData, on: { close(): void; account(): void }) {
-  modal.innerHTML = `<div class="tg-pcard" data-nav-scope data-pcard role="dialog" aria-modal="true" aria-label="Your player card">
+  // A guest's first thing is the way to sign in: it's on screen the moment the card opens, before the picture prints.
+  const signIn = d.guest
+    ? `<div class="tg-pcard-signin"><div><b>Playing as a guest</b><small>Sign in to keep your garage, race online and set records.</small></div><button class="tg-go small" data-pcard-account data-autofocus>${ICON.user}Sign in</button></div>`
+    : '';
+  modal.innerHTML = `<div class="tg-pcard${d.guest ? ' guest' : ''}" data-nav-scope data-pcard role="dialog" aria-modal="true" aria-label="Your player card">
+    ${signIn}
     <div class="tg-pcard-tilt" data-tilt>
       <canvas class="tg-pcard-canvas" width="${CARD.w}" height="${CARD.h}" role="img" aria-label="${esc(`Player card for ${d.name}: ${d.wins} wins from ${d.races} races`)}"></canvas>
       <i class="tg-pcard-sheen" aria-hidden="true"></i>
       <p class="tg-pcard-loading" data-loading>Printing your card…</p>
     </div>
     <div class="tg-pcard-act">
-      <button class="tg-go" data-pcard-save data-autofocus disabled>${DOWNLOAD}Download PNG</button>
+      <button class="tg-go" data-pcard-save ${d.guest ? '' : 'data-autofocus'} disabled>${DOWNLOAD}Download PNG</button>
       <button class="tg-pill" data-pcard-share hidden>${SHARE}Share</button>
-      <button class="tg-pill" data-pcard-account>${ICON.user}${d.guest ? 'Sign in' : 'Account'}</button>
+      ${d.guest ? '' : `<button class="tg-pill" data-pcard-account>${ICON.user}Account</button>`}
       <button class="tg-pill" data-pcard-close>Close</button>
     </div>
     <p class="tg-pcard-status" role="status" data-pcard-status></p>
@@ -659,7 +664,7 @@ export function openPlayerCard(modal: HTMLElement, d: CardData, on: { close(): v
   modal.addEventListener('click', (e) => {
     if (e.target === modal) on.close();
   });
-  save.focus({ preventScroll: true });
+  (modal.querySelector<HTMLElement>('.tg-pcard-signin [data-pcard-account]') ?? save).focus({ preventScroll: true });
 
   // Tilt toward the pointer, with the sheen following it.
   const tilt = q('[data-tilt]');

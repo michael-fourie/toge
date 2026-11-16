@@ -1,20 +1,23 @@
-// KANJO's home: the garage. Seven tabs (DESIGN.md §6): Race (the landing: your car and driver centred, Host / Join below, cards round
-// them for the Battle pass (passui.ts, its own page) and the Leaderboard (leaderboardui.ts, a large modal)); Garage (My cars, Dealer); Performance (Upgrades,
-// Tuning); Style (Paint, Locker, Cases: cosmeticsui.ts); Driver (your character: riderui.ts); Settings (graphics:
-// settingsui.ts); Friends (friendsui.ts: add friends, their garages and best times). LB / RB walk every page in that order. The showroom fills
-// the window behind the glass rail, with your car framed in the free space and its card bottom right.
+// KANJO's home: the garage. Six tabs (DESIGN.md §6): Race (the landing: your car and driver centred, Host / Join below, cards round
+// them for the Battle pass (passui.ts, its own page) and the Leaderboard (leaderboardui.ts, a large modal)); Garage (My cars, Dealer,
+// Upgrades, Tuning); Style (Paint, Locker, Driver: cosmeticsui.ts, riderui.ts); Shop (shopui.ts: the Battle pass, every cosmetic case
+// and the upgrade crate on one page of cards); Social (friendsui.ts: Friends, with their garages and best times, and Clubs); Settings
+// (graphics: settingsui.ts). LB / RB walk every page in that order. The showroom fills the window behind the glass rail, with your car
+// framed in the free space and its card bottom right (the Race landing and the Shop have no rail beside the car).
 
 import { CARS, CAR_IDS, CLASS_COLORS, FINISHES, GLOWS, GLOW_NAMES, type Look, MAX_LEVEL, PAINTS, PAINT_NAMES, PARTS, PART_INFO, type Part, HOODS, LIPS, MIRRORS, RIMS, RIM_COLORS, RIM_COLOR_NAMES, ROOFS, SPOILERS, STRIPES, TINTS, TRIMS, type BaseCar, TUNE_RANGE, type Tune, carSpec, isBike, encodeCar, newOwnedCar, peakPower, rating, stats, topSpeed, type OwnedCar } from '../shared/cars.ts';
 import { CRATES, type CrateResult, MYSTERY_COST, current, tunerCost } from '../shared/garage.ts';
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById, fitsModel } from '../shared/cosmetics.ts';
-import { casesTab, lockerTab, showCaseReel, wireCases } from './cosmeticsui.ts';
+import { lockerTab, showCaseReel } from './cosmeticsui.ts';
+import { caseInside, shopTab } from './shopui.ts';
 import { type Rider, decodeRider, defaultRider, encodeRider, isRider, riderInfo } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
 import { cardData, openPlayerCard } from './playercard.ts';
 import { settingsTab } from './settingsui.ts';
-import { friendCar, friendsApi, friendsTab } from './friendsui.ts';
+import { clubsApi, clubsTab, friendCar, friendsApi, friendsTab } from './friendsui.ts';
 import { type Leaders, boardApi, leaderboardModal, noticeText } from './leaderboardui.ts';
 import type { FriendList } from '../../shared/friends.ts';
+import type { ClubAction, ClubView } from '../../shared/clubs.ts';
 import { BOARD_TRACKS, type BoardRow, type MedalRow, type Notice, type KanjoProfile } from '../shared/records.ts';
 import { type Graphics, graphics, setGraphics } from '../../client/graphics.ts';
 import type { TrackId } from '../shared/track.ts';
@@ -33,15 +36,14 @@ import { GAME, ICON, LOGO } from './brand.ts';
 import './race.css';
 import './hub.css';
 
-type Page = 'race' | 'pass' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'cases' | 'driver' | 'friends' | 'settings';
-type TabId = 'race' | 'garage' | 'perf' | 'style' | 'driver' | 'friends' | 'settings';
+type Page = 'race' | 'pass' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'driver' | 'shop' | 'friends' | 'clubs' | 'settings';
+type TabId = 'race' | 'garage' | 'style' | 'shop' | 'social' | 'settings';
 const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
   { id: 'race', label: 'Race', pages: [['race', 'Race'], ['pass', 'Battle pass']] },
-  { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['dealer', 'Dealer']] },
-  { id: 'perf', label: 'Performance', pages: [['upgrades', 'Upgrades'], ['tuning', 'Tuning']] },
-  { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['cases', 'Cases']] },
-  { id: 'driver', label: 'Driver', pages: [['driver', 'Driver']] },
-  { id: 'friends', label: 'Friends', pages: [['friends', 'Friends']] },
+  { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['upgrades', 'Upgrades'], ['tuning', 'Tuning'], ['dealer', 'Dealer']] },
+  { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['driver', 'Driver']] },
+  { id: 'shop', label: 'Shop', pages: [['shop', 'Shop']] },
+  { id: 'social', label: 'Social', pages: [['friends', 'Friends'], ['clubs', 'Clubs']] },
   { id: 'settings', label: 'Settings', pages: [['settings', 'Settings']] },
 ];
 /** Every page in LB / RB order. */
@@ -92,7 +94,7 @@ export interface Pit {
   close(): void;
 }
 /** The tabs the lobby's garage shows. */
-const PIT_TABS: TabId[] = ['garage', 'perf', 'style', 'driver'];
+const PIT_TABS: TabId[] = ['garage', 'style'];
 /** The page the lobby's garage opens on: the last one used there. */
 let pitPage: Page = 'paint';
 
@@ -103,9 +105,10 @@ export const pitGarage = (root: HTMLElement, ctx: Ctx, pit: Pit) => mountHub(roo
 function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null): () => void {
   const tabs = pit ? TABS.filter((t) => PIT_TABS.includes(t.id)) : TABS;
   const pages: Page[] = tabs.flatMap((t) => t.pages.map(([p]) => p));
-  let page: Page = pit ? pitPage : (PAGES.find((p) => p === screen.dtab) ?? 'race');
+  // The Cases page became the Shop: a saved 'cases' opens it.
+  let page: Page = pit ? pitPage : (PAGES.find((p) => p === (screen.dtab === 'cases' ? 'shop' : screen.dtab)) ?? 'race');
   /** The page each tab opens on (the last one you looked at). */
-  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', perf: 'upgrades', style: 'paint', driver: 'driver', friends: 'friends', settings: 'settings' };
+  const lastPage: Record<TabId, Page> = { race: 'race', garage: 'garage', style: 'paint', shop: 'shop', social: 'friends', settings: 'settings' };
   lastPage[tabOf(page).id] = page;
   let status = screen.notice ?? '';
   let draft: { look: Look; tune: Tune } | null = null;
@@ -128,6 +131,9 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   let friendsLoading = false;
   let friendOpen: KanjoProfile | null = null;
   let friendCarI = 0;
+  /** Clubs: the ones you're in (null until loaded). */
+  let clubList: ClubView[] | null = null;
+  let clubsLoading = false;
   const friendsView = () => ({ user: account.user, list: friendList, open: friendOpen, openCar: friendCarI, bests: garage.bests, status });
   const visiting = () => (page === 'friends' ? friendOpen : null);
   /** Leaderboard: the track whose board is open, every track's record, and the boards loaded so far. */
@@ -186,7 +192,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     const W = innerWidth;
     const H = innerHeight;
     // The landing has no rail: the car and driver stand in the middle, above the Host button.
-    if (W > 900 && landing()) showroom.place(0.5, (s.top + s.bottom * 0.8) / 2 / H);
+    if (W > 900 && (landing() || page === 'shop')) showroom.place(0.5, (s.top + s.bottom * 0.8) / 2 / H);
     else if (W > 900) showroom.place((r.right + W) / 2 / W, (s.top + s.bottom * 0.84) / 2 / H);
     else showroom.place(0.5, (s.top + s.bottom) / 2 / H, Math.min(1, ((s.bottom - s.top) / H) * 1.6));
   };
@@ -243,11 +249,13 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       chip.classList.toggle('on', page === 'pass');
     }
     root.querySelector('main.tg')?.classList.toggle('tg-landing', landing());
+    root.querySelector('main.tg')?.classList.toggle('tg-shopmode', page === 'shop');
     const who = root.querySelector<HTMLElement>('[data-who]');
     if (who) who.innerHTML = account.user
       ? `${ICON.user}<span>${esc(account.user)}</span><small>${garage.g.wins} wins · Player card</small>`
-      : `${ICON.user}<span>Guest</span><small>Your player card</small>`;
-    who?.setAttribute('aria-label', 'Open your player card');
+      : `${ICON.user}<span>Guest</span><small>Sign in</small>`;
+    who?.classList.toggle('guest', !account.user);
+    who?.setAttribute('aria-label', account.user ? 'Open your player card' : 'Guest: open your player card and sign in');
     const tab = tabOf(page);
     root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => {
       b.setAttribute('aria-selected', String(b.dataset.tab === tab.id));
@@ -480,7 +488,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   };
 
   const lockerPage = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
-  const casesPage = () => casesTab(garage.g, status);
+  const shopPage = () => shopTab(garage.g, CARS[car().model].name, status);
   const driverPage = () => driverTab(viewedRider(), ownLook(), garage.g, status);
   const passPage = () => passTab({ g: garage.g, sel: passSel, car: CARS[car().model].name, status });
   const settingsPage = () => settingsTab(graphics(), status);
@@ -534,7 +542,12 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     if (account.user && !friendList) void loadFriends();
     return friendsTab(friendsView(), classBadge);
   };
-  const BODIES: Record<Page, () => string> = { race: racePage, pass: passPage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, cases: casesPage, driver: driverPage, friends: friendsPage, settings: settingsPage };
+  const clubsPage = () => {
+    if (account.user && !clubList) void loadClubs();
+    if (account.user && !friendList) void loadFriends();
+    return clubsTab({ user: account.user, clubs: clubList, friends: friendList?.friends ?? [], status });
+  };
+  const BODIES: Record<Page, () => string> = { race: racePage, pass: passPage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, shop: shopPage, driver: driverPage, friends: friendsPage, clubs: clubsPage, settings: settingsPage };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -748,7 +761,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       inp.addEventListener('change', () => draw());
     });
     // Cosmetics: cases and the locker.
-    if (page === 'cases') wireCases(panel, garage.g);
+    panel.querySelectorAll<HTMLElement>('[data-case-inside]').forEach((b) => b.addEventListener('click', () => showInside(b.dataset.caseInside)));
     panel.querySelectorAll<HTMLElement>('[data-case-open]').forEach((b) => b.addEventListener('click', () => void openCase(b.dataset.caseOpen as CaseId)));
     panel.querySelectorAll<HTMLElement>('[data-slot]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -811,6 +824,34 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       draw(false);
       root.querySelector<HTMLElement>('[data-panel] [data-autofocus]')?.focus({ preventScroll: true });
     });
+    // Clubs: start one, add a friend, remove a member, leave or disband (the last three ask twice).
+    panel.querySelector<HTMLFormElement>('[data-club-form]')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = panel.querySelector<HTMLInputElement>('[data-club-name]')!;
+      if (input.value.trim()) void clubAct({ a: 'create', club: input.value.trim() }, 'Club started.');
+    });
+    panel.querySelectorAll<HTMLFormElement>('[data-club-add]').forEach((f) =>
+      f.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = f.querySelector<HTMLSelectElement>('[data-club-pick]')!.value;
+        if (name) void clubAct({ a: 'add', club: f.dataset.clubAdd!, name }, `${name} is in.`);
+      }),
+    );
+    const twice = (sel: string, make: (b: HTMLElement) => [ClubAction, string]) =>
+      panel.querySelectorAll<HTMLButtonElement>(sel).forEach((b) =>
+        b.addEventListener('click', () => {
+          if (!b.dataset.sure) {
+            b.dataset.sure = '1';
+            b.textContent = 'Sure? Press again';
+            return;
+          }
+          const [action, done] = make(b);
+          void clubAct(action, done);
+        }),
+      );
+    twice('[data-club-kick]', (b) => [{ a: 'remove', club: b.dataset.clubKick!, name: b.dataset.who! }, `Removed ${b.dataset.who}.`]);
+    twice('[data-club-leave]', (b) => [{ a: 'remove', club: b.dataset.clubLeave!, name: account.user ?? '' }, 'You left the club.']);
+    twice('[data-club-disband]', (b) => [{ a: 'disband', club: b.dataset.clubDisband! }, 'Club disbanded.']);
     // Battle pass: pick a tier (previews it), buy the pass, use what it's unlocked.
     panel.querySelectorAll<HTMLElement>('[data-pass-tier]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -868,7 +909,26 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     friendList = list ?? { friends: [], mutual: [], fans: [] };
     if (!list) status = 'Could not load your friends.';
     if (lbOpen) renderLb();
-    if (page === 'friends') draw();
+    if (page === 'friends' || page === 'clubs') draw();
+  };
+  const loadClubs = async () => {
+    if (clubsLoading) return;
+    clubsLoading = true;
+    const list = await clubsApi.list();
+    clubsLoading = false;
+    clubList = list ?? [];
+    if (!list) status = 'Could not load your clubs.';
+    if (page === 'clubs') draw();
+  };
+  const clubAct = async (action: ClubAction, done: string) => {
+    if (busy) return;
+    busy = true;
+    const r = await clubsApi.act(action);
+    busy = false;
+    if (!r.ok) return setStatus(r.error);
+    clubList = r.clubs;
+    status = done;
+    if (page === 'clubs') draw(false);
   };
   const friendAct = async (a: 'add' | 'remove', name: string) => {
     if (busy) return;
@@ -1004,6 +1064,22 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     modal.innerHTML = '';
     draw(false);
   };
+  /** A case's whole contents in the modal (the Shop's What's inside). */
+  const showInside = (id: string | undefined) => {
+    const box = cosCaseById(id);
+    if (!box) return;
+    const modal = $(root, '[data-modal]');
+    modal.innerHTML = caseInside(box, garage.g);
+    modal.hidden = false;
+    modal.onclick = (e) => e.target === modal && closeInside();
+    modal.querySelector('[data-inside-close]')?.addEventListener('click', closeInside);
+    modal.querySelector<HTMLElement>('[data-inside-close]')?.focus({ preventScroll: true });
+  };
+  const closeInside = () => {
+    $(root, '[data-modal]').onclick = null;
+    closeModal();
+    root.querySelector<HTMLElement>('[data-case-inside]')?.focus({ preventScroll: true });
+  };
   const closeReel = () => {
     closeModal();
     root.querySelector<HTMLElement>('[data-crate="mystery"], [data-case-open]')?.focus();
@@ -1071,6 +1147,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     if (e.key === 'Escape' && !modal.hidden) {
       e.stopImmediatePropagation();
       if (modal.querySelector<HTMLElement>('[data-ok]:not([hidden])')) closeReel();
+      else if (modal.querySelector('[data-inside-close]')) closeInside();
       else if (lbOpen) closeLb();
       else modal.querySelector<HTMLElement>('[data-pcard-close]')?.click();
     } else if (e.key === 'Escape' && pit) {
@@ -1087,9 +1164,10 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   const offAccount = account.onChange(() => {
     friendList = null;
     friendOpen = null;
+    clubList = null;
     void loadNotices();
     if (lbOpen) renderLb();
-    if (page === 'friends') draw();
+    if (page === 'friends' || page === 'clubs') draw();
     else drawTop();
   });
   void garage.refresh();
@@ -1124,7 +1202,7 @@ function focusId(el: Element | null): string | null {
   const dl = el.getAttribute('data-dl');
   if (dl) return el.hasAttribute('data-pick') ? `input[data-dl="${dl}"]` : `button[data-dl="${dl}"][data-v="${el.getAttribute('data-v')}"]`;
   if (el.hasAttribute('data-dl-random')) return '[data-dl-random]';
-  for (const attr of ['data-lb-open', 'data-pass-open', 'data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
+  for (const attr of ['data-lb-open', 'data-pass-open', 'data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-case-inside', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }

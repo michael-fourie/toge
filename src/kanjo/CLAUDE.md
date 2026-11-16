@@ -87,7 +87,7 @@ speeds on `ARCADE.grip`, so CPU times barely moved (all race tracks within 0.3 s
 
 ## Menus and brand
 
-The home screens (hub.ts: tabs Race, Garage, Performance, Style, Driver, Friends, Settings), the race lobby (lobby.ts) and cosmetics
+The home screens (hub.ts: tabs Race, Garage, Style, Shop, Social, Settings), the race lobby (lobby.ts) and cosmetics
 (cosmeticsui.ts) follow the design system in **`src/kanjo/DESIGN.md`**: the brand, colour roles (red acts, cyan selects,
 gold pays), type, the screen anatomy, the tab map and the components. Its tokens and components are in
 `src/kanjo/client/hub.css`; reuse them rather than styling a new screen from scratch, and update DESIGN.md when you add
@@ -393,7 +393,8 @@ a component or a page.
   the overlay (`.rh-replay` in race.css: letterbox, REPLAY tag, "Best Moment" card with the winner and the line from
   `momentLine`, a cyan bar, Skip). Then the results. Online the room holds each results wait `HIGHLIGHT.seconds`
   longer (RACE `resultsSeconds` etc.), so the table still gets 12 / 15 / 25 s. Free roam has none.
-- **Friends** (the Friends tab, friendsui.ts): add accounts by username (site-wide lists, `src/shared/friends.ts`,
+- **Clubs** (Social → Clubs, friendsui.ts `clubsTab`; Michael, 2026-11-15: "add your friends to clubs"): a named group of accounts (`src/shared/clubs.ts`, kept by `src/server/clubStore.ts`, `/api/clubs`). Anyone signed in starts one (3-20 characters, unique site-wide, at most `CLUBS_MAX` clubs each); the owner adds accounts from their own friends list (up to `CLUB_MEMBERS_MAX`), removes members or disbands; a member can leave, the owner can't. Tests: tests/clubs.test.ts.
+- **Friends** (Social → Friends, friendsui.ts): add accounts by username (site-wide lists, `src/shared/friends.ts`,
   `/api/friends`), see who added you, open a friend's garage (`/api/garage?u=`, a `KanjoProfile`: cars, driver, races,
   wins, best times, no money). Their car goes on the turntable with their driver beside it, and their best times sit next
   to yours with the gap. Guests see a sign-in prompt and their own times.

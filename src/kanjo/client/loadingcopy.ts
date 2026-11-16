@@ -11,7 +11,7 @@ export const LOADING_TIPS = [
   'Hold the wheel into a drift to tighten it round a hairpin.',
   'Brake in a straight line, then turn in. The pass rewards patience.',
   'Tuning is in Performance. A softer setup soaks up a bumpy road.',
-  'Set a best time and your friends can see it on their Friends tab.',
+  'Set a best time and your friends can see it on their Social tab.',
   'Late on the brakes wins a corner. Early on the throttle wins the run.',
   'Rainbow pads sit wide on a few corner exits. Run out over one to fire off it.',
 ];

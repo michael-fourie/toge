@@ -30,7 +30,7 @@ const GEAR_ART: Record<string, string> = {
 };
 
 /** The picture on a tier tile and in the detail card. */
-function rewardArt(r: PassReward): string {
+export function rewardArt(r: PassReward): string {
   switch (r.kind) {
     case 'cos': {
       const it = cosById(r.id);
@@ -53,7 +53,7 @@ function rewardArt(r: PassReward): string {
 }
 
 /** What kind of reward it is, for the small line under its name. */
-function rewardKind(r: PassReward): string {
+export function rewardKind(r: PassReward): string {
   switch (r.kind) {
     case 'cos': {
       const it = cosById(r.id);
