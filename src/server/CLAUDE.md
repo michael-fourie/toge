@@ -8,7 +8,7 @@ Security model and open gaps: `docs/SECURITY.md`.
 This guide covers the whole server side. The files:
 
 - `src/server/` (the platform): `worker.ts` (routing, `Env`, admin routes), `directory.ts`, `accounts.ts` +
-  `accountStore.ts` + `friendStore.ts`, `limiter.ts`, `rooms.ts` (`Socket` and `HEARTBEAT_SECONDS`).
+  `accountStore.ts` + `friendStore.ts` + `clubStore.ts`, `limiter.ts`, `rooms.ts` (`Socket` and `HEARTBEAT_SECONDS`).
 - `src/kanjo/server/`: `raceroom.ts` (RaceRoom), `race.ts`, `garageStore.ts`, `recordStore.ts`.
 
 All of them are typechecked by `tsconfig.worker.json` (Workers types, no DOM). They may import `src/shared` and
@@ -28,6 +28,7 @@ All of them are typechecked by `tsconfig.worker.json` (Workers types, no DOM). T
 | `/api/leaderboard` (GET, open to anyone) | Accounts `"all"`: the all-time boards. No params: every track's record and the medal table (`medals`); `?t=<track>`: that track's board (one row per account) |
 | `/api/notices` (GET your own; POST `{seen: <at>}`, ≤128 B) | Accounts `"all"` `.notices` / `.seenNotices`: "your time was beaten" notices for the session's account (null / false for guests) |
 | `/api/friends` (GET your list, POST `{a: 'add' \| 'remove', name}`) | Accounts `"all"` (`friendStore.ts`; rules in `src/shared/friends.ts`) |
+| `/api/clubs` (GET the clubs you're in, POST a `ClubAction`: `create` / `add` / `remove` / `disband`) | Accounts `"all"` (`clubStore.ts`; rules in `src/shared/clubs.ts`) |
 | WS `/ws?game=race` | Directory `"race"` hands out a code (or checks `code=`), then RaceRoom `<code>` |
 
 - `/ws` needs `Upgrade: websocket` and a same-origin `Origin`. `Accounts.identify(cookie, name)` settles the display
@@ -75,10 +76,11 @@ that way: it's what makes the logic unit-testable.
 - Session token: 64 hex chars in an HttpOnly, SameSite=Lax cookie, 30 days, not sliding. Only `sha256(token)` is
   stored (`s:<hash>`). Users are `u:<lowercase name>`, garage `g:<user>`, best times `b:<user>`, boards `lb:<track>`,
   record ghosts `gh:<track>`, notices `nt:<user>`, friends `f:<user>` (who they added) and `fi:<user>` (who added
-  them), all lower-cased names. Accounts copied from Gambol also carry its shooter stash (`i:<user>`, `t:<user>`),
+  them), clubs `cl:<lower club name>` and `cm:<user>` (the clubs a user is in), all lower-cased names. Accounts copied from Gambol also carry its shooter stash (`i:<user>`, `t:<user>`),
   which nothing here reads.
 - Friends are one way (`FriendStore`): adding needs the account to exist, `FRIENDS_MAX` each, a per-account
   `Limiter`. A friend sees `profileOf()` (no money).
+- Clubs (`ClubStore`): unique names, the owner alone adds (only their friends, via `FriendStore.has`), removes or disbands; the club's owner can't leave; `CLUBS_MAX` clubs per account, `CLUB_MEMBERS_MAX` members, a per-account `Limiter`.
 - Cosmetic cases are a garage action like crates: the server rolls with `secureRandom` (crypto, garageStore.ts),
   charges, grants or refunds. `Accounts.raceCar(name, code)` strips cosmetics an account doesn't own from its race car
   code; the Worker runs it on `car=` when an account joins a race, RaceRoom on every `{t:'car'}` from an account.

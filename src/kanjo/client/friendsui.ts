@@ -1,4 +1,4 @@
-// The Friends page (hub.ts hosts it): add friends by username, see who added you, and open a friend's profile:
+// The Social tab's two pages (hub.ts hosts them). Friends: add friends by username, see who added you, and open a friend's profile:
 // their garage (any car goes on the turntable, their driver beside it) and their best time on every track next to
 // yours. Friends are site-wide (src/shared/friends.ts, /api/friends); a profile is `/api/garage?u=<name>`, which the
 // server only answers for an account you've added. Signed in only; a guest still sees their own best times.
@@ -6,6 +6,7 @@
 import { CARS, PAINTS, type OwnedCar, decodeCar } from '../shared/cars.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { type FriendAction, type FriendList, type FriendResult } from '../../shared/friends.ts';
+import { CLUBS_MAX, CLUB_MEMBERS_MAX, CLUB_NAME, type ClubAction, type ClubResult, type ClubView } from '../../shared/clubs.ts';
 import { type Bests, type KanjoProfile } from '../shared/records.ts';
 import { RACE_TRACKS, TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import { esc } from '../../client/menu/ui.ts';
@@ -44,6 +45,24 @@ export const friendsApi = {
       return ((await (await fetch(`/api/garage?u=${encodeURIComponent(name)}`)).json()) as { profile: KanjoProfile | null }).profile;
     } catch {
       return null;
+    }
+  },
+};
+
+export const clubsApi = {
+  async list(): Promise<ClubView[] | null> {
+    try {
+      return ((await (await fetch('/api/clubs')).json()) as { clubs: ClubView[] | null }).clubs;
+    } catch {
+      return null;
+    }
+  },
+  async act(action: ClubAction): Promise<ClubResult> {
+    try {
+      const res = await fetch('/api/clubs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action) });
+      return (await res.json()) as ClubResult;
+    } catch {
+      return { ok: false, error: 'Could not reach the game server.' };
     }
   },
 };
@@ -180,4 +199,75 @@ function profilePage(v: FriendsView, p: KanjoProfile, badge: (c: OwnedCar) => st
         : `<p class="tg-muted">Neither of you has finished a race yet.</p>`
     }
     ${status(v.status)}`;
+}
+
+export interface ClubsView {
+  user: string | null;
+  /** Null while it loads. */
+  clubs: ClubView[] | null;
+  /** Your friends (the ones an owner can add). */
+  friends: string[];
+  status: string;
+}
+
+/**
+ * The Clubs page: the clubs you're in, each a card with its members. Owners add friends (a pick list of the friends
+ * not in yet) and remove members or disband; members can leave. Start one with a name.
+ */
+export function clubsTab(v: ClubsView): string {
+  if (!v.user) {
+    return `
+      <div class="tg-group tg-cardbox tg-friends-guest">
+        <h2 class="tg-h">Clubs</h2>
+        <p>Sign in to start a club and bring your friends into it.</p>
+        <button class="tg-go" data-friends-signin data-autofocus>Sign in</button>
+      </div>
+      ${status(v.status)}`;
+  }
+  const me = v.user.toLowerCase();
+  const clubs = v.clubs;
+  return `
+    <form class="tg-friend-add tg-cardbox" data-club-form>
+      <label><span class="tg-label">Start a club</span><input data-club-name maxlength="${CLUB_NAME.max}" placeholder="Club name" autocomplete="off" spellcheck="false" data-autofocus /></label>
+      <button class="tg-go small" type="submit" ${clubs && clubs.length >= CLUBS_MAX ? 'disabled' : ''}>Create</button>
+    </form>
+    <h2 class="tg-h">Your clubs <small>${clubs ? `${clubs.length}/${CLUBS_MAX}` : ''}</small></h2>
+    ${
+      !clubs
+        ? '<p class="tg-muted">Loading…</p>'
+        : clubs.length
+          ? `<div class="tg-clubs">${clubs.map((c) => clubCard(c, me, v.friends)).join('')}</div>`
+          : '<p class="tg-muted">You are not in a club yet. Start one, then add friends from your list.</p>'
+    }
+    <p class="tg-muted">A club holds up to ${CLUB_MEMBERS_MAX} members. Only friends you have added can be put in one.</p>
+    ${status(v.status)}`;
+}
+
+function clubCard(c: ClubView, me: string, friends: string[]): string {
+  const inClub = new Set(c.members.map((m) => m.toLowerCase()));
+  const open = friends.filter((f) => !inClub.has(f.toLowerCase()));
+  const sure = (attr: string, label: string, aria: string) => `<button class="tg-pill danger" ${attr} aria-label="${esc(aria)}">${label}</button>`;
+  return `<article class="tg-club tg-cardbox">
+    <header>
+      <span class="tg-club-badge" aria-hidden="true">${esc(c.name.slice(0, 2).toUpperCase())}</span>
+      <div><h3 class="tg-title">${esc(c.name)}</h3><small>${c.members.length} member${c.members.length === 1 ? '' : 's'} · owner ${esc(c.owner)}</small></div>
+      ${c.mine ? sure(`data-club-disband="${esc(c.name)}"`, 'Disband', `Disband ${c.name}`) : sure(`data-club-leave="${esc(c.name)}"`, 'Leave', `Leave ${c.name}`)}
+    </header>
+    <ul class="tg-club-members">
+      ${c.members
+        .map(
+          (m, i) => `<li><span class="tg-friend-av" aria-hidden="true">${esc(m.slice(0, 1).toUpperCase())}</span><b>${esc(m)}</b>${i === 0 ? '<span class="tg-tag">Owner</span>' : m.toLowerCase() === me ? '<span class="tg-tag you">You</span>' : ''}${
+            c.mine && i > 0 ? `<button class="tg-pill danger" data-club-kick="${esc(c.name)}" data-who="${esc(m)}" aria-label="Remove ${esc(m)} from ${esc(c.name)}">Remove</button>` : ''
+          }</li>`,
+        )
+        .join('')}
+    </ul>
+    ${
+      c.mine
+        ? open.length
+          ? `<form class="tg-club-add" data-club-add="${esc(c.name)}"><label><span class="tg-label">Add a friend</span><select data-club-pick>${open.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join('')}</select></label><button class="tg-pill" type="submit">Add</button></form>`
+          : `<p class="tg-muted">${friends.length ? 'Every friend you have is in.' : 'Add friends on the Friends page, then bring them in here.'}</p>`
+        : ''
+    }
+  </article>`;
 }

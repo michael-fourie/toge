@@ -33,7 +33,7 @@ export function garageEnvironment(renderer: THREE.WebGLRenderer, left = CYAN, ri
   };
   add(new THREE.SphereGeometry(40, 24, 12), glow);
   add(new THREE.CircleGeometry(30, 24).rotateX(-Math.PI / 2).translate(0, -2, 0), new THREE.Color(0.02, 0.02, 0.025));
-  for (const x of [-4, 0, 4]) add(new THREE.PlaneGeometry(1.2, 16), new THREE.Color(7, 7, 7.4), [x, 10, 0]);
+  for (const x of [-4, 0, 4]) add(new THREE.PlaneGeometry(1.2, 16), new THREE.Color(3.6, 3.6, 3.8), [x, 10, 0]);
   add(new THREE.PlaneGeometry(10, 2), left.clone().multiplyScalar(3), [-14, 2, -6]);
   add(new THREE.PlaneGeometry(10, 2), right.clone().multiplyScalar(3), [14, 2, -6]);
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -191,7 +191,7 @@ export class Showroom {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, this.low ? LOW_PIXEL_RATIO : 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.toneMappingExposure = 0.9;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = !this.low;
     // PCF: three.js removed PCFSoftShadowMap and swaps it for PCF at the first shadow draw, after the shaders were
@@ -200,7 +200,7 @@ export class Showroom {
     const keep = <T extends { dispose(): void }>(x: T) => (this.own.push(x), x);
     this.env = garageEnvironment(this.renderer);
     this.scene.environment = this.env;
-    this.scene.environmentIntensity = 0.7;
+    this.scene.environmentIntensity = 0.5;
     this.scene.background = new THREE.Color(0x05070b);
     this.scene.fog = new THREE.Fog(0x05070b, 12, 26);
 
@@ -235,7 +235,7 @@ export class Showroom {
       this.turntable.add(ring);
     }
     this.scene.add(this.turntable);
-    const key = new THREE.SpotLight(0xfff6ea, 34, 22, 0.65, 0.85, 1.2);
+    const key = new THREE.SpotLight(0xfff6ea, 26, 22, 0.65, 0.85, 1.2);
     key.position.set(2, 8, 3);
     key.castShadow = !this.low;
     key.shadow.mapSize.set(1024, 1024);
@@ -253,7 +253,7 @@ export class Showroom {
     // Low's simple materials don't see the garage environment: a soft fill stands in for it.
     if (this.low) this.scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x20232a, 1.6));
     this.post = new Post(this.renderer, this.scene, this.camera, {
-      bloom: 0.45,
+      bloom: 0.3,
       threshold: 5,
       contrast: 1.12,
       saturation: 1.02,

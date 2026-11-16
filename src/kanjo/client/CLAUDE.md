@@ -69,7 +69,7 @@ The rules that bite most often in this folder:
   only the in-race HUD. Page ids (`dtab`) are restored on reload: keep them stable.
 - Cosmetics: cosmeticsview.ts draws them (one livery canvas per car for paint jobs + decals, seeded by item id so every
   client sees the same camo; cached materials per item, registered with `share()` so a car's dispose leaves them);
-  cosmeticsui.ts is the Locker and Cases pages and the case reel (styles in cosmetics.css). Body UVs: u nose to tail,
+  cosmeticsui.ts is the Locker page and the case reel (styles in cosmetics.css); shopui.ts is the Shop, where the cases are bought (shop.css). Body UVs: u nose to tail,
   v round the section, so each flank needs its own transform to read the right way (`onFlanks`).
 - Body parts (wings, hoods, roof gear, lips, sides, mudflaps): bodykits.ts builds them from the Kit helpers (`k.top`,
   `k.height`, `k.side`, `k.front`, `k.cabin`) inside carmodel.ts's `common()`, before the merge; a cosmetic wing replaces
