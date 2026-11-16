@@ -86,6 +86,7 @@ export const CREW_PORTRAIT = { w: 320, h: 270 };
 
 /** The crew picture's usual camera distance, and the margin kept either side of the car and driver (m). */
 const CREW_DIST = 7.6;
+const CREW_FOV = 20;
 const CREW_PAD = 0.25;
 
 const crewCache = new Map<string, string>();
@@ -95,7 +96,8 @@ let crewKit: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.
 function crewSetup() {
   const canvas = document.createElement('canvas');
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  // Always drawn at 2x: the lobby shows these large (up to ~520 px wide), so a 1x picture would blur.
+  renderer.setPixelRatio(2);
   renderer.setSize(CREW_PORTRAIT.w, CREW_PORTRAIT.h, false);
   renderer.setClearColor(0x000000, 0);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -115,7 +117,9 @@ function crewSetup() {
   const rimM = new THREE.DirectionalLight(0xff3d9a, 1.8);
   rimM.position.set(5, 2.5, -3);
   scene.add(key, rimC, rimM);
-  const camera = new THREE.PerspectiveCamera(30, CREW_PORTRAIT.w / CREW_PORTRAIT.h, 0.1, 40);
+  // A tight lens from the same distance: at 30° the car and driver filled under half of the picture, and the lobby
+  // shows these as the crew, so they should fill it. The width fit in `racerPortrait` reads `fov`, so long cars still fit.
+  const camera = new THREE.PerspectiveCamera(CREW_FOV, CREW_PORTRAIT.w / CREW_PORTRAIT.h, 0.1, 40);
   camera.position.set(0, 1.4, CREW_DIST);
   camera.lookAt(0, 0.8, 0);
   return { renderer, scene, camera, env };

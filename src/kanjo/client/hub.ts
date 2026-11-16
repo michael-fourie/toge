@@ -20,7 +20,9 @@ import type { FriendList } from '../../shared/friends.ts';
 import type { ClubAction, ClubView } from '../../shared/clubs.ts';
 import { BOARD_TRACKS, type BoardRow, type MedalRow, type Notice, type KanjoProfile } from '../shared/records.ts';
 import { type Graphics, graphics, setGraphics } from '../../client/graphics.ts';
-import type { TrackId } from '../shared/track.ts';
+import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
+import { CUPS } from '../shared/cups.ts';
+import type { RaceLobbyInfo } from '../shared/protocol.ts';
 import { account } from '../../client/account.ts';
 import type { Ctx, Render, Screen } from '../../client/menu/router.ts';
 import { $, esc, playerName } from '../../client/menu/ui.ts';
@@ -157,6 +159,9 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   /** Your unseen "your time was beaten" notices (signed in), checked on arrival and every NOTICE_POLL_MS. */
   let notices: Notice[] = [];
   let noticeTimer = 0;
+  /** The open-races list: its refresh timer, and its last markup (a redraw shows it at once instead of flashing "Looking…"). */
+  let listTimer = 0;
+  let lobbyList = `<li class="muted">Looking for open races…</li>`;
   let popTimer = 0;
   /** Battle pass: the tier open in its detail card (previewed in the showroom while the page is up): the next to reach. */
   let passSel = Math.min(PASS.tiers, tierOf(garage.g.xp) + 1);
@@ -337,6 +342,10 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     const beaten = notices.length ? `<b class="tg-badge" aria-label="${notices.length} times beaten">${notices.length}</b>` : '';
     return `
     <div class="tg-land">
+      <section class="tg-hc tg-hc-lobbies" aria-label="Open races">
+        <span class="tg-hc-eyebrow">Open races</span>
+        <ul class="tg-lobbies" data-lobbies>${lobbyList}</ul>
+      </section>
       <button class="tg-hc tg-hc-pass" data-pass-open aria-label="Open the Battle pass">${passCard(g)}</button>
       <div class="tg-land-r">
         <button class="tg-hc tg-hc-lb" data-lb-open aria-label="Open the leaderboard">
@@ -574,6 +583,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     drawCard();
     const again = focusKey && panel.querySelector<HTMLElement>(focusKey);
     if (again) again.focus({ preventScroll: true });
+    if (page === 'race') void refreshLobbies();
     frameCar(); // the landing frames the car in the middle, the other pages beside the rail
   };
 
@@ -1147,6 +1157,50 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     else raceNet.host(playerName(), enc, rider);
   };
 
+  /** What an open race is, for its row in the list. */
+  const lobbyMode = (l: RaceLobbyInfo) => {
+    switch (l.mode) {
+      case 'trial': return 'time trial';
+      case 'climb': return 'hill climb';
+      case 'roam': return 'free roam';
+      case 'royale': return 'battle royale';
+      case 'endurance': return `endurance (${Number(l.laps) || 1} ${Number(l.laps) === 1 ? 'lap' : 'laps'})`;
+      case 'gp':
+      case 'team': return `${l.mode === 'team' ? 'Team ' : ''}Grand Prix (${CUPS[l.cup ?? 'torii']?.name ?? 'cup'})`;
+      default: return 'race';
+    }
+  };
+
+  /** The landing's Open races card: every public lobby with a Join button, refreshed every 3 s while the Race page is up. */
+  const refreshLobbies = async () => {
+    clearTimeout(listTimer);
+    if (!root.querySelector('[data-lobbies]') || page !== 'race') return;
+    try {
+      // Solo time trials are rooms too, but private: nobody can join one.
+      const lobbies = (await raceNet.lobbies()).filter((l) => !l.solo);
+      lobbyList = lobbies.length
+        ? lobbies
+            .map((l) => {
+              const full = l.players >= l.max;
+              const state = l.phase === 'lobby' ? '' : l.mode === 'roam' ? ' · driving, drop in' : ' · racing';
+              return `<li><b>${esc(l.code)}</b><span><strong>${esc(l.host)}'s ${esc(lobbyMode(l))}${l.physics ? ' · physics' : ''}</strong><small>${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${state}</small></span><button class="tg-pill" data-joincode="${esc(l.code)}" ${full ? 'disabled' : ''}>${full ? 'Full' : 'Join'}</button></li>`;
+            })
+            .join('')
+        : `<li class="muted">No open races right now. Host one and share the code.</li>`;
+    } catch {
+      lobbyList = `<li class="muted">Can't reach the game server${import.meta.env.DEV ? ' (is <code>npm run dev</code> running?)' : ''}. Solo races still work.</li>`;
+    }
+    // The page may have been left (or redrawn) while the request was out.
+    const list = root.querySelector('[data-lobbies]');
+    if (!list || page !== 'race') return;
+    // Only touch the DOM when it changed, so a focused Join button isn't replaced under the keyboard or pad every 3 s.
+    if (list.innerHTML !== lobbyList) {
+      list.innerHTML = lobbyList;
+      list.querySelectorAll<HTMLElement>('[data-joincode]').forEach((b) => b.addEventListener('click', () => connect(b.dataset.joincode!)));
+    }
+    listTimer = window.setTimeout(() => void refreshLobbies(), 3000);
+  };
+
   // --- events ------------------------------------------------------------------------------------
 
   root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => b.addEventListener('click', () => switchPage(lastPage[b.dataset.tab as TabId])));
@@ -1218,6 +1272,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     clearTimeout(enterTimer);
     clearTimeout(noticeTimer);
     clearTimeout(popTimer);
+    clearTimeout(listTimer);
     offNet?.();
     offGarage();
     offAccount();
