@@ -115,6 +115,22 @@ const MOTE_KIND: Record<NonNullable<Stage['motes']>, { colors: number[]; size: n
 
 /** The fastest the turntable coasts after a flick (rad/s), so one hard drag can't leave it whirling. */
 const FLING_MAX = 4;
+/** What the driver close-up can frame (the creator's tabs pick one). */
+export type RiderFrame = 'full' | 'head' | 'feet';
+/**
+ * Each framing, in the driver's height: where the camera looks, how high it sits, and how far back it stands as a
+ * share of the showroom's camera distance.
+ */
+const RIDER_FRAMES: Record<RiderFrame, { look: number; eye: number; dist: number }> = {
+  full: { look: 0.5, eye: 0.6, dist: 0.56 },
+  head: { look: 0.86, eye: 0.9, dist: 0.2 },
+  feet: { look: 0.14, eye: 0.34, dist: 0.26 },
+};
+/** How far the wheel or a pinch zooms the close-up in and out. */
+const RIDER_ZOOM = [0.6, 3] as const;
+/** A seated driver: the height of their hip point over the floor (their seat stands on it), and their height as a share of standing. */
+const SEAT_Y = 0.42;
+const SEATED_HEIGHT = 0.68;
 
 export class Showroom {
   private renderer: THREE.WebGLRenderer;
@@ -143,6 +159,14 @@ export class Showroom {
   private focusOn: 'car' | 'rider' = 'car';
   /** The driver's own turn (dragging while focused on them spins the driver, not the car). */
   private riderYaw = 0;
+  /** The close-up's framing (frameRider): what it shows, eased (height looked at, camera distance), and seated or not. */
+  private frameOn: RiderFrame = 'full';
+  private frameAt = { ...RIDER_FRAMES.full };
+  private seated = false;
+  /** The close-up's zoom (the mouse wheel, a pinch): 1 is the framing's own distance. */
+  private riderZoom = 1;
+  /** Fingers on the canvas (two pinch). */
+  private touches = new Map<number, { x: number; y: number }>();
   private dist = 9;
   private readonly look = new THREE.Vector3();
   /** Low graphics (src/client/graphics.ts), read when the showroom opens, and its frame cap. */
@@ -241,6 +265,7 @@ export class Showroom {
     this.camera.position.set(6.4, 2.1, 6.4);
     this.camera.lookAt(0, 0.45, 0);
     canvas.addEventListener('pointerdown', this.down);
+    canvas.addEventListener('wheel', this.wheel, { passive: false });
     addEventListener('pointerup', this.up);
     addEventListener('pointermove', this.move);
     this.ro = new ResizeObserver(() => this.resize());
@@ -452,8 +477,7 @@ export class Showroom {
         if (this.riderId !== r || !this.canvas.isConnected) return rig.dispose();
         this.rider?.dispose();
         this.rider = rig;
-        rig.stand();
-        rig.root.position.copy(this.riderAt);
+        this.poseRider();
         this.turntable.add(rig.root);
         this.aim();
       },
@@ -474,6 +498,28 @@ export class Showroom {
   }
 
   /**
+   * What the driver close-up shows (the creator's open tab): the whole driver, their head or their feet; `seated`
+   * sits them at their wheel in their own seat (the steering wheel only shows there). The wheel and a pinch zoom.
+   */
+  frameRider(on: RiderFrame, seated = false) {
+    if (on !== this.frameOn) this.riderZoom = 1;
+    this.frameOn = on;
+    if (seated === this.seated) return;
+    this.seated = seated;
+    this.poseRider();
+  }
+
+  /** Stands the driver by the door, or sits them there in their seat (on the floor: the hip point is the rig's origin). */
+  private poseRider() {
+    const rig = this.rider;
+    if (!rig) return;
+    if (this.seated) rig.sit(true);
+    else rig.stand();
+    rig.root.position.copy(this.riderAt);
+    if (this.seated) rig.root.position.y = SEAT_Y;
+  }
+
+  /**
    * Frame the car at (x, y), fractions of the canvas from its top left, so a canvas that fills the window can keep
    * the car in the space beside a panel. Shifts the view, not the camera, so the angle stays the same. `zoom` < 1
    * shrinks the car to fit a short strip (phones).
@@ -488,11 +534,37 @@ export class Showroom {
 
   private down = (e: PointerEvent) => {
     this.dragging = true;
+    this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     this.canvas.setPointerCapture?.(e.pointerId);
   };
-  private up = () => (this.dragging = false);
+  private up = (e: PointerEvent) => {
+    this.touches.delete(e.pointerId);
+    this.dragging = this.touches.size > 0;
+  };
+  private zoomBy(k: number) {
+    this.riderZoom = Math.max(RIDER_ZOOM[0], Math.min(RIDER_ZOOM[1], this.riderZoom * k));
+  }
+  private wheel = (e: WheelEvent) => {
+    if (this.focusOn !== 'rider') return;
+    e.preventDefault();
+    this.zoomBy(Math.exp(-e.deltaY * 0.0015));
+  };
   private move = (e: PointerEvent) => {
     if (!this.dragging) return;
+    const at = this.touches.get(e.pointerId);
+    if (at && this.touches.size === 2 && this.focusOn === 'rider') {
+      // Two fingers: the change in their distance zooms.
+      const other = [...this.touches.entries()].find(([id]) => id !== e.pointerId)![1];
+      const was = Math.hypot(at.x - other.x, at.y - other.y);
+      at.x = e.clientX;
+      at.y = e.clientY;
+      if (was > 1) this.zoomBy(Math.hypot(at.x - other.x, at.y - other.y) / was);
+      return;
+    }
+    if (at) {
+      at.x = e.clientX;
+      at.y = e.clientY;
+    }
     if (this.focusOn === 'rider') {
       this.riderYaw += e.movementX * 0.01;
       return;
@@ -522,11 +594,13 @@ export class Showroom {
     const f = this.focusK * this.focusK * (3 - 2 * this.focusK);
     // The close-up: where the driver ends up once the platform has turned (the camera's bearing, π/4).
     const r = Math.hypot(this.riderAt.x, this.riderAt.z);
-    const h = this.rider?.fit.height ?? 1.75;
+    // Seated, the driver is about two thirds as tall, on the floor.
+    const h = (this.rider?.fit.height ?? 1.75) * (this.seated ? SEATED_HEIGHT : 1);
     const tx = r * Math.SQRT1_2;
-    const near = d * 0.56;
-    this.look.set(tx * f, 0.5 + (h * 0.5 - 0.5) * f, tx * f);
-    this.camera.position.set(d * 0.7 + (tx + near * 0.7 - d * 0.7) * f, 2.2 + (h * 0.6 - 2.2) * f, d * 0.7 + (tx + near * 0.7 - d * 0.7) * f);
+    const fr = this.frameAt;
+    const near = (d * fr.dist) / this.riderZoom;
+    this.look.set(tx * f, 0.5 + (h * fr.look - 0.5) * f, tx * f);
+    this.camera.position.set(d * 0.7 + (tx + near * 0.7 - d * 0.7) * f, 2.2 + (h * fr.eye - 2.2) * f, d * 0.7 + (tx + near * 0.7 - d * 0.7) * f);
     this.camera.lookAt(this.look);
   }
 
@@ -540,8 +614,8 @@ export class Showroom {
     const onRider = this.focusOn === 'rider';
     if (onRider) {
       // Hold the platform still with the driver to camera; the stick turns the driver.
+      // A turn stays where it's left: the back of a jacket takes a good look.
       if (Math.abs(stick) > 0.1) this.riderYaw += stick * 2.5 * dt;
-      else if (!this.dragging) this.riderYaw *= 1 - Math.min(1, dt * 0.6);
       this.vel = 0;
       this.turntable.rotation.y += (this.spin - this.turntable.rotation.y) * Math.min(1, dt * 4);
     } else {
@@ -552,7 +626,11 @@ export class Showroom {
     }
     const k0 = this.focusK;
     this.focusK += ((onRider ? 1 : 0) - this.focusK) * Math.min(1, dt * 3.5);
-    if (Math.abs(this.focusK - k0) > 1e-5) this.aim();
+    // The close-up eases to its framing (frameRider) and follows the zoom.
+    const want = RIDER_FRAMES[this.frameOn];
+    const ease = Math.min(1, dt * 5);
+    for (const key of ['look', 'eye', 'dist'] as const) this.frameAt[key] += (want[key] - this.frameAt[key]) * ease;
+    if (onRider || Math.abs(this.focusK - k0) > 1e-5) this.aim();
     if (this.rider) {
       // The rig faces -Z (like the cars): half a turn more puts it facing out from the door.
       this.rider.root.rotation.y = -Math.PI / 2 + 0.35 + this.riderYaw;
@@ -565,6 +643,7 @@ export class Showroom {
   dispose() {
     cancelAnimationFrame(this.raf);
     this.ro.disconnect();
+    this.canvas.removeEventListener('wheel', this.wheel);
     removeEventListener('pointerup', this.up);
     removeEventListener('pointermove', this.move);
     this.model?.dispose();

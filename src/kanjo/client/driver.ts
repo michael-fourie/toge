@@ -140,9 +140,9 @@ export class DriverRig {
     this.mixer.update(0);
   }
 
-  /** In a car: seat and wheel on, legs off, hands on the wheel. */
-  sit() {
-    this.use('drive', true, false);
+  /** In a car: seat and wheel on, shoes off (`shoes`: on, for the showroom, where the feet show), hands on the wheel. */
+  sit(shoes = false) {
+    this.use('drive', true, shoes);
     this.steer(0, 1);
   }
 

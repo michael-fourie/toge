@@ -327,12 +327,17 @@ a component or a page.
   `tests/kanjo/drivers.test.ts` and `hands.test.ts` green. Their hands on the wheel, the bike's grips and standing are
   fixed at load by client/hands.ts (2026-11-10, Michael: hand positions "look unnatural"; docs/DRIVERS.md).
 - **Your own driver** (look.ts, docs/DRIVER_CREATOR.md): the Driver page's fifth card opens the creator (creator.ts):
-  six bodies, skin, eyes, brows, hair, 12 outfits with colour zones, shoes, up to five kit pieces (mech arms, gloves),
-  metal, leather, glow, wheel. A look is an `L2.` code and is itself a `Rider`, so it travels everywhere a legend's id
-  does; the garage also keeps it as `look` while you drive a legend. wardrobe.ts assembles it from
+  six bodies, skin, eyes, brows, hair, separates (10 tops and 10 bottoms in any pairing, plus two one-pieces that take
+  both places), each with its own colour zones, shoes, up to five kit pieces (mech arms, gloves), metal, leather, glow,
+  wheel. The creator is tabbed (Body, Face, Hair, Top, Bottom, Shoes, Kit, Wheel) with undo, Surprise me, reset and a
+  seated preview; the showroom frames what the open tab is about and zooms. A look is an `L3.` code (`L2.` codes from
+  before separates, 2026-11-15, still decode: look.ts `L2_OUTFITS`) and is itself a `Rider`, so it travels everywhere a
+  legend's id does; the garage also keeps it as `look` while you drive a legend. wardrobe.ts assembles it from
   public/models/drivers/wardrobe (built by `tools/drivers/wardrobe.py`, Draco .gltf with shared textures; the decoder is
   in public/draco/). `/dev/drivers.html` (`window.lab`) shows legends and looks side by side. Keep
-  `tests/kanjo/look.test.ts` green after a wardrobe rebuild.
+  `tests/kanjo/look.test.ts` green after a wardrobe rebuild. Clothes are fitted at build time so nothing pokes through
+  in any pairing (docs/DRIVERS.md "The fit"); the drivers' colours are dusty pastels (muted 2026-11-15: keep new ones
+  in that range).
 - **Battle pass** (pass.ts, the Race → Battle pass page in passui.ts; Michael asked for it 2026-11-06): a 50-tier season
   (`PASS`, $50,000 of garage money, 500 XP a tier). Every race earns XP whether or not you own the pass (`raceXp`:
   finishing, cars beaten, a win, drifting; solo a 0.6 share, only when the solo prize pays), carried on the garage
@@ -475,8 +480,9 @@ src/kanjo/shared/
                default, and old saves of the customisable drivers get it too).
   pass.ts      the battle pass: PASS (price, tiers, XP per tier), raceXp, TIERS (one reward each), STAGES (home
                backgrounds), TITLES, lockedLookParts / ownedLook (pass driver pieces). garage.ts givePass / addXp / ownedRider.
-  look.ts      your own driver: the wardrobe catalogue, `Look`, encodeLook/decodeLook (`L2.` codes), withBase/withOutfit/
-               withKit, randomLook. Mirrors the wardrobe manifest (tests/kanjo/look.test.ts).
+  look.ts      your own driver: the wardrobe catalogue (TOPS, BOTTOMS, ...), `Look`, encodeLook/decodeLook (`L3.` codes;
+               `L2.` ones still decode), withBase/withTop/withBottom/withKit, randomLook, the swatch palettes. Mirrors the
+               wardrobe manifest (tests/kanjo/look.test.ts).
   cardstats.ts the player card's numbers: Highs (best drift race, top speed; kanjo/client/highs.ts keeps them in this
                browser as `atrous.highs`, racegame.ts `finish()` writes them, solo and online), noteHighs, bestBuild,
                winRate, cardBests (the newest few of your best times from records.ts).

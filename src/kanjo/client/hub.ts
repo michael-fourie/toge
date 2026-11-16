@@ -10,7 +10,7 @@ import { CRATES, type CrateResult, MYSTERY_COST, current, tunerCost } from '../s
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById, fitsModel } from '../shared/cosmetics.ts';
 import { lockerTab, showCaseReel } from './cosmeticsui.ts';
 import { caseInside, shopTab } from './shopui.ts';
-import { type Rider, decodeRider, defaultRider, encodeRider, isRider, riderInfo } from '../shared/rider.ts';
+import { type Rider, decodeRider, defaultRider, encodeRider, isLegend, isRider, riderInfo } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
 import { cardData, openPlayerCard } from './playercard.ts';
 import { settingsTab } from './settingsui.ts';
@@ -25,7 +25,7 @@ import { account } from '../../client/account.ts';
 import type { Ctx, Render, Screen } from '../../client/menu/router.ts';
 import { $, esc, playerName } from '../../client/menu/ui.ts';
 import { DEFAULT_LOOK, decodeLook, encodeLook, type Look as DriverLook } from '../shared/look.ts';
-import { lookAfter } from './creator.ts';
+import { type CreatorTab, CREATOR_TABS, lookAfter, TAB_FRAME } from './creator.ts';
 import { passCard, passChip, passRibbon, passTab } from './passui.ts';
 import { PASS, TIERS, type BgId, type TitleId, tierOf } from '../shared/pass.ts';
 import { garage } from './garageStore.ts';
@@ -55,6 +55,8 @@ const NOTICE_POP_KEY = 'atrous.noticePop';
 /** How often the garage checks for new notices while it's open, and how long the popup stays. */
 const NOTICE_POLL_MS = 90_000;
 const NOTICE_POP_MS = 9_000;
+/** How many changes to your own driver Undo can take back. */
+const UNDO_MAX = 40;
 /** A page's slide-in: the last child starts 0.09 s late and runs 0.24 s (hub.css `.tg-panel.enter`). */
 const ENTER_MS = 400;
 const read = (k: string, d: string) => {
@@ -123,6 +125,12 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   /** Your own driver while it's being made (saved with the rider, a moment after the last change). */
   let lookDraft: DriverLook | null = null;
   let lookShow = 0;
+  /** The creator: its open tab, the looks to go back to (Undo, newest last), and whether the driver is shown seated. */
+  let crTab: CreatorTab = 'body';
+  const lookPast: DriverLook[] = [];
+  let crSeated = false;
+  /** A colour picker is being dragged: its first move went into `lookPast`, the rest don't. */
+  let picking = false;
   const ownLook = (): DriverLook => lookDraft ?? decodeLook(garage.g.look) ?? DEFAULT_LOOK;
   let saveTimer = 0;
   let busy = false;
@@ -194,10 +202,12 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     // The landing has no rail: the car and driver stand in the middle, above the Host button.
     if (W > 900 && (landing() || page === 'shop')) showroom.place(0.5, (s.top + s.bottom * 0.8) / 2 / H);
     else if (W > 900) showroom.place((r.right + W) / 2 / W, (s.top + s.bottom * 0.84) / 2 / H);
-    else showroom.place(0.5, (s.top + s.bottom) / 2 / H, Math.min(1, ((s.bottom - s.top) / H) * 1.6));
+    // A phone frames the stage wherever it is: over the rail, or beside it while the creator is open (hub.css).
+    else showroom.place((s.left + s.right) / 2 / W, (s.top + s.bottom) / 2 / H, Math.min(1, (s.height / H) * 1.6, (s.width / W) * 1.6));
   };
   const ro = new ResizeObserver(frameCar);
   ro.observe(root.querySelector('.tg')!);
+  ro.observe(root.querySelector('.tg-stage')!);
 
   /** A new showroom on a fresh canvas (the renderer's options, like anti-aliasing, are fixed when it's made). */
   const rebuildShowroom = () => {
@@ -297,6 +307,9 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     const pr = passReward();
     const onRider = page === 'driver' || pr?.kind === 'metal' || pr?.kind === 'gear';
     showroom.focus(onRider ? 'rider' : 'car');
+    // The creator frames what its open tab is about, and seats the driver for the wheel (or when asked).
+    const making = page === 'driver' && !pr && !isLegend(viewedRider());
+    showroom.frameRider(making ? TAB_FRAME[crTab] : 'full', making && (crSeated || crTab === 'wheel'));
     showroom.stage(viewedStage());
     if (onRider) {
       $(root, '[data-card]').innerHTML = driverCard(viewedRider());
@@ -489,7 +502,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
 
   const lockerPage = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
   const shopPage = () => shopTab(garage.g, CARS[car().model].name, status);
-  const driverPage = () => driverTab(viewedRider(), ownLook(), garage.g, status);
+  const driverPage = () => driverTab(viewedRider(), ownLook(), garage.g, status, { tab: crTab, undo: lookPast.length > 0, seated: crSeated });
   const passPage = () => passTab({ g: garage.g, sel: passSel, car: CARS[car().model].name, status });
   const settingsPage = () => settingsTab(graphics(), status);
   /** The leaderboard modal's body, redrawn in place (keeps its scroll and the focused track). */
@@ -736,7 +749,11 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     );
     // The creator: buttons redraw the page; a colour picker shows on the platform while it's dragged (no redraw, so
     // it stays open) and redraws when closed.
-    const wear = (l: DriverLook, redraw: boolean) => {
+    const wear = (l: DriverLook, redraw: boolean, undoable = true) => {
+      if (undoable) {
+        lookPast.push(ownLook());
+        if (lookPast.length > UNDO_MAX) lookPast.shift();
+      }
       lookDraft = l;
       if (redraw) return setRider(encodeLook(l));
       riderDraft = encodeLook(l);
@@ -745,7 +762,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       clearTimeout(lookShow);
       lookShow = window.setTimeout(() => showroom.showRider(viewedRider()), 150);
     };
-    panel.querySelectorAll<HTMLElement>('button[data-dl], [data-dl-random]').forEach((b) =>
+    panel.querySelectorAll<HTMLElement>('button[data-dl], [data-dl-random], [data-cr-reset]').forEach((b) =>
       b.addEventListener('click', () => {
         const l = lookAfter(ownLook(), b);
         if (l) wear(l, true);
@@ -756,10 +773,30 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
         const l = lookAfter(ownLook(), inp);
         if (!l) return;
         inp.parentElement!.style.setProperty('--sw', inp.value);
-        wear(l, false);
+        wear(l, false, !picking);
+        picking = true;
       });
-      inp.addEventListener('change', () => draw());
+      inp.addEventListener('change', () => {
+        picking = false;
+        draw();
+      });
     });
+    panel.querySelector<HTMLElement>('[data-cr-undo]')?.addEventListener('click', () => {
+      const l = lookPast.pop();
+      if (l) wear(l, true, false);
+    });
+    panel.querySelectorAll<HTMLElement>('[data-cr-tab]').forEach((b) =>
+      b.addEventListener('click', () => {
+        crTab = CREATOR_TABS.find((t) => t === b.dataset.crTab) ?? 'body';
+        draw();
+      }),
+    );
+    panel.querySelectorAll<HTMLElement>('[data-cr-pose]').forEach((b) =>
+      b.addEventListener('click', () => {
+        crSeated = b.dataset.crPose === 'sit';
+        draw();
+      }),
+    );
     // Cosmetics: cases and the locker.
     panel.querySelectorAll<HTMLElement>('[data-case-inside]').forEach((b) => b.addEventListener('click', () => showInside(b.dataset.caseInside)));
     panel.querySelectorAll<HTMLElement>('[data-case-open]').forEach((b) => b.addEventListener('click', () => void openCase(b.dataset.caseOpen as CaseId)));
@@ -1202,7 +1239,8 @@ function focusId(el: Element | null): string | null {
   const dl = el.getAttribute('data-dl');
   if (dl) return el.hasAttribute('data-pick') ? `input[data-dl="${dl}"]` : `button[data-dl="${dl}"][data-v="${el.getAttribute('data-v')}"]`;
   if (el.hasAttribute('data-dl-random')) return '[data-dl-random]';
-  for (const attr of ['data-lb-open', 'data-pass-open', 'data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-case-inside', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
+  for (const attr of ['data-cr-undo', 'data-cr-reset']) if (el.hasAttribute(attr)) return `[${attr}]`;
+  for (const attr of ['data-cr-tab', 'data-cr-pose', 'data-lb-open', 'data-pass-open', 'data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-case-inside', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }

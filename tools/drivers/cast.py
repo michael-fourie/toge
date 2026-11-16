@@ -24,12 +24,12 @@ MARLOWE = {
     'recolor': {
         # A sage-green tailcoat suit, cream shirt, honey silk tie.
         'male_elegantsuit01': [
-            {'uv': (0.76, 0.74, 0.87, 1.0), 'val': (0.0, 0.85), 'color': '#f0c26a'},
-            {'val': (0.0, 0.45), 'sat': (0.0, 0.6), 'color': '#6fa08c'},
-            {'val': (0.6, 1.0), 'sat': (0.0, 0.25), 'color': '#fbf2de'},
+            {'uv': (0.76, 0.74, 0.87, 1.0), 'val': (0.0, 0.85), 'color': '#e4c383'},
+            {'val': (0.0, 0.45), 'sat': (0.0, 0.6), 'color': '#75988a'},
+            {'val': (0.6, 1.0), 'sat': (0.0, 0.25), 'color': '#eee8da'},
         ],
-        'short02': [{'color': '#d4d3dc', 'contrast': 1.3}],
-        'shoes03': [{'color': '#8a6350'}],
+        'short02': [{'color': '#cbcbd1', 'contrast': 1.3}],
+        'shoes03': [{'color': '#836759'}],
     },
     'kit': [
         ('goggles', {'lens': '@glass', 'single': '@lens', 'where': 'forehead', 'lift': 0.062, 'tilt': 0.45, 'strap': 'leather'}),
@@ -54,16 +54,17 @@ KIRIKA = {
     'eyelashes': 'eyelashes04',
     'hair': 'bob02',
     'clothes': ['female_sportsuit01', 'shoes05'],
+    'tuck': True,  # leggings go inside the shoes
     'recolor': {
         # Periwinkle racing top and dusk-blue leggings; the leggings' side stripe glows.
         'female_sportsuit01': [
-            {'hue': (0.03, 0.16), 'sat': (0.5, 1.0), 'color': '#ff7fe0', 'emit': '#ff2fd2'},
-            {'val': (0.85, 1.0), 'sat': (0.0, 0.15), 'color': '#ff7fe0', 'emit': '#ff2fd2'},
-            {'hue': (0.5, 0.75), 'sat': (0.25, 1.0), 'color': '#8d92c8'},
-            {'val': (0.0, 0.6), 'color': '#6a6f9e'},
+            {'hue': (0.03, 0.16), 'sat': (0.5, 1.0), 'color': '#f296dc', 'emit': '#ff2fd2'},
+            {'val': (0.85, 1.0), 'sat': (0.0, 0.15), 'color': '#f296dc', 'emit': '#ff2fd2'},
+            {'hue': (0.5, 0.75), 'sat': (0.25, 1.0), 'color': '#9397be'},
+            {'val': (0.0, 0.6), 'color': '#717496'},
         ],
-        'bob02': [{'color': '#f3effa'}],
-        'shoes05': [{'val': (0.5, 1.0), 'color': '#f4f1fa'}, {'val': (0.0, 0.5), 'color': '#ff8fe3'}],
+        'bob02': [{'color': '#e8e6ed'}],
+        'shoes05': [{'val': (0.5, 1.0), 'color': '#e9e7ed'}, {'val': (0.0, 0.5), 'color': '#f2a1de'}],
     },
     'kit': [
         ('respirator', {'glow': '@glow'}),
@@ -92,11 +93,11 @@ OKONKWO = {
     'recolor': {
         # Canvas overalls in terracotta, a slate-blue tee.
         'male_worksuit01': [
-            {'hue': (0.5, 0.75), 'sat': (0.12, 1.0), 'color': '#d08a62'},
-            {'sat': (0.0, 0.2), 'val': (0.4, 1.0), 'color': '#7d8aa3'},
+            {'hue': (0.5, 0.75), 'sat': (0.12, 1.0), 'color': '#c69376'},
+            {'sat': (0.0, 0.2), 'val': (0.4, 1.0), 'color': '#7f899b'},
         ],
-        'short04': [{'color': '#4a3f44'}],
-        'shoes03': [{'color': '#7a5f55'}],
+        'short04': [{'color': '#463e42'}],
+        'shoes03': [{'color': '#746059'}],
     },
     'kit': [
         ('goggles', {'lens': '@lens', 'where': 'forehead', 'lift': 0.07, 'tilt': 0.5, 'strap': 'leather_tan'}),
@@ -126,13 +127,13 @@ INES = {
     'recolor': {
         # Dusk-blue jacket, coral shirt, pale slate jeans.
         'male_casualsuit05': [
-            {'uv': (0.0, 0.0, 0.6, 0.45), 'color': '#8e97b5', 'contrast': 0.6},
-            {'hue': (0.8, 0.06), 'sat': (0.3, 1.0), 'color': '#f27d7a'},
-            {'hue': (0.15, 0.55), 'sat': (0.03, 1.0), 'color': '#565f85', 'contrast': 1.2},
-            {'val': (0.0, 0.3), 'color': '#5a6187'},  # the shirt's dark stripes
+            {'uv': (0.0, 0.0, 0.6, 0.45), 'color': '#9096ac', 'contrast': 0.6},
+            {'hue': (0.8, 0.06), 'sat': (0.3, 1.0), 'color': '#e6918f'},
+            {'hue': (0.15, 0.55), 'sat': (0.03, 1.0), 'color': '#5c637e', 'contrast': 1.2},
+            {'val': (0.0, 0.3), 'color': '#606580'},  # the shirt's dark stripes
         ],
-        'ponytail01': [{'color': '#c2586e'}],
-        'shoes03': [{'color': '#5c586b'}],
+        'ponytail01': [{'color': '#b86c7c'}],
+        'shoes03': [{'color': '#5b5866'}],
     },
     'kit': [
         ('monocle', {'lens': '@lens', 'side': -1}),
