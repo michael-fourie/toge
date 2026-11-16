@@ -15,7 +15,7 @@ import { type World, worldSlot, worldTrack } from './world.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'kamome' | 'shiokaze' | 'taketomi' | 'hallstatt' | 'goreme' | 'oia' | 'chefchaouen' | 'kanjo' | 'kumo' | 'shura';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'kamome' | 'shiokaze' | 'taketomi' | 'hallstatt' | 'goreme' | 'oia' | 'chefchaouen' | 'kanjo' | 'kumo' | 'shura' | 'futamata';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -125,8 +125,45 @@ export interface TrackDef {
    * roam mode). `points` only frame its menu map; the roads are world.ts's.
    */
   world?: true;
+  /**
+   * A split in a point-to-point road: at control point `at` a second road leaves, threads `points` and joins again at
+   * control point `to`. The main road (`points`) is one way round, this is the other. Both must be the same length
+   * (within FORK.slack), so a car's distance raced means the same on either, and they must part and meet as mirror
+   * images of each other, so the ground between them has no step (see Fork).
+   */
+  fork?: { at: number; to: number; points: [number, number, number][] };
   features?: Feature[];
 }
+
+/**
+ * A fork in the road (TrackDef.fork), built. The second road's samples sit after the main road's in every per-sample
+ * array (x, y, z, tx, tz, s, curv, bank, ...), at `o`..`o + m - 1`, so `t.n` still counts only the main road and
+ * everything that walks it is unchanged. The two are sampled alike: sample `o + k` is as far along as main sample
+ * `a + k` (`s` says so), and the first and last are the main road's own. The spatial hash holds both, so the ground,
+ * `locate` and the barrier (through a car's `hint`, which may be a sample of either) work on whichever road a car
+ * takes. Where they part and meet, each point of the tarmac belongs to the nearer centreline.
+ */
+export interface Fork {
+  /** Main samples where the roads part and where they meet again. */
+  a: number;
+  b: number;
+  /** The second road's first sample and how many it has (b - a + 1). */
+  o: number;
+  m: number;
+  /** The same as distances along the road. */
+  s0: number;
+  s1: number;
+}
+
+export const FORK = {
+  /** The second road's length may differ from the main road's by this share at most (its samples are stretched to fit). */
+  slack: 0.004,
+};
+
+/** True when sample `i` is on a fork's second road. */
+export const onFork = (t: Track, i: number) => i >= t.n;
+/** The main road's sample as far along as sample `i` (itself, unless `i` is on a fork's second road). */
+export const mainSample = (t: Track, i: number) => (t.fork && i >= t.n ? i - t.fork.o + t.fork.a : i);
 
 /**
  * The open world's ground, for a Track built from it (world.ts `worldTrack`): heightAt, groundAt and locate hand
@@ -247,6 +284,8 @@ export interface Track {
   world?: WorldHooks;
   /** A `sky` road: the height of the nothing off its edge (SKY.abyss under the lowest of the road). */
   abyss?: number;
+  /** Where the road splits in two and joins again (TrackDef.fork). */
+  fork?: Fork;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1257,6 +1296,68 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [0, 638.8, 49.3], [0, 639.6, 37], [0, 640.4, 24.7], [0, 641.2, 12.3],
     ],
   },
+  // A one-way parkway with traffic (Andrew, 2026-11-16: "traffic moving in the same direction as the race ... fast pace
+  // race with wider turns, start and finish in different places ... a section of the race where the road splits off
+  // in two directions, but the time between the two different directions are very very similar ... about 10km").
+  // Laid out as straights and arcs: sweepers of 300-500 m, four corners you brake for (160-190 m), and at 4.3 km the
+  // road forks for 1.5 km. The left road (the main one) swings out early and dips 7 m, the right one runs straight on,
+  // climbs 7 m and swings out late: each is the other turned end for end, so they are the same length to the metre.
+  futamata: {
+    id: 'futamata',
+    name: 'Futamata Parkway',
+    tag: 'Autumn parkway · traffic going your way · the road forks · 10 km',
+    blurb: 'Ten kilometres through the maple hills, one way, with four lanes of traffic all going your way. Long sweepers, four corners worth a brake, and halfway down the road forks: left drops through the valley, right climbs over the ridge. Both are the same distance. Pick the one with fewer trucks in it.',
+    theme: 'autumn',
+    seed: 2203,
+    width: 16,
+    relief: 200,
+    traffic: 'highway',
+    clean: true,
+    fork: {
+      at: 81,
+      to: 107,
+      points: [
+      [1178.2, 152, -3815.6], [1173.7, 152, -3844.5], [1171.1, 152, -3873.7], [1170.6, 152, -3903.1], [1172.3, 151.9, -3999.6], [1174, 152, -4096.2],
+      [1175.6, 154.4, -4192.8], [1177.3, 157.4, -4289.3], [1179, 158.3, -4385.9], [1180.7, 158.2, -4482.5], [1179.9, 158.1, -4517.3], [1176.2, 158, -4551.9],
+      [1169.6, 158, -4586.1], [1160.2, 157.9, -4619.6], [1148.1, 157.8, -4652.2], [1133.3, 157.7, -4683.7], [1116, 157.4, -4713.9], [1096.2, 156.7, -4742.6],
+      [1026, 152.7, -4835.8], [955.8, 150.2, -4928.9], [885.6, 150.1, -5022.1], [867.2, 150.1, -5048.6], [850.8, 150.1, -5076.4], [836.7, 150, -5105.4],
+      [824.8, 150, -5135.4],
+      ],
+    },
+    points: [
+      [0, 212, 0], [0, 211.4, -116.7], [0, 209.8, -233.3], [0, 207.4, -350], [1.4, 206.6, -383.1], [5.8, 205.8, -416],
+      [12.9, 205, -448.4], [22.9, 204.2, -480], [35.6, 203.4, -510.6], [50.9, 202.6, -540], [113.4, 200.1, -648.3], [175.9, 198.4, -756.5],
+      [190.7, 198.2, -784.2], [203.4, 198.1, -812.9], [214.2, 198, -842.4], [222.8, 198, -872.6], [229.4, 198.1, -903.4], [233.7, 198.2, -934.5],
+      [235.9, 198.3, -965.8], [235.9, 198.4, -997.2], [233.7, 198.6, -1028.5], [229.4, 198.9, -1059.6], [213.7, 199.7, -1148.3], [198.1, 200.7, -1236.9],
+      [195.5, 201.1, -1268.9], [199, 201.5, -1300.8], [208.5, 201.9, -1331.5], [223.5, 202.3, -1359.9], [243.6, 202.7, -1384.9], [268, 203.1, -1405.7],
+      [349.9, 204.2, -1463], [431.8, 205.1, -1520.4], [513.8, 205.7, -1577.8], [541.2, 205.9, -1599.3], [566.1, 206, -1623.7], [588.3, 206, -1650.7],
+      [607.3, 206, -1679.9], [623.1, 205.8, -1711], [635.4, 205.5, -1743.7], [644.1, 205, -1777.5], [649, 204.5, -1812], [653.9, 203.8, -1846.5],
+      [662.6, 203, -1880.3], [674.9, 202, -1913], [690.7, 201, -1944.1], [709.7, 199.9, -1973.3], [731.9, 198.7, -2000.3], [756.8, 197.5, -2024.7],
+      [784.2, 196.2, -2046.2], [876.4, 191.7, -2110.8], [968.5, 187.3, -2175.3], [1060.7, 183.4, -2239.8], [1152.9, 180.3, -2304.3], [1178.5, 179.7, -2326.1],
+      [1199.6, 179.1, -2352.3], [1215.5, 178.6, -2381.9], [1225.6, 178.3, -2413.9], [1229.6, 178.1, -2447.3], [1227.3, 178, -2480.8], [1218.8, 178, -2513.4],
+      [1176, 177.2, -2630.8], [1133.3, 175.3, -2748.3], [1122.7, 174.7, -2780.5], [1114.4, 173.9, -2813.4], [1108.4, 173.2, -2846.8], [1104.6, 172.3, -2880.5],
+      [1103.1, 171.5, -2914.4], [1103.9, 170.5, -2948.4], [1107.1, 169.6, -2982.2], [1112.5, 168.6, -3015.6], [1120.1, 167.6, -3048.7], [1146, 164.6, -3145.3],
+      [1171.9, 161.6, -3241.9], [1197.8, 158.8, -3338.5], [1223.7, 156.3, -3435.1], [1231.2, 155.5, -3469.1], [1235.8, 154.8, -3503.7], [1237.3, 154.2, -3538.6],
+      [1235.8, 153.7, -3573.5], [1231.2, 153.2, -3608.1], [1223.7, 152.8, -3642.1], [1184.8, 152, -3787], [1175.3, 152, -3817.8], [1163.4, 152, -3847.8],
+      [1149.3, 152, -3876.8], [1133, 152, -3904.6], [1114.6, 151.9, -3931.1], [1044.4, 151.8, -4024.3], [974.2, 149.4, -4117.4], [903.9, 145.4, -4210.6],
+      [884.2, 144.7, -4239.2], [866.8, 144.4, -4269.4], [852, 144.3, -4300.9], [839.9, 144.3, -4333.6], [830.5, 144.2, -4367.1], [824, 144.1, -4401.3],
+      [820.3, 144, -4435.9], [819.4, 144, -4470.7], [821.1, 143.8, -4567.3], [822.8, 144.7, -4663.8], [824.5, 147.7, -4760.4], [826.2, 150.1, -4857],
+      [827.9, 150.2, -4953.6], [829.5, 150.1, -5050.1], [829, 150, -5079.4], [826.5, 150, -5108.6], [821.9, 150, -5137.6], [815.3, 150, -5166.2],
+      [789.4, 150, -5262.8], [763.5, 149.2, -5359.3], [756.3, 148.7, -5392.9], [752.4, 148.1, -5427], [751.8, 147.4, -5461.4], [754.6, 146.7, -5495.6],
+      [760.8, 145.8, -5529.4], [770.2, 144.9, -5562.4], [782.8, 143.9, -5594.4], [798.5, 142.8, -5624.9], [848.5, 139.4, -5711.5], [898.5, 135.8, -5798.1],
+      [948.5, 132.1, -5884.7], [998.5, 128.8, -5971.3], [1048.5, 125.9, -6057.9], [1061.6, 125.2, -6087], [1068.7, 124.5, -6118], [1069.5, 123.8, -6149.9],
+      [1064, 123.3, -6181.3], [1052.3, 122.9, -6210.9], [1035, 122.5, -6237.7], [1012.8, 122.2, -6260.5], [936.2, 122, -6324.8], [859.6, 122.2, -6389.1],
+      [836.6, 122.3, -6410.5], [816, 122.4, -6434.2], [798, 122.5, -6459.9], [782.8, 122.6, -6487.4], [770.5, 122.8, -6516.3], [761.3, 123, -6546.3],
+      [755.3, 123.2, -6577.1], [752.6, 123.4, -6608.4], [753.1, 123.6, -6639.8], [757, 123.8, -6671], [774.3, 124.6, -6769.5], [791.7, 125.5, -6867.9],
+      [809.1, 126.4, -6966.4], [826.4, 127.3, -7064.9], [831.1, 127.6, -7098.9], [833.2, 127.8, -7133.2], [832.6, 128.1, -7167.6], [829.4, 128.4, -7201.8],
+      [823.6, 128.6, -7235.6], [815.3, 128.8, -7269], [804.4, 129, -7301.6], [791.1, 129.2, -7333.2], [777.8, 129.4, -7364.9], [766.9, 129.6, -7397.5],
+      [758.6, 129.7, -7430.8], [752.8, 129.8, -7464.7], [749.6, 129.9, -7498.9], [749, 129.9, -7533.2], [751.1, 130, -7567.5], [755.8, 130, -7601.5],
+      [773.1, 129.7, -7700], [790.5, 128.6, -7798.5], [807.9, 126.9, -7897], [816.4, 126.2, -7929], [830.4, 125.4, -7959], [849.4, 124.6, -7986.1],
+      [872.9, 123.7, -8009.5], [900, 122.8, -8028.5], [930, 121.8, -8042.5], [1039.6, 117.9, -8082.4], [1149.3, 113.7, -8122.3], [1258.9, 109.4, -8162.2],
+      [1289.5, 108.2, -8174.9], [1318.9, 107, -8190.2], [1346.9, 105.8, -8208], [1373.2, 104.6, -8228.2], [1397.6, 103.4, -8250.6], [1420, 102.3, -8275.1],
+      [1440.2, 101.2, -8301.4], [1458, 100.2, -8329.3], [1508, 97.4, -8415.9], [1558, 95, -8502.5], [1608, 93.3, -8589.1], [1658, 92.3, -8675.7],
+    ],
+  },
   kanjo: {
     id: 'kanjo',
     name: 'Kanjo',
@@ -1473,9 +1574,10 @@ export function buildTrack(def: TrackDef): Track {
     }
   } else roadSamples(pts, xs, ys, zs);
   const n = xs.length;
-  const x = Float64Array.from(xs);
-  const y = Float64Array.from(ys);
-  const z = Float64Array.from(zs);
+  let x = Float64Array.from(xs);
+  let y = Float64Array.from(ys);
+  let z = Float64Array.from(zs);
+  const yRaw = def.fork ? Float64Array.from(ys) : y;
   smooth(y, 18, 3); // no steps in the grade, even through hairpins
   if (lap) retile(y, lap, pre);
   const cross = def.overpass ? crossing(def, x, y, z, lap, pre) : null;
@@ -1535,11 +1637,19 @@ export function buildTrack(def: TrackDef): Track {
       spans.push({ kind: f.kind, s0, s1, size: f.size ?? (f.kind === 'tunnel' ? 16 : 0), box });
     }
   }
-  const gravel = new Uint8Array(n);
+  // A fork's second road goes on the end of every per-sample array (Fork): `n` stays the main road's count.
+  const branch = def.fork ? forkSamples(def, x, z, yRaw, n, Math.round(nearestS(pts[def.fork.at]) / SAMPLE), Math.round(nearestS(pts[def.fork.to]) / SAMPLE)) : null;
+  const all = n + (branch ? branch.m : 0);
+  const grow = (a: Float64Array) => {
+    const g = new Float64Array(all);
+    g.set(a);
+    return g;
+  };
+  const gravel = new Uint8Array(all);
   for (const sp of spans) if (sp.kind === 'gravel') for (let i = Math.floor(sp.s0 / SAMPLE); i <= Math.min(n - 1, sp.s1 / SAMPLE); i++) gravel[i] = 1;
-  const tx = new Float64Array(n);
-  const tz = new Float64Array(n);
-  const s = new Float64Array(n);
+  const tx = new Float64Array(all);
+  const tz = new Float64Array(all);
+  const s = new Float64Array(all);
   for (let i = 0; i < n; i++) {
     const j = Math.min(n - 1, i + 1);
     const k = j === i ? i - 1 : i;
@@ -1550,12 +1660,43 @@ export function buildTrack(def: TrackDef): Track {
     tz[i] = dz / l;
     s[i] = i * SAMPLE;
   }
-  const curv = new Float64Array(n);
+  let curv = new Float64Array(n);
   for (let i = 1; i < n - 1; i++) curv[i] = (tx[i - 1] * tz[i] - tz[i - 1] * tx[i]) / SAMPLE;
   smooth(curv, 5, 2);
   if (lap) for (const a of [tx, tz, curv]) retile(a, lap, pre);
-  const bank = new Float64Array(n);
-  for (let i = 0; i < n; i++) bank[i] = Math.max(-0.07, Math.min(0.07, curv[i] * 3));
+  let fork: Fork | undefined;
+  if (branch) {
+    const { a, b, m } = branch;
+    fork = { a, b, o: n, m, s0: a * SAMPLE, s1: b * SAMPLE };
+    x = grow(x);
+    y = grow(y);
+    z = grow(z);
+    curv = grow(curv);
+    x.set(branch.x, n);
+    y.set(branch.y, n);
+    z.set(branch.z, n);
+    for (let k = 0; k < m; k++) {
+      const i = n + k;
+      s[i] = (a + k) * SAMPLE;
+      if (k === m - 1) {
+        tx[i] = tx[b];
+        tz[i] = tz[b];
+        continue;
+      }
+      const l = Math.hypot(x[i + 1] - x[i], z[i + 1] - z[i]) || 1;
+      tx[i] = (x[i + 1] - x[i]) / l;
+      tz[i] = (z[i + 1] - z[i]) / l;
+    }
+    // Its curvature, worked out and smoothed as the main road's is, with the main road carrying on either end.
+    const PAD = 24;
+    const at = (k: number) => (k < 0 ? a + k : k >= m ? b + (k - m + 1) : n + k);
+    const c = new Float64Array(m + 2 * PAD);
+    for (let k = -PAD + 1; k < m + PAD - 1; k++) c[k + PAD] = (tx[at(k - 1)] * tz[at(k)] - tz[at(k - 1)] * tx[at(k)]) / SAMPLE;
+    smooth(c, 5, 2);
+    for (let k = 0; k < m; k++) curv[n + k] = c[k + PAD];
+  }
+  const bank = new Float64Array(all);
+  for (let i = 0; i < all; i++) bank[i] = Math.max(-0.07, Math.min(0.07, curv[i] * 3));
 
   const half = def.width / 2;
   const shoulder = def.sky ? SKY.lip : def.walled ? 0 : SHOULDER;
@@ -1565,14 +1706,16 @@ export function buildTrack(def: TrackDef): Track {
   const edge = rail + (def.sky ? 0.25 : EDGE_PAD);
   const startS = lap ? pre * SAMPLE : nearestS(first);
   const finishS = lap ? startS + laps * lap * SAMPLE : nearestS(last);
-  const [runL, runR] = runoff(def, n, x, z, curv, spans, crests, edge, startS, finishS, lap, pre);
+  const run = runoff(def, n, x, z, curv, spans, crests, edge, startS, finishS, lap, pre, fork);
+  const runL = fork ? grow(run[0]) : run[0];
+  const runR = fork ? grow(run[1]) : run[1];
   let edgeMax = edge;
   for (let i = 0; i < n; i++) edgeMax = Math.max(edgeMax, edge + runL[i], edge + runR[i]);
   let bx0 = Infinity;
   let bx1 = -Infinity;
   let bz0 = Infinity;
   let bz1 = -Infinity;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < all; i++) {
     bx0 = Math.min(bx0, x[i]);
     bx1 = Math.max(bx1, x[i]);
     bz0 = Math.min(bz0, z[i]);
@@ -1585,7 +1728,8 @@ export function buildTrack(def: TrackDef): Track {
   const reach = edgeMax + BLEND + SAMPLE + SOFTMIN * 4; // the smooth minimum reads a little short of the true one
   const lists = new Map<number, number[]>();
   const h0 = lap ? 1 : 0;
-  const h1 = lap ? lap + 1 : n;
+  // (A fork's second road follows the main road's samples, so `all` takes both.)
+  const h1 = lap ? lap + 1 : all;
   for (let i = h0; i < h1; i++) {
     const c0 = Math.floor((x[i] - reach) / CELL);
     const c1 = Math.floor((x[i] + reach) / CELL);
@@ -1671,6 +1815,7 @@ export function buildTrack(def: TrackDef): Track {
     boosts: [],
     cuts: [],
     cross,
+    fork,
   };
   if (def.sky) t.abyss = Math.min(...y) - SKY.abyss;
   for (const f of def.features ?? []) if (f.kind === 'cut') t.cuts.push(makeCut(t, f.s0, f.s1));
@@ -1678,12 +1823,77 @@ export function buildTrack(def: TrackDef): Track {
   t.boosts = placeBoosts(t, (s0, s1) =>
     t.crests.some((c) => s1 > c.s - c.len - 20 && s0 < c.s + c.len + 30) ||
     t.spans.some((sp) => sp.kind === 'tunnel' && s1 > sp.s0 - 20 && s0 < sp.s1 + 20) ||
-    t.cuts.some((c) => [c.s0, c.s1].some((e) => s1 > e - 30 && s0 < e + 30)),
+    t.cuts.some((c) => [c.s0, c.s1].some((e) => s1 > e - 30 && s0 < e + 30)) ||
+    // A pad is a place on the main road: none where a car may be on the other one.
+    (!!fork && s1 > fork.s0 - 40 && s0 < fork.s1 + 40),
   );
   if (lap || def.clean) return t; // circuits and clean passes: no obstacles
   t.props = placeProps(t);
   return t;
 }
+/**
+ * A fork's second road (TrackDef.fork), sampled like the main one between its samples `a` and `b`: the spline through
+ * its points with the main road's either side, cut where it meets the main road and stretched over the same number of
+ * samples. Heights are smoothed as the main road's are, with the main road's own heights carrying on at both ends.
+ */
+function forkSamples(def: TrackDef, x: Float64Array, z: Float64Array, yRaw: Float64Array, n: number, a: number, b: number) {
+  const f = def.fork!;
+  const pts = def.points;
+  if (def.laps || f.at < 2 || f.to > pts.length - 3 || f.to <= f.at) throw new Error(`${def.id}: a fork needs a point-to-point road and two control points either side of it`);
+  const ctl: P3[] = [pts[f.at - 2], pts[f.at - 1], pts[f.at], ...f.points, pts[f.to], pts[f.to + 1], pts[f.to + 2]];
+  const dense = spline(ctl);
+  // From the dense point nearest main sample `a` to the one nearest `b`, pinned to those samples.
+  const nearest = (i: number) => {
+    let best = 0;
+    let bd = Infinity;
+    for (let k = 0; k < dense.length; k++) {
+      const d = (dense[k][0] - x[i]) ** 2 + (dense[k][2] - z[i]) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = k;
+      }
+    }
+    return best;
+  };
+  const line = dense.slice(nearest(a), nearest(b) + 1);
+  line[0] = [x[a], line[0][1], z[a]];
+  line[line.length - 1] = [x[b], line[line.length - 1][1], z[b]];
+  let len = 0;
+  for (let i = 0; i < line.length - 1; i++) len += Math.hypot(line[i + 1][0] - line[i][0], line[i + 1][2] - line[i][2]);
+  const m = b - a + 1;
+  const want = (m - 1) * SAMPLE;
+  if (Math.abs(len - want) > want * FORK.slack) throw new Error(`${def.id}: the fork's two roads must be the same length (${want.toFixed(0)} m and ${len.toFixed(0)} m)`);
+  const bx = new Float64Array(m);
+  const by = new Float64Array(m);
+  const bz = new Float64Array(m);
+  let acc = 0;
+  let k = 0;
+  for (let i = 0; i < line.length - 1 && k < m; i++) {
+    const p = line[i];
+    const q = line[i + 1];
+    const l = Math.hypot(q[0] - p[0], q[2] - p[2]);
+    while (k < m && (k * len) / (m - 1) <= acc + l + 1e-9) {
+      const u = l > 0 ? Math.min(1, ((k * len) / (m - 1) - acc) / l) : 0;
+      bx[k] = p[0] + (q[0] - p[0]) * u;
+      by[k] = p[1] + (q[1] - p[1]) * u;
+      bz[k] = p[2] + (q[2] - p[2]) * u;
+      k++;
+    }
+    acc += l;
+  }
+  bx[m - 1] = x[b];
+  bz[m - 1] = z[b];
+  by[m - 1] = line[line.length - 1][1];
+  const PAD = 120;
+  const h = new Float64Array(m + 2 * PAD);
+  for (let i = 0; i < h.length; i++) {
+    const j = i - PAD;
+    h[i] = j < 0 ? yRaw[Math.max(0, a + j)] : j >= m ? yRaw[Math.min(n - 1, b + j - m + 1)] : by[j];
+  }
+  smooth(h, 18, 3);
+  return { a, b, m, x: bx, y: h.slice(PAD, PAD + m), z: bz };
+}
+
 /**
  * Finds where a figure 8's lap crosses itself, raises the first pass over it (a raised cosine, so the grade
  * stays gentle) and dips the second under it, and flags the samples of each stretch. Every lap alike.
@@ -1793,7 +2003,7 @@ const RUN = {
  */
 function runoff(
   def: TrackDef, n: number, x: Float64Array, z: Float64Array, curv: Float64Array, spans: Span[], crests: { s: number; len: number }[],
-  edge: number, startS: number, finishS: number, lap: number, pre: number,
+  edge: number, startS: number, finishS: number, lap: number, pre: number, fork?: Fork,
 ): [Float64Array, Float64Array] {
   // A walled road has no runoff: the wall is the price of a missed braking point. A sky road has nothing to run off onto.
   if (def.walled || def.sky) return [new Float64Array(n), new Float64Array(n)];
@@ -1828,6 +2038,8 @@ function runoff(
   };
   for (const sp of spans) if (sp.kind !== 'gravel') clear(sp.s0 - 10, sp.s1 + 10);
   for (const f of def.features ?? []) if (f.kind === 'cut') for (const e of [f.s0, f.s1]) clear(e - 10, e + 10);
+  // A fork: runoff is stored per main sample, and a car there may be on the other road.
+  if (fork) clear(fork.s0 - 20, fork.s1 + 20);
   // The line, every lap (and at least both ends of the second lap, the one `retile` copies, for a one-lap race).
   if (lap) for (let s = startS; s <= Math.max(finishS, startS + 2 * lap * SAMPLE); s += lap * SAMPLE) clear(s - 20, s + 30);
   else {
@@ -1901,7 +2113,10 @@ export interface Loc {
 /** Projects (x, z) onto the segments either side of sample i. */
 function project(t: Track, i: number, x: number, z: number, out: Loc): number {
   let best = Infinity;
-  for (let k = Math.max(0, i - 1); k <= Math.min(t.n - 2, i); k++) {
+  // The segments of the road `i` is on: the main one, or a fork's second.
+  const first = i >= t.n ? t.n : 0;
+  const last = i >= t.n ? t.n + t.fork!.m - 2 : t.n - 2;
+  for (let k = Math.max(first, i - 1); k <= Math.min(last, i); k++) {
     const ax = t.x[k];
     const az = t.z[k];
     const sx = t.x[k + 1] - ax;
@@ -1937,9 +2152,12 @@ export function locate(t: Track, x: number, z: number, hint: number, out: Loc): 
   if (t.world) return t.world.locate(x, z, hint, out);
   let bi = -1;
   let bd = Infinity;
+  // The stretch round the hint, on the road the hint is on.
+  const f = t.fork;
+  const alt = hint >= t.n;
+  const lo = Math.max(alt ? t.n : 0, hint - 30);
+  const hi = Math.min(alt ? t.n + f!.m - 1 : t.n - 1, hint + 30);
   if (hint >= 0) {
-    const lo = Math.max(0, hint - 30);
-    const hi = Math.min(t.n - 1, hint + 30);
     for (let i = lo; i <= hi; i++) {
       const d = (t.x[i] - x) ** 2 + (t.z[i] - z) ** 2;
       if (d < bd) {
@@ -1947,8 +2165,22 @@ export function locate(t: Track, x: number, z: number, hint: number, out: Loc): 
         bi = i;
       }
     }
+    // At a fork, the same stretch of the other road too: a car belongs to the nearer of the two, so it takes
+    // whichever it steers onto and comes off the second road onto the main one where they meet.
+    if (f) {
+      const twin = alt ? hint - f.o + f.a : hint - f.a + f.o;
+      const lo2 = Math.max(alt ? 0 : f.o, twin - 30);
+      const hi2 = Math.min(alt ? t.n - 1 : f.o + f.m - 1, twin + 30);
+      for (let i = lo2; i <= hi2; i++) {
+        const d = (t.x[i] - x) ** 2 + (t.z[i] - z) ** 2;
+        if (d < bd) {
+          bd = d;
+          bi = i;
+        }
+      }
+    }
   }
-  if (bi < 0 || bi === Math.max(0, hint - 30) || bi === Math.min(t.n - 1, hint + 30)) {
+  if (bi < 0 || bi === lo || bi === hi) {
     const list = t.grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
     // At a figure 8's crossing, keep to the road the car is on.
     const c = t.cross;
@@ -2147,7 +2379,7 @@ function roadHeight(t: Track, x: number, z: number, onRoad: Loc | undefined, hin
     if (extra > KERNEL * 3) continue;
     const i = list[k];
     const w = Math.exp(-((extra / KERNEL) ** 2));
-    const j = Math.min(t.n - 2, i);
+    const j = Math.min(i >= t.n ? t.n + t.fork!.m - 2 : t.n - 2, i);
     const rx = x - t.x[i];
     const rz = z - t.z[i];
     let along = rx * t.tx[i] + rz * t.tz[i];
@@ -2298,6 +2530,18 @@ export const lapOf = (t: Track, s: number) => (t.lap ? Math.max(1, Math.min(t.de
 /** A circuit as one lap, for drawing it (sample `lap` closes the loop onto sample 0); a road as it is. */
 export const lapView = (t: Track): Track => (t.lap ? { ...t, n: t.lap + 1, length: t.lap * SAMPLE, finishS: t.startS } : t);
 
+/**
+ * A fork's second road as a road of its own, for drawing it: its samples as the track's first `n` (sample 0 is where
+ * it leaves the main road, the last where it joins it). Null on a track with no fork. Ground queries want the whole
+ * track, not this.
+ */
+export function forkView(t: Track): Track | null {
+  const f = t.fork;
+  if (!f) return null;
+  const cut = (a: Float64Array) => a.subarray(f.o, f.o + f.m);
+  return { ...t, n: f.m, x: cut(t.x), y: cut(t.y), z: cut(t.z), tx: cut(t.tx), tz: cut(t.tz), s: cut(t.s), curv: cut(t.curv), bank: cut(t.bank), runL: cut(t.runL), runR: cut(t.runR), gravel: t.gravel.subarray(f.o, f.o + f.m), fork: undefined };
+}
+
 /** Where grid slot `k` sits: two columns, staggered back from the start line. */
 export function gridSlot(t: Track, k: number): { x: number; y: number; z: number; yaw: number; s: number } {
   if (t.world) return worldSlot(t.world.world, k);
@@ -2308,9 +2552,13 @@ export function gridSlot(t: Track, k: number): { x: number; y: number; z: number
   return { ...l, yaw: Math.atan2(-l.tx, -l.tz), s };
 }
 
-/** World point at distance `s` along the road, `d` metres to the right, on the surface. */
-export function pointAt(t: Track, s: number, d: number) {
-  const f = Math.min(t.n - 1.001, Math.max(0, s / SAMPLE));
+/**
+ * World point at distance `s` along the road, `d` metres to the right, on the surface. `alt`: along a fork's second
+ * road, where there is one at `s`.
+ */
+export function pointAt(t: Track, s: number, d: number, alt = false) {
+  let f = Math.min(t.n - 1.001, Math.max(0, s / SAMPLE));
+  if (alt && t.fork && f > t.fork.a && f < t.fork.b) f = Math.min(f - t.fork.a, t.fork.m - 1.001) + t.fork.o;
   const i = Math.floor(f);
   const u = f - i;
   const cx = t.x[i] + (t.x[i + 1] - t.x[i]) * u;

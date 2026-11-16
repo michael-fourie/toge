@@ -24,6 +24,7 @@ Before you finish any change: `npm test` and `npm run typecheck` (both tsconfigs
 | File (in `tests/kanjo/` or `tests/`) | Guards |
 |---|---|
 | drivinglock | KANJO's driving, LOCKED by Michael (2026-11-12): every car's launch, braking, steering, drifts, reverse, sim handling, walls, slipstream, boost pads, damage, specs and pedals against `kanjo/drivinglock.json`. Never regenerate the snapshot (`DRIVING_LOCK=update`) unless Michael asked for that driving change |
+| fork (`tests/kanjo/`) | Futamata Parkway (10 km, one way, traffic) and forks in the road: both roads the same length, no step in the ground where they part and meet, cars located on the road they take, the AI's times on the two within 0.4 s, traffic on both |
 | royale (`tests/kanjo/`) | KANJO battle royale: the elimination rules, the arena's place in the modes, an online royale room with a CPU racer |
 | racephysics, garage, raceroom, standings, raceinput, pad, headcam, cosmetics, records | KANJO: every car down every track with the AI, economy, cosmetics and cases, race server, cockpit camera head, best times and friend profiles |
 | drivers, hands | KANJO drivers: every GLB has what the game needs; hands hold the wheel from outside the rim, fingers round it |

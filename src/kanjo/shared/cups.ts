@@ -24,8 +24,8 @@ export const CUPS: Record<CupId, CupDef> = {
   mirage: { id: 'mirage', name: 'Mirage Cup', tag: 'Sea cliffs, dunes and red desert', color: '#f5a524', tracks: ['saltwind', 'kazeoka', 'redmesa', 'akane'] },
   lantern: { id: 'lantern', name: 'Lantern Cup', tag: 'Harbour streets and roads after dark', color: '#8e6bff', tracks: ['minato', 'monaco', 'neonbay', 'tsukiyo'] },
   apex: { id: 'apex', name: 'Apex Cup', tag: 'Four grand circuits, lap after lap', color: '#22c3e6', tracks: ['kodama', 'hachi', 'spa', 'monza'] },
-  // The fast roads: the three built for speed, with Monza (from the Apex Cup) between them.
-  velocity: { id: 'velocity', name: 'Velocity Cup', tag: 'Flat out: salt flats, the Sea-to-Sky, the expressway', color: '#3ddc84', tracks: ['hayate', 'seatosky', 'monza', 'ryusei'] },
+  // The fast roads, all four built for speed (Futamata Parkway took Monza's round, 2026-11-16; Monza is the Apex Cup's).
+  velocity: { id: 'velocity', name: 'Velocity Cup', tag: 'Flat out: salt flats, the Sea-to-Sky, the forked parkway, the expressway', color: '#3ddc84', tracks: ['hayate', 'seatosky', 'futamata', 'ryusei'] },
   // The two six-lane grand prix roads, with the city and the expressway between. (Its id is from when it was the
   // Rush Hour Cup, every road with traffic, before the grand prix roads lost theirs.)
   rush: { id: 'rush', name: 'Overdrive Cup', tag: 'Flat out, then hard on the brakes: the city, the corniche, the expressway, the boulevard', color: '#ff5ca8', tracks: ['neonbay', 'isonami', 'ryusei', 'shiden'] },

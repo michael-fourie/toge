@@ -64,6 +64,8 @@ export interface TrafficCar {
   s0: number;
   /** Index into the paint list the renderer uses. */
   paint: number;
+  /** Where the road forks (Track.fork), it takes the second road. */
+  alt?: boolean;
 }
 
 export interface Traffic {
@@ -72,6 +74,8 @@ export interface Traffic {
   /** The stretch of road the traffic loops over. */
   lo: number;
   hi: number;
+  /** A fork in the road (Track.fork): from `s0` to `s1` every car is on one road or the other (TrafficCar.alt). */
+  fork?: { s0: number; s1: number };
 }
 
 /** Where a traffic car is at a moment: along and across the road, in the world, which way it faces, and its velocity. */
@@ -124,6 +128,11 @@ export function getTraffic(t: Track): Traffic | null {
       }
     });
     tr = { cars, lanes, lo, hi };
+    // At a fork every other car in each lane takes the second road, so both get the same mix in all four lanes.
+    if (t.fork) {
+      cars.forEach((c, i) => (c.alt = i % 2 === 1));
+      tr.fork = { s0: t.fork.s0, s1: t.fork.s1 };
+    }
   }
   cache.set(t, tr);
   return tr;
@@ -140,7 +149,7 @@ export function trafficS(tr: Traffic, car: TrafficCar, time: number): number {
 export function trafficPose(t: Track, tr: Traffic, car: TrafficCar, time: number, out: TrafficPose): TrafficPose {
   const lane = tr.lanes[car.lane];
   const s = trafficS(tr, car, time);
-  const p = pointAt(t, s, lane.d);
+  const p = pointAt(t, s, lane.d, car.alt);
   out.s = s;
   out.d = lane.d;
   out.x = p.x;
@@ -159,7 +168,15 @@ export interface Obstacle {
   /** Speed along the road (negative: coming the other way). */
   v: number;
   len: number;
+  /** On a forked stretch of road: whether it's on the second road (undefined where the road is one). */
+  alt?: boolean;
 }
+
+/**
+ * Traffic on the last stretch (m) of a fork's two roads counts as on both (Obstacle.alt undefined): there the roads
+ * run together, and a car alongside one on the other road is about to be in the same lane.
+ */
+const FORK_MERGE = 220;
 
 /** Traffic between `s0` and `s1` along the road at `time`, into `out` (cleared first). */
 export function trafficBetween(tr: Traffic, time: number, s0: number, s1: number, out: Obstacle[]): Obstacle[] {
@@ -168,7 +185,7 @@ export function trafficBetween(tr: Traffic, time: number, s0: number, s1: number
     const s = trafficS(tr, c, time);
     if (s < s0 || s > s1) continue;
     const lane = tr.lanes[c.lane];
-    out.push({ s, d: lane.d, v: lane.dir * lane.v, len: TRAFFIC_KINDS[c.kind].len });
+    out.push({ s, d: lane.d, v: lane.dir * lane.v, len: TRAFFIC_KINDS[c.kind].len, alt: tr.fork && s > tr.fork.s0 && s < tr.fork.s1 - FORK_MERGE ? !!c.alt : undefined });
   }
   return out;
 }

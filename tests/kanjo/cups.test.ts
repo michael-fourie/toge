@@ -19,7 +19,7 @@ test('every race track is in a cup of four (the Postcard Cup has five), only the
       if (!seen.has(t)) seen.set(t, id);
     }
   }
-  assert.deepEqual(CUPS.velocity.tracks.filter((t) => seen.get(t) === 'velocity'), ['hayate', 'seatosky', 'ryusei'], 'the new fast roads live in Velocity');
+  assert.deepEqual(CUPS.velocity.tracks.filter((t) => seen.get(t) === 'velocity'), ['hayate', 'seatosky', 'futamata', 'ryusei'], 'the fast roads live in Velocity');
   assert.deepEqual(CUPS.rush.tracks.filter((t) => seen.get(t) === 'rush'), ['isonami', 'shiden'], 'the six-lane grand prix roads live in Overdrive');
   assert.deepEqual(CUPS.sprint.tracks, ['mizuumi', 'hibari', 'kamome', 'shiokaze'], 'Sprint is the four sprint rings, easiest first, all its own');
   assert.ok(CUPS.sprint.tracks.every((t) => TRACK_DEFS[t].laps === 4), 'Sprint is all short 4-lap circuits');
