@@ -2291,7 +2291,7 @@ button.tg-mode:hover:not([aria-pressed='true']) {
   justify-content: center;
   flex-wrap: wrap;
   align-items: flex-end;
-  min-height: 250px;
+  min-height: 320px;
   margin: 4px 0 6px;
   padding: 10px 8px 0;
   border-radius: var(--tg-radius);
@@ -2315,10 +2315,12 @@ button.tg-mode:hover:not([aria-pressed='true']) {
 .tg-crew-m {
   position: relative;
   z-index: 1;
-  flex: 0 1 clamp(120px, calc(100% / max(var(--n), 2)), 340px);
+  /* Big: two racers fill the row (up to 520 px each). The pictures keep a quarter of their width empty either side of
+     the car and driver, so neighbours overlap that margin instead of leaving a gap between cars. */
+  flex: 0 1 clamp(170px, calc(100% / max(var(--n), 2)), 520px);
   display: grid;
   justify-items: center;
-  margin: 0 -2px;
+  margin: 0 -7%;
 }
 /* Only racers who just joined slide in (the lobby redraws on every update). */
 .tg-crew-m.new {
@@ -3428,8 +3430,44 @@ button.tg-hc:hover {
   width: 96px;
   height: 38px;
 }
+/* Open races: the lobbies anyone can join, a card on the left of the landing (under the Host button on a phone).
+   It reuses the `.tg-lobbies` rows; the list scrolls inside the card so a busy night never pushes past the Battle pass. */
+.tg-hc-lobbies .tg-lobbies {
+  margin: 2px 0 0;
+  max-height: min(44vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.tg-hc-lobbies .tg-lobbies li {
+  gap: 10px;
+}
+.tg-hc-lobbies .tg-lobbies li span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.tg-hc-lobbies .tg-lobbies li strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: #fff;
+}
+.tg-hc-lobbies .tg-lobbies li small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--tg-dim);
+}
 
 @media (min-width: 901px) {
+  .tg-land .tg-hc-lobbies {
+    position: absolute;
+    top: clamp(14px, 3vh, 28px);
+    left: var(--tg-gutter);
+    width: clamp(260px, 22vw, 340px);
+  }
   .tg-landing .tg-body {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr;
