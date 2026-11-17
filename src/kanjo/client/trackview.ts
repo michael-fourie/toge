@@ -147,6 +147,13 @@ export function matteGround(sh: { fragmentShader: string }) {
 export const LOW_FILL = 2.4;
 /** How strongly the guardrails glow at night (emissive), so the road's edge shows in the dark. */
 const NIGHT_RAIL = 0.22;
+/**
+ * The guardrail's W-beam profile, bottom to top: height over the road (m), how far it stands out toward the road (m)
+ * and the texture's v. Two ribs with a groove between them, so the sun picks out bands instead of one bright strip.
+ */
+const W_BEAM: [number, number, number][] = [[0.42, 0, 0], [0.5, 0.075, 0.25], [0.6, 0.025, 0.5], [0.7, 0.075, 0.75], [0.78, 0, 1]];
+/** One guardrail panel (m) between splices: the texture repeats once per panel, so a splice sits on every post. */
+const RAIL_PANEL = 4;
 /** The terrain fades fully into the fog between these view depths (m), well before the far ring's edge (4.2 km past the track). */
 export const HORIZON_FADE = [3200, 5200];
 
@@ -539,10 +546,16 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   if (skyRoad) clouds = skyDeck(scene, t, look, keep);
   else {
     // --- Armco both sides: a galvanised beam on posts.
+    // Painted white or dull galvanised steel, with panel splices, bolts and road grime from railTexture(). The old
+    // near-mirror galvanising (roughness 0.34, env 1.4) caught the bright sky and read as a glowing strip.
+    const railTex = railTexture(!!look.whiteRail);
+    railTex.map.anisotropy = railTex.rough.anisotropy = 4;
+    keep(railTex.map);
+    keep(railTex.rough);
     const railMat = keep(
       look.whiteRail
-        ? new THREE.MeshStandardMaterial({ color: 0xe9ecee, metalness: 0.05, roughness: 0.42, side: THREE.DoubleSide })
-        : new THREE.MeshStandardMaterial({ color: 0xb4b9bf, metalness: 0.9, roughness: 0.34, envMapIntensity: 1.4, side: THREE.DoubleSide }),
+        ? new THREE.MeshStandardMaterial({ color: 0xdfe2e0, map: railTex.map, roughnessMap: railTex.rough, metalness: 0.05, roughness: 1, side: THREE.DoubleSide })
+        : new THREE.MeshStandardMaterial({ color: 0xa9aeb2, map: railTex.map, roughnessMap: railTex.rough, metalness: 0.75, roughness: 1, envMapIntensity: 0.9, side: THREE.DoubleSide }),
     );
     // At night the rails glow faintly (as if caught by the headlights), so the edge of the road reads from far off
     // without real lights. Well under the bloom threshold.
@@ -568,21 +581,27 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
       }
       for (const [i0, i1] of runs) {
         const pos: number[] = [];
+        const uv: number[] = [];
         const idx: number[] = [];
+        const np = W_BEAM.length;
         for (let i = i0; i <= i1; i++) {
           const d = side * (railOf(rd, i, side) + 0.15);
           const x = rd.x[i] - rd.tz[i] * d;
           const z = rd.z[i] + rd.tx[i] * d;
           const y = rd.y[i] - rd.bank[i] * d;
-          // A W-beam: three points in profile (low, bulge, high).
-          pos.push(x, y + 0.42, z, x - rd.tz[i] * side * 0.06, y + 0.6, z + rd.tx[i] * side * 0.06, x, y + 0.78, z);
+          // A W-beam in profile: two ribs standing out toward the road with a groove between them.
+          for (const [h, out, v] of W_BEAM) {
+            pos.push(x - rd.tz[i] * side * out, y + h, z + rd.tx[i] * side * out);
+            uv.push((i * SAMPLE) / RAIL_PANEL, v);
+          }
           if (i < i1) {
-            const a = (i - i0) * 3;
-            idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
+            const a = (i - i0) * np;
+            for (let p = 0; p < np - 1; p++) idx.push(a + p, a + np + p, a + p + 1, a + p + 1, a + np + p, a + np + p + 1);
           }
         }
         const geo = keep(new THREE.BufferGeometry());
         geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
         geo.setIndex(idx);
         geo.computeVertexNormals();
         const m = new THREE.Mesh(geo, railMat);
@@ -593,7 +612,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     }
     const postEvery = 2; // samples (4 m)
     const nPosts = Math.ceil((t.n + (branch?.n ?? 0)) / postEvery + 1) * 2;
-    const postMat = look.whiteRail ? railMat : keep(new THREE.MeshStandardMaterial({ color: 0x8e9399, metalness: 0.7, roughness: 0.5, emissive: 0x9aa6bc, emissiveIntensity: look.moon ? NIGHT_RAIL : 0 }));
+    const postMat = keep(new THREE.MeshStandardMaterial({ color: look.whiteRail ? 0xcfd2cf : 0x7d8287, metalness: look.whiteRail ? 0.05 : 0.7, roughness: 0.6, emissive: 0x9aa6bc, emissiveIntensity: look.moon ? NIGHT_RAIL : 0 }));
     const posts = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(0.12, 0.85, 0.08)), postMat, nPosts);
     const m4 = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -613,6 +632,21 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     posts.count = pi;
     posts.castShadow = true;
     scene.add(posts);
+    // A spacer block between each post and the beam, as on a real guardrail (so the beam doesn't float).
+    const blocks = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(0.1, 0.3, 0.14)), postMat, nPosts);
+    let bi = 0;
+    for (const rd of roads)
+      for (let i = 0; i < rd.n; i += postEvery)
+        for (const side of [-1, 1]) {
+          if (gap(rd, i, side)) continue;
+          const d = side * (railOf(rd, i, side) + 0.21);
+          v.set(rd.x[i] - rd.tz[i] * d, rd.y[i] - rd.bank[i] * d + 0.6, rd.z[i] + rd.tx[i] * d);
+          q.setFromEuler(e.set(0, Math.atan2(-rd.tx[i], -rd.tz[i]), 0));
+          blocks.setMatrixAt(bi++, m4.compose(v, q, one));
+        }
+    blocks.count = bi;
+    blocks.castShadow = true;
+    scene.add(blocks);
     // Round amber reflectors on every fifth post: they catch the headlights (and the bloom) at night.
     const reflGeo = keep(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 12).rotateX(Math.PI / 2));
     const reflMat = keep(new THREE.MeshStandardMaterial({ color: 0xffa020, emissive: 0xff8a10, emissiveIntensity: look.moon ? 14 : 0.5, roughness: 0.3 }));
@@ -1679,19 +1713,29 @@ export function backdrop(image: string, keep: <T extends { dispose(): void }>(x:
   return mesh;
 }
 
+/** Night stars: point size (px), the faintest star's brightness, how few are bright (a power), warm/cool tint. */
+const STARS = { size: 2, faint: 0.25, spread: 3, tint: 0.3 };
+
 /** Stars and a moon for night tracks. */
 function stars(moonDir: THREE.Vector3, keep: <T extends { dispose(): void }>(x: T) => T, look: Look): THREE.Group {
   const g = new THREE.Group();
   const n = 1800;
   const pos = new Float32Array(n * 3);
+  const col = new Float32Array(n * 3);
   const rng = mulberry(99);
   for (let i = 0; i < n; i++) {
     const v = new THREE.Vector3().setFromSphericalCoords(9000, Math.acos(rng() * 0.95), rng() * Math.PI * 2);
     pos.set([v.x, v.y, v.z], i * 3);
+    // Most stars faint, a few bright, and dimmer toward the horizon's haze; a hint of blue or warm white in each,
+    // so the sky has depth instead of 1800 identical white dots.
+    const b = (STARS.faint + (1 - STARS.faint) * rng() ** STARS.spread) * (0.35 + 0.65 * Math.min(1, v.y / 3000));
+    const warm = rng() - 0.5;
+    col.set([b * (1 + warm * STARS.tint), b, b * (1 - warm * STARS.tint)], i * 3);
   }
   const geo = keep(new THREE.BufferGeometry());
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.add(new THREE.Points(geo, keep(new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, fog: false }))));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.add(new THREE.Points(geo, keep(new THREE.PointsMaterial({ vertexColors: true, size: STARS.size, sizeAttenuation: false, fog: false }))));
   const moon = new THREE.Mesh(keep(new THREE.SphereGeometry(220 * (look.moonSize ?? 1), 24, 16)), keep(new THREE.MeshBasicMaterial({ color: look.moonColor ?? 0xf4f1e2, fog: false })));
   moon.position.copy(moonDir).multiplyScalar(8500);
   g.add(moon);
@@ -1787,6 +1831,83 @@ function kerbs(scene: THREE.Scene, t: Track, keep: <T extends { dispose(): void 
   const m = new THREE.Mesh(geo, keep(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })));
   m.receiveShadow = true;
   scene.add(m);
+}
+
+/**
+ * One guardrail panel's colour and roughness (u along the rail, v up the profile): white paint or galvanised spangle,
+ * the splice and its bolts at the panel's end, road grime along the bottom and rain streaks running down. Light
+ * (the material's colour tints it) and seeded, so every client draws the same rail.
+ */
+function railTexture(white: boolean) {
+  const W = 512;
+  const H = 64;
+  const mk = () => {
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    return [c, c.getContext('2d')!] as const;
+  };
+  const [cc, g] = mk();
+  const [rc, r] = mk();
+  const rng = mulberry(white ? 71 : 72);
+  g.fillStyle = white ? '#f4f4f0' : '#e2e4e6';
+  g.fillRect(0, 0, W, H);
+  r.fillStyle = white ? '#808080' : '#6e6e6e';
+  r.fillRect(0, 0, W, H);
+  // Galvanised spangle (patches of brighter and duller zinc) or faint paint wear.
+  for (let k = 0; k < (white ? 120 : 420); k++) {
+    const x = rng() * W;
+    const y = rng() * H;
+    const s = white ? 1 + rng() * 3 : 3 + rng() * 9;
+    const l = white ? 225 + rng() * 25 : 190 + rng() * 60;
+    g.fillStyle = `rgba(${l},${l},${l + 3},${white ? 0.5 : 0.55})`;
+    g.fillRect(x, y, s * 1.6, s);
+    const q = white ? 120 + rng() * 30 : 90 + rng() * 40;
+    r.fillStyle = `rgba(${q},${q},${q},0.5)`;
+    r.fillRect(x, y, s * 1.6, s);
+  }
+  // Road grime: spray from the wheels darkens the bottom of the beam (canvas y grows downward: H is the bottom edge).
+  const grime = g.createLinearGradient(0, H, 0, H * 0.45);
+  grime.addColorStop(0, white ? 'rgba(92,84,70,0.55)' : 'rgba(70,64,56,0.5)');
+  grime.addColorStop(1, 'rgba(92,84,70,0)');
+  g.fillStyle = grime;
+  g.fillRect(0, 0, W, H);
+  const rg = r.createLinearGradient(0, H, 0, H * 0.45);
+  rg.addColorStop(0, 'rgba(230,230,230,0.6)');
+  rg.addColorStop(1, 'rgba(230,230,230,0)');
+  r.fillStyle = rg;
+  r.fillRect(0, 0, W, H);
+  // Rain streaks running down from the ribs.
+  for (let k = 0; k < 70; k++) {
+    const x = rng() * W;
+    const y0 = rng() * H * 0.5;
+    const len = 8 + rng() * 40;
+    g.fillStyle = `rgba(80,74,64,${0.06 + rng() * 0.12})`;
+    g.fillRect(x, y0, 1 + rng() * 2, len);
+  }
+  // The splice at the panel's end: the overlapping panel's edge, and bolts in the groove and on each rib.
+  g.fillStyle = 'rgba(40,40,40,0.55)';
+  g.fillRect(0, 0, 2, H);
+  g.fillStyle = 'rgba(255,255,255,0.35)';
+  g.fillRect(2, 0, 1, H);
+  for (const bx of [10, 26]) {
+    for (const by of [0.25, 0.5, 0.75]) {
+      const y = H * (1 - by);
+      g.fillStyle = 'rgba(30,30,30,0.85)';
+      g.beginPath();
+      g.arc(bx, y, 3, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.4)';
+      g.fillRect(bx - 1.5, y - 2, 2, 1);
+      g.fillStyle = 'rgba(150,80,40,0.25)'; // a little rust weeping from the bolt
+      g.fillRect(bx - 1, y + 3, 2, 6 + rng() * 8);
+    }
+  }
+  const map = new THREE.CanvasTexture(cc);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const rough = new THREE.CanvasTexture(rc);
+  for (const t of [map, rough]) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return { map, rough };
 }
 
 function chevronTexture() {

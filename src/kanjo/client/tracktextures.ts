@@ -144,6 +144,11 @@ const LITTER: Record<Theme, { colors: string[]; n: number; sand?: string }> = {
  * has only its edge lines, like a race track.
  */
 export const ROAD_TILE = 24;
+/**
+ * Sealed cracks in a road tile: how many, the share running along the road (the rest go across), line width (px; the
+ * road is ~60 px a metre across), how far they wander (rad a step) and their opacity.
+ */
+const CRACKS = { sealed: 7, along: 0.7, width: [2, 3.5], wobble: 0.5, alpha: 0.55 };
 export function asphalt(theme: Theme, seed: number, aniso: number, circuit = false, lanes = 0, tarColour?: string): Surface {
   // `lanes`: a one-way highway with this many lanes (0: not one). `tarColour`: a track's own (TRACK_LOOKS `tar`).
   const highway = lanes > 0;
@@ -230,16 +235,36 @@ export function asphalt(theme: Theme, seed: number, aniso: number, circuit = fal
       pts.forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py)));
     };
   };
+  // Hairline cracks: fine and faint, so they read as texture rather than lines drawn on the road.
   for (let i = 0; i < 26; i++) {
     const p = walk(R0 + rnd() * (R1 - R0), rnd() * H, 10 + rnd() * 40, 1.1);
-    paint3(L, p, 'rgba(8,8,8,0.6)', 'rgb(245,245,245)', 'rgba(128,128,128,0)', false, 1.2);
+    paint3(L, p, 'rgba(8,8,8,0.35)', 'rgb(240,240,240)', 'rgba(128,128,128,0)', false, 1);
   }
-  for (let i = 0; i < 9; i++) {
+  // Sealed cracks: mostly along the road (lane joints, wheel paths) or straight across it, as real ones run, thin and
+  // weathered to a dull grey-black. (2026-11-17: thick, wandering, near-black ones read as squiggles drawn on the road.)
+  // Each is walked from its own seed so its copies above and below the tile (for the wrap) are the same crack.
+  for (let i = 0; i < CRACKS.sealed; i++) {
     const x = R0 + rnd() * (R1 - R0);
     const y = rnd() * H;
+    const heading = rnd() < CRACKS.along ? Math.PI / 2 : 0;
+    const len = heading ? 30 + rnd() * 50 : 12 + rnd() * 20;
+    const w = CRACKS.width[0] + rnd() * (CRACKS.width[1] - CRACKS.width[0]);
+    const seed = Math.floor(rnd() * 1e9);
     for (const dy of [0, -H, H]) {
-      const p = walk(x, y + dy, 30 + rnd() * 60, 0.7);
-      paint3(L, p, 'rgba(6,6,7,0.85)', 'rgb(196,196,196)', 'rgba(134,134,134,0.5)', false, 4 + rnd() * 4);
+      const r = mulberry(seed);
+      const pts: [number, number][] = [[x, y + dy]];
+      let a = heading;
+      let px = x;
+      let py = y + dy;
+      for (let k = 0; k < len; k++) {
+        a += (r() - 0.5) * CRACKS.wobble;
+        a += (heading - a) * 0.25; // keep to its direction
+        px = Math.max(R0 + 6, Math.min(R1 - 6, px + Math.cos(a) * 9));
+        py += Math.sin(a) * 9;
+        pts.push([px, py]);
+      }
+      const p = (g: Ctx) => pts.forEach(([qx, qy], k) => (k ? g.lineTo(qx, qy) : g.moveTo(qx, qy)));
+      paint3(L, p, `rgba(22,22,24,${CRACKS.alpha})`, 'rgb(205,205,205)', 'rgba(134,134,134,0.3)', false, w);
     }
   }
 

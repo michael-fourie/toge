@@ -37,7 +37,7 @@ import { GhostCar } from './ghostcar.ts';
 import { HIGHLIGHT, type Moment, MomentFlag, MomentTape, type PlayPose, bestMoment, momentLine, newPlayPose } from '../shared/highlight.ts';
 import { type Cockpit, buildCockpit } from './cockpit.ts';
 import { Head, ROUGH } from './headcam.ts';
-import { Effects } from './effects.ts';
+import { Effects, SMOKE } from './effects.ts';
 import { garage } from './garageStore.ts';
 import { type Dot, type ResultLine, RaceHud, type Tag, cupHtml, fmtTime, money, ordinal } from './hud.ts';
 import { saveHighs } from './highs.ts';
@@ -465,7 +465,8 @@ export class RaceGame {
     this.renderer.toneMappingExposure = this.view.exposure;
     this.post = new Post(this.renderer, this.view.scene, this.camera, this.view.grade, this.low);
     this.post.sun = this.view.sunDir;
-    this.fx = new Effects(this.view.scene);
+    const dark = this.track.def.theme === 'night' || this.track.def.theme === 'city';
+    this.fx = new Effects(this.view.scene, dark ? SMOKE.night : 1);
     this.contact = new ContactShadows(this.view.scene);
     this.propView = new PropView(this.view.scene, this.track);
     // (A battle royale's knockouts blow up too: built now, so its flash light is in the scene from the start.)

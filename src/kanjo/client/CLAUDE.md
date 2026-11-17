@@ -12,7 +12,8 @@ The rules that bite most often in this folder:
   there are only two full-size passes (the MSAA resolve and the grade); don't add a full-screen pass for something a
   shader already reading the image can do. The flare (`Grade.flare`, 0 on night themes) checks whether the sun is
   hidden by sampling the image at the sun in the vertex shader, so it costs nothing per pixel. The speed blur (`Post.rush`,
-  set in racegame.ts from `RUSH`) streaks only the frame's edges, only above ~150 km/h or on a boost: four taps there, none elsewhere.
+  set in racegame.ts from `RUSH`) streaks only the frame's lower edges (never the sky), only above ~150 km/h or on a boost: four
+  close, weighted taps there, none elsewhere. Keep the taps close: spread wide they show as ghost copies of trees and rails.
 - `envMapIntensity` only works in a scene marked with `envLevel()` (envlevel.ts; trackview.ts `atmosphere()` does it for
   every race and the open world). three.js otherwise hands every material the scene's `environmentIntensity` and ignores
   its own, which left clear coat, glass, chrome and the wet night road at a flat 0.55 until 2026-11-10. Ground materials
@@ -26,6 +27,13 @@ The rules that bite most often in this folder:
   until the tab crashed: shared materials keep old renderers reachable. tests/graphics.test.ts checks.
 - Never add or remove a light mid-race (every lit shader recompiles: a multi-second freeze). Add it at load and change its intensity.
 - At night bloom only catches values above 1: lamps, reflectors and signs must be brighter than white.
+- Visuals overhaul (2026-11-17, started on request: "clean stylised-realistic, mixed with photo-real"; done in phases with
+  before/after shots from `/dev/race.html` and `rl.cost`). Phase 0: the speed blur above; tyre smoke is lit for the
+  scene (`SMOKE.night` on night and city tracks: unlit grey smoke glowed like white balls), fogged, soft-edged and
+  thinned near the camera (effects.ts `SMOKE`); stars vary in brightness and tint (`STARS`); guardrails are a W-beam
+  with two ribs (`W_BEAM`), spacer blocks, and a painted texture per `RAIL_PANEL` (splice, bolts, grime: `railTexture`),
+  galvanised steel matte enough not to mirror the sky; sealed road cracks are thin and run along or across the road
+  (tracktextures.ts `CRACKS`). The open world's rails (worldview.ts) are still the old ones.
 - Watch triangle counts with `__race.renderer.info`; forests dominate, a car is ~30k triangles in ~40 draw calls.
 - Levels of detail (lod.ts `LodTiles`, swap distances in `LOD`): past `LOD.trees` (300 m to the nearest edge of a
   400 m tile) a tile's trees are drawn with `farTree` stand-ins (trees.ts: a five-sided lathe of the crown's outline

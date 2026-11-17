@@ -91,17 +91,24 @@ const GradeShader = {
     void main() {
       // The scene, clipped as the bloom saw it (SAFE).
       vec3 c = safe(texture2D(tDiffuse, vUv).rgb);
-      // Speed blur: the edges of the frame streak away from a point a little above the middle (where the road
-      // goes), the middle (your car, the road ahead) stays sharp. Four more taps, and only where it shows: skipped
-      // whole below cruising speed, and per pixel inside the sharp middle.
+      // Speed blur: the lower edges of the frame (road, verges, rails) streak away from a point a little above the
+      // middle (where the road goes); the middle (your car, the road ahead) and the sky stay sharp. The taps sit
+      // close together and fade with distance, so a tree's edge smears into a short soft trail instead of separate
+      // ghost copies (2026-11-17: the old 4 even taps over ~8% of the screen doubled trees and turned stars into
+      // dashes). Four more taps, only where it shows: skipped whole below cruising speed, per pixel elsewhere.
       if (rush > 0.0) {
         vec2 dir = vUv - vec2(0.5, 0.56);
-        float k = rush * smoothstep(0.22, 0.75, length(dir * vec2(aspect, 1.0)));
+        float k = rush * smoothstep(0.3, 0.8, length(dir * vec2(aspect, 1.0))) * (1.0 - smoothstep(0.6, 0.85, vUv.y));
         if (k > 0.004) {
-          vec2 st = dir * k * 0.032;
-          float j = 0.6 * fract(sin(dot(vUv, vec2(91.7, 37.3)) + time) * 4375.85); // a little dither: no ghost copies, no grain
-          for (int i = 1; i <= 4; i++) c += safe(texture2D(tDiffuse, vUv - st * (float(i) - j)).rgb);
-          c *= 0.2;
+          vec2 st = dir * k * 0.012;
+          float j = fract(sin(dot(vUv, vec2(91.7, 37.3)) + time) * 4375.85); // dither the taps: a smooth trail, no copies
+          float sum = 1.0;
+          for (int i = 1; i <= 4; i++) {
+            float w = 1.0 - 0.18 * float(i);
+            c += w * safe(texture2D(tDiffuse, vUv - st * (float(i) - j)).rgb);
+            sum += w;
+          }
+          c /= sum;
         }
       }
       // Plus the bloom, added here rather than in a full-screen pass of its own.

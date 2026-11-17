@@ -7,6 +7,12 @@ import * as THREE from 'three';
 const SMOKE_MAX = 900;
 const SKID_MAX = 3000;
 const STREAK_MAX = 160;
+/**
+ * Smoke look: `nearFade` (m) thins a puff out as it reaches the camera, `maxPx` caps a puff's size on screen,
+ * `density` makes up for the softer falloff's lighter core (same smoke overall), and `night` is the `light` for
+ * night and city tracks (racegame.ts).
+ */
+export const SMOKE = { nearFade: ['1.5', '5.0'], maxPx: '420.0', density: '1.25', night: 0.2 };
 
 export class Effects {
   private smoke: THREE.Points;
@@ -44,7 +50,11 @@ export class Effects {
   private tPeak = new Float32Array(STREAK_MAX);
   private tNext = 0;
 
-  constructor(scene: THREE.Scene) {
+  /**
+   * `light` scales the smoke's colour for the scene's light (1 by day, `SMOKE.night` at night): smoke is drawn unlit,
+   * so a day-grey puff glowed like a white ball on a dark road.
+   */
+  constructor(scene: THREE.Scene, light = 1) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.sp, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('color', new THREE.BufferAttribute(this.sCol, 3).setUsage(THREE.DynamicDrawUsage));
@@ -55,29 +65,39 @@ export class Effects {
       transparent: true,
       depthWrite: false,
       vertexColors: true,
-      uniforms: { scale: { value: 600 } },
+      fog: true,
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { scale: { value: 600 }, light: { value: light } }]),
       vertexShader: `
         attribute float size; attribute float alpha; attribute float glow;
         varying vec3 vColor; varying float vAlpha; varying float vGlow;
         uniform float scale;
+        #include <fog_pars_vertex>
         void main() {
           vColor = color; vAlpha = alpha; vGlow = glow;
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = size * scale / -mv.z;
-          gl_Position = projectionMatrix * mv;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          // Smoke thins out as it reaches the camera instead of filling the screen with one flat disc.
+          vAlpha *= mix(smoothstep(${SMOKE.nearFade[0]}, ${SMOKE.nearFade[1]}, -mvPosition.z), 1.0, glow);
+          gl_PointSize = min(size * scale / -mvPosition.z, ${SMOKE.maxPx});
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
         }`,
       fragmentShader: `
         varying vec3 vColor; varying float vAlpha; varying float vGlow;
+        uniform float light;
+        #include <fog_pars_fragment>
         void main() {
           vec2 d = gl_PointCoord - 0.5;
           float r = length(d) * 2.0;
           if (r > 1.0) discard;
-          float a = (1.0 - r * r) * vAlpha;
+          // Smoke: a soft falloff with no rim (the old 1 - r² read as a disc with an edge), lit for the scene.
+          float s = 1.0 - r;
+          float a = s * s * (3.0 - 2.0 * s) * vAlpha * ${SMOKE.density};
           // A spark: a white-hot core several times brighter than white (bloom) fading into its colour.
-          float core = (1.0 - r) * (1.0 - r);
-          vec3 c = mix(vColor, mix(vColor, vec3(1.0), core * 0.7) * (1.0 + 5.0 * core), vGlow);
-          a = mix(a, min(1.0, (1.0 - r) * 1.6) * vAlpha, vGlow);
+          float core = s * s;
+          vec3 c = mix(vColor * light, mix(vColor, vec3(1.0), core * 0.7) * (1.0 + 5.0 * core), vGlow);
+          a = mix(a, min(1.0, s * 1.6) * vAlpha, vGlow);
           gl_FragColor = vec4(c, a);
+          #include <fog_fragment>
         }`,
     });
     this.smoke = new THREE.Points(g, mat);
