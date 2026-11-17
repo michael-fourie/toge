@@ -124,6 +124,15 @@ const DRIVER_RANGE = 70;
 const TAG_NEAR = 120;
 const TAG_FAR = 280;
 const TAG_CHECK = 6;
+/**
+ * Name tags stay faint so they don't hide the road from the cars behind: never more than TAG_ALPHA, and a car close
+ * ahead (where its tag sits right over the racing line) fades its tag to TAG_CLOSE_ALPHA inside TAG_CLOSE_IN m, back
+ * up by TAG_CLOSE_OUT m.
+ */
+const TAG_ALPHA = 0.6;
+const TAG_CLOSE_ALPHA = 0.25;
+const TAG_CLOSE_IN = 15;
+const TAG_CLOSE_OUT = 45;
 /** Adaptive resolution (racegame.adaptResolution): frame-time thresholds (ms), how long they must hold (s), the step and floor. */
 /**
  * Speed blur at the edges of the frame (post.ts `rush`): from `from` m/s (~150 km/h), full at `full` (~290 km/h), `boost`
@@ -2154,7 +2163,7 @@ export class RaceGame {
     const followed = this.watching !== null && this.remotes.get(this.watching)?.last ? this.watching : this.watchCar && !this.watchCar.out ? 'ai' + this.watchCar.name : 'me';
     const myPlace = order.findIndex((e) => e.who.me) + 1;
     const tags: Tag[] = order.filter((e) => e.who.tag !== followed).map((e) => ({ id: e.who.tag, name: e.who.name, color: e.who.color, place: this.roam ? '' : order.indexOf(e) + 1, at: this.tagAt(e.who.tag, e.who.root, e.who.height) }));
-    if (rg) tags.push({ id: 'record', name: `${rg.run.name} · ${fmtTime(rg.run.time)}`, color: rg.color, place: 'TR', at: this.tagAt('record', rg.model.root, rg.height) });
+    if (rg) tags.push({ id: 'record', name: rg.run.name, color: rg.color, place: 'TR', at: this.tagAt('record', rg.model.root, rg.height) });
     this.hud.tags(tags);
     this.hud.update({
       speed: speedOf(c),
@@ -2212,7 +2221,9 @@ export class RaceGame {
       this.tagHidden.set(id, seen);
     }
     if (seen.hidden) return null;
-    const alpha = 1 - Math.min(1, Math.max(0, (dist - TAG_NEAR) / (TAG_FAR - TAG_NEAR)));
+    const far = 1 - Math.min(1, Math.max(0, (dist - TAG_NEAR) / (TAG_FAR - TAG_NEAR)));
+    const close = TAG_CLOSE_ALPHA + (1 - TAG_CLOSE_ALPHA) * Math.min(1, Math.max(0, (dist - TAG_CLOSE_IN) / (TAG_CLOSE_OUT - TAG_CLOSE_IN)));
+    const alpha = TAG_ALPHA * far * close;
     return { x: (ndc.x * 0.5 + 0.5) * this.viewW, y: (-ndc.y * 0.5 + 0.5) * this.viewH, alpha };
   }
 
