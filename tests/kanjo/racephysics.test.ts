@@ -158,7 +158,8 @@ test('runoff: dirt before the barrier on the outside of fast bends and after eve
     // A road as wide as a runway (Hayate Flats) is its own runoff: only its quickest kinks get more. A sprint ring
     // (a lap under 1.5 km, all fast corners: Mizuumi, Hibari) is nearly all bend taken quick, so most of it has some.
     const sprint = !!t.lap && t.lap * SAMPLE < 1500;
-    const most = t.cross ? 0.5 : sprint ? 0.7 : 0.4;
+    // An obstacle course lands five or six jumps, each with runoff both sides for 140 m after it.
+    const most = t.cross ? 0.5 : sprint ? 0.7 : t.def.obstacles ? 0.55 : 0.4;
     assert.ok(covered > (t.def.width >= 20 ? 0.05 : 0.12) && covered < most, `${id}: runoff on ${(covered * 100).toFixed(0)}% of the road`);
     // Where it's wide, it's dirt you can drive on: flat road plane out to a barrier that stands back.
     let wide = 0;

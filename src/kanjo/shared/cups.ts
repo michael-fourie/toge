@@ -1,11 +1,11 @@
 // Grand Prix cups: four (or five) fixed tracks raced back to back, points for every place, and a cup standings table at the
 // end. Solo (you against the AI, hub.ts → racegame.ts) and online (the room runs it, kanjo/server/race.ts).
-// Every race track (not the hill climb) sits in a cup, and only the Velocity and Overdrive Cups borrow tracks from the others;
+// Every race track (not the hill climb) sits in a cup, and only the Velocity, Overdrive and Gravity Cups borrow tracks from the others;
 // the cups test checks it.
 
 import { TRACK_DEFS, type TrackId } from './track.ts';
 
-export type CupId = 'torii' | 'mirage' | 'lantern' | 'apex' | 'velocity' | 'rush' | 'sprint' | 'postcard';
+export type CupId = 'torii' | 'mirage' | 'lantern' | 'apex' | 'velocity' | 'rush' | 'sprint' | 'postcard' | 'gravity';
 
 export interface CupDef {
   id: CupId;
@@ -33,6 +33,9 @@ export const CUPS: Record<CupId, CupDef> = {
   sprint: { id: 'sprint', name: 'Sprint Cup', tag: 'Short laps, quick hands: the lake, then three clifftop rings, each harder', color: '#ff7a59', tracks: ['mizuumi', 'hibari', 'kamome', 'shiokaze'] },
   // Five storybook towns (Michael, 2026-11-10), easiest first: flat Taketomi to Chefchaouen's hairpins.
   postcard: { id: 'postcard', name: 'Postcard Cup', tag: 'Five storybook towns: Okinawa, the Alps, Cappadocia, Santorini, the Rif', color: '#2ec4b6', tracks: ['taketomi', 'hallstatt', 'goreme', 'oia', 'chefchaouen'] },
+  // Downhill and airborne (2026-11-16): the rally stage's crests and Kori Pass's descent, then the two obstacle-course
+  // downhills, where the road throws you onto the street below. It borrows Red Mesa and Kori Pass.
+  gravity: { id: 'gravity', name: 'Gravity Cup', tag: 'All downhill: crests, hairpins, then two obstacle courses that throw you onto the street below', color: '#9bd13b', tracks: ['redmesa', 'koripass', 'sakamichi', 'nadare'] },
 };
 export const CUP_IDS = Object.keys(CUPS) as CupId[];
 /** How many rounds a cup races. */

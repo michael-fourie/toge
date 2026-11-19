@@ -116,7 +116,7 @@ a component or a page.
   flicks (three-corner esses) and ~16 m of hills a lap (grades under 7%; the loop generator adds them as sine waves
   round the lap); the boost test holds them narrower, tighter, twistier and hillier than Hibari; city `neonbay` (Neon Bay, live
   traffic); hill climb `karasu` (Karasu Peak: uphill, 4.1 km and 336 m up, narrow, `climb: true`, only in a Hill climb lobby).
-  Track `Feature`s: gravel, canyon, bridge, tunnel, crest, `cut` (a gravel shortcut through gaps in the barrier) and
+  Track `Feature`s: gravel, canyon, bridge, tunnel, crest, `jump` (a drop jump onto the road below; see the downhill obstacle courses), `cut` (a gravel shortcut through gaps in the barrier) and
   `bumps` (heaved tarmac between two control points; the grade test skips them, like crests).
   Two speed roads (2026-11-08, Devlin: "a highway map ... like street racing" and "a wide map, where the turns are
   like 30 degree turns maximum, a high speed map"): `ryusei` (Ryūsei Expressway: city at night, 4.7 km, 16 m wide,
@@ -191,6 +191,22 @@ a component or a page.
   and swings out early, the right climbs 7 m and swings out late. Each is the other turned end for end, so they're the
   same length to the metre and the AI's times differ by under 0.2 s in every car (tests/kanjo/fork.test.ts holds 0.4 s).
   It's in the Velocity Cup (it took Monza's round). Laid out as straights and arcs with a small generator, like Sea-to-Sky.
+  Two downhill obstacle courses (2026-11-16, Andrew: "obstacle course style race. Start from top of a mountain and the
+  race finishes at the bottom. Include jumps where you land on a new street and make it a long race to the bottom to
+  encourage overtaking"): `nadare` (Nadare Drop: alpine, 7.9 km, 720 m down to ~190 m, 13 m wide, five drop jumps, a
+  switchback ladder, a bumpy stretch and a gravel one) and `sakamichi` (Sakamichi Downhill: city at night, 7.2 km, 470 m
+  down to the harbour (`water` 0), 14 m wide, six drop jumps, the last three down the final boulevards, two bumpy
+  stretches). Point to point, not `clean`, `obstacles: true`. Each jump is a **drop jump** (Feature `jump`: a kicker
+  rising `size` m over the last `kick` m to the lip at control point `at`, then the road falls `size + drop` m over
+  `land` m, steepest at the lip and easing out, and runs on `drop` m lower; the control points' heights leave the drops
+  out). A jump goes in `t.crests` centred on the lip with `len` = 2 × `land`, so the grade test skips it, the AI lifts
+  for it and takes the flight out of its braking (`CREST_SPEED`, `FLIGHT`), it gets landing runoff and props and pads
+  keep off it. At the AI's ~150 km/h a car flies ~2 s and 75-95 m and comes down on the landing slope; taken slowly it
+  just rolls down. `obstacles` makes props.ts `obstacleCourse` put something on the road every 110-200 m (`COURSE`):
+  bales, barrel clusters, cone chicanes, bale slaloms on alternate edges (`COURSE.slalom` apart) and barrel gates
+  (both edges, the middle open), never across the whole road. Landing runoff puts runoff on ~49% of Nadare, so the
+  runoff test allows an obstacle course 55%. Both are in the Gravity Cup (below). Laid out with the same kind of
+  straights-and-arcs generator as Sea-to-Sky. Tests: tests/kanjo/downhill.test.ts.
 - **A fork in the road** (`fork` on a point-to-point TrackDef: `at` / `to` control points and the second road's
   `points`; `Track.fork`, track.ts `Fork`). The second road's samples go after the main road's in every per-sample
   array (`t.n` still counts only the main road), sampled alike (`s` is the same on both, so standings, the finish and
@@ -245,10 +261,11 @@ a component or a page.
   neonbay, isonami, ryusei, shiden: the two grand prix roads with the city and the expressway) and Sprint (mizuumi,
   hibari, kamome, shiokaze: the four 4-lap sprint rings, easiest first) and Postcard (taketomi, hallstatt, goreme, oia,
   chefchaouen: the five town circuits, the only cup of five; `roundsOf(cup)` is a cup's round count, so every
-  "Round 2 of 4" reads it). Only Overdrive borrows tracks from other cups now (Neon Bay and Ryūsei).
+  "Round 2 of 4" reads it) and Gravity (redmesa, koripass, sakamichi, nadare: all downhill, the two obstacle courses
+  last; 2026-11-16). Overdrive (Neon Bay and Ryūsei) and Gravity (Red Mesa and Kōri Pass) borrow tracks from other cups.
   Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
   more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
-  test checks every one is in one, and only Velocity and Overdrive repeat tracks); a new cup is an append to `CupId` / `CUPS`.
+  test checks every one is in one, and only Velocity, Overdrive and Gravity repeat tracks); a new cup is an append to `CupId` / `CUPS`.
   Solo (no menu starts one now): `DriveOpts.gp` starts round 1 (at least 3 rivals); racegame.ts `soloCup` adds the
   places to the table (you are key `me`, rivals by name: the same every round) and Next race hands `onNext` the next
   round, so each round is a fresh RaceGame with its own loading screen. Every round pays like a solo race.
@@ -487,7 +504,7 @@ src/kanjo/shared/
                kanjo/client/damageview.ts draws it: CarDents (moves the body's own vertices, flat normals in the creases),
                Blasts (fireball, black cloud, instanced debris, a flash light that only exists with the mode on).
                A damaged car doesn't smoke: the engine plume hid the road.
-  props.ts     seeded track props (`placeProps`): bales, barrels, cones. No launch ramps since 2026-11-10 (Andrew: "remove
+  props.ts     seeded track props (`placeProps`): bales, barrels, cones (denser, with slaloms and gates, on an `obstacles` track: `obstacleCourse`). No launch ramps since 2026-11-10 (Andrew: "remove
                all ramps/jumps that are not part of the map ... Do not remove the jumps that make up the entire road"):
                jumps are only the road's own `crest` features (and the open world's runway kickers); their old slots
                are open straights, so every other prop stayed put. Not on circuits, clean passes or traffic
@@ -691,6 +708,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in kanjo/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records`, `highlight` (Best Moment), `royale` (battle royale), `fork` (Futamata Parkway and forks in the road) in `tests/kanjo/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records`, `highlight` (Best Moment), `royale` (battle royale), `fork` (Futamata Parkway and forks in the road), `downhill` (the obstacle-course downhills and drop jumps) in `tests/kanjo/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

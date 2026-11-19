@@ -15,7 +15,7 @@ import { type World, worldSlot, worldTrack } from './world.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'kamome' | 'shiokaze' | 'taketomi' | 'hallstatt' | 'goreme' | 'oia' | 'chefchaouen' | 'kanjo' | 'kumo' | 'shura' | 'futamata';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'kamome' | 'shiokaze' | 'taketomi' | 'hallstatt' | 'goreme' | 'oia' | 'chefchaouen' | 'kanjo' | 'kumo' | 'shura' | 'futamata' | 'nadare' | 'sakamichi';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -27,6 +27,14 @@ export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 export type Feature =
   | { kind: 'gravel' | 'canyon' | 'bridge' | 'tunnel'; from: number; to: number; size?: number }
   | { kind: 'crest'; at: number; size: number; len: number }
+  /**
+   * A drop jump at point `at` (the lip): a kicker rises `size` metres over the last `kick` metres before it, then
+   * the road falls away steeply and lands on the street below, `drop` metres under where it would have run,
+   * easing back to its own grade over `land` metres. Everything after it runs `drop` metres lower, so lay the
+   * control points out as if the drops weren't there. Taken quickly the car flies over the landing slope and
+   * touches down on it (or on the flat past it); taken slowly it just rolls down.
+   */
+  | { kind: 'jump'; at: number; size: number; kick: number; drop: number; land: number }
   /** A shortcut: a gravel track from distance `s0` along the road to `s1`, through gaps in the barrier. */
   | { kind: 'cut'; s0: number; s1: number }
   /**
@@ -102,6 +110,11 @@ export interface TrackDef {
    * line and the clock.
    */
   clean?: boolean;
+  /**
+   * An obstacle course (props.ts `obstacleCourse`): bales, barrels and cones every 110-200 m instead of every
+   * 400-700, with slaloms and gates among them.
+   */
+  obstacles?: true;
   /**
    * A figure 8 (circuits only): the lap crosses itself once, and the first pass through the crossing goes over
    * the second on a bridge this many metres up (the leg underneath dips OVERPASS.dip into a cutting). The ground
@@ -1302,6 +1315,119 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
   // Laid out as straights and arcs: sweepers of 300-500 m, four corners you brake for (160-190 m), and at 4.3 km the
   // road forks for 1.5 km. The left road (the main one) swings out early and dips 7 m, the right one runs straight on,
   // climbs 7 m and swings out late: each is the other turned end for end, so they are the same length to the metre.
+  // Two downhill obstacle courses (2026-11-16, Andrew: "obstacle course style race. Start from top of a mountain and
+  // the race finishes at the bottom. Include jumps where you land on a new street and make it a long race to the
+  // bottom to encourage overtaking"). Point to point, summit to the bottom, 13-14 m wide with long straights to pass
+  // on, `jump` features (a kicker, then the road falls away onto the street below: track.ts `jump`) and
+  // `obstacles` (props every 110-200 m, props.ts `obstacleCourse`). Laid out as straights and arcs with a small
+  // generator, like Sea-to-Sky; the control points' heights leave the drops out (the jumps take them off).
+  nadare: {
+    id: 'nadare',
+    name: 'Nadare Drop',
+    tag: 'Alpine downhill · obstacle course · 5 drop jumps · 7.9 km',
+    blurb: 'From the summit observatory to the valley floor: 530 m down and nearly eight kilometres long. Five kickers fling you off the end of one road and onto the next one below, with bale slaloms, barrel gates, broken tarmac, a gravel stretch and a switchback ladder in between. Wide enough to pass, long enough to do it twice.',
+    theme: 'alpine',
+    seed: 4417,
+    width: 13,
+    relief: 300,
+    obstacles: true,
+    features: [
+      { kind: 'jump', at: 13, size: 1.4, kick: 22, drop: 7, land: 95 },
+      { kind: 'jump', at: 72, size: 1.6, kick: 24, drop: 9, land: 100 },
+      { kind: 'jump', at: 102, size: 1.8, kick: 26, drop: 10, land: 105 },
+      { kind: 'jump', at: 135, size: 2, kick: 28, drop: 12, land: 115 },
+      { kind: 'jump', at: 163, size: 1.6, kick: 24, drop: 8, land: 100 },
+      { kind: 'bumps', from: 25, to: 28, size: 0.3 },
+      { kind: 'gravel', from: 150, to: 153 },
+    ],
+    points: [
+      [0, 720, 0], [0, 717.6, -80], [0, 715.2, -160], [0, 712.8, -240], [0, 710.4, -320], [1.5, 708.9, -344.4],
+      [5.9, 707.5, -368.4], [13.3, 706, -391.7], [23.4, 704.5, -413.9], [36.2, 703.1, -434.7], [59.1, 700.7, -467.5], [82.1, 698.3, -500.2],
+      [105, 695.9, -533], [127.9, 693.5, -565.8], [150.9, 691.1, -598.5], [173.8, 688.7, -631.3], [196.8, 686.3, -664.1], [219.7, 683.9, -696.8],
+      [242.7, 681.5, -729.6], [265.6, 679.1, -762.4], [277.7, 677.3, -784.9], [284.3, 675.5, -809.5], [285.1, 673.7, -835.1], [279.9, 671.9, -860.1],
+      [269.1, 670.1, -883.2], [253.3, 668.3, -903.3], [192, 661.4, -964.5], [130.7, 654.5, -1025.8], [69.4, 647.5, -1087.1], [53.1, 645.8, -1106.2],
+      [40, 644, -1127.6], [30.4, 642.2, -1150.8], [24.5, 640.5, -1175.2], [22.6, 638.7, -1200.2], [22.6, 630.7, -1300.2], [22.6, 622.7, -1400.2],
+      [27.9, 620.8, -1427], [43.1, 618.9, -1449.7], [65.8, 616.9, -1464.9], [92.6, 615, -1470.2], [175.9, 607.5, -1470.2], [259.2, 600, -1470.2],
+      [342.6, 592.5, -1470.2], [370.1, 590.8, -1477.6], [390.2, 589.1, -1497.7], [397.6, 587.3, -1525.2], [390.2, 585.6, -1552.7], [370.1, 583.9, -1572.9],
+      [342.6, 582.2, -1580.2], [259.2, 574.7, -1580.2], [175.9, 567.2, -1580.2], [92.6, 559.7, -1580.2], [65.1, 557.9, -1587.6], [44.9, 556.2, -1607.7],
+      [37.6, 554.5, -1635.2], [44.9, 552.7, -1662.7], [65.1, 551, -1682.9], [92.6, 549.3, -1690.2], [175.9, 541.8, -1690.2], [259.2, 534.3, -1690.2],
+      [342.6, 526.8, -1690.2], [370.4, 524.8, -1694.6], [395.5, 522.8, -1707.4], [415.4, 520.9, -1727.3], [428.2, 518.9, -1752.4], [432.6, 516.9, -1780.2],
+      [432.6, 511.6, -1855.2], [432.6, 506.4, -1930.2], [432.6, 504.7, -1964.2], [432.6, 503, -1998.2], [432.6, 501.3, -2032.2], [432.6, 499.6, -2066.2],
+      [432.6, 497.9, -2100.2], [432.6, 496, -2137.4], [432.6, 494.2, -2174.5], [432.6, 492.3, -2211.7], [432.6, 490.5, -2248.8], [432.6, 488.6, -2286],
+      [432.6, 486.8, -2323.1], [432.6, 484.9, -2360.2], [430.8, 483.4, -2385.3], [425.6, 481.9, -2409.9], [417, 480.4, -2433.4], [405.2, 478.9, -2455.6],
+      [390.5, 477.4, -2475.9], [336.9, 470.7, -2539.8], [283.3, 464, -2603.6], [229.8, 457.4, -2667.4], [213.5, 455.4, -2690.1], [201, 453.4, -2715.1],
+      [192.5, 451.5, -2741.6], [188.2, 449.5, -2769.2], [188.2, 447.6, -2797.1], [192.5, 445.6, -2824.7], [201, 443.7, -2851.2], [213.5, 441.7, -2876.2],
+      [229.8, 439.8, -2898.9], [294, 431.8, -2975.5], [358.3, 423.8, -3052.1], [384, 421.8, -3082.7], [409.7, 419.8, -3113.3], [435.4, 417.8, -3144],
+      [461.2, 415.8, -3174.6], [485, 413.9, -3203.1], [508.9, 412, -3231.5], [532.8, 410.2, -3260], [556.7, 408.3, -3288.4], [580.5, 406.5, -3316.9],
+      [604.4, 404.6, -3345.3], [628.3, 402.8, -3373.8], [644.7, 400.7, -3398.1], [655.6, 398.7, -3425.2], [660.7, 396.6, -3454], [659.7, 394.6, -3483.3],
+      [652.6, 392.5, -3511.7], [645.5, 390.4, -3540.1], [644.5, 388.4, -3569.3], [649.6, 386.3, -3598.1], [660.5, 384.3, -3625.3], [676.9, 382.2, -3649.5],
+      [741.2, 374.2, -3726.2], [805.5, 366.2, -3802.8], [869.7, 358.2, -3879.4], [885, 356.2, -3904], [892.5, 354.2, -3932], [891.6, 352.1, -3961],
+      [882.5, 350.1, -3988.5], [865.9, 348.1, -4012.3], [843.1, 346, -4030.2], [756.5, 338, -4080.2], [669.9, 330, -4130.2], [640.5, 328.7, -4147.2],
+      [611, 327.3, -4164.2], [581.6, 325.9, -4181.2], [552.2, 324.6, -4198.2], [522.7, 323.2, -4215.2], [490.2, 321.7, -4234], [457.8, 320.2, -4252.7],
+      [425.3, 318.7, -4271.5], [392.8, 317.2, -4290.2], [360.3, 315.7, -4309], [327.9, 314.2, -4327.7], [295.4, 312.7, -4346.5], [262.9, 311.2, -4365.2],
+      [238.2, 309.4, -4382.1], [216.3, 307.6, -4402.4], [197.7, 305.8, -4425.8], [182.7, 304, -4451.7], [171.8, 302.2, -4479.5], [165.1, 300.4, -4508.6],
+      [162.9, 298.7, -4538.4], [162.9, 291.7, -4638.4], [162.9, 284.7, -4738.4], [162.9, 277.7, -4838.4], [166.5, 275.9, -4867.5], [176.9, 274.1, -4894.8],
+      [193.7, 272.4, -4918.7], [215.8, 270.6, -4937.9], [241.9, 268.9, -4951.2], [275.7, 267.8, -4963.5], [309.5, 266.7, -4975.8], [343.3, 265.6, -4988.1],
+      [377.2, 264.5, -5000.5], [411, 263.5, -5012.8], [448.6, 262.3, -5026.5], [486.2, 261.1, -5040.1], [523.8, 259.9, -5053.8], [561.4, 258.7, -5067.5],
+      [598.9, 257.5, -5081.2], [636.5, 256.3, -5094.9], [674.1, 255.1, -5108.5], [697.8, 254, -5119.6], [719.2, 253, -5134.6], [737.7, 251.9, -5153.1],
+      [752.7, 250.9, -5174.5], [763.8, 249.8, -5198.2], [770.5, 248.8, -5223.4], [772.8, 247.7, -5249.5], [772.8, 244.7, -5349.5], [772.8, 241.7, -5449.5],
+      [772.8, 238.7, -5549.5], [772.8, 235.7, -5649.5],
+    ],
+  },
+  sakamichi: {
+    id: 'sakamichi',
+    name: 'Sakamichi Downhill',
+    tag: 'Night city downhill · obstacle course · 6 drop jumps · 7.2 km',
+    blurb: 'Off the hilltop shrine and down through the city at night to the harbour. Six jumps launch you off one street and onto the next, two stretches of broken tarmac, barrel gates and bale slaloms, a switchback pair, and three jumps down the last boulevards to the water.',
+    theme: 'city',
+    seed: 7319,
+    width: 14,
+    relief: 220,
+    water: 0,
+    tilt: [0, -0.15],
+    obstacles: true,
+    features: [
+      { kind: 'jump', at: 11, size: 1.5, kick: 24, drop: 8, land: 100 },
+      { kind: 'jump', at: 65, size: 1.7, kick: 25, drop: 10, land: 105 },
+      { kind: 'jump', at: 92, size: 1.8, kick: 26, drop: 11, land: 110 },
+      { kind: 'jump', at: 126, size: 2, kick: 28, drop: 12, land: 115 },
+      { kind: 'jump', at: 142, size: 1.6, kick: 24, drop: 9, land: 100 },
+      { kind: 'jump', at: 162, size: 1.4, kick: 22, drop: 7, land: 95 },
+      { kind: 'bumps', from: 24, to: 27, size: 0.35 },
+      { kind: 'bumps', from: 115, to: 117, size: 0.3 },
+    ],
+    points: [
+      [0, 470, 0], [-100, 467, 0], [-200, 464, 0], [-300, 461, 0], [-328.7, 459.6, -1.9], [-356.9, 458.1, -7.5],
+      [-384.2, 456.7, -16.7], [-410, 455.2, -29.5], [-442.5, 453, -48.2], [-475, 450.7, -67], [-507.4, 448.5, -85.7], [-539.9, 446.2, -104.5],
+      [-574.5, 443.8, -124.5], [-609.2, 441.4, -144.5], [-643.8, 439, -164.5], [-678.5, 436.6, -184.5], [-713.1, 434.2, -204.5], [-747.7, 431.8, -224.5],
+      [-782.4, 429.4, -244.5], [-806.3, 427.6, -255], [-831.9, 425.8, -260.1], [-858.1, 423.9, -259.5], [-883.4, 422.1, -253.3], [-906.9, 420.3, -241.8],
+      [-927.2, 418.4, -225.4], [-986.2, 411.8, -166.5], [-1045.1, 405.1, -107.6], [-1104, 398.4, -48.6], [-1124.2, 396.6, -31.9], [-1147, 394.8, -19.3],
+      [-1171.9, 392.9, -11.1], [-1197.8, 391.1, -7.7], [-1223.9, 389.3, -9.2], [-1249.3, 387.4, -15.5], [-1273, 385.6, -26.4], [-1359.6, 377.6, -76.4],
+      [-1446.2, 369.6, -126.4], [-1471.9, 367.7, -134.7], [-1498.8, 365.8, -131.9], [-1522.2, 363.9, -118.4], [-1538.1, 362, -96.5], [-1543.7, 360.1, -70.1],
+      [-1543.7, 353.2, 6.6], [-1543.7, 346.3, 83.2], [-1543.7, 339.4, 159.9], [-1549.7, 337.8, 185.9], [-1566.3, 336.2, 206.8], [-1590.4, 334.5, 218.4],
+      [-1617.1, 332.9, 218.4], [-1641.1, 331.3, 206.8], [-1657.8, 329.7, 185.9], [-1663.7, 328.1, 159.9], [-1663.7, 321.2, 83.2], [-1663.7, 314.3, 6.6],
+      [-1663.7, 307.4, -70.1], [-1668.7, 305.6, -95], [-1682.8, 303.8, -116], [-1703.8, 302, -130.1], [-1728.7, 300.2, -135.1], [-1812.1, 294.4, -135.1],
+      [-1895.4, 288.6, -135.1], [-1978.7, 282.7, -135.1], [-2018.7, 280.7, -135.1], [-2058.7, 278.7, -135.1], [-2098.7, 276.7, -135.1], [-2138.7, 274.7, -135.1],
+      [-2175.9, 272.9, -135.1], [-2213, 271, -135.1], [-2250.1, 269.2, -135.1], [-2287.3, 267.3, -135.1], [-2324.4, 265.4, -135.1], [-2361.6, 263.6, -135.1],
+      [-2398.7, 261.7, -135.1], [-2427.7, 260, -133], [-2456.1, 258.2, -126.7], [-2483.2, 256.5, -116.3], [-2508.6, 254.7, -102.2], [-2531.7, 253, -84.5],
+      [-2551.9, 251.3, -63.6], [-2571.3, 249.6, -43.6], [-2593.3, 247.9, -26.4], [-2617.5, 246.2, -12.4], [-2643.3, 244.6, -2], [-2670.4, 242.9, 4.8],
+      [-2698.2, 241.2, 7.7], [-2726, 239.5, 6.7], [-2753.5, 237.9, 1.9], [-2780.1, 236.2, -6.8], [-2805.1, 234.5, -19], [-2837.6, 232.6, -37.7],
+      [-2870.1, 230.8, -56.5], [-2902.6, 228.9, -75.2], [-2935, 227, -94], [-2969.7, 225, -114], [-3004.3, 223, -134], [-3039, 221, -154],
+      [-3073.6, 219, -174], [-3108.2, 217, -194], [-3142.9, 215, -214], [-3177.5, 213, -234], [-3201.6, 211.2, -244], [-3227.5, 209.3, -247.4],
+      [-3253.4, 207.5, -244], [-3277.5, 205.7, -234], [-3298.2, 203.8, -218.1], [-3314.1, 202, -197.4], [-3355.8, 195.3, -125.2], [-3397.5, 188.7, -53.1],
+      [-3439.1, 182, 19.1], [-3454.1, 180.2, 40.5], [-3472.6, 178.3, 59], [-3494, 176.5, 74], [-3517.7, 174.7, 85.1], [-3543, 172.8, 91.8],
+      [-3569, 171, 94.1], [-3595.1, 169.2, 91.8], [-3693.6, 162.2, 74.5], [-3792, 155.2, 57.1], [-3818, 153.6, 53.9], [-3844.2, 152, 53.5],
+      [-3870.2, 150.5, 55.7], [-3895.9, 148.9, 60.7], [-3921, 147.3, 68.4], [-3958.5, 145.7, 82.1], [-3996.1, 144.1, 95.7], [-4033.7, 142.5, 109.4],
+      [-4071.3, 140.9, 123.1], [-4106.2, 139.4, 135.8], [-4141.1, 138, 148.5], [-4176, 136.5, 161.2], [-4210.9, 135, 173.9], [-4245.8, 133.5, 186.6],
+      [-4280.7, 132, 199.3], [-4315.6, 130.5, 212], [-4342, 129.2, 218.6], [-4369.2, 127.8, 219.6], [-4395.9, 126.4, 214.8], [-4421.1, 125.1, 204.7],
+      [-4443.7, 123.7, 189.5], [-4472.4, 122.2, 165.4], [-4501.1, 120.7, 141.2], [-4529.8, 119.2, 117.1], [-4558.6, 117.7, 93], [-4587, 116.2, 69.2],
+      [-4615.5, 114.7, 45.3], [-4643.9, 113.3, 21.4], [-4672.4, 111.8, -2.5], [-4700.8, 110.3, -26.3], [-4729.3, 108.8, -50.2], [-4757.7, 107.3, -74.1],
+      [-4778.9, 106.5, -89.4], [-4802.1, 105.7, -101.5], [-4826.8, 105, -110.1], [-4852.5, 104.2, -115], [-4878.7, 103.4, -116.1], [-4904.7, 102.6, -113.5],
+      [-5003.2, 99.6, -96.1], [-5101.7, 96.6, -78.7], [-5200.1, 93.6, -61.4], [-5237.1, 92.5, -54.9], [-5274, 91.4, -48.3], [-5310.9, 90.2, -41.8],
+      [-5347.9, 89.1, -35.3], [-5383, 88, -29.1], [-5418.2, 87, -22.9], [-5453.4, 85.9, -16.7], [-5488.5, 84.8, -10.5], [-5523.7, 83.7, -4.3],
+      [-5558.9, 82.7, 1.9], [-5594.1, 81.6, 8.1], [-5680.2, 79.9, 23.3], [-5766.4, 78.1, 38.5], [-5852.6, 76.4, 53.7], [-5938.7, 74.6, 68.9],
+    ],
+  },
   futamata: {
     id: 'futamata',
     name: 'Futamata Parkway',
@@ -1606,6 +1732,20 @@ export function buildTrack(def: TrackDef): Track {
       for (let i = 0; i < n; i++) {
         const u = (i * SAMPLE - at) / (f.len / 2);
         if (Math.abs(u) < 1) y[i] += (f.size * (1 + Math.cos(Math.PI * u))) / 2;
+      }
+    } else if (f.kind === 'jump') {
+      // Kept as a crest centred on the lip and as long as twice the landing, so the grade test, the AI's flight,
+      // the landing runoff and the props and pads all treat the whole kicker and landing as the jump.
+      const at = nearestS(pts[f.at]);
+      crests.push({ s: at, len: 2 * Math.max(f.land, f.kick) });
+      for (let i = 0; i < n; i++) {
+        const s = i * SAMPLE;
+        if (s > at - f.kick && s <= at) y[i] += f.size * ((s - (at - f.kick)) / f.kick) ** 2;
+        else if (s > at) {
+          // From the kicker's top straight onto the steepest of the landing, then easing out onto the street below.
+          const v = Math.min(1, (s - at) / f.land);
+          y[i] += f.size - (f.size + f.drop) * (1 - (1 - v) ** 2);
+        }
       }
     } else if (f.kind === 'bumps') {
       const a = nearestS(pts[f.from]);
