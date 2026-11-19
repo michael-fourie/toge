@@ -96,6 +96,10 @@ export class Race {
   /** The record ghost for `ghostOf` (null: that track has none), fetched when the host wants it. */
   private ghostRun: GhostRun | null = null;
   private ghostOf: TrackId | null = null;
+  /** The last results' best times still being kept (and then the record ghost re-fetched): a new record's run. */
+  private saving: Promise<void> | null = null;
+  /** The host asked to race again while `saving`: start once it's done, so the race loads the new record's ghost. */
+  private startQueued = false;
   /** Where record ghosts come from (the Accounts DO; tests pass their own). */
   ghostSource: ((track: TrackId) => Promise<GhostRun | null>) | null = null;
   phase: RacePhase = 'lobby';
@@ -115,8 +119,8 @@ export class Race {
     readonly code: string,
     private onChange: (r: Race) => void,
     private onEmpty: (r: Race) => void,
-    /** Results are in: pay the signed-in racers. `tapes`: each finisher's run, for the record ghost. `mode`: which kind of race it was (only `recordMode` ones keep best times). */
-    private onResults: (rows: ResultRow[], users: Set<number>, track: TrackId, tapes: Map<number, GhostTape>, mode: RaceMode) => void,
+    /** Results are in: pay the signed-in racers. `tapes`: each finisher's run, for the record ghost. `mode`: which kind of race it was (only `recordMode` ones keep best times). A promise back: the best times being kept (the room races again only once they are). */
+    private onResults: (rows: ResultRow[], users: Set<number>, track: TrackId, tapes: Map<number, GhostTape>, mode: RaceMode) => unknown,
     private now: () => number = Date.now,
     tick = true,
   ) {
@@ -345,8 +349,9 @@ export class Race {
         // Prix goes on to its next round from the lobby or the results (or the cup again after the last); a restart
         // reruns the same round.
         if (c.id === this.hostId && this.phase !== 'loading') {
-          if (isGp(this.mode) && (this.phase === 'lobby' || this.phase === 'results')) this.nextRound();
-          this.startLoading();
+          // Race again before the last run's record is kept would load the old record's ghost: wait for it.
+          if (this.saving && this.phase === 'results') this.startQueued = true;
+          else this.start();
         }
         break;
       case 'end':
@@ -467,6 +472,12 @@ export class Race {
     for (const o of this.members.values()) if (o.client.id !== from && o.client.ws.readyState === OPEN) o.client.ws.send(text);
   }
 
+  /** The host's `start`: a Grand Prix from the lobby or the results goes on to its next round; then load the race. */
+  private start() {
+    if (isGp(this.mode) && (this.phase === 'lobby' || this.phase === 'results')) this.nextRound();
+    this.startLoading();
+  }
+
   /** Everyone in the room is in this race: send them off to build the track, and wait for each to be `ready`. */
   private startLoading() {
     this.trimCpus();
@@ -574,7 +585,21 @@ export class Race {
     }
     this.broadcast({ t: 'results', track: this.track, mode: this.mode, rows, ...(gp ? { gp } : {}) });
     const tapes = new Map<number, GhostTape>(done.map((m) => [m.client.id, { car: m.raceCar, rider: m.client.rider, d: m.rec.d }]));
-    this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track, tapes, this.mode);
+    const kept = this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track, tapes, this.mode);
+    // Best times are kept after the fact; once they are, fetch the record ghost again, so the next run (Race again,
+    // Restart, or from the lobby) races a record this one may have just set.
+    if (kept instanceof Promise) {
+      const saving: Promise<void> = kept.catch(() => {}).then(() => this.fetchGhost());
+      this.saving = saving;
+      void saving.then(() => {
+        if (this.saving !== saving) return;
+        this.saving = null;
+        if (this.startQueued) {
+          this.startQueued = false;
+          if (this.phase === 'results') this.start();
+        }
+      });
+    }
     this.onChange(this);
   }
 
@@ -715,10 +740,10 @@ export class Race {
   }
 
   /** The host wants the record ghost: fetch the current track's (the lobby shows whose it is, or that there's none). */
-  fetchGhost() {
-    if (!this.ghost || !this.ghostSource) return;
+  fetchGhost(): Promise<void> {
+    if (!this.ghost || !this.ghostSource) return Promise.resolve();
     const track = this.track;
-    this.ghostSource(track).then(
+    return this.ghostSource(track).then(
       (run) => {
         if (this.track !== track) return;
         this.ghostRun = run;

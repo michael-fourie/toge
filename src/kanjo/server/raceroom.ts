@@ -100,18 +100,18 @@ export class RaceRoom extends DurableObject<Env> {
           const time = row.time;
           if (time !== null && recordMode(mode)) timed.push(() => accounts.raceTime(row.name, track, time, row.car, tapes.get(row.id)).then((b) => (b ? { id: row.id, time: b.time, prev: b.prev, rank: b.rank ?? null, beat: b.beat ?? null } : null)));
         }
-        if (timed.length) {
-          this.ctx.waitUntil(
-            (async () => {
-              const news: RecordRow[] = [];
-              for (const keep of timed) {
-                const r = await keep();
-                if (r) news.push(r);
-              }
-              if (news.length) this.race?.announce({ t: 'records', rows: news });
-            })(),
-          );
-        }
+        if (!timed.length) return;
+        const kept = (async () => {
+          const news: RecordRow[] = [];
+          for (const keep of timed) {
+            const r = await keep();
+            if (r) news.push(r);
+          }
+          if (news.length) this.race?.announce({ t: 'records', rows: news });
+        })();
+        this.ctx.waitUntil(kept);
+        // The room waits on it before racing again, so a record set just now is the ghost the next run races.
+        return kept;
       },
     );
     this.race.ghostSource ??= (track) => accounts.recordGhost(track);
