@@ -109,7 +109,9 @@ function room(runs: Partial<Record<TrackId, GhostRun>>) {
   let now = 1_000_000;
   const inbox = new Map<number, RaceServerMsg[]>();
   const results: Map<number, GhostTape>[] = [];
-  const race = new Race('GHST', () => {}, () => {}, (_rows, _users, _track, tapes) => results.push(tapes), () => now, false);
+  const race = new Race('GHST', () => {}, () => {}, (_rows, _users, _track, tapes) => {
+    results.push(tapes);
+  }, () => now, false);
   race.ghostSource = async (t) => runs[t] ?? null;
   race.fetchGhost(); // as raceroom.ts does: the ghost is on by default
   const join = (id: number): RaceClient => {
@@ -179,4 +181,50 @@ test("the room records each finisher's run from the poses they send", () => {
   assert.ok(cleanTape(tape, 60), 'a valid run of the finish time');
   const k = unpack(tape.d);
   assert.ok(Math.abs(k.t.length - 60 / GHOST.every) <= 2);
+});
+
+test("Race again right after a new track record loads the new record's ghost, not the old one", async () => {
+  let now = 1_000_000;
+  const runs: Partial<Record<TrackId, GhostRun>> = { kodama: { name: 'Ann', time: 200, ...drive(200) } };
+  const inbox: RaceServerMsg[] = [];
+  // Keeping the best time takes a while (the Accounts DO); the new record's run is the ghost only once it's kept.
+  let kept: () => void = () => {};
+  const race = new Race('GHST', () => {}, () => {}, (_rows, _users, track, tapes) => new Promise<void>((done) => {
+    kept = () => {
+      runs[track] = { name: 'p1', time: 60, ...tapes.get(1)! };
+      done();
+    };
+  }), () => now, false);
+  race.ghostSource = async (t) => runs[t] ?? null;
+  const a: RaceClient = { id: 1, ws: { readyState: 1, send: (d: string) => inbox.push(JSON.parse(d)) }, name: 'p1', car: CAR, rider: '', user: true };
+  race.add(a);
+  race.handle(a, { t: 'mode', mode: 'trial' });
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+  await flush();
+  const loads = () => inbox.filter((m) => m.t === 'load');
+  race.handle(a, { t: 'start' });
+  assert.equal(loads().at(-1)?.t === 'load' && loads().at(-1)!.ghost?.name, 'Ann');
+  race.handle(a, { t: 'ready' });
+  while (race.phase !== 'racing') {
+    now += 50;
+    race.tick();
+  }
+  for (let i = 0; i < 20 * 60; i++) {
+    now += 50;
+    race.tick();
+    race.handle(a, { t: 'state', p: [0, 1, 1.5 * i], q: Q, v: [0, 0, -30], w: 0, s: 1.5 * i, st: 0, ws: 80, rpm: 5000, f: 0 });
+  }
+  race.handle(a, { t: 'finish', time: 60 });
+  assert.equal(race.phase, 'results');
+  // Race again before the record is kept: the room waits for it rather than loading the old ghost.
+  race.handle(a, { t: 'start' });
+  assert.equal(loads().length, 1, 'no load until the record is kept');
+  kept();
+  await flush();
+  await flush();
+  const ld = loads().at(-1);
+  assert.equal(loads().length, 2);
+  assert.ok(ld && ld.t === 'load');
+  assert.equal(ld.ghost?.name, 'p1', "the new record holder's ghost");
+  assert.equal(ld.ghost?.time, 60);
 });
