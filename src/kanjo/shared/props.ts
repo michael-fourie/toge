@@ -36,7 +36,7 @@ function mulberry(seed: number) {
 
 /** Lays out a track's props, sorted by `s`. */
 export function placeProps(t: Track): Prop[] {
-  if (t.def.climb) return placeRockfall(t);
+  if (t.def.climb || t.def.rockfall) return placeRockfall(t);
   const rng = mulberry(t.def.seed * 31 + 7);
   const props: Prop[] = [];
   const loc = newLoc();
@@ -144,9 +144,13 @@ function obstacleCourse(
 
 /** The narrowest the road gets between a fallen boulder or rock and the far edge of the asphalt (m). */
 export const ROCKFALL_GAP = 5.2;
+/** How far either side of a fork's split and join no stone falls (m). */
+const FORK_CLEAR = 150;
+/** On a `rockfall` downhill no stone falls on a bend tighter than this radius (m): cars come into them flat out. */
+const DOWNHILL_BEND = 80;
 
 /**
- * A hill climb's rockfall: every 60-130 m a boulder (1.4-2.1 m) bitten into one edge of the road, or a scatter
+ * A hill climb's rockfall (and a `rockfall` road's): every 60-130 m a boulder (1.4-2.1 m) bitten into one edge of the road, or a scatter
  * of two or three rocks, always leaving ROCKFALL_GAP of clear tarmac. Kept off the grid, the finish, jumps and
  * the tightest hairpins (a boulder on the apex of a 20 m hairpin is a wall, not a challenge).
  */
@@ -160,11 +164,21 @@ function placeRockfall(t: Track): Prop[] {
     props.push({ kind, s, d, x: p.x, y: roadY(t, loc), z: p.z, yaw: rng() * Math.PI * 2, r });
   };
   const tight = (s0: number, s1: number) => {
-    for (let s = s0; s <= s1; s += SAMPLE) if (Math.abs(t.curv[Math.min(t.n - 1, Math.round(s / SAMPLE))]) > 1 / 32) return true;
+    for (let s = s0; s <= s1; s += SAMPLE) if (Math.abs(t.curv[Math.min(t.n - 1, Math.round(s / SAMPLE))]) > 1 / (t.def.climb ? 32 : DOWNHILL_BEND)) return true;
     return false;
   };
   const busy = (s0: number, s1: number) =>
-    s0 < t.startS + 140 || s1 > t.finishS - 120 || tight(s0 - 20, s1 + 20) || t.crests.some((c) => s1 > c.s - c.len - 30 && s0 < c.s + c.len + 50);
+    s0 < t.startS + 140 ||
+    s1 > t.finishS - 120 ||
+    tight(s0 - 20, s1 + 20) ||
+    // (A `rockfall` downhill's jumps are long, 350 m kicker to landing: clear of the run-up and where cars come down.)
+    t.crests.some((c) => (t.def.climb ? s1 > c.s - c.len - 30 && s0 < c.s + c.len + 50 : s1 > c.s - 150 && s0 < c.s + c.len / 2 + 20)) ||
+    // (Clear of bridges, tunnels and shortcuts' turn-offs too: none on a hill climb, some on a `rockfall` downhill.)
+    t.spans.some((sp) => sp.kind !== 'gravel' && s1 > sp.s0 - 30 && s0 < sp.s1 + 30) ||
+    t.cuts.some((c) => [c.s0, c.s1].some((e) => s1 > e - 40 && s0 < e + 40)) ||
+    // (And where a fork's two roads split and join: they run side by side there, so a stone on the main road's
+    // edge would sit in the other road's lane.)
+    (!!t.fork && [t.fork.s0, t.fork.s1].some((e) => s1 > e - FORK_CLEAR && s0 < e + FORK_CLEAR));
   let s = t.startS + 160;
   let side = rng() < 0.5 ? -1 : 1;
   while (s < t.finishS - 120) {

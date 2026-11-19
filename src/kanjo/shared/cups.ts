@@ -34,9 +34,9 @@ export const CUPS: Record<CupId, CupDef> = {
   // Five storybook towns (Michael, 2026-11-10), easiest first: flat Taketomi to Chefchaouen's hairpins.
   postcard: { id: 'postcard', name: 'Postcard Cup', tag: 'Five storybook towns: Okinawa, the Alps, Cappadocia, Santorini, the Rif', color: '#2ec4b6', tracks: ['taketomi', 'hallstatt', 'goreme', 'oia', 'chefchaouen'] },
   // Downhill and airborne (2026-11-16): the rally stage's crests and Kori Pass's descent, then the two obstacle-course
-  // downhills, where the road throws you onto the street below. It borrows Red Mesa and Kori Pass. Jigoku Drop, the
-  // survival downhill with gaps in the road (2026-11-19), is its fifth and last round.
-  gravity: { id: 'gravity', name: 'Gravity Cup', tag: 'All downhill: crests, hairpins, two obstacle courses, then the gaps of Jigoku Drop', color: '#9bd13b', tracks: ['redmesa', 'koripass', 'sakamichi', 'nadare', 'jigoku'] },
+  // downhills, where the road throws you onto the street below. It borrows Red Mesa. The two survival downhills
+  // (2026-11-19) close it: Fubuki Pass in the snow (which took Kori Pass's round), then the gaps of Jigoku Drop.
+  gravity: { id: 'gravity', name: 'Gravity Cup', tag: 'All downhill: crests, two obstacle courses, then the survival runs of Fubuki Pass and Jigoku Drop', color: '#9bd13b', tracks: ['redmesa', 'sakamichi', 'nadare', 'fubuki', 'jigoku'] },
 };
 export const CUP_IDS = Object.keys(CUPS) as CupId[];
 /** How many rounds a cup races. */

@@ -54,8 +54,8 @@ test('tracks: the ground under the road is the road, and it is continuous everyw
     const t = getTrack(id);
     for (let s = 10; s < t.length - 10; s += 37) {
       const i = Math.floor(s / SAMPLE);
-      // (Over a gap in the road there's no road: the survival test checks the ravine.)
-      if (inGap(t, s) || inGap(t, s + SAMPLE)) continue;
+      // (Over a gap in the road there's no road, and at its lips road and hole share a segment: the survival test checks the ravine.)
+      if (inGap(t, s - SAMPLE) || inGap(t, s) || inGap(t, s + SAMPLE)) continue;
       for (const d of [-t.rail - t.runL[i], -t.rail, -t.half, 0, t.half, t.rail, t.rail + t.runR[i]]) {
         const x = t.x[i] - t.tz[i] * d;
         const z = t.z[i] + t.tx[i] * d;
@@ -183,9 +183,9 @@ test('runoff: dirt before the barrier on the outside of fast bends and after eve
       // (A gap's landing is kept clear: nothing to run off onto beside a ravine.)
       if (t.gaps.some((g) => g.s0 === c.s)) continue;
       const i = Math.round((c.s + 60) / SAMPLE);
-      // (Not by a bridge or tunnel, or at a shortcut's turn-off, where the rail has to stay put.)
+      // (Not by a bridge or tunnel, at a shortcut's turn-off, where the rail has to stay put, or in a fork, which has none.)
       const at = c.s + 60;
-      const blocked = t.spans.some((sp) => sp.kind !== 'gravel' && at > sp.s0 - 100 && at < sp.s1 + 100) || t.cuts.some((k) => Math.min(Math.abs(at - k.s0), Math.abs(at - k.s1)) < 100);
+      const blocked = t.spans.some((sp) => sp.kind !== 'gravel' && at > sp.s0 - 100 && at < sp.s1 + 100) || t.cuts.some((k) => Math.min(Math.abs(at - k.s0), Math.abs(at - k.s1)) < 100) || (!!t.fork && at > t.fork.s0 && at < t.fork.s1);
       if (!blocked) assert.ok(Math.min(t.runL[i], t.runR[i]) > 3, `${id}: no room to land after the jump at s=${c.s}`);
     }
     for (const sp of t.spans)

@@ -8,7 +8,7 @@
 // This catches the fall before any of that: a car under a road, or one going over the edge (wheels off it and sinking),
 // goes back where it left the road. Fall handling only: the driving (vehicle.ts) is untouched.
 
-import { SKY, type Track, heightAt, inGap, pointAt } from './track.ts';
+import { SKY, type Track, heightAt, inGap, onFork, pointAt } from './track.ts';
 import { type Car, resetCar } from './vehicle.ts';
 
 export const SKYFALL = {
@@ -68,7 +68,8 @@ export const GAPFALL = {
 };
 
 export function gapFall(car: Car, t: Track): boolean {
-  if (!t.gaps.length) return false;
+  // (A fork's other road has no gaps, whatever the main road has at the same distance.)
+  if (!t.gaps.length || onFork(t, car.hint)) return false;
   // Over the hole, or just past it with the tail still hanging over it (a car that came down on the far edge).
   const over = inGap(t, car.s);
   const g = over ?? inGap(t, car.s - car.spec.body.hl - GAPFALL.tail);
