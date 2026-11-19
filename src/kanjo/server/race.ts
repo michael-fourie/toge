@@ -357,6 +357,9 @@ export class Race {
       case 'end':
         if (c.id === this.hostId && this.mode === 'roam' && this.phase !== 'lobby' && this.phase !== 'results') this.endRoam();
         break;
+      case 'retire':
+        this.retire(m);
+        break;
       case 'joinin':
         if (this.mode === 'roam' && (this.phase === 'racing' || this.phase === 'countdown') && !m.racing) this.driveIn(m);
         break;
@@ -714,6 +717,31 @@ export class Race {
     sendTo(m.client, { t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule: 'own', cars, physics: this.physics, ghost: null });
     // The others add their car from the roster.
     this.broadcastRoom();
+  }
+
+  /**
+   * Back to lobby from the pause menu (free roam has its own End and drive-in, so not there). The host ends the race
+   * for everyone, unpaid (any cup too); anyone else just leaves the field and lines up for the next race. A racer who
+   * already finished or was knocked out keeps their place.
+   */
+  private retire(m: Member) {
+    if (this.mode === 'roam' || (this.phase !== 'loading' && this.phase !== 'countdown' && this.phase !== 'racing')) return;
+    if (m.client.id === this.hostId) {
+      for (const o of this.members.values()) o.racing = false;
+      this.royale = null;
+      this.gp = null;
+      this.phase = 'lobby';
+      this.broadcastRoom();
+      this.onChange(this);
+      return;
+    }
+    if (!m.racing || m.time !== null || this.isOut(m)) return;
+    m.racing = false;
+    m.ready = false;
+    m.state = null;
+    this.broadcast({ t: 'retired', id: m.client.id });
+    if (this.phase === 'racing') this.maybeFinish();
+    else if (this.phase === 'loading') this.loaded();
   }
 
   /** The host ends free roam: everyone back to the lobby. */
