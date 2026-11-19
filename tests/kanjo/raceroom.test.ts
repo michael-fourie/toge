@@ -609,6 +609,46 @@ test('restart from the pause menu: the host can send everyone back to the start 
   assert.equal(r.race.phase, 'racing');
 });
 
+test('back to lobby from the pause menu: a guest leaves the field and the race goes on without them; the host ends it for everyone, unpaid', () => {
+  const r = room();
+  const a = r.join(1, true);
+  const b = r.join(2, true);
+  const c = r.join(3, true);
+  r.start(a, b, c);
+  r.advance(RACE.countdownMs + 100);
+  assert.equal(r.race.phase, 'racing');
+  r.race.handle(c, { t: 'retire' });
+  assert.deepEqual(r.last(1, 'retired'), { t: 'retired', id: 3 });
+  assert.equal(r.race.phase, 'racing');
+  // Still in the room, but no longer in the race: their poses aren't relayed.
+  const before = r.inbox.get(1)!.length;
+  r.race.handle(c, pose(50));
+  assert.ok(!r.inbox.get(1)!.slice(before).some((m) => m.t === 'snap'));
+  r.advance(60_000);
+  r.race.handle(a, { t: 'finish', time: 60.2 });
+  r.race.handle(b, { t: 'finish', time: 60.3 });
+  assert.equal(r.race.phase, 'results', 'nobody waits for the one who went back');
+  const rows = r.paid[0].rows;
+  assert.deepEqual(rows.map((x) => x.id), [1, 2]);
+  r.race.handle(c, { t: 'retire' });
+  assert.equal(r.race.phase, 'results', 'nothing to go back from in the results');
+
+  // Next race: a finished guest keeps their place; the host going back ends it for everyone with no prizes.
+  r.start(a, b, c);
+  r.advance(RACE.countdownMs + 100);
+  r.advance(60_000);
+  r.race.handle(b, { t: 'finish', time: 60.4 });
+  r.race.handle(b, { t: 'retire' });
+  assert.equal(r.inbox.get(1)!.filter((m) => m.t === 'retired' && m.id === 2).length, 0);
+  r.race.handle(a, { t: 'retire' });
+  assert.equal(r.race.phase, 'lobby');
+  const room1 = r.last(3, 'room');
+  assert.ok(room1 && room1.t === 'room' && room1.phase === 'lobby');
+  assert.equal(r.paid.length, 1, 'the ended race pays nothing');
+  r.advance(RACE.resultsSeconds * 1000);
+  assert.equal(r.race.phase, 'lobby');
+});
+
 test('Grand Prix: the host picks a cup, its four rounds run back to back with points, then the cup table and the lobby', () => {
   const r = room();
   const a = r.join(1);

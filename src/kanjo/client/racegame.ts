@@ -717,7 +717,8 @@ export class RaceGame {
         if (this.phase !== 'done') this.hud.banner(`${r.name} finished`, fmtTime(m.time), 2000);
         if (this.watching === m.id) this.spectateNext();
       }
-    } else if (m.t === 'out') {
+    } else if (m.t === 'retired') this.dropRemote(m.id);
+    else if (m.t === 'out') {
       const net = this.setup.online!.net;
       const who = m.id === net.id ? this.me : (this.rivals.find((r) => r.netId === m.id) ?? this.remotes.get(m.id));
       if (who) this.knockOut(who, m.lap, m.place, m.left);
@@ -729,24 +730,28 @@ export class RaceGame {
     else if (m.t === 'records') this.records(m.rows);
     else if (m.t === 'room') {
       // Someone left mid-race: drop their car.
-      for (const id of [...this.remotes.keys()])
-        if (!m.racers.some((r) => r.id === id)) {
-          const r = this.remotes.get(id)!;
-          this.stowCar(r.model.root);
-          this.contact.remove(r.model.root);
-          this.cockpits.get(r.model.root)?.dispose();
-          this.cockpits.delete(r.model.root);
-          r.model.dispose();
-          r.engine?.stop();
-          this.remotes.delete(id);
-          if (this.watching === id) this.spectateNext();
-        }
-      // Free roam: whoever drove in since is put on the road; the host ending it sends everyone back to the lobby.
+      for (const id of [...this.remotes.keys()]) if (!m.racers.some((r) => r.id === id)) this.dropRemote(id);
+      // Free roam: whoever drove in since is put on the road.
       if (this.roam) for (const r of m.racers) if (r.roaming && r.id !== this.setup.online!.net.id && !this.remotes.has(r.id)) this.addRemote(r);
-      // A solo time trial has no lobby to go back to: its room's results time out to the Race page.
-      if (m.phase === 'lobby' && (this.phase === 'done' || this.roam)) this.exit(this.setup.online!.solo ? 'garage' : 'lobby');
+      // The room is back in its lobby: the results timed out, or the host ended free roam or went back to the lobby
+      // mid-race (which ends it for everyone). A solo time trial has no lobby to go back to: it ends on the Race page.
+      if (m.phase === 'lobby') this.exit(this.setup.online!.solo ? 'garage' : 'lobby');
       else if (this.phase === 'done') this.resultActs(); // the host may have changed
         } else if (m.t === 'error') this.exit('garage', m.message);
+  }
+
+  /** A remote racer left the room or went back to the lobby: their car comes off the road. */
+  private dropRemote(id: number) {
+    const r = this.remotes.get(id);
+    if (!r) return;
+    this.stowCar(r.model.root);
+    this.contact.remove(r.model.root);
+    this.cockpits.get(r.model.root)?.dispose();
+    this.cockpits.delete(r.model.root);
+    r.model.dispose();
+    r.engine?.stop();
+    this.remotes.delete(id);
+    if (this.watching === id) this.spectateNext();
   }
 
   private send() {
@@ -1563,13 +1568,41 @@ export class RaceGame {
     net.send({ t: 'start' });
   }
 
-  /** The pause menu: Restart first, then Resume, Settings (camera, volume, assists) and Quit. */
-  private pause(view: 'main' | 'settings' = 'main', focus = '') {
+  /**
+   * Back to lobby (online races, not a solo time trial or free roam, which has End and drive-in): you leave this race
+   * but stay in the room, and line up for the next one. The host going back ends the race for everyone (the room waits
+   * on its host), so with other people still out it asks first.
+   */
+  private get canLobby() {
+    const o = this.setup.online;
+    return !!o && !o.solo && !this.roam;
+  }
+
+  /** Other people still racing (the host's CPU racers are its rivals, not remotes): its Back to lobby would cut their race short. */
+  private get othersOut() {
+    return [...this.remotes.values()].some((r) => r.finished === null && !r.out);
+  }
+
+  private toLobby() {
+    this.setup.online?.net.send({ t: 'retire' });
+    this.exit('lobby');
+  }
+
+  /** The pause menu: Restart first, then Resume, Settings (camera, volume, assists), Back to lobby and Quit. */
+  private pause(view: 'main' | 'settings' | 'lobby' = 'main', focus = '') {
     this.paused = true;
     const a = this.assists;
     const onOff = (b: boolean) => (b ? 'On' : 'Off');
     const p =
-      view === 'main'
+      view === 'lobby'
+        ? this.hud.panel(`
+      <h2>End the race?</h2>
+      <p class="rh-note">You're the host: going back to the lobby ends this race for everyone, with no prizes.</p>
+      <div class="rh-buttons col">
+        <button data-act="lobbyyes">End race, back to lobby</button>
+        <button data-act="lobbyno" data-autofocus>Keep racing</button>
+      </div>`)
+        : view === 'main'
         ? this.hud.panel(`
       <h2>Paused</h2>
       <div class="rh-buttons col">
@@ -1578,6 +1611,7 @@ export class RaceGame {
         ${this.roam ? this.spots().map((sp, k) => `<button data-act="spot" data-spot="${k}">Go to ${esc(sp.name)}</button>`).join('') : ''}
         ${this.roam && this.setup.online && this.canRestart ? '<button data-act="end">End free roam</button>' : ''}
         <button data-act="settings">Settings</button>
+        ${this.canLobby ? '<button data-act="lobby">Back to lobby</button>' : ''}
         <button data-act="leave">${this.setup.online && !this.setup.online.solo ? 'Leave race' : 'Quit to garage'}</button>
       </div>${this.setup.online && !this.canRestart && !this.roam ? '<p class="rh-note">Only the host can restart an online race.</p>' : ''}`)
         : this.hud.panel(`
@@ -1619,6 +1653,12 @@ export class RaceGame {
             return this.pause('settings');
           case 'back':
             return this.pause('main', 'settings');
+          case 'lobby':
+            return this.canRestart && this.othersOut ? this.pause('lobby') : this.toLobby();
+          case 'lobbyyes':
+            return this.toLobby();
+          case 'lobbyno':
+            return this.pause('main', 'lobby');
           case 'leave':
             this.setup.online?.net.leave();
             return this.exit('garage');

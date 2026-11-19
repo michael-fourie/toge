@@ -239,6 +239,8 @@ export type RaceServerMsg =
   | { t: 'go' }
   | { t: 'snap'; cars: NetCar[] }
   | { t: 'finished'; id: number; time: number }
+  /** Racer `id` went back to the lobby mid-race: take their car off the road. */
+  | { t: 'retired'; id: number }
   /** A battle royale: racer `id` was last over the line on `lap` and is out, finishing `place`; `left` cars remain. */
   | { t: 'out'; id: number; lap: number; place: number; left: number }
   /**
@@ -270,6 +272,11 @@ export type RaceClientMsg =
   | { t: 'start' }
   /** Free roam: the host ends it (everyone back to the lobby). */
   | { t: 'end' }
+  /**
+   * Back to lobby from the pause menu mid-race: you're out of this race but stay in the room for the next one. The
+   * host doing it ends the race for everyone (back to the lobby, unpaid), since the room waits on the host.
+   */
+  | { t: 'retire' }
   /** Free roam is on and you're in the lobby (you just joined): drive in. */
   | { t: 'joinin' }
   /** The track is built and on screen: this racer can take the countdown. */
