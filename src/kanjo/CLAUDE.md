@@ -425,7 +425,7 @@ a component or a page.
   ints, `cleanTape` checks it). Online runs are recorded by the room from the `state` poses (race.ts `Member.rec`,
   handed to `onResults` as `tapes`); solo runs keep none. The Record ghost is always on (2026-11-15, Michael: no lobby option; `Race.ghost` starts true, raceroom.ts fetches the first track's, the `{t:'ghost'}` message still works but no menu sends it) and the room fetches the track's ghost
   (`Accounts.recordGhost`); the room message says whose it is (`record`) and `load` carries it. In the race it's a
-  see-through car with a "TR" name tag and a map dot, never a racer (no place, contact or prize).
+  see-through car with a "TR" name tag (the holder's name only, no lap time) and a map dot, never a racer (no place, contact or prize).
 - **Best Moment** (highlight.ts; Michael 2026-11-11: "After a game show a 5 second highlight from the winner ... going
   really fast or drifting well or something cool ... a cool overlay on it saying Best Moment"): every client records
   every car it draws on the race clock (`MomentTape`, HIGHLIGHT.hz; racegame.ts `recordMoments`: yours and the CPUs
