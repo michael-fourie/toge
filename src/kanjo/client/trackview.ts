@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { CUT_HALF, type Crossing, GAP, SAMPLE, type Theme, type Track, type TrackId, dirtFrom, fbm, forkView, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
+import { CUT_HALF, type Crossing, RIVER, SAMPLE, type Theme, type Track, type TrackId, dirtFrom, fbm, forkView, heightAt, lapView, locate, newLoc, onCut, pointAt, riverFade, roadDistance, terrainAt } from '../shared/track.ts';
 import type { Grade } from './post.ts';
 import { envLevel } from './envlevel.ts';
 import { decor, type Site } from './scenery.ts';
@@ -53,6 +53,8 @@ export interface Look {
   whiteRail?: boolean;
   /** The asphalt's own colour (CSS hex), over the theme's: Taketomi's pale coral-sand lanes. */
   tar?: string;
+  /** Falling snow: this many flakes in a box round the camera (half on Low). */
+  snow?: number;
   grade: Grade;
 }
 
@@ -112,6 +114,9 @@ export const TRACK_LOOKS: Partial<Record<TrackId, Partial<Look>>> = {
   goreme: { sun: [17, 100], light: 0xffc090, lightPower: 2.4, hemi: 0.7, turbidity: 8, rayleigh: 1.4, skyGain: 0.6, exposure: 0.55, grass: [0.62, 0.54, 0.4], grassDry: [0.78, 0.68, 0.5], rock: [0.82, 0.7, 0.52], verge: [0.72, 0.62, 0.46], forest: -1, grade: grade({ contrast: 1.14, saturation: 1.04, shadows: [0.88, 0.9, 1.12], highlights: [1.14, 1.0, 0.9] }) },
   oia: { sun: [12, 262], light: 0xffb070, lightPower: 2.4, hemi: 0.7, turbidity: 9, rayleigh: 1.8, skyGain: 0.62, exposure: 0.56, grass: [0.48, 0.44, 0.26], grassDry: [0.6, 0.52, 0.34], rock: [0.48, 0.36, 0.3], verge: [0.55, 0.47, 0.36], forest: -0.5, grade: grade({ contrast: 1.15, saturation: 1.06, shadows: [0.86, 0.9, 1.14], highlights: [1.15, 0.99, 0.84] }) },
   chefchaouen: { sun: [26, 120], light: 0xfff0d8, turbidity: 4, grass: [0.34, 0.4, 0.18], grassDry: [0.52, 0.5, 0.3], rock: [0.6, 0.55, 0.48], verge: [0.5, 0.47, 0.34], forest: 0 },
+  // Fubuki Pass in a blizzard: snow on every gentle slope from the top to the bottom (bare rock where it's steep),
+  // white verges, a low grey sky, thick pale fog and snow falling round the camera.
+  fubuki: { snowline: -1e4, treeline: 1e9, sun: [14, 200], light: 0xe8f0ff, lightPower: 1.6, hemi: 0.8, turbidity: 10, rayleigh: 1.2, skyGain: 0.42, clouds: [0.85, 0.7], fog: 0xd4dde8, fogDensity: 0.0011, exposure: 0.48, grass: [0.82, 0.86, 0.9], grassDry: [0.88, 0.9, 0.93], rock: [0.32, 0.33, 0.36], verge: [0.86, 0.89, 0.93], forest: -0.1, whiteRail: true, snow: 2500, grade: grade({ saturation: 0.86, shadows: [0.9, 0.95, 1.1], highlights: [1.0, 1.02, 1.06], flare: 0 }) },
   kanjo: { sun: [24, 235], turbidity: 6, rayleigh: 1.8, light: 0xffd6a8, lightPower: 2.4, hemi: 0.85, skyGain: 0.58, clouds: [0.32, 0.38], exposure: 0.48, fogDensity: 0.00018, grass: [0.25, 0.42, 0.14], grassDry: [0.46, 0.5, 0.22], rock: [0.52, 0.48, 0.42], verge: [0.44, 0.42, 0.27], grade: grade({ contrast: 1.12, saturation: 1.06, shadows: [0.9, 0.95, 1.08], highlights: [1.1, 1.0, 0.88] }) },
 };
 
@@ -514,6 +519,8 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
   // --- Bridges and tunnels
   structures(scene, t, keep, !!look.moon);
   if (t.gaps.length) gapEdges(scene, t, look, keep);
+  if (t.rivers.length) rivers(scene, t, keep);
+  const snow = look.snow ? snowfall(scene, Math.round(look.snow * (low ? 0.5 : 1)), keep) : null;
 
   // --- Shortcuts: gravel tracks
   for (const c of t.cuts) {
@@ -713,6 +720,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     sunDir: look.moon ? null : sunDir,
     follow(x, y, z, time) {
       WIND.value = time / 1000;
+      snow?.(x, y, z, time / 1000);
       lods.update(x, z);
       // Move the shadow box with the camera, in whole texels so the edges don't crawl.
       const texel = 90 / 2048;
@@ -1843,7 +1851,7 @@ function gapEdges(scene: THREE.Scene, t: Track, look: Look, keep: <T extends { d
   for (const g of t.gaps)
     for (const s of [g.s0, g.s1]) {
       const i = Math.round(s / SAMPLE);
-      across(face, null, i, -0.5, -GAP.depth - 8);
+      across(face, null, i, -0.5, -g.depth - 8);
       across(band, bandUv, i, 0.04, -0.5);
     }
   const rock = keep(new THREE.BufferGeometry());
@@ -1861,6 +1869,117 @@ function gapEdges(scene: THREE.Scene, t: Track, look: Look, keep: <T extends { d
   strip.setAttribute('uv', new THREE.Float32BufferAttribute(bandUv, 2));
   strip.computeVertexNormals();
   scene.add(new THREE.Mesh(strip, keep(new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.6, side: THREE.DoubleSide }))));
+}
+
+/**
+ * The rivers across the road (TrackDef.rivers): a ribbon of water down each channel, a little over its bed. Under a
+ * bridge or a gap the bed is the ground there (the lower of the ground and the hills, so never the road's own plane).
+ */
+/** How far into a channel's fade (riverFade) its water stops, as a share of it. */
+const RIVER_SHORT = 0.6;
+/** The water ribbon's step along a river (m), and the steepest its bed may climb or fall per metre before it stops. */
+const RIVER_STEP = 4;
+const RIVER_STEEP = 0.8;
+function rivers(scene: THREE.Scene, t: Track, keep: <T extends { dispose(): void }>(x: T) => T) {
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const w = RIVER.half + 3;
+  const bed = (r: Track['rivers'][number], a: number) => {
+    const cx = r.x + r.ux * a;
+    const cz = r.z + r.uz * a;
+    return Math.min(heightAt(t, cx, cz), terrainAt(t, cx, cz)) + 1.1;
+  };
+  for (const r of t.rivers) {
+    // Out from the road each way in RIVER_STEP steps: the water stops partway into the channel's fade (where it's still
+    // a few metres deep, not on the hillside) or where the bed turns too steep for a river (a sheet of water up a cliff).
+    const ends = [-1, 1].map((dir) => {
+      const end = (dir < 0 ? -r.a0 : r.a1) - riverFade(dir < 0 ? -r.a0 : r.a1) * RIVER_SHORT;
+      let a = 0;
+      let y = bed(r, 0);
+      while (a + RIVER_STEP <= end) {
+        const y2 = bed(r, dir * (a + RIVER_STEP));
+        // (Not under the road and its banks: a river under a gap falls into the ravine there.)
+        if (a > t.edge + RIVER_STEP * 2 && Math.abs(y2 - y) > RIVER_STEP * RIVER_STEEP) break;
+        a += RIVER_STEP;
+        y = y2;
+      }
+      return dir * a;
+    });
+    const base = pos.length / 3;
+    const steps = Math.round((ends[1] - ends[0]) / RIVER_STEP);
+    for (let k = 0; k <= steps; k++) {
+      const a = ends[0] + k * RIVER_STEP;
+      const y = bed(r, a);
+      const cx = r.x + r.ux * a;
+      const cz = r.z + r.uz * a;
+      for (const side of [-1, 1]) pos.push(cx - r.uz * side * w, y, cz + r.ux * side * w);
+      if (k < steps) {
+        const q = base + k * 2;
+        idx.push(q, q + 2, q + 1, q + 1, q + 2, q + 3);
+      }
+    }
+  }
+  const geo = keep(new THREE.BufferGeometry());
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mat = keep(new THREE.MeshStandardMaterial({ color: 0x4f86a6, roughness: 0.12, metalness: 0, envMapIntensity: 1.6, transparent: true, opacity: 0.88, side: THREE.DoubleSide }));
+  const water = new THREE.Mesh(geo, mat);
+  water.receiveShadow = true;
+  scene.add(water);
+}
+
+/** Falling snow: `count` flakes wrapped round a box that follows the camera, moved in the vertex shader. Returns its per-frame update. */
+const SNOW_BOX = 70;
+function snowfall(scene: THREE.Scene, count: number, keep: <T extends { dispose(): void }>(x: T) => T) {
+  const rng = mulberry(9133);
+  const pos = new Float32Array(count * 3);
+  const drift = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    pos.set([rng() * SNOW_BOX, rng() * SNOW_BOX, rng() * SNOW_BOX], i * 3);
+    drift[i] = rng();
+  }
+  const geo = keep(new THREE.BufferGeometry());
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('drift', new THREE.BufferAttribute(drift, 1));
+  const uniforms = { cam: { value: new THREE.Vector3() }, time: { value: 0 } };
+  const mat = keep(
+    new THREE.ShaderMaterial({
+      uniforms,
+      transparent: true,
+      depthWrite: false,
+      vertexShader: `
+        uniform vec3 cam;
+        uniform float time;
+        attribute float drift;
+        varying float vFade;
+        void main() {
+          vec3 p = position;
+          p.y -= time * (1.6 + drift * 1.4);
+          p.x += time * 0.9 + sin(time * 0.8 + drift * 31.0) * 1.2;
+          p.z += cos(time * 0.6 + drift * 17.0) * 1.2;
+          p = mod(p - cam + ${(SNOW_BOX / 2).toFixed(1)}, ${SNOW_BOX.toFixed(1)}) + cam - ${(SNOW_BOX / 2).toFixed(1)};
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          vFade = 1.0 - smoothstep(${(SNOW_BOX * 0.3).toFixed(1)}, ${(SNOW_BOX * 0.5).toFixed(1)}, -mv.z);
+          gl_PointSize = (0.08 + drift * 0.06) * 900.0 / max(1.0, -mv.z);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        varying float vFade;
+        void main() {
+          float d = length(gl_PointCoord - 0.5);
+          if (d > 0.5) discard;
+          gl_FragColor = vec4(vec3(2.2), (1.0 - smoothstep(0.2, 0.5, d)) * 0.8 * vFade);
+        }`,
+    }),
+  );
+  const flakes = new THREE.Points(geo, mat);
+  flakes.frustumCulled = false;
+  scene.add(flakes);
+  return (x: number, y: number, z: number, time: number) => {
+    uniforms.cam.value.set(x, y, z);
+    uniforms.time.value = time % 1000;
+  };
 }
 
 function stripeTexture() {

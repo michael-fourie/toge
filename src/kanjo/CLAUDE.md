@@ -229,6 +229,29 @@ a component or a page.
   trackview.ts stops the ribbon, rails and posts at the lip and starts them again past the hole, and `gapEdges` hangs a
   rock face into the ravine and a red-and-white band along both edges. It's the Gravity Cup's fifth round.
   Tests: tests/kanjo/survival.test.ts.
+- **The snowy survival downhill** (2026-11-19, Michael: "make another one like that but snowy mountain and add upward
+  ramp jumps on the way down, alternate paths, shortcuts, rock falls, and river crossings"): `fubuki` (Fubuki Pass:
+  alpine in a blizzard, 6.9 km, 700 m down from 1150 m, 13 m wide, `survival` like Jigoku's). It opens on a **fork**
+  (920 m; the main road takes a ramp, the second runs clean), then upward kickers before drops (`jump` with size 3+),
+  four gaps (one over a river, one off a ramp), a bridge over a second river, three hairpins each with a `cut` across, and
+  **rockfall** all the way down. A fork on a road with drops must come **before** them: the second road's heights come
+  from the road before features (`yRaw`), so after a drop its ends would meet the main road metres out; a feature inside
+  the fork must be net zero (the ramp there has `drop: 0`).
+  - `rockfall: true` on a TrackDef: `placeRockfall` (props.ts) on a downhill, not just a `climb`. Off a downhill it
+    keeps stones off bends tighter than `DOWNHILL_BEND` (80 m: cars come in flat out), 150 m before a jump, and
+    `FORK_CLEAR` either side of a fork's split and join (the roads run side by side there, so a stone on one edge sits
+    in the other road's lane).
+  - `rivers: number[]` on a TrackDef (control point indices): a river square to the road there (`Track.rivers`). The
+    hills get a channel (`riverCut`: `RIVER.depth` deep, a flat bed `RIVER.half` either side of its line, banks
+    `RIVER.bank` wide) out to `RIVER.reach` each way, stopped `RIVER.clear` short of any other road, fork road or
+    shortcut (`clipRiver`, giving `a0` / `a1`), fading over `riverFade`. Put a gap (a `depth` of 12 or so: shallower
+    than `GAP.depth`) or a `bridge` over it, where the hills either side aren't far above the road (in a cutting the
+    river would have to climb out). trackview.ts `rivers()` lays a water ribbon down each channel, stopping where the
+    bed gets steeper than `RIVER_STEEP`.
+  - A gap's `depth` (default `GAP.depth`) sets how far down its floor is; `Track.hole` holds it per sample.
+  - `snow` on a Look (trackview.ts): that many flakes falling round the camera (`snowfall`: one Points draw, moved in
+    the vertex shader, half on Low). Fubuki's look has its snowline below the map, so every gentle slope is white.
+  It's the Gravity Cup's fourth round (it took Kōri Pass's). Tests: tests/kanjo/fubuki.test.ts.
 - **A fork in the road** (`fork` on a point-to-point TrackDef: `at` / `to` control points and the second road's
   `points`; `Track.fork`, track.ts `Fork`). The second road's samples go after the main road's in every per-sample
   array (`t.n` still counts only the main road), sampled alike (`s` is the same on both, so standings, the finish and
@@ -283,8 +306,8 @@ a component or a page.
   neonbay, isonami, ryusei, shiden: the two grand prix roads with the city and the expressway) and Sprint (mizuumi,
   hibari, kamome, shiokaze: the four 4-lap sprint rings, easiest first) and Postcard (taketomi, hallstatt, goreme, oia,
   chefchaouen: the five town circuits, a cup of five; `roundsOf(cup)` is a cup's round count, so every
-  "Round 2 of 4" reads it) and Gravity (redmesa, koripass, sakamichi, nadare, jigoku: all downhill, the two obstacle
-  courses then the survival road last; 2026-11-16, Jigoku Drop added 2026-11-19, so it's a cup of five too). Overdrive (Neon Bay and Ryūsei) and Gravity (Red Mesa and Kōri Pass) borrow tracks from other cups.
+  "Round 2 of 4" reads it) and Gravity (redmesa, sakamichi, nadare, fubuki, jigoku: all downhill, the two obstacle
+  courses then the two survival roads last; 2026-11-16, Jigoku Drop added 2026-11-19, so it's a cup of five too, and Fubuki Pass took Kōri Pass's round the same day). Overdrive (Neon Bay and Ryūsei) and Gravity (Red Mesa) borrow tracks from other cups.
   Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
   more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
   test checks every one is in one, and only Velocity, Overdrive and Gravity repeat tracks); a new cup is an append to `CupId` / `CUPS`.
@@ -533,7 +556,7 @@ src/kanjo/shared/
                all ramps/jumps that are not part of the map ... Do not remove the jumps that make up the entire road"):
                jumps are only the road's own `crest` features (and the open world's runway kickers); their old slots
                are open straights, so every other prop stayed put. Not on circuits, clean passes or traffic
-               tracks. A `climb` track gets rockfall instead (`placeRockfall`): boulders and rocks, each its own
+               tracks. A `climb` or `rockfall` track gets rockfall instead (`placeRockfall`): boulders and rocks, each its own
                radius, bitten into the road's edges, always leaving `ROCKFALL_GAP` of clear tarmac; solid, and the AI
                steers round them by their radius. kanjo/client/propview.ts draws props and the boost pads.
   ghost.ts     record ghosts: GhostRecorder, the tape encoding, cleanTape / cleanRun, unpack + poseAt (playback).
@@ -738,6 +761,6 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   optional glowing edge); a new style needs building in kanjo/client/bodykits.ts, from the Kit helpers so it fits every car.
   Check it on every car in `/dev/cars.html` with `lab.cos({ wing: 'wg_gt', roof: 'rf_duck' })`.
 
-Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records`, `highlight` (Best Moment), `royale` (battle royale), `fork` (Futamata Parkway and forks in the road), `downhill` (the obstacle-course downhills and drop jumps) in `tests/kanjo/`
+Tests: `racephysics` (incl. braking, trail braking, traction out of a bend, wall hits, CPUs vs full throttle and their difficulty levels, CPUs on boost pads), `boost` (pads, the highway, Hayate's 30° rule), `garage`, `raceroom` (incl. a whole online Grand Prix), `world` (the open world and a free-roam room), `cups`, `drift`, `standings`, `raceinput`, `headcam`, `cosmetics`, `pass`, `draft`, `rider`, `drivers`, `hands` (drivers' grip on the wheel), `damage`, `records`, `highlight` (Best Moment), `royale` (battle royale), `fork` (Futamata Parkway and forks in the road), `downhill` (the obstacle-course downhills and drop jumps), `survival` (Jigoku Drop and gaps), `fubuki` (Fubuki Pass: rivers, rockfall on a downhill, a fork before the drops) in `tests/kanjo/`
 (friend lists: `tests/friends.test.ts`)
 (`pad` is in `tests/`: the gamepad code is the site's).

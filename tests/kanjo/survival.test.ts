@@ -39,7 +39,7 @@ test('a gap: no road over the hole, a ravine under it, no props or runoff by it,
     }
     for (let i = Math.round(g.s0 / SAMPLE); i <= Math.round(g.s1 / SAMPLE); i++) {
       assert.equal(t.runL[i] + t.runR[i], 0, 'no runoff beside the hole');
-      assert.equal(t.hole[i], i > g.s0 / SAMPLE && i < g.s1 / SAMPLE ? 1 : 0);
+      assert.equal(t.hole[i], i > g.s0 / SAMPLE && i < g.s1 / SAMPLE ? g.depth : 0);
     }
     assert.ok(!t.props.some((p) => p.s > g.s0 - 150 && p.s < g.s1 + 30), `a prop by the gap at ${g.s0}`);
     assert.equal(inGap(t, g.s0 + 1), g);
