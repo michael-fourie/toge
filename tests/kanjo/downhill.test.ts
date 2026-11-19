@@ -27,7 +27,7 @@ test('downhill courses: summit to the bottom, long, wide enough to pass, in the 
     assert.ok(fall > 400, `${id}: only ${fall.toFixed(0)} m from the start down to the finish`);
     assert.ok(t.crests.length >= 5, `${id}: ${t.crests.length} jumps`);
   }
-  assert.deepEqual(CUPS.gravity.tracks.slice(2), ['sakamichi', 'nadare']);
+  assert.deepEqual(CUPS.gravity.tracks.slice(2, 4), ['sakamichi', 'nadare']);
 });
 
 test('a drop jump: a kicker up to the lip, then the road falls away onto the street below and runs on lower', () => {

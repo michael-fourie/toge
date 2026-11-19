@@ -8,7 +8,7 @@
 // This catches the fall before any of that: a car under a road, or one going over the edge (wheels off it and sinking),
 // goes back where it left the road. Fall handling only: the driving (vehicle.ts) is untouched.
 
-import { SKY, type Track, heightAt, pointAt } from './track.ts';
+import { SKY, type Track, heightAt, inGap, pointAt } from './track.ts';
 import { type Car, resetCar } from './vehicle.ts';
 
 export const SKYFALL = {
@@ -46,5 +46,36 @@ export function skyFall(car: Car, t: Track): boolean {
   if (!dropped && !under && !fell) return false;
   resetCar(car, t, road);
   lastOn.set(car, road);
+  return true;
+}
+
+/**
+ * A gap in the road (track.ts `gap`), after each stepCar: a car that came down short and is dropping into the ravine is
+ * put back on the far side, on the middle of the road, stopped. Caught as soon as it sinks under where it would ride,
+ * before the far edge (a wall under the road's end) can catch it from below and throw it up: so is a car that came
+ * down short on the far edge with its tail still over the hole (the edge caught under its tail threw it 20 m/s up).
+ * True when it did.
+ */
+export const GAPFALL = {
+  /** The car's middle this far under where it would ride on the road (were the road there): it's falling in. */
+  sink: 0.45,
+  /** A car's tail this far over the hole still counts as over it. */
+  tail: 1,
+  /** ...and then sunk this far under where it would ride: its tail is caught on the edge. */
+  tailSink: 0.15,
+  /** Put back this far past the hole. */
+  after: 14,
+};
+
+export function gapFall(car: Car, t: Track): boolean {
+  if (!t.gaps.length) return false;
+  // Over the hole, or just past it with the tail still hanging over it (a car that came down on the far edge).
+  const over = inGap(t, car.s);
+  const g = over ?? inGap(t, car.s - car.spec.body.hl - GAPFALL.tail);
+  if (!g) return false;
+  // (Within the road's width: a car over the barrier line is out over the ravine too.)
+  const ride = pointAt(t, car.s, Math.sign(car.d) * Math.min(t.half, Math.abs(car.d))).y + car.spec.cg;
+  if (car.p.y > ride - (over ? GAPFALL.sink : GAPFALL.tailSink)) return false;
+  resetCar(car, t, g.s1 + GAPFALL.after);
   return true;
 }
