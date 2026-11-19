@@ -149,9 +149,12 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const modes = (Object.keys(RACE_MODES) as RaceMode[])
       .map((id) => `<button class="tg-mode" data-mode="${id}" aria-pressed="${id === room.mode}" ${canPick ? '' : 'disabled'}><b>${esc(RACE_MODES[id].name)}</b><small>${esc(RACE_MODES[id].blurb)}</small></button>`)
       .join('');
-    // Physics mode: crash damage, for either mode.
+    // Physics mode: crash damage, for either mode. A survival road (track.ts `survival`) always has it: the switch shows
+    // On and can't be turned off there.
+    const survival = !!TRACK_DEFS[room.track]?.survival;
+    const crashOn = room.physics || survival;
     const physics = (['off', 'on'] as const)
-      .map((k) => `<button class="tg-mode" data-physics="${k}" aria-pressed="${(k === 'on') === room.physics}" ${canPick ? '' : 'disabled'}><b>${esc(PHYSICS[k].name)}</b><small>${esc(PHYSICS[k].blurb)}</small></button>`)
+      .map((k) => `<button class="tg-mode" data-physics="${k}" aria-pressed="${(k === 'on') === crashOn}" ${canPick && !survival ? '' : 'disabled'}><b>${esc(PHYSICS[k].name)}</b><small>${esc(k === 'on' && survival ? 'Always on for this track' : PHYSICS[k].blurb)}</small></button>`)
       .join('');
     // The record ghost: the track record's run rides along (the host's pick); say whose it'd be.
     // (Not in a battle royale: a ghost can't be knocked out.)
@@ -204,7 +207,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
-          <div class="tg-lobby-title">${gp ? `${teamMode ? 'Team Grand Prix · ' : ''}${esc(CUPS[room.cup].name)}` : endurance ? `Endurance · ${lapsLabel(laps)}` : `${RACE_MODES[room.mode].name} lobby`}${room.physics ? ' · Physics' : ''}${room.ghost && !gp && !roam && !royale && !endurance ? ' · Record ghost' : ''}</div>
+          <div class="tg-lobby-title">${gp ? `${teamMode ? 'Team Grand Prix · ' : ''}${esc(CUPS[room.cup].name)}` : endurance ? `Endurance · ${lapsLabel(laps)}` : `${RACE_MODES[room.mode].name} lobby`}${crashOn ? (survival ? ' · Survival' : ' · Physics') : ''}${room.ghost && !gp && !roam && !royale && !endurance ? ' · Record ghost' : ''}</div>
           <div class="tg-roomcode"><small>Race<br />code</small><b class="tg-bigcode">${esc(room.code)}</b></div>
         </header>
         <section class="tg-lobby-body${isHost ? '' : ' guest'}">

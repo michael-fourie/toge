@@ -15,8 +15,8 @@ import { CAR_RULES, CPU, CarFlag, RACE, RACE_MODES, TEAMS, cleanMode, ghostMode,
 import type { NewBest } from '../shared/records.ts';
 import { ROYALE, Royale } from '../shared/royale.ts';
 import { standings } from '../shared/standings.ts';
-import { SAMPLE, type Surface, type Track, type TrackId, getTrack, gridSlot, heightAt, lapOf, locate, newLoc, onFork } from '../shared/track.ts';
-import { skyFall } from '../shared/skyfall.ts';
+import { SAMPLE, type Surface, type Track, type TrackId, clearOfGaps, getTrack, gridSlot, heightAt, lapOf, locate, newLoc, onFork } from '../shared/track.ts';
+import { gapFall, skyFall } from '../shared/skyfall.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, placeCar, speedOf, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
 import { WORLD, respawnAt, trapCrossed } from '../shared/world.ts';
 import { collideWorldTraffic, newNearMisses, roamClock, stepNearMisses } from '../shared/worldtraffic.ts';
@@ -445,7 +445,8 @@ export class RaceGame {
     this.trial = !!setup.online && ghostMode(setup.online.mode);
     this.clean = !!setup.online && cleanMode(setup.online.mode);
     this.climb = setup.online?.mode === 'climb';
-    this.physics = setup.online ? !!setup.online.physics : !!setup.physics;
+    // (A survival road has crash damage whatever the lobby says: track.ts `survival`.)
+    this.physics = (setup.online ? !!setup.online.physics : !!setup.physics) || !!this.track.def.survival;
     this.royaleOn = !!this.track.def.royale;
     // Low graphics (the Settings tab): no MSAA, native pixels at most, no shadow map, no post chain, simple
     // materials, a thinner forest and a 60 fps cap. Read once here, so a change applies from the next race.
@@ -966,7 +967,7 @@ export class RaceGame {
       r.input.shiftUp = r.input.shiftDown = false;
     }
     this.pickups();
-    if (t.abyss !== undefined) this.falls();
+    if (t.abyss !== undefined || t.gaps.length) this.falls();
     // Bumps
     const all = [me, ...this.rivals];
     // In a time trial the others are ghosts: you (and the host's CPU racers) drive straight through them. In a Team
@@ -1081,9 +1082,22 @@ export class RaceGame {
   /**
    * A sky road: every car we drive that's going over the edge is put back on the middle of the road where it went
    * off, stopped (skyfall.ts `skyFall`). Online, the others just see it jump back (racenet snaps a big gap).
+   * A gap in the road (track.ts `gap`): a car falling into the ravine blows up (with crash damage on, as it always is on
+   * a survival road) and comes back on the far side, stopped (skyfall.ts `gapFall`).
    */
   private falls() {
     for (const r of [this.me, ...this.rivals]) {
+      const c = r.car;
+      const was = { x: c.p.x, y: c.p.y, z: c.p.z, vx: c.v.x, vz: c.v.z };
+      if (r.finished === null && gapFall(c, this.track)) {
+        if (this.physics) this.wreck(r, was);
+        else this.putBack(r);
+        if (r !== this.me) continue;
+        const lost = dropCombo(this.driftMeter);
+        if (lost > 0) this.hud.driftLost(lost);
+        if (this.phase === 'racing') this.hud.banner('Into the gap!', 'Back on the road past it', 1600);
+        continue;
+      }
       if (!skyFall(r.car, this.track)) continue;
       if (r.ai) r.ai = newAi(r.ai.skill, r.ai.lane);
       r.prevP.set(r.car.p.x, r.car.p.y, r.car.p.z);
@@ -1104,10 +1118,11 @@ export class RaceGame {
    * it's had too much. Finished cars are left alone.
    */
   private crashes() {
+    const soak = this.track.def.survival;
     for (const r of [this.me, ...this.rivals]) {
       if (r.finished !== null) continue;
       const c = r.car;
-      const hit = takeHit(r.dmg, c.crash, c.crashP, c.land, c.spec.body.hl, c.spec.body.hw, TICK_DT);
+      const hit = takeHit(r.dmg, c.crash, c.crashP, c.land, c.spec.body.hl, c.spec.body.hw, TICK_DT, soak?.hit, soak?.land);
       if (!hit) continue;
       // The harder the hit, the deeper and wider the dent.
       r.dents.dent(c.crashP, c.crashN, Math.min(0.32, 0.04 + hit.amount * 0.9), Math.min(1.5, 0.55 + hit.amount * 3));
@@ -1119,32 +1134,45 @@ export class RaceGame {
     }
   }
 
-  /** A car's had too much: it blows up, and comes back repaired a few metres back down the road. */
-  private wreck(r: Racing) {
+  /**
+   * A car's had too much: it blows up, and comes back repaired a few metres back down the road (never stopped on the
+   * run-up to a gap: track.ts `clearOfGaps`). `fell`: it fell into a gap, where it was when it went in (gapFall has
+   * already put it back past the gap).
+   */
+  private wreck(r: Racing, fell?: { x: number; y: number; z: number; vx: number; vz: number }) {
     const c = r.car;
     const t = this.track;
-    this.blasts?.boom(c.p.x, c.p.y, c.p.z, c.v.x, c.v.z, PAINTS[decodeCar(r.code)?.look.paint ?? 0]);
+    const p = fell ?? { x: c.p.x, y: c.p.y, z: c.p.z, vx: c.v.x, vz: c.v.z };
+    this.blasts?.boom(p.x, p.y, p.z, p.vx, p.vz, PAINTS[decodeCar(r.code)?.look.paint ?? 0]);
     const mine = r === this.me;
-    this.boomSound(mine ? 0 : Math.hypot(c.p.x - this.me.car.p.x, c.p.z - this.me.car.p.z));
-    const at = [c.p.x, c.p.y, c.p.z].map((x) => Math.round(x * 100) / 100) as [number, number, number];
+    this.boomSound(mine ? 0 : Math.hypot(p.x - this.me.car.p.x, p.z - this.me.car.p.z));
+    const at = [p.x, p.y, p.z].map((x) => Math.round(x * 100) / 100) as [number, number, number];
     if (r.netId !== undefined) this.setup.online?.net.send({ t: 'cpuwreck', id: r.netId, p: at });
     if (mine) {
       this.setup.online?.net.send({ t: 'wreck', p: at });
       rumble(1, 1, 900);
-      this.hud.banner('Wrecked!', 'Back on the road', 1600);
+      if (!fell) this.hud.banner('Wrecked!', 'Back on the road', 1600);
     }
-    if (this.roam) this.respawn(c);
+    if (fell) {
+      // (Already back on the road.)
+    } else if (this.roam) this.respawn(c);
     else {
-      const back = Math.max(4, c.s - DAMAGE.respawnBack);
+      const back = clearOfGaps(t, Math.max(4, c.s - DAMAGE.respawnBack));
       const d = Math.max(-t.half + 1.5, Math.min(t.half - 1.5, c.d));
       resetOnRoad(c, t, back, d, onFork(t, c.hint));
     }
+    repair(r.dmg);
+    r.dents.repair();
+    this.putBack(r);
+  }
+
+  /** A car we drive was just put somewhere new: a fresh AI, no motion blur across the jump, the camera follows. */
+  private putBack(r: Racing) {
+    const c = r.car;
     if (r.ai) r.ai = newAi(r.ai.skill, r.ai.lane, r.ai.alt);
     r.prevP.set(c.p.x, c.p.y, c.p.z);
     r.prevQ.set(c.q.x, c.q.y, c.q.z, c.q.w);
-    repair(r.dmg);
-    r.dents.repair();
-    if (mine && this.watching === null) this.snapCamera();
+    if (r === this.me && this.watching === null) this.snapCamera();
   }
 
   /** An explosion's bang: a deep thump and a crackle, quieter with distance. */
@@ -1182,7 +1210,7 @@ export class RaceGame {
   private respawn(c: Car) {
     const w = this.track.world?.world;
     // (At a fork, on whichever of the two roads it was on.)
-    if (!w) return resetOnRoad(c, this.track, c.s, 0, onFork(this.track, c.hint));
+    if (!w) return resetOnRoad(c, this.track, clearOfGaps(this.track, c.s), 0, onFork(this.track, c.hint));
     const at = respawnAt(w, c.p.x, c.p.z, yawOf(c));
     placeCar(c, at.x, at.y, at.z, at.yaw, at.i);
   }

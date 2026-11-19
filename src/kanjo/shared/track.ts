@@ -15,7 +15,7 @@ import { type World, worldSlot, worldTrack } from './world.ts';
 // (lapView).
 
 export type Theme = 'alpine' | 'coast' | 'desert' | 'night' | 'autumn' | 'spring' | 'city';
-export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'kamome' | 'shiokaze' | 'taketomi' | 'hallstatt' | 'goreme' | 'oia' | 'chefchaouen' | 'kanjo' | 'kumo' | 'shura' | 'futamata' | 'nadare' | 'sakamichi';
+export type TrackId = 'koripass' | 'saltwind' | 'redmesa' | 'tsukiyo' | 'momiji' | 'sakura' | 'monza' | 'spa' | 'monaco' | 'neonbay' | 'kodama' | 'karasu' | 'hachi' | 'nagare' | 'minato' | 'akane' | 'kazeoka' | 'ryusei' | 'hayate' | 'seatosky' | 'shiden' | 'isonami' | 'mizuumi' | 'hibari' | 'kamome' | 'shiokaze' | 'taketomi' | 'hallstatt' | 'goreme' | 'oia' | 'chefchaouen' | 'kanjo' | 'kumo' | 'shura' | 'futamata' | 'nadare' | 'sakamichi' | 'jigoku';
 export type Surface = 'asphalt' | 'shoulder' | 'gravel' | 'grass' | 'dirt';
 
 /**
@@ -35,6 +35,12 @@ export type Feature =
    * touches down on it (or on the flat past it); taken slowly it just rolls down.
    */
   | { kind: 'jump'; at: number; size: number; kick: number; drop: number; land: number }
+  /**
+   * A gap: a drop jump (same numbers) whose first `len` metres after the lip aren't there. The road stops at the lip
+   * and carries on past a ravine; a car too slow to clear it falls in (skyfall.ts `gapFall`) and is put back on the
+   * far side, stopped. The landing past the hole is the drop jump's own slope, so a car that clears it comes down on it.
+   */
+  | { kind: 'gap'; at: number; size: number; kick: number; drop: number; land: number; len: number }
   /** A shortcut: a gravel track from distance `s0` along the road to `s1`, through gaps in the barrier. */
   | { kind: 'cut'; s0: number; s1: number }
   /**
@@ -115,6 +121,12 @@ export interface TrackDef {
    * 400-700, with slaloms and gates among them.
    */
   obstacles?: true;
+  /**
+   * A survival road: crash damage (Physics mode, damage.ts) is always on, whatever the lobby says, and a knock does
+   * `hit` of what it would elsewhere and a landing `land` of it, so the jumps dent the car rather than wreck it and a run
+   * is about how much of the car you bring to the bottom.
+   */
+  survival?: { hit: number; land: number };
   /**
    * A figure 8 (circuits only): the lap crosses itself once, and the first pass through the crossing goes over
    * the second on a bridge this many metres up (the leg underneath dips OVERPASS.dip into a cutting). The ground
@@ -239,6 +251,26 @@ export const WALL_GAP = 0.3;
  * under the lowest of the road, and a car that falls `fall` m below the road is put back on it.
  */
 export const SKY = { lip: 1.2, abyss: 600, fall: 9 };
+/**
+ * A `gap` feature: the ravine floor is `depth` m under where the road would have run. A wreck or reset within `runup`
+ * m before a gap's lip goes back to that far before it, so a car never restarts stopped at the edge of one.
+ */
+export const GAP = { depth: 45, runup: 160 };
+
+/** The gap `s` (distance along the road) is in, if any. */
+export function inGap(t: Track, s: number): { s0: number; s1: number } | undefined {
+  for (const g of t.gaps) if (s > g.s0 && s < g.s1) return g;
+  return undefined;
+}
+
+/**
+ * Where a car put back on the road at `s` should go: never stopped in a gap or on the run-up to one (it couldn't
+ * get the speed to clear it), but GAP.runup m before that gap's lip.
+ */
+export function clearOfGaps(t: Track, s: number): number {
+  for (const g of t.gaps) if (s > g.s0 - GAP.runup && s < g.s1) return Math.max(4, g.s0 - GAP.runup);
+  return s;
+}
 /** The road's plane carries on this far past the barrier so the rails stand on level ground. */
 const EDGE_PAD = 1.5;
 const BLEND = 26; // the ground eases from the road's plane into the hills over this many metres
@@ -283,6 +315,10 @@ export interface Track {
   crests: { s: number; len: number }[];
   /** Stretches of bumpy road (from `bumps` features), where the grade jumps about on purpose. */
   bumps: { s0: number; s1: number }[];
+  /** Holes in the road (from `gap` features): from the lip at `s0` to where the road starts again at `s1`. */
+  gaps: { s0: number; s1: number }[];
+  /** 1 on the samples inside a gap (no road there: the ground is GAP.depth under it). */
+  hole: Uint8Array;
   /** 1 where the road is gravel. */
   gravel: Uint8Array;
   cuts: Cut[];
@@ -1428,6 +1464,73 @@ export const TRACK_DEFS: Record<TrackId, TrackDef> = {
       [-5558.9, 82.7, 1.9], [-5594.1, 81.6, 8.1], [-5680.2, 79.9, 23.3], [-5766.4, 78.1, 38.5], [-5852.6, 76.4, 53.7], [-5938.7, 74.6, 68.9],
     ],
   },
+  // A survival downhill (2026-11-19, Michael: "a steep down hill with lots of big gaps and weird spots. It's like
+  // survival with crash damage but you can survive them"). Point to point, ~10% all the way down, with `gap` features
+  // (a kicker, then a hole in the road over a ravine: too slow and you fall in, skyfall.ts `gapFall`), drop jumps, a
+  // staircase of three little drops, broken tarmac, gravel, a canyon and a blind crest. `survival`: crash damage is
+  // always on and landings do 0.15 of what they do elsewhere, so a clean run comes down dented (about half), not
+  // wrecked. Landings are long (175 m) so a fast car touches down on the slope instead of slamming onto the flat.
+  // Laid out as straights and arcs with a small generator, like Nadare Drop.
+  jigoku: {
+    id: 'jigoku',
+    name: 'Jigoku Drop',
+    tag: 'Survival downhill · 6 gaps · damage always on · 7 km',
+    blurb: 'Straight down the red rock to the valley floor, 770 m in seven kilometres, and the road keeps falling apart: six gaps over open ravines, two huge drops, a staircase, a canyon, broken tarmac and gravel. Crash damage is always on. Every landing dents the car; bring enough of it to the bottom.',
+    theme: 'desert',
+    seed: 6661,
+    width: 13,
+    relief: 260,
+    obstacles: true,
+    survival: { hit: 0.5, land: 0.15 },
+    features: [
+      { kind: 'gap', at: 13, size: 1.4, kick: 22, drop: 12, land: 175, len: 26 },
+      { kind: 'bumps', from: 23, to: 27, size: 0.35 },
+      { kind: 'jump', at: 29, size: 1.8, kick: 26, drop: 16, land: 175 },
+      { kind: 'gap', at: 46, size: 1.5, kick: 24, drop: 14, land: 175, len: 32 },
+      { kind: 'jump', at: 62, size: 0.9, kick: 14, drop: 4, land: 36 },
+      { kind: 'jump', at: 64, size: 0.9, kick: 14, drop: 4, land: 36 },
+      { kind: 'jump', at: 66, size: 0.9, kick: 14, drop: 4, land: 36 },
+      { kind: 'gap', at: 82, size: 1.6, kick: 24, drop: 15, land: 175, len: 36 },
+      { kind: 'gravel', from: 84, to: 87 },
+      { kind: 'canyon', from: 94, to: 98, size: 16 },
+      { kind: 'gap', at: 100, size: 1.5, kick: 24, drop: 13, land: 175, len: 30 },
+      { kind: 'bumps', from: 112, to: 115, size: 0.4 },
+      { kind: 'jump', at: 117, size: 2, kick: 28, drop: 20, land: 175 },
+      { kind: 'gap', at: 134, size: 1.8, kick: 26, drop: 18, land: 175, len: 42 },
+      { kind: 'crest', at: 151, size: 2.2, len: 60 },
+      { kind: 'gap', at: 156, size: 1.6, kick: 24, drop: 14, land: 175, len: 34 },
+    ],
+    points: [
+      [0, 900, 0], [0, 897, -60], [0, 894, -120], [0, 891, -180], [0, 888, -240], [0, 885, -300],
+      [1.6, 883.3, -321.3], [6.5, 881.6, -342.1], [14.4, 879.9, -361.9], [25.3, 878.2, -380.3], [59.7, 872.2, -429.4], [94.1, 866.2, -478.6],
+      [128.6, 860.2, -527.7], [163, 854.2, -576.9], [196, 848.4, -624], [228.9, 842.7, -671.1], [261.9, 836.9, -718.2], [294.9, 831.2, -765.3],
+      [303.7, 829.5, -784.2], [305.5, 827.8, -804.9], [300.1, 826.1, -825.1], [288.2, 824.5, -842.1], [271.1, 822.8, -854.1], [216.7, 816.8, -879.5],
+      [171.4, 811.3, -900.6], [126.1, 805.8, -921.7], [80.8, 800.3, -942.8], [35.5, 794.8, -964], [-0.8, 790.4, -980.9], [-37, 786, -997.8],
+      [-82.4, 781, -1018.9], [-127.7, 776, -1040], [-173, 771, -1061.2], [-218.3, 766, -1082.3], [-263.6, 761, -1103.4], [-279.1, 759.6, -1115.5],
+      [-287.8, 758.2, -1133], [-288, 756.8, -1152.6], [-279.8, 755.5, -1170.3], [-264.6, 754.1, -1182.7], [-245.6, 752.7, -1187.3], [-226.4, 751.3, -1183.2],
+      [-175.7, 745.1, -1159.5], [-124.9, 739, -1135.9], [-74.2, 732.8, -1112.2], [-23.4, 726.7, -1088.5], [27.3, 720.5, -1064.9], [72.7, 715.5, -1043.7],
+      [118, 710.5, -1022.6], [163.3, 705.5, -1001.5], [208.6, 700.5, -980.3], [253.9, 695.5, -959.2], [274.4, 693.6, -952.5], [295.9, 691.6, -950.9],
+      [317.1, 689.7, -954.4], [337, 687.7, -962.8], [356.8, 685.8, -971.3], [378, 683.8, -974.8], [399.5, 681.9, -973.2], [420, 680, -966.5],
+      [462.3, 675.3, -946.7], [504.6, 670.6, -927], [546.9, 666, -907.3], [580.9, 662.2, -891.4], [614.8, 658.5, -875.6], [648.8, 654.7, -859.7],
+      [682.8, 651, -843.9], [732.7, 645.5, -820.7], [782.5, 640, -797.4], [832.4, 634.5, -774.2], [882.2, 629, -750.9], [901.4, 627.6, -746.8],
+      [920.4, 626.2, -751.4], [935.5, 624.8, -763.8], [943.8, 623.4, -781.5], [943.6, 622, -801.1], [934.9, 620.7, -818.7], [919.4, 619.3, -830.7],
+      [868.6, 613.1, -854.3], [817.9, 607, -878], [767.1, 600.8, -901.7], [716.4, 594.6, -925.3], [665.6, 588.5, -949], [611.3, 582.5, -974.4],
+      [556.9, 576.5, -999.7], [502.5, 570.5, -1025.1], [448.1, 564.5, -1050.4], [393.7, 558.5, -1075.8], [376.1, 556.6, -1087], [362, 554.7, -1102.4],
+      [352.4, 552.8, -1120.9], [347.9, 550.9, -1141.3], [348.8, 549.1, -1162.2], [359.2, 543.1, -1221.3], [369.6, 537.1, -1280.4], [378.3, 532.1, -1329.6],
+      [387, 527.1, -1378.9], [395.6, 522.1, -1428.1], [404.3, 517.1, -1477.3], [411.3, 513.1, -1516.7], [418.2, 509.1, -1556.1], [428.6, 503.1, -1615.2],
+      [439.1, 497.1, -1674.3], [449.5, 491.1, -1733.4], [459.9, 485.1, -1792.5], [460.2, 483.5, -1811.6], [454.4, 482, -1829.8], [443.2, 480.4, -1845.3],
+      [427.7, 478.9, -1856.5], [409.5, 477.4, -1862.3], [390.4, 475.8, -1862], [341.2, 470.8, -1853.3], [291.9, 465.8, -1844.6], [239.4, 460, -1835.4],
+      [186.9, 454.1, -1826.1], [134.3, 448.2, -1816.8], [90, 443.7, -1809], [45.7, 439.2, -1801.2], [-5.5, 434, -1792.2], [-56.7, 428.8, -1783.1],
+      [-107.9, 423.6, -1774.1], [-159.1, 418.4, -1765.1], [-210.3, 413.2, -1756.1], [-229.9, 411.9, -1757], [-247.1, 410.5, -1766.4], [-258.5, 409.1, -1782.3],
+      [-261.9, 407.7, -1801.6], [-256.6, 406.3, -1820.4], [-243.7, 404.9, -1835.1], [-225.6, 403.6, -1842.7], [-166.5, 397, -1853.1], [-107.4, 390.4, -1863.6],
+      [-48.4, 383.8, -1874], [10.7, 377.2, -1884.4], [69.8, 370.6, -1894.8], [125, 365, -1904.5], [180.1, 359.4, -1914.3], [235.3, 353.8, -1924],
+      [290.4, 348.2, -1933.7], [345.6, 342.6, -1943.4], [364.1, 340.8, -1948.4], [381.5, 339.1, -1956.5], [397.2, 337.4, -1967.5], [410.7, 335.6, -1981.1],
+      [421.7, 333.9, -1996.8], [429.8, 332.2, -2014.1], [437.9, 330.5, -2031.5], [448.9, 328.7, -2047.2], [462.5, 327, -2060.8], [478.2, 325.3, -2071.8],
+      [495.6, 323.6, -2079.9], [514.1, 321.8, -2084.8], [565.3, 316.6, -2093.9], [616.5, 311.4, -2102.9], [667.7, 306.2, -2111.9], [718.9, 301, -2121],
+      [770.1, 295.8, -2130], [824.3, 291.4, -2139.5], [878.5, 287, -2149.1], [932.6, 282.6, -2158.6], [986.8, 278.2, -2168.2], [1036, 276.2, -2176.9],
+      [1085.3, 274.2, -2185.6], [1134.5, 272.2, -2194.2], [1183.8, 270.2, -2202.9],
+    ],
+  },
   futamata: {
     id: 'futamata',
     name: 'Futamata Parkway',
@@ -1725,6 +1828,7 @@ export function buildTrack(def: TrackDef): Track {
   const spans: Span[] = [];
   const crests: { s: number; len: number }[] = [];
   const bumps: { s0: number; s1: number }[] = [];
+  const gaps: { s0: number; s1: number }[] = [];
   for (const f of def.features ?? []) {
     if (f.kind === 'crest') {
       const at = nearestS(pts[f.at]);
@@ -1733,11 +1837,12 @@ export function buildTrack(def: TrackDef): Track {
         const u = (i * SAMPLE - at) / (f.len / 2);
         if (Math.abs(u) < 1) y[i] += (f.size * (1 + Math.cos(Math.PI * u))) / 2;
       }
-    } else if (f.kind === 'jump') {
+    } else if (f.kind === 'jump' || f.kind === 'gap') {
       // Kept as a crest centred on the lip and as long as twice the landing, so the grade test, the AI's flight,
       // the landing runoff and the props and pads all treat the whole kicker and landing as the jump.
       const at = nearestS(pts[f.at]);
       crests.push({ s: at, len: 2 * Math.max(f.land, f.kick) });
+      if (f.kind === 'gap') gaps.push({ s0: at, s1: at + f.len });
       for (let i = 0; i < n; i++) {
         const s = i * SAMPLE;
         if (s > at - f.kick && s <= at) y[i] += f.size * ((s - (at - f.kick)) / f.kick) ** 2;
@@ -1786,6 +1891,8 @@ export function buildTrack(def: TrackDef): Track {
     return g;
   };
   const gravel = new Uint8Array(all);
+  const hole = new Uint8Array(all);
+  for (const g of gaps) for (let i = Math.ceil(g.s0 / SAMPLE + 0.01); i < g.s1 / SAMPLE && i < n; i++) hole[i] = 1;
   for (const sp of spans) if (sp.kind === 'gravel') for (let i = Math.floor(sp.s0 / SAMPLE); i <= Math.min(n - 1, sp.s1 / SAMPLE); i++) gravel[i] = 1;
   const tx = new Float64Array(all);
   const tz = new Float64Array(all);
@@ -1849,6 +1956,13 @@ export function buildTrack(def: TrackDef): Track {
   const run = runoff(def, n, x, z, curv, spans, crests, edge, startS, finishS, lap, pre, fork);
   const runL = fork ? grow(run[0]) : run[0];
   const runR = fork ? grow(run[1]) : run[1];
+  // Nothing to run off onto beside a hole in the road: no runoff over a gap, easing back in over 30 m either side.
+  for (const g of gaps)
+    for (let i = Math.max(0, Math.floor((g.s0 - 50) / SAMPLE)); i <= Math.min(n - 1, Math.ceil((g.s1 + 50) / SAMPLE)); i++) {
+      const k = smoothstep(0, 30, Math.max(g.s0 - 20 - i * SAMPLE, i * SAMPLE - g.s1 - 20));
+      runL[i] *= k;
+      runR[i] *= k;
+    }
   let edgeMax = edge;
   for (let i = 0; i < n; i++) edgeMax = Math.max(edgeMax, edge + runL[i], edge + runR[i]);
   let bx0 = Infinity;
@@ -1950,6 +2064,8 @@ export function buildTrack(def: TrackDef): Track {
     spans,
     crests,
     bumps,
+    gaps,
+    hole,
     gravel,
     props: [],
     boosts: [],
@@ -1959,8 +2075,9 @@ export function buildTrack(def: TrackDef): Track {
   };
   if (def.sky) t.abyss = Math.min(...y) - SKY.abyss;
   for (const f of def.features ?? []) if (f.kind === 'cut') t.cuts.push(makeCut(t, f.s0, f.s1));
-  // Boost pads keep off jumps, tunnels and the mouths of shortcuts (props then keep off the pads).
-  t.boosts = placeBoosts(t, (s0, s1) =>
+  // Boost pads keep off jumps, tunnels and the mouths of shortcuts (props then keep off the pads). A survival road has
+  // none: nothing helps you down it.
+  t.boosts = def.survival ? [] : placeBoosts(t, (s0, s1) =>
     t.crests.some((c) => s1 > c.s - c.len - 20 && s0 < c.s + c.len + 30) ||
     t.spans.some((sp) => sp.kind === 'tunnel' && s1 > sp.s0 - 20 && s0 < sp.s1 + 20) ||
     t.cuts.some((c) => [c.s0, c.s1].some((e) => s1 > e - 30 && s0 < e + 30)) ||
@@ -2490,7 +2607,8 @@ function roadHeight(t: Track, x: number, z: number, onRoad: Loc | undefined, hin
     if (dist <= edgeAt(t, pieceLoc.s, pieceLoc.d)) {
       roadHit = true;
       if (onRoad) Object.assign(onRoad, pieceLoc);
-      return roadY(t, pieceLoc);
+      // A gap: no road here, only the ravine floor far below.
+      return roadY(t, pieceLoc) - (t.gaps.length && inGap(t, pieceLoc.s) ? GAP.depth : 0);
     }
   }
   // A sky road: off its edge there's no ground at all.
@@ -2534,7 +2652,8 @@ function roadHeight(t: Track, x: number, z: number, onRoad: Loc | undefined, hin
         }
     }
     const lat = -rx * t.tz[i] + rz * t.tx[i];
-    const h = t.y[i] + ((t.y[j + 1] - t.y[j]) / SAMPLE) * along - t.bank[i] * lat;
+    // (A gap's samples pull the ground down into its ravine.)
+    const h = t.y[i] + ((t.y[j + 1] - t.y[j]) / SAMPLE) * along - t.bank[i] * lat - (t.hole[i] ? GAP.depth : 0);
     wsum += w;
     hsum += w * h;
   }
@@ -2679,7 +2798,7 @@ export function forkView(t: Track): Track | null {
   const f = t.fork;
   if (!f) return null;
   const cut = (a: Float64Array) => a.subarray(f.o, f.o + f.m);
-  return { ...t, n: f.m, x: cut(t.x), y: cut(t.y), z: cut(t.z), tx: cut(t.tx), tz: cut(t.tz), s: cut(t.s), curv: cut(t.curv), bank: cut(t.bank), runL: cut(t.runL), runR: cut(t.runR), gravel: t.gravel.subarray(f.o, f.o + f.m), fork: undefined };
+  return { ...t, n: f.m, x: cut(t.x), y: cut(t.y), z: cut(t.z), tx: cut(t.tx), tz: cut(t.tz), s: cut(t.s), curv: cut(t.curv), bank: cut(t.bank), runL: cut(t.runL), runR: cut(t.runR), gravel: t.gravel.subarray(f.o, f.o + f.m), hole: t.hole.subarray(f.o, f.o + f.m), fork: undefined };
 }
 
 /** Where grid slot `k` sits: two columns, staggered back from the start line. */

@@ -4,9 +4,9 @@ import { CAR_IDS, carSpec, newOwnedCar, rating, topSpeed } from '../../src/kanjo
 import { CPU_LEVEL_IDS, aiDrive, newAi, rivalAi } from '../../src/kanjo/shared/driver.ts';
 import { padKick } from '../../src/kanjo/shared/boost.ts';
 import { TRACK_LENGTH_KM } from '../../src/kanjo/shared/garage.ts';
-import { RACE_TRACKS, SAMPLE, SKY, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/kanjo/shared/track.ts';
+import { RACE_TRACKS, SAMPLE, SKY, TRACK_DEFS, type TrackId, buildTrack, getTrack, groundAt, gridSlot, heightAt, inGap, lapOf, locate, newGround, newLoc, pointAt, railAt, roadDistance, roadY } from '../../src/kanjo/shared/track.ts';
 import { LANES, type Obstacle, TRAFFIC_KINDS, collideTraffic, getTraffic, newPose, trafficBetween, trafficPose, trafficS } from '../../src/kanjo/shared/traffic.ts';
-import { skyFall } from '../../src/kanjo/shared/skyfall.ts';
+import { gapFall, skyFall } from '../../src/kanjo/shared/skyfall.ts';
 import { ARCADE, type Car, arcadeMaxYaw, DEFAULT_ASSISTS, type DriveInput, TICK_DT, TICK_HZ, catchFall, collideCars, forwardSpeed, newCar, speedOf, spinOut, stepCar, yawOf } from '../../src/kanjo/shared/vehicle.ts';
 
 // Race tracks only: the open world (world.ts) has its own tests in world.test.ts.
@@ -54,6 +54,8 @@ test('tracks: the ground under the road is the road, and it is continuous everyw
     const t = getTrack(id);
     for (let s = 10; s < t.length - 10; s += 37) {
       const i = Math.floor(s / SAMPLE);
+      // (Over a gap in the road there's no road: the survival test checks the ravine.)
+      if (inGap(t, s) || inGap(t, s + SAMPLE)) continue;
       for (const d of [-t.rail - t.runL[i], -t.rail, -t.half, 0, t.half, t.rail, t.rail + t.runR[i]]) {
         const x = t.x[i] - t.tz[i] * d;
         const z = t.z[i] + t.tx[i] * d;
@@ -69,9 +71,12 @@ test('tracks: the ground under the road is the road, and it is continuous everyw
     const { x0, x1, z0, z1 } = t.bounds;
     let worst = 0;
     let where = '';
+    // (A gap's ends are cliffs on purpose: the road stops and the ravine drops away.)
+    const gaps = t.gaps.map((g) => ({ p: pointAt(t, (g.s0 + g.s1) / 2, 0), r: (g.s1 - g.s0) / 2 + 60 }));
     for (let z = z0 - 100; z < z1 + 100; z += 23)
       for (let x = x0 - 100; x < x1 + 100; x += 1.5) {
         if (roadDistance(t, x, z) > 150) continue;
+        if (gaps.some((g) => Math.hypot(x - g.p.x, z - g.p.z) < g.r)) continue;
         const bend = Math.abs(heightAt(t, x + 0.75, z) - (heightAt(t, x, z) + heightAt(t, x + 1.5, z)) / 2);
         if (bend > worst) {
           worst = bend;
@@ -175,6 +180,8 @@ test('runoff: dirt before the barrier on the outside of fast bends and after eve
       }
     assert.ok(wide > 0, `${id}: no wide runoff anywhere`);
     for (const c of t.crests) {
+      // (A gap's landing is kept clear: nothing to run off onto beside a ravine.)
+      if (t.gaps.some((g) => g.s0 === c.s)) continue;
       const i = Math.round((c.s + 60) / SAMPLE);
       // (Not by a bridge or tunnel, or at a shortcut's turn-off, where the rail has to stay put.)
       const at = c.s + 60;
@@ -394,7 +401,7 @@ test('AI drivers get every car down every track, with no NaNs and few big crashe
       while (car.s < t.finishS && time < 400 * Math.max(1, TRACK_LENGTH_KM[id] / 5)) {
         aiDrive(car, t, ai, TICK_DT, inp);
         stepCar(car, inp, t);
-        if (skyFall(car, t)) falls++;
+        if (skyFall(car, t) || gapFall(car, t)) falls++;
         assert.ok(Number.isFinite(car.p.x + car.p.y + car.p.z), `${model} on ${id}: NaN at ${time}`);
         // One crash can land a few hard hits in a row (nose, then the side swinging in): count it once.
         if (car.hit > 12) {
@@ -884,6 +891,7 @@ test('no launch ramps (Andrew, 2026-11-10): across the asphalt the ground is the
     for (const p of t.props) assert.ok(['bale', 'barrel', 'cone', 'boulder', 'rock'].includes(p.kind), `${id}: a ${p.kind} on the road`);
     for (let i = 0; i < (t.lap || t.n) - 1; i += 5)
       for (const d of [-(t.half - 0.3), -(t.half - 2), 0, t.half - 2, t.half - 0.3]) {
+        if (t.hole[Math.max(0, i - 1)] || t.hole[i] || t.hole[i + 1]) continue; // a gap: no road there at all (its very edges included)
         const p = pointAt(t, i * SAMPLE, d);
         const h = heightAt(t, p.x, p.z, loc, i);
         assert.ok(Math.abs(h - roadY(t, loc)) < 1e-9, `${id}: something on the road at s=${i * SAMPLE}, d=${d}`);

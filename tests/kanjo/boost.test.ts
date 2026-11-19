@@ -18,6 +18,11 @@ test('every race track has a few boost pads, each covering only part of the road
   for (const id of RACE_TRACKS) {
     const t = getTrack(id);
     const laps = t.def.laps ?? 1;
+    // (A survival road has none: nothing to help you down.)
+    if (t.def.survival) {
+      assert.equal(t.boosts.length, 0, `${id}: a survival road has no pads`);
+      continue;
+    }
     assert.ok(t.boosts.length >= 2 * laps && t.boosts.length <= BOOST.most * laps, `${id}: ${t.boosts.length} pads`);
     for (const p of t.boosts) {
       assert.ok(p.w < t.half, `${id}: a pad never spans the road`);

@@ -416,12 +416,17 @@ export class Race {
     }
   }
 
+  /** Crash damage is on: the lobby's Physics switch, or always on a survival road (track.ts `survival`). */
+  private crashing() {
+    return this.physics || !!TRACK_DEFS[this.track]?.survival;
+  }
+
   /** A checked pose for racer `m` (null if anything's off), kept as their latest. */
   private pose(m: Member, msg: Omit<NetCar, 'id'> & { id: number }): NetCar | null {
     const okVec = (a: unknown, n: number, lim: number) => Array.isArray(a) && a.length === n && a.every((x) => finite(x, lim));
     if (!okVec(msg.p, 3, 1e5) || !okVec(msg.q, 4, 2) || !okVec(msg.v, 3, 200) || !finite(msg.w, 50) || !finite(msg.s, 1e6) || !finite(msg.st, 2) || !finite(msg.ws, 1e3) || !finite(msg.rpm, 2e4) || !finite(msg.f, 1023)) return null;
     m.state = { id: m.client.id, p: msg.p, q: msg.q, v: msg.v, w: msg.w, s: msg.s, st: msg.st, ws: msg.ws, rpm: msg.rpm, f: msg.f | 0 };
-    if (this.physics && finite(msg.dm, 0xffff)) m.state.dm = msg.dm! & 0xffff;
+    if (this.crashing() && finite(msg.dm, 0xffff)) m.state.dm = msg.dm! & 0xffff;
     if (this.phase === 'racing') m.rec.add((this.now() - this.goAt) / 1000, msg.p, msg.q);
     return m.state;
   }
@@ -429,7 +434,7 @@ export class Race {
 
   /** Racer `m`'s car blew up at `p`: relayed so everyone sees the fireball (at most once a second per car). */
   private wrecked(m: Member, p: unknown, from: number) {
-    if (this.phase !== 'racing' || !this.physics || !m.racing || m.time !== null || this.isOut(m)) return;
+    if (this.phase !== 'racing' || !this.crashing() || !m.racing || m.time !== null || this.isOut(m)) return;
     if (!(Array.isArray(p) && p.length === 3 && p.every((x) => finite(x, 1e5)))) return;
     const id = m.client.id;
     const now = this.now();
@@ -508,7 +513,7 @@ export class Race {
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
     // (Endurance has no record ghost: the record is the circuit's own distance, not this one.)
     const ghost = this.ghost && !isGp(this.mode) && this.mode !== 'roam' && this.mode !== 'royale' && this.mode !== 'endurance' && this.ghostOf === this.track ? this.ghostRun : null;
-    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.physics, ghost, ...(this.gp ? { gp: this.gp } : {}), ...(this.mode === 'endurance' ? { laps: this.laps } : {}) });
+    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.crashing(), ghost, ...(this.gp ? { gp: this.gp } : {}), ...(this.mode === 'endurance' ? { laps: this.laps } : {}) });
     this.broadcastRoom();
     this.onChange(this);
   }
@@ -714,7 +719,7 @@ export class Race {
     m.raceCar = m.client.car;
     grid[m.client.id] = field.length;
     cars[m.client.id] = m.raceCar;
-    sendTo(m.client, { t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule: 'own', cars, physics: this.physics, ghost: null });
+    sendTo(m.client, { t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule: 'own', cars, physics: this.crashing(), ghost: null });
     // The others add their car from the roster.
     this.broadcastRoom();
   }

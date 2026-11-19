@@ -1487,6 +1487,8 @@ export function worldTrack(def: TrackDef): Track {
     spans: [],
     crests: [],
     bumps: [],
+    gaps: [],
+    hole: new Uint8Array(w.n),
     gravel: new Uint8Array(w.n),
     cuts: [],
     props: [],

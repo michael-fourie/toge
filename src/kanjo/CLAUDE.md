@@ -207,6 +207,28 @@ a component or a page.
   (both edges, the middle open), never across the whole road. Landing runoff puts runoff on ~49% of Nadare, so the
   runoff test allows an obstacle course 55%. Both are in the Gravity Cup (below). Laid out with the same kind of
   straights-and-arcs generator as Sea-to-Sky. Tests: tests/kanjo/downhill.test.ts.
+  A survival downhill (2026-11-19, Michael: "a steep down hill with lots of big gaps and weird spots. It's like survival
+  with crash damage but you can survive them"): `jigoku` (Jigoku Drop: desert, 6.7 km, ~10% the whole way, 770 m down
+  from 900 m, 13 m wide, `obstacles`). Six **gaps** (Feature `gap`: a drop jump with the same numbers whose first `len`
+  m past the lip, 26-42 m here, aren't there: `t.gaps`, `t.hole` per sample), two big drop jumps (16 and 20 m), a
+  staircase of three little drops 75 m apart, two bumpy stretches, gravel, a canyon and a blind crest. Over a hole
+  heightAt is the ravine floor, `GAP.depth` (45 m) under the road, and the ground beside it is pulled down too (the
+  kernel takes `GAP.depth` off hole samples); no runoff by a gap, so the rails run on (invisible over the hole: they
+  keep a flying car straight). skyfall.ts `gapFall` (after each stepCar: racegame.ts `falls()`, the AI tests) puts a
+  car that's sinking under where it would ride over a hole, or that came down on the far edge with its tail still over
+  it, back `GAPFALL.after` m past the gap, stopped: the edge under the road's end otherwise caught the tail from below
+  and threw the car 10-20 m/s up (the survival test sweeps the speeds that just make it for every kind of car). A car
+  needs ~80-105 km/h to clear one; the AI's crest speed is well over that and never falls. A wreck or R reset on the
+  run-up to a gap goes back `GAP.runup` m before its lip (`clearOfGaps`), where even the Pebble gets the speed.
+  `survival` on the TrackDef: crash damage is always on there (racegame.ts ORs it into `physics`; the room's
+  `crashing()` relays damage and wrecks and sends `physics` on `load`; the lobby shows the switch On and locked, the
+  title "Survival"), knocks do `hit` (0.5) and landings `land` (0.15) of what they do elsewhere (`takeHit`'s `soak` and
+  `landSoak`, 1 by default: damage.ts's numbers are untouched), and there are no boost pads. Landings are 175 m long, so
+  a fast car comes down on the slope, not the flat after it. A clean AI run comes out about half dented and never
+  wrecked; falling into a gap blows the car up (Physics `wreck(r, fell)`) and it comes back past the gap repaired.
+  trackview.ts stops the ribbon, rails and posts at the lip and starts them again past the hole, and `gapEdges` hangs a
+  rock face into the ravine and a red-and-white band along both edges. It's the Gravity Cup's fifth round.
+  Tests: tests/kanjo/survival.test.ts.
 - **A fork in the road** (`fork` on a point-to-point TrackDef: `at` / `to` control points and the second road's
   `points`; `Track.fork`, track.ts `Fork`). The second road's samples go after the main road's in every per-sample
   array (`t.n` still counts only the main road), sampled alike (`s` is the same on both, so standings, the finish and
@@ -260,9 +282,9 @@ a component or a page.
   Velocity (hayate, seatosky, futamata, ryusei: the four speed roads; Monza was its third round until Futamata Parkway, 2026-11-16) and Overdrive (id `rush`, first named Rush Hour;
   neonbay, isonami, ryusei, shiden: the two grand prix roads with the city and the expressway) and Sprint (mizuumi,
   hibari, kamome, shiokaze: the four 4-lap sprint rings, easiest first) and Postcard (taketomi, hallstatt, goreme, oia,
-  chefchaouen: the five town circuits, the only cup of five; `roundsOf(cup)` is a cup's round count, so every
-  "Round 2 of 4" reads it) and Gravity (redmesa, koripass, sakamichi, nadare: all downhill, the two obstacle courses
-  last; 2026-11-16). Overdrive (Neon Bay and Ryūsei) and Gravity (Red Mesa and Kōri Pass) borrow tracks from other cups.
+  chefchaouen: the five town circuits, a cup of five; `roundsOf(cup)` is a cup's round count, so every
+  "Round 2 of 4" reads it) and Gravity (redmesa, koripass, sakamichi, nadare, jigoku: all downhill, the two obstacle
+  courses then the survival road last; 2026-11-16, Jigoku Drop added 2026-11-19, so it's a cup of five too). Overdrive (Neon Bay and Ryūsei) and Gravity (Red Mesa and Kōri Pass) borrow tracks from other cups.
   Names and art are our own. `GP_POINTS` 15-12-10-8-6-4-2-1 by place, a DNF scores 0; `addRound` keeps the table (ties:
   more wins, then more seconds..., then the better place in the latest round). A new race track needs a cup (the cups
   test checks every one is in one, and only Velocity, Overdrive and Gravity repeat tracks); a new cup is an append to `CupId` / `CUPS`.
@@ -498,7 +520,8 @@ src/kanjo/shared/
                (eases `car.draft`, which cuts aero drag and pulls you on the gas in vehicle.ts; tucked in for `DRAFT.charge`
                s arms a slingshot that fires as a short boost when you pull out). Run per tick in racegame.ts `slipstream()`
                for you and the AI against every car incl. online poses; off in time trials. Nothing on the wire.
-  damage.ts    Physics mode (crash damage, off unless the host or the solo Race page turns it on): every knock is
+  damage.ts    Physics mode (crash damage, off unless the host or the solo Race page turns it on, always on on a `survival`
+               road, which scales knocks and landings through `takeHit`'s `soak` / `landSoak`): every knock is
                delta-V (`car.crash`, recorded in vehicle.ts with where it hit), damage = DAMAGE.scale × (dv − threshold)^power,
                dented zones (front/rear/left/right) cost engine power (`DriveInput.power`, not the pedal) and pull the steering (`damagedInput`). At 1 the car is
                wrecked: racegame.ts `crashes()`/`wreck()` blow it up and respawn it DAMAGE.respawnBack m back with a grace.

@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { CUT_HALF, type Crossing, SAMPLE, type Theme, type Track, type TrackId, dirtFrom, fbm, forkView, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
+import { CUT_HALF, type Crossing, GAP, SAMPLE, type Theme, type Track, type TrackId, dirtFrom, fbm, forkView, heightAt, lapView, locate, newLoc, onCut, pointAt, roadDistance, terrainAt } from '../shared/track.ts';
 import type { Grade } from './post.ts';
 import { envLevel } from './envlevel.ts';
 import { decor, type Site } from './scenery.ts';
@@ -418,7 +418,17 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
           i1 = i;
           break;
         }
-      pieces.push([i0, i1]);
+      // (A gap's hole: no road over it. The road stops at the lip and starts again past the ravine.)
+      for (let a = i0; a < i1; ) {
+        if (rd.hole[a] || rd.hole[a + 1]) {
+          a++;
+          continue;
+        }
+        let b = a + 1;
+        while (b < i1 && !rd.hole[b + 1]) b++;
+        pieces.push([a, b]);
+        a = b;
+      }
       i0 = i1;
     }
     for (const [i0, i1] of pieces) {
@@ -503,6 +513,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
 
   // --- Bridges and tunnels
   structures(scene, t, keep, !!look.moon);
+  if (t.gaps.length) gapEdges(scene, t, look, keep);
 
   // --- Shortcuts: gravel tracks
   for (const c of t.cuts) {
@@ -552,6 +563,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
     }
     // Where a shortcut leaves the road the rail has a gap.
     const gap = (rd: Track, i: number, side: number) => {
+      if (rd.hole[i]) return true; // over a gap's ravine
       if (t.cuts.length > 0 && onCut(t, rd.x[i] - rd.tz[i] * side * t.rail, rd.z[i] + rd.tx[i] * side * t.rail, 2.5)) return true;
       // A fork: no rail between the two roads until they're a rail's width apart each.
       const lim = divide(rd, i);
@@ -1810,6 +1822,45 @@ function chevronTexture() {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+/**
+ * The two ends of each gap in the road (track.ts `gap`): a rock face from the road's edge down into the ravine, and a
+ * red-and-white band along the lip and the far edge so the gap reads from a distance. One mesh each for all the gaps.
+ */
+function gapEdges(scene: THREE.Scene, t: Track, look: Look, keep: <T extends { dispose(): void }>(x: T) => T) {
+  const face: number[] = [];
+  const band: number[] = [];
+  const bandUv: number[] = [];
+  const W = t.rail + 1.6;
+  // A quad across the road at sample i, from `top` down to `bottom` under the road there.
+  const across = (out: number[], uv: number[] | null, i: number, top: number, bottom: number) => {
+    const at = (d: number, dy: number) => [t.x[i] - t.tz[i] * d, t.y[i] - t.bank[i] * d + dy, t.z[i] + t.tx[i] * d];
+    const [a, b2, c, d] = [at(-W, top), at(W, top), at(-W, bottom), at(W, bottom)];
+    out.push(...a, ...c, ...b2, ...b2, ...c, ...d);
+    if (uv) uv.push(0, 1, 0, 0, (2 * W) / 1.6, 1, (2 * W) / 1.6, 1, 0, 0, (2 * W) / 1.6, 0);
+  };
+  for (const g of t.gaps)
+    for (const s of [g.s0, g.s1]) {
+      const i = Math.round(s / SAMPLE);
+      across(face, null, i, -0.5, -GAP.depth - 8);
+      across(band, bandUv, i, 0.04, -0.5);
+    }
+  const rock = keep(new THREE.BufferGeometry());
+  rock.setAttribute('position', new THREE.Float32BufferAttribute(face, 3));
+  rock.computeVertexNormals();
+  const rockMat = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(...look.rock).multiplyScalar(0.8), roughness: 1, side: THREE.DoubleSide }));
+  const rocks = new THREE.Mesh(rock, rockMat);
+  rocks.receiveShadow = true;
+  scene.add(rocks);
+  const stripes = keep(stripeTexture());
+  stripes.wrapS = stripes.wrapT = THREE.RepeatWrapping;
+  stripes.rotation = Math.PI / 2;
+  const strip = keep(new THREE.BufferGeometry());
+  strip.setAttribute('position', new THREE.Float32BufferAttribute(band, 3));
+  strip.setAttribute('uv', new THREE.Float32BufferAttribute(bandUv, 2));
+  strip.computeVertexNormals();
+  scene.add(new THREE.Mesh(strip, keep(new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.6, side: THREE.DoubleSide }))));
 }
 
 function stripeTexture() {

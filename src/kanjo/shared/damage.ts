@@ -78,19 +78,20 @@ export interface Hit {
 
 /**
  * Takes a tick's knock (`dv` delta-V at body-space point `p`) and landing (`land` m/s) into `d`. Returns what it
- * did, or null for nothing. `dt` counts down the grace after a respawn.
+ * did, or null for nothing. `dt` counts down the grace after a respawn. `soak` scales what knocks do and `landSoak`
+ * what landings do (a survival road's, track.ts `survival`; 1 everywhere else).
  */
-export function takeHit(d: Damage, dv: number, p: V3, land: number, halfLength: number, halfWidth: number, dt: number): Hit | null {
+export function takeHit(d: Damage, dv: number, p: V3, land: number, halfLength: number, halfWidth: number, dt: number, soak = 1, landSoak = 1): Hit | null {
   if (d.grace > 0) {
     d.grace = Math.max(0, d.grace - dt);
     return null;
   }
   if (d.total >= 1) return null;
-  let amount = crashDamage(dv);
+  let amount = crashDamage(dv) * soak;
   let zone: Zone = amount > 0 ? zoneAt(p, halfLength, halfWidth) : 'front';
   const slam = land - DAMAGE.landThreshold;
   if (slam > 0) {
-    const a = DAMAGE.landScale * DAMAGE.scale * slam ** DAMAGE.power;
+    const a = DAMAGE.landScale * DAMAGE.scale * slam ** DAMAGE.power * landSoak;
     if (a > amount) zone = p.z > 0 ? 'rear' : 'front';
     amount += a;
   }
