@@ -697,7 +697,12 @@ src/client/pad.ts  (site shell) gamepads for every menu (spatial focus moves, A/
   rockfall, a twisty last kilometre to the summit. Its forest grows right up to the barrier (`climb` in trackview.ts
   `scatter`). Not in the solo list (`TRACK_IDS` in trackart.ts leaves climb tracks out). A second hill climb = another
   TrackDef with `climb: true` (uphill, grades < 12% outside `bumps`/crests).
-- Cameras (C / Ⓨ cycles, saved as `atrous.raceCam`): chase, near, cockpit, hood, bumper. Cockpit = the driver's eye: `cockpit.ts`
+- Cameras (C / Ⓨ cycles, saved as `atrous.raceCam`): chase, near, far, cockpit, hood, bumper, side. The chase cameras' distance,
+  height and look-ahead are `CHASE` in racegame.ts (`far`: high and wide, for jumps and the pack). Hood, bumper and side
+  are mounted cameras (client/mountcam.ts; 2026-11-19, Andrew: "Replace hood and bumper camera, because it doesnt work":
+  they looked straight at the sky). Each mount is found on the car's own model (`mountsOf`: its bounds, and the hood
+  surface by casting down onto it), so it suits every car and the bike; the camera rides the body and its aim is eased
+  (`MOUNT.steady`), never below `MOUNT.clear` over the ground. Cockpit = the driver's eye: `cockpit.ts`
   builds each car's interior (dash, gauges, wheel, pillars, headliner) from its DESIGNS roof line, right-hand drive, parented to
   the car's root; `headcam.ts` is the head on a damped-spring neck, pushed by the car's acceleration (taken from its velocity, so
   spectated cars work too), looking into corners, shaken by road texture × surface, the engine, hits and landings. The car body

@@ -30,6 +30,7 @@ import { rumble, setMenuNav } from '../../client/pad.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { Engine, RaceAudio, VOLUMES, loadVolume } from './audio.ts';
 import { type CarModel, INTERIOR, buildCar, ghostly } from './carmodel.ts';
+import { MOUNT, type MountCam, mountPoint, mountsOf } from './mountcam.ts';
 import { LAMP_DAY, LAMP_NIGHT, setLampLevel } from './carparts.ts';
 import { type Rider, decodeRider, defaultRider, rivalRider } from '../shared/rider.ts';
 import type { GhostRun } from '../shared/ghost.ts';
@@ -79,8 +80,17 @@ export interface RaceSetup {
 }
 
 type Phase = 'countdown' | 'racing' | 'finished' | 'done';
-type Cam = 'chase' | 'near' | 'cockpit' | 'hood' | 'bumper';
-const CAMS: Cam[] = ['chase', 'near', 'cockpit', 'hood', 'bumper'];
+type Cam = 'chase' | 'near' | 'far' | 'cockpit' | MountCam;
+const CAMS: Cam[] = ['chase', 'near', 'far', 'cockpit', 'hood', 'bumper', 'side'];
+/**
+ * The chase cameras: how far behind and above the car they trail (m, plus a share of the car's length and height), and
+ * how far ahead of it they look. `far` is high and wide: the road ahead, a jump's landing, the pack round you.
+ */
+const CHASE = {
+  chase: { dist: 6.8, height: 2.4, ahead: 4, fov: 60 },
+  near: { dist: 4.8, height: 1.7, ahead: 4, fov: 60 },
+  far: { dist: 11, height: 4.4, ahead: 9, fov: 58 },
+};
 /** Grass and runoff dirt: they throw up dust rather than smoke, and leave no rubber. */
 const soft = (s: Surface) => s === 'grass' || s === 'dirt';
 const SEND_HZ = 20;
@@ -329,7 +339,10 @@ export class RaceGame {
   /** Where the record ghost is on the road (a circuit's samples run on lap after lap, so this counts laps too). */
   private ghostLoc = newLoc();
   private assists = loadAssists();
-  private cam: Cam = (localStorage.getItem(CAM_KEY) as Cam) || 'chase';
+  private cam: Cam = CAMS.find((c) => c === localStorage.getItem(CAM_KEY)) ?? 'chase';
+  /** A mounted camera's eased aim (mountcam.ts MOUNT.steady); `mountRoot` is the car it was eased on. */
+  private mountQ = new THREE.Quaternion();
+  private mountRoot: THREE.Object3D | null = null;
   /** Chase camera: the (smoothed) direction it trails along, and its smoothed height above the car. */
   private camDir = new THREE.Vector2(0, -1);
   private camY = 2.4;
@@ -2062,16 +2075,12 @@ export class RaceGame {
     if (this.camera.near !== nearPlane) this.camera.near = nearPlane;
     if (inside) {
       this.cockpitCamera(dt, t, speed, back);
-    } else if (this.cam === 'hood' || this.cam === 'bumper') {
-      const local = this.cam === 'hood' ? new THREE.Vector3(0, b.height - t.cg + 0.05, -0.15) : new THREE.Vector3(0, 0.7 - t.cg, -b.length / 2 + 0.1);
-      this.camera.position.copy(local.applyMatrix4(root.matrixWorld));
-      const ahead = new THREE.Vector3(0, local.y - 0.4, back ? 50 : -50).applyMatrix4(root.matrixWorld);
-      this.camera.lookAt(ahead);
-      this.camera.fov = 70 + Math.min(14, speed * 0.18);
+    } else if (this.cam === 'hood' || this.cam === 'bumper' || this.cam === 'side') {
+      this.mountCamera(dt, t, speed, this.cam, back);
     } else {
-      const near = this.cam === 'near';
-      const dist = (near ? 4.8 : 6.8) + b.length * 0.35;
-      const height = (near ? 1.7 : 2.4) + b.height * 0.25;
+      const c = CHASE[this.cam as keyof typeof CHASE];
+      const dist = c.dist + b.length * 0.35;
+      const height = c.height + b.height * 0.25;
       // Trail along the direction of travel (blending toward the nose at low speed), so slides show.
       const fx = -Math.sin(t.yaw);
       const fz = -Math.cos(t.yaw);
@@ -2095,7 +2104,7 @@ export class RaceGame {
       const pos = new THREE.Vector3(root.position.x - cdx * dist, root.position.y + this.camY, root.position.z - cdz * dist);
       // Stay above the ground.
       pos.y = Math.max(pos.y, root.position.y - t.cg + 0.8);
-      const look = new THREE.Vector3(root.position.x + cdx * 4, root.position.y + 0.9, root.position.z + cdz * 4);
+      const look = new THREE.Vector3(root.position.x + cdx * c.ahead, root.position.y + 0.9, root.position.z + cdz * c.ahead);
       this.camLook.lerp(look, 1 - Math.exp(-dt * 14));
       this.camera.position.copy(pos);
       // A little shake at speed and on impacts.
@@ -2103,7 +2112,7 @@ export class RaceGame {
       this.camera.position.x += (Math.random() - 0.5) * shake;
       this.camera.position.y += (Math.random() - 0.5) * shake;
       this.camera.lookAt(this.camLook);
-      this.camera.fov = 60 + Math.min(18, speed * 0.22) + (t.boost ? 8 : 0);
+      this.camera.fov = c.fov + Math.min(18, speed * 0.22) + (t.boost ? 8 : 0);
     }
     this.camera.updateProjectionMatrix();
     // Speed blur at the edges of the frame (post.ts): none below RUSH.from, full at RUSH.full, more on a boost.
@@ -2177,8 +2186,31 @@ export class RaceGame {
     pit.update(t.steer, t.rpm, speed * 3.6);
   }
 
+  /**
+   * A camera mounted on the car (mountcam.ts): it rides the body, so every bump and the suspension move it, but its aim
+   * is eased toward the car's, so the picture holds steady. Looking back turns it round on its mount.
+   */
+  private mountCamera(dt: number, t: CamTarget, speed: number, cam: MountCam, back: boolean) {
+    const root = t.root;
+    root.updateMatrixWorld();
+    const pos = mountPoint(cam, mountsOf(root, t.cg)).applyMatrix4(root.matrixWorld);
+    pos.y = Math.max(pos.y, heightAt(this.track, pos.x, pos.z) + MOUNT.clear);
+    const aim = root.getWorldQuaternion(new THREE.Quaternion()).multiply(
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(MOUNT.pitch[cam], back ? Math.PI : 0, 0, 'YXZ')),
+    );
+    if (this.mountRoot !== root) {
+      this.mountRoot = root;
+      this.mountQ.copy(aim);
+    } else this.mountQ.slerp(aim, 1 - Math.exp(-dt * MOUNT.steady));
+    this.camera.position.copy(pos);
+    this.camera.quaternion.copy(this.mountQ);
+    const [fov, more] = MOUNT.fov[cam];
+    this.camera.fov = fov + more * Math.min(1, speed / 80) + (t.boost ? 6 : 0);
+  }
+
   private snapCamera() {
     this.headRoot = null;
+    this.mountRoot = null;
     const t = this.camTarget();
     const p = t.root.position;
     this.camDir.set(-Math.sin(t.yaw), -Math.cos(t.yaw));
