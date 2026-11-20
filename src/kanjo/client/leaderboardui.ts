@@ -7,6 +7,7 @@ import { CARS, decodeCar } from '../shared/cars.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { BOARD, BOARD_TRACKS, type BestTime, type BoardRow, type MedalRow, type Notice } from '../shared/records.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
+import type { GhostRun } from '../shared/ghost.ts';
 import { esc } from '../../client/menu/ui.ts';
 import { fmtTime, ordinal } from './hud.ts';
 import { trackKind, trackMap, trackStyle } from './trackart.ts';
@@ -62,6 +63,15 @@ export const boardApi = {
       // they come back next time: no harm
     }
   },
+  /** The track record's run, to watch (null: no record, no run kept with it, or out of reach). */
+  async ghost(track: TrackId): Promise<GhostRun | null> {
+    try {
+      const r = await fetch(`/api/ghost?t=${track}`);
+      return r.ok ? (((await r.json()) as { run: GhostRun | null }).run ?? null) : null;
+    } catch {
+      return null;
+    }
+  },
   async board(track: TrackId): Promise<BoardRow[] | null> {
     try {
       return ((await (await fetch(`/api/leaderboard?t=${track}`)).json()) as { rows: BoardRow[] }).rows ?? null;
@@ -96,9 +106,10 @@ export function leaderboardTab(v: BoardView): string {
         <small class="tg-eyebrow">${esc(trackKind(v.track))} · ${TRACK_LENGTH_KM[v.track]} km</small>
         <h1 class="tg-display">${esc(d.name)}</h1>
         <p>${top ? `Record held by <b>${esc(top.name)}</b>` : rows ? 'No record yet. Set the first time.' : 'Loading the board…'}</p>
+        ${top ? watchButton(v.track) : ''}
       </div>
       <dl class="tg-hero-facts">
-        <div><dt>Track record</dt><dd class="tg-num">${top ? fmtTime(top.time) : '—'}</dd></div>
+        <div><dt>Track record</dt><dd class="tg-num">${top ? `<button class="tg-lb-rec" data-lb-watch="${v.track}" aria-label="Watch the record run, ${fmtTime(top.time)}">${fmtTime(top.time)}</button>` : '—'}</dd></div>
         <div><dt>Racers</dt><dd class="tg-num">${rows ? rows.length : '—'}</dd></div>
       </dl>
     </section>
@@ -155,9 +166,10 @@ export function leaderboardModal(v: BoardView): string {
             <small class="tg-eyebrow">${esc(trackKind(v.track))} · ${TRACK_LENGTH_KM[v.track]} km</small>
             <h1 class="tg-display">${esc(d.name)}</h1>
             <p>${top ? `Record held by <b>${esc(top.name)}</b>` : rows ? 'No record yet. Set the first time.' : 'Loading the board…'}</p>
+        ${top ? watchButton(v.track) : ''}
           </div>
           <dl class="tg-hero-facts">
-            <div><dt>Track record</dt><dd class="tg-num">${top ? fmtTime(top.time) : '—'}</dd></div>
+            <div><dt>Track record</dt><dd class="tg-num">${top ? `<button class="tg-lb-rec" data-lb-watch="${v.track}" aria-label="Watch the record run, ${fmtTime(top.time)}">${fmtTime(top.time)}</button>` : '—'}</dd></div>
             <div><dt>Racers</dt><dd class="tg-num">${rows ? rows.length : '—'}</dd></div>
           </dl>
         </section>
@@ -267,9 +279,19 @@ function boardTable(v: BoardView, myRow: number): string {
         <th scope="row"><b>${esc(r.name)}</b><small>${esc(carName(r.car))}${r.at ? ` · ${new Date(r.at).toLocaleDateString()}` : ''}</small></th>
         <td class="tg-lb-tag">${you ? '<span class="tg-tag you">You</span>' : friend ? '<span class="tg-tag">Friend</span>' : ''}</td>
         <td class="tg-num"><b>${fmtTime(r.time)}</b><small>${i === 0 ? 'Record' : `+${(r.time - top).toFixed(3)}`}</small></td>
+        <td class="tg-lb-play">${i === 0 ? `<button class="tg-lb-watch" data-lb-watch="${v.track}" aria-label="Watch the record run">▶ Watch</button>` : ''}</td>
       </tr>`;
     })
     .join('')}</tbody></table>`;
+}
+
+/**
+ * Watch the record: its run plays back in the race's own scene, the cameras following it (hub.ts `watchRecord` fetches
+ * it from `/api/ghost`, racegame.ts `watch` plays it, watchui.ts is the overlay). The record time and the record row's
+ * Watch do the same.
+ */
+function watchButton(track: TrackId): string {
+  return `<button class="tg-go small tg-lb-watch-go" data-lb-watch="${track}">▶ Watch the record</button>`;
 }
 
 /** How many of the board's rows the lobby shows (yours is added under them when you're further down). */

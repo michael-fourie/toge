@@ -1194,3 +1194,201 @@ html.touch .rh-rp-title {
 html.touch .rh-rp-line {
   font-size: 16px;
 }
+
+/* Watching a track record from the leaderboard (racegame.ts `watch`, watchui.ts): the HUD keeps only the clock and the
+   map; the replay's own overlay (`.rw`) has the holder's card top left and a control bar along the bottom. */
+.rh.watch > :not(.rh-top):not(.rh-map),
+.rh.watch .rh-pos {
+  display: none;
+}
+.rw {
+  position: fixed;
+  inset: 0;
+  z-index: 11;
+  pointer-events: none;
+  color: #fff;
+  font-family: 'Barlow', system-ui, sans-serif;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.rw button,
+.rw .rw-scrub {
+  pointer-events: auto;
+}
+.rw-num {
+  font-variant-numeric: tabular-nums;
+}
+.rw-card {
+  position: absolute;
+  left: 22px;
+  top: 18px;
+  display: grid;
+  gap: 2px;
+  padding: 10px 16px 12px;
+  border-radius: 12px;
+  background: rgba(8, 12, 18, 0.55);
+  backdrop-filter: blur(6px);
+  box-shadow: inset 3px 0 0 #ff3b30;
+}
+.rw-tag {
+  font: 700 13px 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #ff6b61;
+}
+.rw-name {
+  font: italic 800 30px/1 'Barlow Condensed', sans-serif;
+}
+.rw-card small {
+  font-size: 14px;
+  opacity: 0.85;
+}
+.rw-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  width: min(1040px, calc(100% - 44px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(8, 12, 18, 0.6);
+  backdrop-filter: blur(8px);
+}
+.rw-btn {
+  flex: none;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font: 700 16px 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.rw-btn:hover,
+.rw-btn:focus-visible {
+  background: rgba(56, 201, 255, 0.22);
+  border-color: #38c9ff;
+  outline: none;
+}
+.rw-btn.icon {
+  width: 38px;
+  padding: 0;
+  font-size: 18px;
+}
+.rw-btn.alt {
+  background: #ff3b30;
+  border-color: #ff3b30;
+}
+.rw-btn.alt:hover,
+.rw-btn.alt:focus-visible {
+  background: #ff5a50;
+}
+.rw-clock,
+.rw-speed {
+  flex: none;
+  font: 700 20px 'Barlow Condensed', sans-serif;
+  min-width: 78px;
+}
+.rw-speed {
+  text-align: right;
+}
+.rw-scrub {
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  height: 22px;
+  cursor: pointer;
+  touch-action: none;
+}
+.rw-scrub::before,
+.rw-scrub i {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  height: 4px;
+  border-radius: 2px;
+}
+.rw-scrub::before {
+  right: 0;
+  background: rgba(255, 255, 255, 0.22);
+}
+.rw-scrub i {
+  background: #38c9ff;
+  box-shadow: 0 0 8px rgba(56, 201, 255, 0.7);
+}
+.rw-scrub b {
+  position: absolute;
+  top: 4px;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border-radius: 50%;
+  background: #fff;
+}
+.rw-scrub:focus-visible {
+  outline: 2px solid #38c9ff;
+  outline-offset: 4px;
+}
+.rw-rate {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rw-rate b {
+  min-width: 36px;
+  text-align: center;
+  font: 700 18px 'Barlow Condensed', sans-serif;
+}
+.rw-keys {
+  position: absolute;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+.rw-over {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 22px 30px;
+  border-radius: 16px;
+  background: rgba(8, 12, 18, 0.7);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+.rw-over[hidden] {
+  display: none;
+}
+.rw-over > b {
+  font: italic 800 34px/1 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
+}
+.rw-over > .rw-num {
+  font: 700 26px 'Barlow Condensed', sans-serif;
+  color: #ffd166;
+}
+.rw-over div {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+/* Narrow screens: drop the key hints and the speed readout, keep the controls. */
+@media (max-width: 760px) {
+  .rw-keys,
+  .rw-speed {
+    display: none;
+  }
+}

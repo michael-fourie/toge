@@ -1,6 +1,7 @@
 // The track record's ghost in an online race (the host's Record ghost toggle): the record run (shared/ghost.ts)
 // played back as a see-through car you drive straight through. It isn't a racer: no place, no collisions, no prize.
-// racegame.ts owns it, steps its clock from GO and gives it a name tag.
+// racegame.ts owns it, steps its clock from GO and gives it a name tag. Watching the record from the leaderboard plays
+// the same run back as a solid car (`solid`), with the race's cameras following it.
 
 import * as THREE from 'three';
 import { CARS, type CarSpec, carSpec, decodeCar, newOwnedCar } from '../shared/cars.ts';
@@ -21,11 +22,11 @@ export class GhostCar {
   /** How far along the road it is (for the map), set by the race. */
   s = 0;
 
-  constructor(run: GhostRun, scene: THREE.Scene) {
+  constructor(run: GhostRun, scene: THREE.Scene, solid = false) {
     this.run = run;
     const owned = decodeCar(run.car) ?? newOwnedCar('pebble');
     this.model = buildCar(owned, decodeRider(run.rider) ?? defaultRider());
-    ghostly(this.model, 0.3);
+    if (!solid) ghostly(this.model, 0.3);
     this.spec = carSpec(owned);
     this.tape = unpack(run.d);
     scene.add(this.model.root);
@@ -58,6 +59,12 @@ export class GhostCar {
 
   get position() {
     return this.model.root.position;
+  }
+
+  /** Its velocity at the last update (m/s, world). */
+  get velocity(): { x: number; y: number; z: number } {
+    const v = this.pose.v;
+    return { x: v[0], y: v[1], z: v[2] };
   }
 
   dispose() {

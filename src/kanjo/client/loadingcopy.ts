@@ -26,6 +26,8 @@ export interface LoadingRun {
   online?: { mode: RaceMode; racers: number; laps?: number };
   /** A Grand Prix round (0-3) of a cup, solo or online. */
   gp?: { cup: CupId; round: number };
+  /** Watching a track record's run: whose it is. */
+  watch?: string;
 }
 
 /** "1 lap", "42 laps". */
@@ -40,6 +42,7 @@ export function raceKm(track: TrackId, laps?: number): number {
 
 export function runLabel(r: LoadingRun): string {
   const parts: string[] = [];
+  if (r.watch !== undefined) return `Track record replay · ${r.watch}`;
   if (r.gp) parts.push(`${r.online?.mode === 'team' ? 'Team Grand Prix · ' : ''}${CUPS[r.gp.cup].name} · Round ${r.gp.round + 1} of ${roundsOf(r.gp.cup)}`);
   if (r.online) {
     if (r.online.mode === 'endurance') parts.push(`Endurance · ${lapsLabel(r.online.laps ?? 1)}`);

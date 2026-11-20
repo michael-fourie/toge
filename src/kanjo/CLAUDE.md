@@ -473,6 +473,19 @@ a component or a page.
   see-through car with a "TR" name tag (the holder's name only, no lap time) and a map dot, never a racer (no place, contact or prize).
   A record set in a run is kept after the results go out (`onResults` returns the save); the room then fetches the ghost
   again, and a Race again / Restart that comes before the save is done waits for it (`Race.saving`), so the next run races the new record.
+- **Watch the record** (2026-11-20, Andrew: "make the track record clickable on the leaderboard to replay the run and
+  spectate the run"): on the leaderboard the hero's Watch the record button, the record time under it and the record
+  row's Watch (leaderboardui.ts `watchButton`, `data-lb-watch`) fetch the run from `GET /api/ghost?t=<track>` (worker.ts,
+  public and read only like the board: `Accounts.recordGhost`, so only the current record's run, `{ run: null }` when
+  none was kept; hub.ts `watchRecord` says so). It plays in racegame.ts's **watch mode** (`DriveOpts.watch` /
+  `RaceSetup.watch`; loading screen "Track record replay · name"): no countdown, no rivals, your car spawned but put
+  away (`stowCar`, no contact shadow) and never stepped (`frame` hands every frame to `watchFrame`, which skips `tick`);
+  the run plays as a solid `GhostCar(run, scene, true)` and `camTarget` follows it, so every camera works (C / Ⓨ:
+  chase, near, far, cockpit, hood, bumper, side). The HUD keeps the clock and the map (`.rh.watch`); watchui.ts is the
+  overlay (`.rw` in race.css): the holder's card, play / pause (Space), ⟲ / R from the start, a bar to scrub (click or
+  drag; ← / → `WATCH_SEEK` s), speed (− / +, `WATCH_RATES` ¼× to 4×), the camera, Back (Esc / Menu). The traffic runs on
+  the run's clock. It plays on `WATCH_END` s past the line, then Run complete: Watch again or Back to the leaderboard.
+  Back reopens the leaderboard on that track (`Screen.board`, main.ts). No sound.
 - **Best Moment** (highlight.ts; Michael 2026-11-11: "After a game show a 5 second highlight from the winner ... going
   really fast or drifting well or something cool ... a cool overlay on it saying Best Moment"): every client records
   every car it draws on the race clock (`MomentTape`, HIGHLIGHT.hz; racegame.ts `recordMoments`: yours and the CPUs
@@ -614,7 +627,7 @@ src/kanjo/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road,
   Driver page), playercard.ts (the player card: your name top right opens it; one 1080×1350 canvas, drawn in 2D around
   a single offscreen 3D shot of your car and driver, is both what you see and the PNG you download or share), settingsui.ts
   (the Settings page: graphics), friendsui.ts (the Friends page: list, add, a friend's
-  profile and best times), leaderboardui.ts (Race → Leaderboard: a track's all-time board and every track's record), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
+  profile and best times), leaderboardui.ts (Race → Leaderboard: a track's all-time board and every track's record, Watch the record), watchui.ts (the overlay when watching a record run), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
   styled by hub.css), lobby.ts (`drivelobby`; the picked track's all-time top 5 under its hero (leaderboardui.ts `lobbyBoard`, refetched on a track change, after a race and once a minute); its Your car card switches cars (no Edit car and no car-rule pick any more, 2026-11-15: cars are always your own; hub.ts's `pitGarage` and the `pit` message are unused now), the Crew shows each racer's car with their driver in front (riderportrait.ts `racerPortrait`), and the lobby re-sends your car and driver whenever the room's copy is stale), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),

@@ -69,6 +69,9 @@ player sees is decided or checked by the server; anything the server can't check
   The Race page's solo **Time trial** is no exception: it opens a private room of one (`solo=1`, passed on by the
   Worker only to a new room, never to a code being joined; the room is always a time trial and full at one racer),
   so the room times the run exactly like an online time trial.
+  `/api/ghost?t=<track>` (GET only) hands out the current track record's run (the same `Accounts.recordGhost` a race
+  room uses: the holder's name, car code, driver and poses, all already public on the board and in races); it writes
+  nothing.
   The medal table is counted from the boards themselves, and "time beaten" notices (`nt:<user>`) are only ever
   written by the server when a best it timed moves someone down a board. `/api/notices` reads and clears only the
   session's own account's (`seen` must be a number; it only drops notices up to it).
