@@ -14,6 +14,7 @@ export interface Screen {
   notice?: string; // drive: why we came back (e.g. "Disconnected")
   code?: string; // drivelobby: the lobby code to join
   dtab?: string; // drive: which garage tab is open
+  board?: TrackId; // drive: open the leaderboard on this track (back from watching its record)
   signup?: boolean; // account: open on Create account
   depth?: number; // how many entries deep we are; Back at depth 0 goes home instead of leaving the site
 }
@@ -35,6 +36,8 @@ export interface DriveOpts {
   online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null; solo?: boolean; laps?: number };
   /** A Grand Prix round: the cup, the round and the cup table so far (solo; online it comes with the room's `load`). */
   gp?: GpState;
+  /** Watch this track record's run instead of racing (the leaderboard's Watch; racegame.ts `watch`). */
+  watch?: GhostRun;
 }
 
 /** Renders into `root`; may return a cleanup that runs when the screen is left. */

@@ -35,6 +35,7 @@ import { LAMP_DAY, LAMP_NIGHT, setLampLevel } from './carparts.ts';
 import { type Rider, decodeRider, defaultRider, rivalRider } from '../shared/rider.ts';
 import type { GhostRun } from '../shared/ghost.ts';
 import { GhostCar } from './ghostcar.ts';
+import { WATCH_RATES, WatchUi } from './watchui.ts';
 import { HIGHLIGHT, type Moment, MomentFlag, MomentTape, type PlayPose, bestMoment, momentLine, newPlayPose } from '../shared/highlight.ts';
 import { type Cockpit, buildCockpit } from './cockpit.ts';
 import { Head, ROUGH } from './headcam.ts';
@@ -67,6 +68,11 @@ export interface RaceSetup {
   online?: { net: RaceNet; mode: RaceMode; grid: Record<number, number>; racers: Racer[]; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost?: GhostRun | null; solo?: boolean; laps?: number };
   /** Solo: how many AI rivals. */
   rivals?: number;
+  /**
+   * Watching a track record's run (the leaderboard's Watch): no racing, no car of your own; the run plays back as a
+   * solid car, the race's cameras follow it, and watchui.ts has the controls. Back leaves for the leaderboard.
+   */
+  watch?: GhostRun;
   /** Solo: Physics mode (crash damage, damage.ts). Online it comes with the race (`online.physics`). */
   physics?: boolean;
   /**
@@ -247,6 +253,8 @@ function loadAssists(): Assists {
   }
 }
 const CAM_KEY = 'atrous.raceCam';
+/** A watched record run plays on this far past its finish (s), then holds on the last frame. */
+const WATCH_END = 3;
 /** CPU difficulty (driver.ts CPU_LEVELS), picked on the Race page; it also sets an online lobby's CPUs when you host. */
 const CPU_KEY = 'atrous.cpu';
 export function cpuLevel(): CpuLevel {
@@ -335,6 +343,11 @@ export class RaceGame {
   private remotes = new Map<number, Remote>();
   /** Online, with the host's Record ghost on: the track record's run riding along, and its clock (s since GO). */
   private recordGhost: GhostCar | null = null;
+  /** Watching a record run from the leaderboard (`setup.watch`): the run, its overlay, paused, and the playback speed. */
+  private watchRun: GhostRun | null = null;
+  private watchUi: WatchUi | null = null;
+  private watchPaused = false;
+  private watchRate = 1;
   private ghostT = 0;
   /** Where the record ghost is on the road (a circuit's samples run on lap after lap, so this counts laps too). */
   private ghostLoc = newLoc();
@@ -495,7 +508,7 @@ export class RaceGame {
 
     const online = setup.online;
     // (A solo battle royale needs someone to outlast.)
-    const rivals = online || this.roam ? 0 : Math.max(this.royaleOn ? ROYALE.minRivals : 0, Math.min(7, setup.rivals ?? 5));
+    const rivals = online || this.roam || setup.watch ? 0 : Math.max(this.royaleOn ? ROYALE.minRivals : 0, Math.min(7, setup.rivals ?? 5));
     // Solo, you start mid-pack.
     const mySlot = online ? (online.grid[online.net.id] ?? 0) : Math.floor(rivals / 2);
     // Online, the server says what you drive (a maxed Vanta, or your car maxed out, in a time trial).
@@ -553,6 +566,7 @@ export class RaceGame {
       if (setup.gp) this.hud.banner(CUPS[setup.gp.cup].name, roundLabel(setup.gp.cup, setup.gp.round), 3200);
     }
     for (const r of [this.me, ...this.rivals]) r.car.gear = 0; // revving on the line
+    if (setup.watch) this.startWatch(setup.watch);
     this.snapCamera();
     this.warmShaders();
     addEventListener('resize', this.resize);
@@ -814,6 +828,7 @@ export class RaceGame {
     this.last = now;
     this.wallClock += dt;
     this.controls.poll(dt);
+    if (this.watchRun) return this.watchFrame(dt);
     if (this.controls.padSeen && !this.padHelpShown) {
       this.padHelpShown = true;
       this.hud.showHelp(true);
@@ -877,7 +892,15 @@ export class RaceGame {
   }
   private padHelpShown = false;
 
+  /** The next camera (C / Ⓨ), remembered for the next race. */
+  private cycleCamera() {
+    this.cam = CAMS[(CAMS.indexOf(this.cam) + 1) % CAMS.length];
+    localStorage.setItem(CAM_KEY, this.cam);
+    this.snapCamera();
+  }
+
   private action(a: string) {
+    if (this.watchRun) return this.watchAction(a);
     if (a === 'pause') {
       if (this.phase === 'done') return;
       if (this.paused) this.resume();
@@ -885,11 +908,8 @@ export class RaceGame {
       return;
     }
     if (this.paused) return;
-    if (a === 'camera') {
-      this.cam = CAMS[(CAMS.indexOf(this.cam) + 1) % CAMS.length];
-      localStorage.setItem(CAM_KEY, this.cam);
-      this.snapCamera();
-    } else if (a === 'reset' && this.phase === 'racing' && this.wallClock > this.resetAt) {
+    if (a === 'camera') this.cycleCamera();
+    else if (a === 'reset' && this.phase === 'racing' && this.wallClock > this.resetAt) {
       this.respawn(this.me.car);
       this.resetAt = this.wallClock + 2;
       this.hud.banner('Back on the road', '', 1200);
@@ -1418,6 +1438,90 @@ export class RaceGame {
    * Michael: "When player elims It freezes the match"). So the car's meshes go and its lights stay, turned off. (Each
    * mesh is hidden, not its groups: the driver and rider groups are shown and hidden every frame.)
    */
+  // --- watching a record run ---------------------------------------------------------------------
+
+  /** The run plays back as a solid car; yours is put away (hidden, no shadow, never driven: `watchFrame` skips `tick`). */
+  private startWatch(run: GhostRun) {
+    this.watchRun = run;
+    const rg = (this.recordGhost = new GhostCar(run, this.view.scene, true));
+    const b = CARS[rg.spec.id];
+    this.contact.add(rg.model.root, b.length, b.width, rg.spec.cg);
+    this.stowCar(this.me.model.root);
+    this.contact.remove(this.me.model.root);
+    this.phase = 'racing';
+    this.countdown = 0;
+    this.ghostT = 0;
+    this.hud.root.classList.add('watch');
+    this.watchUi = new WatchUi(this.setup.container, run, this.track.def.name, {
+      toggle: () => (this.watchOver() ? this.watchSeek(0) : (this.watchPaused = !this.watchPaused)),
+      restart: () => this.watchSeek(0),
+      seek: (t) => this.watchSeek(t),
+      rate: (dir) => {
+        const i = WATCH_RATES.indexOf(this.watchRate as (typeof WATCH_RATES)[number]);
+        this.watchRate = WATCH_RATES[Math.max(0, Math.min(WATCH_RATES.length - 1, i + dir))];
+      },
+      camera: () => this.cycleCamera(),
+      exit: () => this.exit(),
+    });
+  }
+
+  /** The run is over: it plays on WATCH_END s past the line, then holds. */
+  private watchOver() {
+    return !!this.watchRun && this.ghostT >= this.watchRun.time + WATCH_END;
+  }
+
+  private watchSeek(t: number) {
+    this.ghostT = Math.max(0, t);
+    this.watchPaused = false;
+    // A jump along the road: no motion blur across it, the smoothed cameras start again where the car is.
+    this.recordGhost?.update(this.ghostT, 0);
+    this.ghostLoc.s = 0;
+    this.snapCamera();
+  }
+
+  /** C / Y: the next camera; R / View: from the start; Esc / Menu: back to the leaderboard. */
+  private watchAction(a: string) {
+    if (a === 'camera') this.cycleCamera();
+    else if (a === 'reset') this.watchSeek(0);
+    else if (a === 'pause') this.exit();
+  }
+
+  /** A watch frame: the run's clock (paused, slowed or sped up), the scenery and traffic on it, the camera, the overlay. */
+  private watchFrame(dt: number) {
+    for (const a of this.controls.actions()) this.action(a);
+    if (this.exited) return;
+    const run = this.watchRun!;
+    const rg = this.recordGhost!;
+    const playing = !this.watchPaused && !this.watchOver();
+    const step = playing ? dt * this.watchRate : 0;
+    this.ghostT = Math.min(run.time + WATCH_END, this.ghostT + step);
+    this.trafficTime = this.ghostT;
+    this.fx.update(dt);
+    this.propView.update(this.wallClock, dt);
+    const now = performance.now() / 1000;
+    rg.update(this.ghostT, step);
+    if (!this.ghostLoc.s) this.ghostLoc.i = Math.round(this.track.startS / SAMPLE);
+    rg.s = locate(this.track, rg.position.x, rg.position.z, this.ghostLoc.i, this.ghostLoc).s;
+    this.trafficView?.update(this.ghostT, this.camera.position.x, this.camera.position.z);
+    const view = this.camTarget();
+    this.updateCamera(dt, view);
+    this.driversVisible();
+    this.view.follow(this.camera.position.x, view.root.position.y, this.camera.position.z, now);
+    const speed = Math.hypot(view.v.x, view.v.y, view.v.z);
+    this.hud.update({
+      speed, rpm: view.rpm, redline: rg.spec.redline, gear: 0, shifting: false, place: 1, field: 1,
+      time: Math.min(this.ghostT, run.time), lap: lapOf(this.track, rg.s), laps: this.track.def.laps ?? 0,
+      abs: false, tcs: false, wrongWay: false, manual: false, drift: -1, combo: null, driftTotal: 0, boost: false,
+      draft: 0, charge: 0, sling: false, heading: view.yaw, damage: null,
+      dots: [{ s: rg.s, me: true, color: rg.color, x: rg.position.x, z: rg.position.z }],
+      board: [{ name: run.name, color: rg.color, me: true, finished: this.ghostT >= run.time ? run.time : null }],
+    });
+    this.watchUi?.update({ t: this.ghostT, speed, paused: this.watchPaused, rate: this.watchRate, cam: this.cam, over: this.watchOver() });
+    this.contact.update();
+    this.post.render(now);
+    this.adaptResolution(dt);
+  }
+
   private stowCar(root: THREE.Object3D) {
     root.traverse((o) => {
       if (o instanceof THREE.Light) o.intensity = 0;
@@ -2027,6 +2131,15 @@ export class RaceGame {
 
   /** What the camera follows: your car, or the racer you're spectating (posed from its last update). */
   private camTarget(): CamTarget {
+    const rg = this.recordGhost;
+    if (this.watchRun && rg) {
+      const root = rg.model.root;
+      const f = new THREE.Vector3(0, 0, -1).applyQuaternion(root.quaternion);
+      const v = rg.velocity;
+      const fwd = v.x * f.x + v.y * f.y + v.z * f.z;
+      // (The run keeps no revs or wheel: the cockpit's gauges read the speed, its wheel stays straight.)
+      return { root, id: rg.spec.id, cg: rg.spec.cg, v, yaw: Math.atan2(-f.x, -f.z), fwd, hit: 0, boost: false, spec: rg.spec, steer: 0, rpm: rg.spec.redline * Math.min(0.9, 0.35 + Math.abs(fwd) / 120), land: 0, rough: 1 };
+    }
     const r = this.watching !== null ? this.remotes.get(this.watching) : undefined;
     if (!r?.last) {
       const self = this.watchCar && !this.watchCar.out ? this.watchCar : this.me;
@@ -2363,6 +2476,7 @@ export class RaceGame {
     for (const r of [this.me, ...this.rivals, ...this.fallen]) r.model.dispose();
     for (const r of this.remotes.values()) r.model.dispose();
     this.recordGhost?.dispose();
+    this.watchUi?.dispose();
     for (const c of this.cockpits.values()) c.dispose();
     this.fx.dispose();
     this.blasts?.dispose();

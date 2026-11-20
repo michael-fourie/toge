@@ -10,7 +10,8 @@ pieces back.
 ```
   main.ts         boots the page: touch + pad setup, account.refresh(), the screen router (SCREENS: `drive` = KANJO's
                   garage, the home page; `drivelobby` = a race lobby; `account`), the ?race=CODE deep link, and
-                  ctx.drive, which shows KANJO's loading screen and starts a RaceGame
+                  ctx.drive, which shows KANJO's loading screen and starts a RaceGame (or, with `watch`, plays a track
+                  record's run; Back from it lands on the leaderboard again: `Screen.board`)
   menu/router.ts  the history-backed screen router (ScreenName, Screen, Ctx, DriveOpts); browser Back, ← Back and Esc
                   all match; Back at depth 0 goes to the garage
   menu/ui.ts      the menu kit: $(), esc() for HTML, playerName(), toast(), copy(), replay()

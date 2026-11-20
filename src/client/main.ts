@@ -74,6 +74,7 @@ async function drive(opts: DriveOpts, again = false) {
     physics: opts.online ? opts.online.physics : opts.physics,
     online: opts.online && { mode: opts.online.mode, racers: opts.online.racers.length, ...(opts.online.laps ? { laps: opts.online.laps } : {}) },
     gp: opts.gp && { cup: opts.gp.cup, round: opts.gp.round },
+    watch: opts.watch?.name,
   });
   await nextPaint();
   app.innerHTML = '';
@@ -87,9 +88,11 @@ async function drive(opts: DriveOpts, again = false) {
     physics: opts.physics,
     online: opts.online,
     gp: opts.gp,
+    watch: opts.watch,
     onExit: (to, notice) => {
       game = null;
-      router.replace(to === 'lobby' ? { name: 'drivelobby' } : { name: 'drive', notice });
+      // Back from watching a record: the leaderboard again, on that track.
+      router.replace(to === 'lobby' ? { name: 'drivelobby' } : { name: 'drive', notice, ...(opts.watch ? { board: opts.track } : {}) });
     },
     // The host raced again from the results: on to the next race.
     onNext: (next) => {

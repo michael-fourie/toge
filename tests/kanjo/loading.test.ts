@@ -9,6 +9,8 @@ test('the loading screen says what kind of run is loading', () => {
   assert.equal(runLabel({ track: 'monza', online: { mode: 'race', racers: 4 } }), 'Online race · 4 racers');
   assert.equal(runLabel({ track: 'karasu', online: { mode: 'climb', racers: 1 } }), 'Online hill climb');
   assert.equal(runLabel({ track: 'spa', online: { mode: 'trial', racers: 3 }, physics: true }), 'Online time trial · 3 racers · Physics');
+  // Watching a record from the leaderboard: whose run it is.
+  assert.equal(runLabel({ track: 'koripass', watch: 'Andrew' }), 'Track record replay · Andrew');
 });
 
 test('loading tips keep the house voice: short, no exclamation marks', () => {

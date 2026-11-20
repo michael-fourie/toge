@@ -2126,8 +2126,48 @@ button.tg-mode:hover:not([aria-pressed='true']) {
   padding-left: 0;
   padding-right: 0;
 }
-.tg-lb td:last-child {
+.tg-lb td:last-child,
+.tg-lb td.tg-num:not(.tg-lb-pos) {
   text-align: right;
+}
+/* Watch the record (leaderboardui.ts `watchButton`, hub.ts `watchRecord`): the hero's button, its record time and the
+   record row's Watch all replay the record run. */
+.tg-lb-watch-go {
+  margin-top: 10px;
+}
+.tg-lb-rec {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid var(--tg-red);
+}
+.tg-lb-rec:hover,
+.tg-lb-rec:focus-visible {
+  color: var(--tg-cyan);
+  border-color: var(--tg-cyan);
+}
+.tg-lb td.tg-lb-play {
+  width: 1%;
+  padding-left: 4px;
+  text-align: right;
+}
+.tg-lb-watch {
+  padding: 4px 10px;
+  border: 1px solid var(--tg-red);
+  border-radius: 999px;
+  background: none;
+  color: var(--tg-text);
+  font: 700 14px var(--tg-display);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tg-lb-watch:hover,
+.tg-lb-watch:focus-visible {
+  background: var(--tg-red);
 }
 .tg-lb tr.you > * {
   background: rgba(56, 201, 255, 0.1);

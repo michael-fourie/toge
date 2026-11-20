@@ -288,6 +288,9 @@ export default {
     if (url.pathname === '/api/friends') return friendsApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/clubs') return clubsApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/notices') return noticesApi(req, url, env.ACCOUNTS.getByName('all'));
+    // A track record's run, to watch it again from the leaderboard (public, like the board it's on; read only).
+    if (url.pathname === '/api/ghost' && req.method === 'GET')
+      return Response.json({ run: await env.ACCOUNTS.getByName('all').recordGhost(url.searchParams.get('t')?.slice(0, 32) ?? '') }, { headers: { 'Cache-Control': 'public, max-age=60' } });
     if (url.pathname === '/api/leaderboard') return Response.json(await env.ACCOUNTS.getByName('all').leaderboard(url.searchParams.get('t')?.slice(0, 32) ?? null));
     if (url.pathname === '/api/admin/reset-password') return adminReset(req, env);
     if (url.pathname === '/api/admin/clear-race-records') return adminClearRecords(req, env);

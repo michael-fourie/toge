@@ -147,7 +147,8 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   const friendsView = () => ({ user: account.user, list: friendList, open: friendOpen, openCar: friendCarI, bests: garage.bests, status });
   const visiting = () => (page === 'friends' ? friendOpen : null);
   /** Leaderboard: the track whose board is open, every track's record, and the boards loaded so far. */
-  let lbTrack: TrackId = BOARD_TRACKS[0];
+  // (Back from watching a record: the leaderboard opens again on its track.)
+  let lbTrack: TrackId = screen.board && BOARD_TRACKS.includes(screen.board) ? screen.board : BOARD_TRACKS[0];
   let leaders: Leaders | null = null;
   let medals: MedalRow[] | null = null;
   const boards = new Map<TrackId, BoardRow[]>();
@@ -553,6 +554,23 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     void loadBoard(lbTrack);
     root.querySelector<HTMLElement>('.tg-lbm [data-lbm-close]')?.focus({ preventScroll: true });
   };
+  /** Watch a track's record run (the leaderboard's Watch): fetch the run, then play it in the race's scene (racegame.ts `watch`). */
+  const watchRecord = async (t: TrackId) => {
+    if (busy) return;
+    busy = true;
+    status = 'Loading the record run…';
+    if (lbOpen) renderLb();
+    const run = await boardApi.ghost(t);
+    busy = false;
+    if (!run) {
+      status = 'No replay was kept with this record. Records set from now on keep theirs.';
+      if (lbOpen) renderLb();
+      return;
+    }
+    status = '';
+    if (lbOpen) closeLb();
+    ctx.drive({ track: t, watch: run });
+  };
   const closeLb = () => {
     if (!lbOpen) return;
     lbOpen = false;
@@ -688,6 +706,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
       draw();
     });
     panel.querySelector('[data-lb-open]')?.addEventListener('click', openLb);
+    panel.querySelectorAll<HTMLElement>('[data-lb-watch]').forEach((b) => b.addEventListener('click', () => void watchRecord(b.dataset.lbWatch as TrackId)));
     panel.querySelector('[data-pass-open]')?.addEventListener('click', () => switchPage('pass'));
     panel.querySelector('[data-lbm-close]')?.addEventListener('click', closeLb);
     panel.querySelector('[data-host]')?.addEventListener('click', () => connect(null));
@@ -1266,6 +1285,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   draw(false);
   frameCar();
   root.querySelector<HTMLElement>('[data-panel] [data-autofocus]')?.focus({ preventScroll: true });
+  if (screen.board && !pit) openLb();
 
   return () => {
     flushDraft();
