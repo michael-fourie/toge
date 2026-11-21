@@ -10,9 +10,10 @@
 
 import * as THREE from 'three';
 import { SAMPLE, type Track, heightAt, locate, newLoc, onCut, pointAt, roadDistance } from '../shared/track.ts';
+import { type DecoKind, DECOS, decoOnRoad } from '../shared/custommap.ts';
 import { TOWNS } from './towns.ts';
 import { mulberry } from './tracktextures.ts';
-import { merge, shade, tint } from './trees.ts';
+import { merge, shade, speciesFor, tint } from './trees.ts';
 
 type Keep = <T extends { dispose(): void }>(x: T) => T;
 type Kind = 'body' | 'glow' | 'sign';
@@ -428,6 +429,16 @@ function wheelLights() {
 
 // --- The sign atlas -------------------------------------------------------------------------------------------------
 
+/** A street lamp: a steel post and an arm reaching over the road (local -z); its lamp is `streetLampHead` (glow). */
+const streetLamp = () => merge([cyl(0.1, 0.07, 7.2, 6, 0, 3.6, 0, 0x5b6068), box(0.09, 0.09, 1.9, 0, 7.1, -0.9, 0x5b6068), box(0.38, 0.16, 0.72, 0, 7.02, -1.75, 0x34383e)]);
+const streetLampHead = () => merge([box(0.3, 0.05, 0.6, 0, 6.92, -1.75, 0xfff0c8)]);
+/** A floodlight mast with its bank of lamps facing the road (local -z); the lamps are `floodGlow`. */
+const floodlight = () => merge([cyl(0.3, 0.16, 16, 6, 0, 8, 0, 0x8a9099), box(3.2, 1.7, 0.32, 0, 16.5, -0.25, 0x2a2e33), box(3.4, 0.12, 0.12, 0, 15.5, -0.2, 0x8a9099)]);
+const floodGlow = () => merge([box(2.9, 1.35, 0.06, 0, 16.5, -0.43, 0xf4f8ff)]);
+/** A plain tower block, its window bands in `towerWindows` (dark glass by day, lit at night). */
+const towerBlock = () => merge([box(14, 31, 14, 0, 15.5, 0, 0x767d88), box(14.6, 0.8, 14.6, 0, 31.2, 0, 0x5a606a), box(4, 2.6, 4, 2.5, 32.6, 1.5, 0x5a606a)]);
+const towerWindows = () => merge(Array.from({ length: 9 }, (_, k) => box(14.08, 1.3, 14.08, 0, 3.4 + k * 3.2, 0, 0xa9c8e6)));
+
 /** Atlas cells across the top row (128 px each of 1024): speed limit, curve left, curve right, round back, diamond back, plain grey. */
 const CELL = { speed: 0, left: 1, right: 2, backRound: 3, backDiamond: 4, grey: 5 } as const;
 const BANNERS = 4;
@@ -797,6 +808,18 @@ export function decor(
     }
   }
 
+  // --- What the player placed on a custom map (custommap.ts DECOS): kept off the road, the forest kept off it.
+  const mine: { kind: DecoKind; x: number; y: number; z: number; yaw: number; scale: number }[] = [];
+  for (const d of t.def.decor ?? []) {
+    const kind = d.kind as DecoKind;
+    const scale = d.scale ?? 1;
+    if (!Object.hasOwn(DECOS, kind) || decoOnRoad(t, kind, d.x, d.z, scale)) continue;
+    const ground = heightAt(t, d.x, d.z);
+    const y = kind === 'boat' && water !== undefined && ground < water ? water + 0.2 : ground - (DECOS[kind].r > 4 ? 0.25 : 0.05);
+    sites.push({ x: d.x, z: d.z, r: DECOS[kind].r * scale + 1 });
+    mine.push({ kind, x: d.x, y, z: d.z, yaw: d.yaw, scale });
+  }
+
   /** A town's walls along the road, its balloons in the sky and its boathouses in the shallows (towns.ts). */
   const townExtras = () => {
     if (!town) return;
@@ -1018,6 +1041,47 @@ export function decor(
           sites.push({ x, z, r: 6 });
           place('body', lap || rnd() < 0.4 ? yacht : fishing, x, water + 0.2, z, rnd() * Math.PI * 2, 0.9 + rnd() * 0.5);
           placed++;
+        }
+      }
+
+      // --- The player's own pieces, each kind's template built once.
+      if (mine.length) {
+        const made = new Map<string, { body: THREE.BufferGeometry | null; glow?: THREE.BufferGeometry; sign?: THREE.BufferGeometry; tint?: THREE.Color }>();
+        const trees = speciesFor(theme);
+        const treeOf = (sp: typeof trees.a) => ({ body: sp.geo, tint: sp.palette ? new THREE.Color(sp.palette[0]) : undefined });
+        const make = (k: DecoKind) => {
+          switch (k) {
+            case 'tree': return treeOf(trees.a);
+            case 'pine': return treeOf(trees.b);
+            case 'rock': return { body: keep(hoodoo(t.def.seed * 7 + 3)) };
+            case 'house': return plans.length && plans[0].win ? { body: plans[0].geo, glow: plans[0].win } : { body: keep(farmhouse(0x3b434d)), glow: keep(farmWindows()) };
+            case 'barn': return { body: keep(barn(theme === 'coast' ? 0xe9e1d0 : 0x8a6248)) };
+            case 'tower': return { body: keep(towerBlock()), glow: keep(towerWindows()) };
+            case 'stand': return { body: keep(grandstand(36, mulberry(t.def.seed + 9))) };
+            case 'sign': return { body: keep(merge([cyl(0.045, 0.045, 2.4, 5, 0, 1.2, 0, 0x9aa0a6)])), sign: keep(card(0.75, 0.75, 2.15, cellUv(CELL.speed), cellUv(CELL.backRound))) };
+            case 'board': return { body: keep(merge([box(0.12, 0.5, 0.12, -2.6, 0.25, 0.05, 0x55585c), box(0.12, 0.5, 0.12, 2.6, 0.25, 0.05, 0x55585c)])), sign: keep(card(6, 1.1, 0.95, bannerUv(t.def.seed % BANNERS), cellUv(CELL.grey))) };
+            case 'pole': return { body: keep(telegraphPole(false)) };
+            case 'lamp': return { body: keep(streetLamp()), glow: keep(streetLampHead()) };
+            case 'flood': return { body: keep(floodlight()), glow: keep(floodGlow()) };
+            case 'lantern': return { body: keep(lantern()), glow: keep(lanternLight()) };
+            case 'torii': return { body: keep(torii()) };
+            case 'shrine': return { body: keep(hokora()) };
+            case 'pagoda': return { body: keep(pagoda()) };
+            case 'lighthouse': return { body: keep(lighthouse()), glow: keep(lighthouseLamp()) };
+            case 'windmill': return { body: keep(windmill()) };
+            case 'watertower': return { body: keep(waterTower()) };
+            case 'mast': return { body: keep(radioMast()), glow: keep(mastBeacon()) };
+            case 'wheel': return { body: keep(bigWheel()), glow: keep(wheelLights()) };
+            case 'boat': return { body: keep(boat(t.def.seed % 2 === 0)) };
+            default: return { body: null };
+          }
+        };
+        for (const m of mine) {
+          let tpl = made.get(m.kind);
+          if (!tpl) made.set(m.kind, (tpl = make(m.kind)));
+          if (tpl.body) place('body', tpl.body, m.x, m.y, m.z, m.yaw, m.scale, tpl.tint);
+          if (tpl.glow) place('glow', tpl.glow, m.x, m.y, m.z, m.yaw, m.scale);
+          if (tpl.sign) place('sign', tpl.sign, m.x, m.y, m.z, m.yaw, m.scale);
         }
       }
 

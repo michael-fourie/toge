@@ -361,12 +361,32 @@ a component or a page.
   (track.ts `forgetTrack`). Circuits take no features or props (as every circuit). `MAP_TEMPLATES` start one;
   `mapFromTrack` remixes a built-in track (not the open world, forks, rivers, overpasses, arenas or shortcuts);
   `mapCode` / `decodeMapCode` are share codes (`KJM1.` + base64url JSON).
-  The screen is `maps` (mapbuilder.ts + mapbuilder.css; the landing's Map builder card opens it): a top-down plan
-  (drag points, drag the ground to pan, wheel or pinch to zoom, double-click the road to add a point; tools Move,
-  Add, Erase and one per feature, keys V A X 1-8), the elevation profile under it (drag the handles), the inspector,
-  the check list, undo/redo (120 steps), Ctrl+S. The open map is a draft in `atrous.mapDraft`, saved as you edit.
-  *Test drive* registers it and calls `ctx.drive({ test: true })`, alone or with three CPUs; leaving the race comes
-  back to the builder. Saved maps (mapstore.ts): an account's on the server (`/api/maps`, `mp:<user>`,
+  Traffic and scenery (2026-11-21, Michael: "Can they add traffic to the maps and decorations"): `density` picks
+  `MAP_DENSITY` (light / normal / heavy: TrackDef `trafficDensity` divides traffic.ts's gaps), and `deco` holds up to
+  `MAP.maxDeco` pieces placed by hand, `[kind, x, z, yaw°, scale?]` from `DECOS` (trees, houses, towers, lamps,
+  floodlights, torii, pagodas, a big wheel… by `DECO_GROUPS`). Scenery is looks only: `mapDef` passes it as
+  TrackDef `decor`, scenery.ts builds it into the chunk batches with the theme's own templates (the forest keeps clear),
+  and a piece on the road is left out (`decoOnRoad`, measured by `centreGap`, not the coarse `roadDistance`). The road
+  group (cone, barrel, bale; point to point only) are real props: TrackDef `placed`, which props.ts `placeProps` adds
+  to the seeded ones (a clean road keeps only these), so cars hit them; `checkMap` refuses barrels and bales that leave
+  less than `WAY_THROUGH` across the road. Old maps without the fields clean to none and normal traffic.
+  The screen is `maps` (mapbuilder.ts + mapbuilder.css; the landing's Map builder card opens it), a 3D world editor
+  since 2026-11-21 (Michael: "Make it more of a 3d world editor … Make it easy to drop in and play sections of it"):
+  mapworld.ts `MapWorld` shows the map's real world (trackview.ts `buildTrackView` + `Post` + `PropView`, rebuilt
+  `WORLD_MS` after an edit settles, never mid-drag) under a free editor camera (drag the ground to pan, wheel to zoom
+  at the cursor, right-drag to look and WASD/QE to fly while it's held, middle- or Alt-drag to orbit); the builder's
+  handles are drawn over it on a 2D overlay that follows edits live. Points are dragged over the ground and lifted on
+  their arrow (or Shift-drag); road tools (Ramp: a `jump` with no drop, and the features) work anywhere on the road
+  (a point is put in where you click, `pointForRoad`); the Scenery tool places the picked piece (it turns to face the
+  road), Move drags it and turns it on its ring's knob, the inspector sets its spot, facing and size. M switches to the
+  old top-down plan (the choice in `atrous.mapView`). Play drives the whole map; a point's *Play from here* and a
+  section between two points (the green band; *Play section*) drive custommap.ts `sectionMap` (point features re-pinned,
+  ranges clipped; a circuit from a point keeps its laps). Left rail extras: how busy the traffic is, and lining the
+  road with lamps, trees, boards or poles (`lineRoad`). Keys: V A X S 9 1-8, M, P, R / Shift+R and [ ] for the picked
+  piece. The elevation profile, inspector, check list, undo/redo (120 steps) and Ctrl+S stay. The open map is a draft
+  in `atrous.mapDraft`, saved as you edit, and the camera is kept in sessionStorage (`atrous.mapCam`) across a drive.
+  Every drive registers the map (or the section) and calls `ctx.drive({ test: true })`, alone or with three CPUs;
+  leaving the race comes back to the builder. Saved maps (mapstore.ts): an account's on the server (`/api/maps`, `mp:<user>`,
   kanjo/server/mapStore.ts), a guest's in `atrous.maps`, both through `applyMapAction` (at most `MAP.maxSaved`).
   Online: in a Race or Time trial lobby (`MAP_MODES`) the host's maps show under the track grid ("Your maps"); picking
   one sends `{t:'map', map}`, the room cleans and checks it, registers it and puts it on `room` and `load`, and every
@@ -617,7 +637,7 @@ src/kanjo/shared/
   royale.ts    battle royale: ROYALE (grace, minRivals), Royale (who's knocked out each lap, the winner), Knockout.
   cups.ts      Grand Prix cups (CUPS: four tracks each, the Postcard Cup five; roundsOf), GP_POINTS, addRound / rankCup (the cup table).
   custommap.ts the map builder's maps: CustomMap, MAP limits, cleanMap / checkMap / mapDef / registerMap, templates,
-               remixes (mapFromTrack), share codes, saved maps (applyMapAction). See Content above.
+               remixes (mapFromTrack), share codes, saved maps (applyMapAction), scenery (DECOS), sectionMap. See Content above.
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
                climb / Grand Prix / Team Grand Prix / free roam / battle royale / Endurance; ENDURANCE, cleanLaps), ghostMode (time trial only), cleanMode (the host's car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/kanjo/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),

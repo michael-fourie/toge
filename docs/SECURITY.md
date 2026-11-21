@@ -30,11 +30,13 @@ player sees is decided or checked by the server; anything the server can't check
 - Messages per client are rate-limited in race rooms (60/s; poses are relayed at once).
 - **Custom maps** (the map builder, `src/kanjo/shared/custommap.ts`) come from players. Every path that takes one
   (`/api/maps`, the room's `map` message, a `load` / `room` on another client, a share code) runs `cleanMap`: numbers
-  clamped and rounded, text stripped of markup and control characters and capped, at most `MAP.maxPoints` points and
-  `MAP.maxBytes` of JSON; the room also runs `checkMap` (the road must build) and takes it only from the host, in the
+  clamped and rounded, text stripped of markup and control characters and capped, at most `MAP.maxPoints` points,
+  `MAP.maxDeco` pieces of scenery (known kinds only) and `MAP.maxBytes` of JSON (the race room takes messages up to
+  20 KB for it); the room also runs `checkMap` (the road must build) and takes it only from the host, in the
   lobby, once per 1.5 s. Its name reaches the page only through `esc()`. A custom map pays nothing (prize, drift bonus
   and XP are 0, the solo `solo` action is skipped), keeps no best times and fetches no record ghost, so a map built to
-  be easy can't farm anything. Accounts keep at most `MAP.maxSaved` (20 changes at once, then one per 2 s).
+  be easy can't farm anything. Scenery is looks only (never solid); the cones, barrels and bales a player puts on the
+  road are ordinary props, and `checkMap` refuses a map whose barrels and bales close the road. Accounts keep at most `MAP.maxSaved` (20 changes at once, then one per 2 s).
 - Typed (guest) names lose markup, quote, control, invisible and direction-flipping characters on the server
   (`cleanName`). Screens escape names as well.
 

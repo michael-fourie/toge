@@ -6,7 +6,7 @@ import { Race, type RaceClient, sendTo } from './race.ts';
 import type { Env } from '../../server/worker.ts';
 
 /** Room for the host's `cpus` message (up to seven CPU racers' poses at once) and a custom map (custommap.ts MAP.maxBytes). */
-const MAX_MESSAGE_BYTES = 8192;
+const MAX_MESSAGE_BYTES = 20480;
 /** Messages a client may send per second (with a burst of twice that); a car sends 20 poses a second. Poses are relayed at once, so a flood would be everyone's problem. */
 const MAX_MESSAGES_PER_SECOND = 60;
 

@@ -544,3 +544,106 @@
     display: none;
   }
 }
+
+/* The 3D world (mapworld.ts) and the handles drawn over it; the plan canvas takes its place in plan view. */
+.tg-mb-view .tg-mb-world,
+.tg-mb-view .tg-mb-canvas {
+  position: absolute;
+  inset: 0;
+}
+.tg-mb-gl,
+.tg-mb-over {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.tg-mb-over {
+  touch-action: none;
+}
+.tg-mb-view[data-mode='3d'] .tg-mb-canvas,
+.tg-mb-view[data-mode='plan'] .tg-mb-world {
+  display: none;
+}
+.tg-mb-view[data-mode='3d'] [data-scale] {
+  display: none;
+}
+.tg-mb-busy {
+  padding: 6px 10px;
+  border-radius: var(--tg-radius);
+  background: rgba(11, 15, 23, 0.8);
+  color: var(--tg-cyan);
+}
+.tg-mb-section {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 12px;
+  border: 1px solid rgba(95, 211, 138, 0.5);
+  border-radius: var(--tg-radius);
+  background: rgba(11, 15, 23, 0.86);
+  backdrop-filter: blur(8px);
+  color: var(--tg-text);
+  font: 700 12px/1 var(--tg-display);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.tg-mb-section[hidden] {
+  display: none;
+}
+.tg-mb-play {
+  margin-top: 6px;
+}
+
+/* The scenery palette: small tiles by group, each with its group's colour dot. */
+.tg-mb-decos {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 5px;
+  margin: 4px 0 10px;
+}
+.tg-mb-deco {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid var(--tg-line);
+  border-radius: var(--tg-radius);
+  background: var(--tg-ink-2);
+  color: var(--tg-text);
+  font: 600 12px/1.1 var(--tg-body);
+  text-align: left;
+}
+.tg-mb-deco i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--dc);
+}
+.tg-mb-deco:not(:disabled):hover {
+  background: var(--tg-ink-3);
+}
+.tg-mb-deco[aria-pressed='true'] {
+  border-color: var(--tg-cyan);
+  box-shadow: 0 0 0 1px var(--tg-cyan);
+}
+.tg-mb-deco:disabled {
+  opacity: 0.35;
+}
+.tg-mb-section {
+  flex-wrap: wrap;
+  max-width: min(520px, calc(100% - 300px));
+}
+.tg-mb-why {
+  flex-basis: 100%;
+  padding: 0 0 2px;
+  color: var(--tg-gold);
+  font: 500 12px/1.3 var(--tg-body);
+  letter-spacing: 0;
+  text-transform: none;
+}

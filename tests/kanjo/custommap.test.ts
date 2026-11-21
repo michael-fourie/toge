@@ -23,7 +23,10 @@ import {
   mapFromTrack,
   mapTrackId,
   registerMap,
+  sectionMap,
 } from '../../src/kanjo/shared/custommap.ts';
+import { placeProps } from '../../src/kanjo/shared/props.ts';
+import { getTraffic } from '../../src/kanjo/shared/traffic.ts';
 
 // The map builder's maps (custommap.ts): players' own tracks, built by the game's own track builder, driven solo and
 // raced online. Michael, 2026-11-21: "Build a fully interactive map builder".
@@ -230,4 +233,111 @@ test('online: the host races a custom map; everyone gets it, nobody gets paid fo
   r.race.handle(a, { t: 'track', track: 'saltwind' });
   assert.equal(r.race.map, null);
   assert.equal(r.race.track, 'saltwind');
+});
+
+// Michael, 2026-11-21: "Can they add traffic to the maps and decorations", then "Make it more of a 3d world editor …
+// Make it easy to drop in and play sections of it."
+
+/** A spot `off` m out from the built road's centre at sample `i` (left of the road for off < 0). */
+const beside = (m: CustomMap, i: number, off: number): [number, number] => {
+  const t = checkMap(m).track!;
+  return [Math.round((t.x[i] - t.tz[i] * off) * 10) / 10, Math.round((t.z[i] + t.tx[i] * off) * 10) / 10];
+};
+
+test('scenery and traffic density: cleaned, kept in the code, and old maps without them still open', () => {
+  // A map saved before scenery existed has neither field: it opens with none and normal traffic.
+  const old = { ...blankMap(), name: 'Old' } as Partial<CustomMap>;
+  delete old.deco;
+  delete old.density;
+  const o = cleanMap(old)!;
+  assert.deepEqual(o.deco, []);
+  assert.equal(o.density, 1);
+  assert.ok(checkMap(o).ok);
+
+  const m = cleanMap({
+    ...blankMap(),
+    traffic: 'town',
+    density: 2,
+    deco: [
+      ['tree', 10.04, -20, 370, 2],
+      ['house', 1, 2, -90],
+      ['dragon', 0, 0, 0],
+      ['tree', 'x', 0, 0],
+      ['lamp', 5, 5, 0, 1],
+      ['cone', 3, 3, 0, 2],
+      ['tree', 0, 0, 0, 99],
+    ],
+  })!;
+  assert.equal(m.density, 2);
+  assert.deepEqual(m.deco, [
+    ['tree', 10, -20, 10, 2],
+    ['house', 1, 2, 270],
+    ['lamp', 5, 5, 0],
+    ['cone', 3, 3, 0],
+    ['tree', 0, 0, 0, 3],
+  ]);
+  assert.equal(cleanMap({ ...m, density: 9 })!.density, 2, 'clamped to Heavy');
+  assert.equal(cleanMap({ ...m, deco: Array.from({ length: 400 }, () => ['tree', 0, 0, 0]) })!.deco.length, MAP.maxDeco);
+  assert.equal(cleanMap({ ...m, loop: true, points: MAP_TEMPLATES.find((t) => t.id === 'oval')!.make().points })!.deco.some((d) => d[0] === 'cone'), false, 'no road props on circuits');
+  assert.deepEqual(decodeMapCode(mapCode(m)), m, 'round trip through a share code');
+});
+
+test('heavy traffic is busier than light; scenery reaches the track; road props go on the road and block nothing', () => {
+  const base = { ...blankMap(), traffic: 'town' as const, width: 14 };
+  const cars = (density: number) => getTraffic(getTrack(registerMap({ ...base, density })))!.cars.length;
+  assert.ok(cars(2) > cars(1) && cars(1) > cars(0), `${cars(0)} < ${cars(1)} < ${cars(2)}`);
+
+  const t = checkMap(base).track!;
+  const i = Math.round(t.n / 2);
+  const off = beside(base, i, -(t.half + 30));
+  const on = beside(base, i, 1);
+  const m: CustomMap = { ...base, deco: [['pagoda', off[0], off[1], 0], ['barrel', on[0], on[1], 0], ['tree', on[0], on[1], 0]] };
+  const c = checkMap(m);
+  assert.ok(c.ok, c.errors.map((e) => e.msg).join('; '));
+  assert.ok(c.warnings.some((w) => /scenery|road/i.test(w.msg)), 'the tree on the road is flagged');
+  const def = getTrack(registerMap(m)).def;
+  assert.equal(def.decor?.length, 2, 'the pagoda and the tree are scenery (the scenery builder skips the one on the road)');
+  assert.equal(def.placed?.length, 1);
+  assert.equal(def.trafficDensity, undefined, 'normal density leaves the def alone');
+  const placed = placeProps(getTrack(registerMap(m))).filter((p) => p.placed);
+  assert.equal(placed.length, 1, 'the barrel is a real prop, so cars hit it');
+
+  // A wall of barrels across the road is an error: leave a way through.
+  const wall: CustomMap = { ...base, deco: [-6, -4, -2, 0, 2, 4, 6].map((d): CustomMap['deco'][number] => ['barrel', ...beside(base, i, d), 0]) };
+  assert.ok(checkMap(wall).errors.some((e) => /block/.test(e.msg)), 'blocked road');
+});
+
+test('sections: play a part of the map on its own, features re-pinned to it', () => {
+  const m: CustomMap = MAP_TEMPLATES.find((t) => t.id === 'downhill')!.make();
+  const n = m.points.length;
+  assert.ok(n >= 6, `${n} points`);
+  m.features = [
+    { kind: 'crest', at: 2, size: 3, len: 40 },
+    { kind: 'jump', at: n - 2, size: 2.6, kick: 22, drop: 0, land: 70 },
+    { kind: 'gravel', from: 1, to: 4, size: 0 },
+  ];
+  const s = sectionMap(m, 1, 4)!;
+  assert.equal(s.points.length, 4);
+  assert.deepEqual(s.points[0], m.points[1]);
+  assert.deepEqual(s.features, [
+    { kind: 'crest', at: 1, size: 3, len: 40 },
+    { kind: 'gravel', from: 0, to: 3, size: 0 },
+  ]);
+  assert.notEqual(s.points[0], m.points[1], 'a copy: playing it never moves the map');
+  // From a point to the finish keeps the rest of the road.
+  const from = sectionMap(m, 2, null)!;
+  assert.equal(from.points.length, n - 2);
+  assert.ok(from.features.some((f) => f.kind === 'jump' && 'at' in f && f.at === n - 4));
+  assert.equal(sectionMap(m, 3, 3), null, 'one point is no road');
+  // A circuit played from a point: the same lap, starting there.
+  const oval = MAP_TEMPLATES.find((t) => t.id === 'oval')!.make();
+  const turned = sectionMap(oval, 2, null)!;
+  assert.ok(turned.loop);
+  assert.deepEqual(turned.points[0], oval.points[2]);
+  assert.equal(turned.points.length, oval.points.length);
+  assert.ok(checkMap(turned).ok);
+  // A section of a circuit is a point-to-point road, wrapping past the last point.
+  const arc = sectionMap(oval, oval.points.length - 2, 1)!;
+  assert.equal(arc.loop, false);
+  assert.equal(arc.points.length, 4);
 });

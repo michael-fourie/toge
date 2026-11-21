@@ -118,7 +118,10 @@ export function getTraffic(t: Track): Traffic | null {
     lanes.forEach((_, lane) => {
       // Gaps always longer than the longest car (and its wrap round the loop too); wider at highway speeds, and
       // the trucks keep to the slow lanes there.
-      const [gap, spread] = highway ? [80, 150] : [55, 105];
+      // A custom map's density (custommap.ts MAP_DENSITY) packs them closer or spreads them out; the gap stays
+      // well over a truck's length at the heaviest.
+      const dense = t.def.trafficDensity ?? 1;
+      const [gap, spread] = highway ? [80 / dense, 150 / dense] : [55 / dense, 105 / dense];
       for (let s = lo + rng() * 60; s < hi - 50; s += gap + rng() * spread) {
         const r = rng();
         const truck = highway ? (lane < 2 ? 0.3 : 0.04) : 0.14;

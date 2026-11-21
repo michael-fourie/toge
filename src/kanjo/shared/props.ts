@@ -18,6 +18,8 @@ export interface Prop {
   yaw: number;
   /** Collision radius (bales, barrels, cones; each boulder and rock its own size). */
   r: number;
+  /** Put there by a player in the map builder (TrackDef.placed), not by the track's seed. */
+  placed?: true;
 }
 
 export const PROP_RADIUS: Record<PropKind, number> = { bale: 0.8, barrel: 0.48, cone: 0.28, boulder: 1.8, rock: 0.6 };
@@ -34,8 +36,25 @@ function mulberry(seed: number) {
   };
 }
 
-/** Lays out a track's props, sorted by `s`. */
+/** Lays out a track's props, sorted by `s`: the seeded ones, then any a player placed on a custom map. */
 export function placeProps(t: Track): Prop[] {
+  const props = t.def.clean ? [] : seeded(t);
+  if (!t.def.placed?.length) return props;
+  const loc = newLoc();
+  for (const p of t.def.placed) {
+    locate(t, p.x, p.z, -1, loc);
+    const r = PROP_RADIUS[p.kind];
+    // Off the road it's nothing to anyone; on the grid it would start inside a car.
+    if (Math.abs(loc.d) > t.half + 1 || loc.s < t.startS + 25) continue;
+    const d = Math.max(-t.half + r, Math.min(t.half - r, loc.d));
+    const at = pointAt(t, loc.s, d);
+    locate(t, at.x, at.z, at.i, loc);
+    props.push({ kind: p.kind, s: loc.s, d, x: at.x, y: roadY(t, loc), z: at.z, yaw: p.yaw, r, placed: true });
+  }
+  return props.sort((a, b) => a.s - b.s);
+}
+
+function seeded(t: Track): Prop[] {
   if (t.def.climb || t.def.rockfall) return placeRockfall(t);
   const rng = mulberry(t.def.seed * 31 + 7);
   const props: Prop[] = [];
