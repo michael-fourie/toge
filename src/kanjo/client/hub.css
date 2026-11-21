@@ -959,6 +959,17 @@ html:not(.pad) .tg-bumper {
   opacity: 1;
 }
 
+/* The lobby's Your maps tiles (the host's custom maps from the map builder): the theme's sky, the map's shape. */
+.tg-track-map .tg-map svg {
+  width: 100%;
+  height: 100%;
+  color: #fff;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+}
+.tg-lobby-custom {
+  margin-top: 16px;
+}
+
 /* The lobby's Random tile: first in the track grid, rolls one of the others. */
 .tg-track-random {
   background:
@@ -3592,7 +3603,8 @@ button.tg-hc:hover {
   height: 16px;
   transform: rotate(180deg);
 }
-.tg-hc-lb:hover .tg-hc-go {
+.tg-hc-lb:hover .tg-hc-go,
+.tg-hc-maps:hover .tg-hc-go {
   color: var(--tg-cyan);
   border-color: var(--tg-cyan);
 }

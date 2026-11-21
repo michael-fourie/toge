@@ -4,11 +4,12 @@ import { payout, raceBonus } from '../shared/garage.ts';
 import { raceXp } from '../shared/pass.ts';
 import { cleanRiderCode, decodeRider, defaultRider, encodeRider, rivalRider } from '../shared/rider.ts';
 import { CUPS, addRound, isCup, roundsOf, type CupId } from '../shared/cups.ts';
-import { CAR_RULES, CPU, ENDURANCE, MODE_TRACK, RACE, RACE_MODES, cleanLaps, cleanMode, isGp, isTeam, modeTracks, type CarRule, type GpState, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow, type Team } from '../shared/protocol.ts';
+import { CAR_RULES, CPU, ENDURANCE, MAP_MODES, MODE_TRACK, RACE, RACE_MODES, cleanLaps, cleanMode, isGp, isTeam, modeTracks, type CarRule, type GpState, type NetCar, type RaceClientMsg, type RaceMode, type RacePhase, type RaceServerMsg, type Racer, type ResultRow, type Team } from '../shared/protocol.ts';
 import { GhostRecorder, type GhostRun, type GhostTape } from '../shared/ghost.ts';
 import { SAMPLE, TRACK_DEFS, getTrack, type TrackId } from '../shared/track.ts';
 import { Royale } from '../shared/royale.ts';
 import { RECORDS } from '../shared/records.ts';
+import { type CustomMap, checkMap, cleanMap, registerMap } from '../shared/custommap.ts';
 import { guarded, type Socket } from '../../server/rooms.ts';
 
 const OPEN = 1;
@@ -18,6 +19,8 @@ const HEARTBEAT_MS = 30_000;
 const MIN_RACE_SECONDS = 40;
 /** A car can't blow up more often than this (ms). */
 const WRECK_GAP_MS = 1000;
+/** A host can send a custom map this often (each is built and checked here). */
+const MAP_GAP_MS = 1500;
 
 export interface RaceClient {
   id: number;
@@ -91,6 +94,12 @@ export class Race {
   laps: number = ENDURANCE.start;
   /** The Grand Prix under way: its round and cup table (null between cups). */
   gp: GpState | null = null;
+  /**
+   * The custom map the host picked (custommap.ts; `track` is then its `custom:` id), or null for a built-in track. It
+   * rides on `room` and `load`, so every client registers it before building it. It pays nothing and keeps no times.
+   */
+  map: CustomMap | null = null;
+  private mapAt = -Infinity;
   /** The last round's results are in. */
   private gpFinal = false;
   /** The record ghost for `ghostOf` (null: that track has none), fetched when the host wants it. */
@@ -270,11 +279,25 @@ export class Race {
         // A Grand Prix runs its cup's.
         if (c.id === this.hostId && this.phase === 'lobby' && !isGp(this.mode) && Object.hasOwn(TRACK_DEFS, msg.track) && modeTracks(this.mode).includes(msg.track)) {
           this.track = msg.track;
+          this.map = null;
           this.broadcastRoom();
           this.onChange(this);
           this.fetchGhost();
         }
         break;
+      case 'map': {
+        // A custom map from the map builder: only a race or a time trial, checked here (the room builds it too).
+        if (!host || this.phase !== 'lobby' || !MAP_MODES.includes(this.mode) || this.now() - this.mapAt < MAP_GAP_MS) return;
+        this.mapAt = this.now();
+        const map = cleanMap(msg.map);
+        // (No `error` back: a lobby treats one as the room going away. The builder and the lobby check before sending.)
+        if (!map || !checkMap(map).ok) return;
+        this.map = map;
+        this.track = registerMap(map);
+        this.broadcastRoom();
+        this.onChange(this);
+        break;
+      }
       case 'mode':
         if (c.id === this.hostId && this.phase === 'lobby' && Object.hasOwn(RACE_MODES, msg.mode) && msg.mode !== this.mode) {
           this.mode = msg.mode;
@@ -282,9 +305,13 @@ export class Race {
           // A time trial wants a lap to learn: switching to one puts its ring up (the host can still pick another).
           // A hill climb runs on its mountain; leaving one comes back down to the passes. A Grand Prix shows its cup's first round.
           // Free roam drives the open world, and leaving it comes back to the passes.
-          if (isGp(msg.mode)) this.track = CUPS[this.cup].tracks[0];
-          // Endurance keeps a circuit that's already up.
-          else if ((msg.mode !== 'race' && msg.mode !== 'endurance') || !modeTracks(msg.mode).includes(this.track)) this.track = MODE_TRACK[msg.mode];
+          // A custom map stays up in another mode that runs one; any other mode goes back to the built-in tracks.
+          if (this.map && !MAP_MODES.includes(msg.mode)) this.map = null;
+          if (!this.map) {
+            if (isGp(msg.mode)) this.track = CUPS[this.cup].tracks[0];
+            // Endurance keeps a circuit that's already up.
+            else if ((msg.mode !== 'race' && msg.mode !== 'endurance') || !modeTracks(msg.mode).includes(this.track)) this.track = MODE_TRACK[msg.mode];
+          }
           if (msg.mode === 'roam') for (const bot of this.cpus) this.members.delete(bot.client.id);
           // A Team Grand Prix starts with the grid split evenly; racers can swap before the cup starts.
           if (msg.mode === 'team') this.balanceTeams();
@@ -513,7 +540,7 @@ export class Race {
     for (const m of this.members.values()) m.raceCar = cars[m.client.id];
     // (Endurance has no record ghost: the record is the circuit's own distance, not this one.)
     const ghost = this.ghost && !isGp(this.mode) && this.mode !== 'roam' && this.mode !== 'royale' && this.mode !== 'endurance' && this.ghostOf === this.track ? this.ghostRun : null;
-    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.crashing(), ghost, ...(this.gp ? { gp: this.gp } : {}), ...(this.mode === 'endurance' ? { laps: this.laps } : {}) });
+    this.broadcast({ t: 'load', track: this.track, mode: this.mode, grid, timeoutMs: RACE.loadTimeoutMs, rule, cars, physics: this.crashing(), ghost: this.map ? null : ghost, ...(this.gp ? { gp: this.gp } : {}), ...(this.mode === 'endurance' ? { laps: this.laps } : {}), ...(this.map ? { map: this.map } : {}) });
     this.broadcastRoom();
     this.onChange(this);
   }
@@ -575,6 +602,8 @@ export class Race {
       const among = m.time === null ? 0 : peopleDone.indexOf(m) + 1;
       const base = cpus ? Math.max(payout(among, people, this.track, false), payout(place, field.length, this.track, true)) : payout(place, field.length, this.track, false);
       const prize = base + bonus.drift;
+      // A custom map is for fun: no money and no XP (anyone could build a 400 m map to farm).
+      if (this.map) return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize: 0, drift: m.drift, bonus: { drift: 0 }, xp: 0 };
       return { id: m.client.id, name: m.client.name, car: m.raceCar, time: m.time, best: m.best, place, prize, drift: m.drift, bonus, xp: raceXp(place, field.length, m.drift, false) };
     });
     this.phase = 'results';
@@ -593,7 +622,8 @@ export class Race {
     }
     this.broadcast({ t: 'results', track: this.track, mode: this.mode, rows, ...(gp ? { gp } : {}) });
     const tapes = new Map<number, GhostTape>(done.map((m) => [m.client.id, { car: m.raceCar, rider: m.client.rider, d: m.rec.d }]));
-    const kept = this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track, tapes, this.mode);
+    // (A custom map's results go nowhere: no prizes, no best times, no record ghost.)
+    const kept = this.map ? null : this.onResults(rows, new Set(field.filter((m) => m.client.user).map((m) => m.client.id)), this.track, tapes, this.mode);
     // Best times are kept after the fact; once they are, fetch the record ghost again, so the next run (Race again,
     // Restart, or from the lobby) races a record this one may have just set.
     if (kept instanceof Promise) {
@@ -769,12 +799,12 @@ export class Race {
   room(): Extract<RaceServerMsg, { t: 'room' }> {
     const racers: Racer[] = [...this.members.values()].map((m) => ({ id: m.client.id, name: m.client.name, car: m.client.car, rider: m.client.rider, user: m.client.user, ...(m.cpu ? { cpu: true } : {}), ...(m.pit ? { pit: true } : {}), ...(m.racing && this.mode === 'roam' ? { roaming: true } : {}), ...(this.mode === 'team' ? { team: m.team } : {}) }));
     const record = this.ghostOf === this.track && this.ghostRun ? { name: this.ghostRun.name, time: this.ghostRun.time } : null;
-    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers, cup: this.cup, gp: isGp(this.mode) ? this.gp : null, ...(this.solo ? { solo: true as const } : {}), laps: this.laps };
+    return { t: 'room', code: this.code, hostId: this.hostId, track: this.track, mode: this.mode, cars: this.cars, physics: this.physics, ghost: this.ghost, record, phase: this.phase, racers, cup: this.cup, gp: isGp(this.mode) ? this.gp : null, ...(this.solo ? { solo: true as const } : {}), laps: this.laps, ...(this.map ? { map: this.map } : {}) };
   }
 
   /** The host wants the record ghost: fetch the current track's (the lobby shows whose it is, or that there's none). */
   fetchGhost(): Promise<void> {
-    if (!this.ghost || !this.ghostSource) return Promise.resolve();
+    if (!this.ghost || !this.ghostSource || this.map) return Promise.resolve();
     const track = this.track;
     return this.ghostSource(track).then(
       (run) => {

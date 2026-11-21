@@ -1875,6 +1875,11 @@ export function getTrack(id: TrackId, laps?: number): Track {
   return t;
 }
 
+/** Drops a track's builds (every lap count) from the cache: custom maps (custommap.ts) come and go. */
+export function forgetTrack(id: TrackId) {
+  for (const k of [...cache.keys()]) if (k === id || k.startsWith(`${id}×`)) cache.delete(k);
+}
+
 /** Every race track: all but the open world (free roam's island, which has no start or finish). */
 export const RACE_TRACKS = (Object.keys(TRACK_DEFS) as TrackId[]).filter((id) => !TRACK_DEFS[id].world);
 

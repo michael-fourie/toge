@@ -3,6 +3,7 @@
 
 import type { DriveOpts } from '../../client/menu/router.ts';
 import type { RaceClientMsg, RaceLobbyInfo, RaceServerMsg } from '../shared/protocol.ts';
+import { cleanMap, registerMap } from '../shared/custommap.ts';
 
 type Room = Extract<RaceServerMsg, { t: 'room' }>;
 type Listener = (msg: RaceServerMsg) => void;
@@ -61,6 +62,11 @@ export class RaceNet {
     ws.onopen = () => (opened = true);
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data) as RaceServerMsg;
+      // A custom map rides on `room` and `load`: put its track in TRACK_DEFS before anyone looks it up.
+      if ((msg.t === 'room' || msg.t === 'load') && msg.map) {
+        const map = cleanMap(msg.map);
+        if (map) msg.track = registerMap(map);
+      }
       if (msg.t === 'welcome') this.id = msg.id;
       if (msg.t === 'room') this.room = msg;
       this.emit(msg);

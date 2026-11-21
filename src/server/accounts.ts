@@ -8,6 +8,8 @@ import type { ClubAction, ClubResult, ClubView } from '../shared/clubs.ts';
 import { AccountStore, type ResetResult, type Result } from './accountStore.ts';
 import { FriendStore } from './friendStore.ts';
 import { ClubStore } from './clubStore.ts';
+import { MapStore } from '../kanjo/server/mapStore.ts';
+import type { MapAction, SavedMap } from '../kanjo/shared/custommap.ts';
 import { GarageStore } from '../kanjo/server/garageStore.ts';
 import { type ClearReport, RecordStore } from '../kanjo/server/recordStore.ts';
 import { Limiter } from './limiter.ts';
@@ -31,6 +33,7 @@ export class Accounts extends DurableObject {
   private records = new RecordStore(this.ctx.storage);
   private friendStore = new FriendStore(this.ctx.storage);
   private clubStore = new ClubStore(this.ctx.storage, this.friendStore);
+  private mapStore = new MapStore(this.ctx.storage);
   /** Per IP: password guesses (on top of the per-username lockout), and sign-ups (each one is a costly hash). */
   private logins = new Limiter(10, 1 / 6);
   private signups = new Limiter(5, 1 / 600);
@@ -38,6 +41,8 @@ export class Accounts extends DurableObject {
   private friendActs = new Limiter(20, 1 / 3);
   /** Per account: club actions (adding a member says whether a username is a friend). */
   private clubActs = new Limiter(20, 1 / 3);
+  /** Per account: saving and deleting custom maps (the builder saves when you ask, not as you type). */
+  private mapActs = new Limiter(20, 1 / 2);
 
   register(username: string, password: string, ip = ''): Promise<Result> {
     if (!this.signups.take(ip)) return Promise.resolve({ ok: false, error: 'Too many new accounts from here. Try again later.' });
@@ -149,6 +154,19 @@ export class Accounts extends DurableObject {
   async clubs(token: string | undefined): Promise<ClubView[] | null> {
     const user = await this.store.me(token);
     return user ? this.clubStore.list(user) : null;
+  }
+
+  /** Your custom maps (the map builder), newest first; null for a guest. */
+  async maps(token: string | undefined): Promise<SavedMap[] | null> {
+    const user = await this.store.me(token);
+    return user ? this.mapStore.list(user) : null;
+  }
+
+  async mapAct(token: string | undefined, action: MapAction): Promise<{ ok: true; maps: SavedMap[] } | { ok: false; error: string }> {
+    const user = await this.store.me(token);
+    if (!user) return { ok: false, error: 'Sign in to keep maps on your account.' };
+    if (!this.mapActs.take(user.toLowerCase())) return { ok: false, error: 'Slow down a little.' };
+    return this.mapStore.act(user, action, Date.now());
   }
 
   async clubAct(token: string | undefined, action: ClubAction): Promise<ClubResult> {

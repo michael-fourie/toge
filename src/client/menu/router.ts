@@ -6,8 +6,8 @@ import type { TrackId } from '../../kanjo/shared/track.ts';
 import type { GhostRun } from '../../kanjo/shared/ghost.ts';
 import type { RaceNet } from '../../kanjo/client/racenet.ts';
 
-/** `drive` is the landing page (KANJO's garage / home), `drivelobby` a race lobby, `game` a race in progress. */
-export type ScreenName = 'drive' | 'drivelobby' | 'account' | 'game';
+/** `drive` is the landing page (KANJO's garage / home), `drivelobby` a race lobby, `maps` the map builder, `game` a race in progress. */
+export type ScreenName = 'drive' | 'drivelobby' | 'account' | 'maps' | 'game';
 
 export interface Screen {
   name: ScreenName;
@@ -38,6 +38,8 @@ export interface DriveOpts {
   gp?: GpState;
   /** Watch this track record's run instead of racing (the leaderboard's Watch; racegame.ts `watch`). */
   watch?: GhostRun;
+  /** A test drive from the map builder: leaving the race goes back to the builder. */
+  test?: boolean;
 }
 
 /** Renders into `root`; may return a cleanup that runs when the screen is left. */

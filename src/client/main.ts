@@ -1,6 +1,7 @@
 import { type Ctx, type DriveOpts, type Render, type Screen, type ScreenName, createRouter } from './menu/router.ts';
 import { driveHub } from '../kanjo/client/hub.ts';
 import { driveLobby } from '../kanjo/client/lobby.ts';
+import { mapBuilder } from '../kanjo/client/mapbuilder.ts';
 import { RaceGame } from '../kanjo/client/racegame.ts';
 import { showKanjoLoading } from '../kanjo/client/loading.ts';
 import { garage } from '../kanjo/client/garageStore.ts';
@@ -12,7 +13,7 @@ import { playerName } from './menu/ui.ts';
 import { setupTouchPage } from './touch.ts';
 
 const app = document.getElementById('app')!;
-const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { drive: driveHub, drivelobby: driveLobby, account: accountScreen };
+const SCREENS: Record<Exclude<ScreenName, 'game'>, Render> = { drive: driveHub, drivelobby: driveLobby, account: accountScreen, maps: mapBuilder };
 
 /** The race running full screen, if any. Browser Back leaves it. */
 let game: { exit(): void } | null = null;
@@ -91,8 +92,8 @@ async function drive(opts: DriveOpts, again = false) {
     watch: opts.watch,
     onExit: (to, notice) => {
       game = null;
-      // Back from watching a record: the leaderboard again, on that track.
-      router.replace(to === 'lobby' ? { name: 'drivelobby' } : { name: 'drive', notice, ...(opts.watch ? { board: opts.track } : {}) });
+      // Back from watching a record: the leaderboard again, on that track. Back from a test drive: the map builder.
+      router.replace(to === 'lobby' ? { name: 'drivelobby' } : opts.test ? { name: 'maps' } : { name: 'drive', notice, ...(opts.watch ? { board: opts.track } : {}) });
     },
     // The host raced again from the results: on to the next race.
     onNext: (next) => {

@@ -7,7 +7,7 @@
 import { CARS, CLASS_COLORS, PAINTS, PAINT_NAMES, carSpec, decodeCar, encodeCar, isBike, peakPower, rating } from '../shared/cars.ts';
 import { current } from '../shared/garage.ts';
 import { lapsLabel, raceKm } from './loadingcopy.ts';
-import { ENDURANCE, PHYSICS, RACE, RACE_MODES, TEAMS, cleanLaps, isGp, modeTracks, recordMode, type RaceMode, type RaceServerMsg, type Team } from '../shared/protocol.ts';
+import { ENDURANCE, MAP_MODES, PHYSICS, RACE, RACE_MODES, TEAMS, cleanLaps, isGp, modeTracks, recordMode, type RaceMode, type RaceServerMsg, type Team } from '../shared/protocol.ts';
 import { TRACK_DEFS, type TrackId } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
 import { copy, esc, playerName } from '../../client/menu/ui.ts';
@@ -23,6 +23,9 @@ import { CUP_IDS, CUPS, roundsOf, type CupId } from '../shared/cups.ts';
 import { TRACK_LENGTH_KM } from '../shared/garage.ts';
 import { encodeRider } from '../shared/rider.ts';
 import { CREW_PORTRAIT, racerPortrait, releasePortraits, riderPortrait } from './riderportrait.ts';
+import { type SavedMap, checkMap, isCustomTrack, mapTrackId } from '../shared/custommap.ts';
+import { mapApi, mapSvg } from './mapstore.ts';
+import { THEME_ART } from './trackart.ts';
 import './race.css';
 import './hub.css';
 
@@ -39,6 +42,14 @@ const face = (rider: string, ready: () => void) => {
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
+/** A saved custom map as a track tile (the host's Your maps row): its theme's sky, its shape, name and kind. */
+const mapTile = (s: SavedMap, attrs: string) => {
+  const a = THEME_ART[s.map.theme];
+  return `<button class="tg-track tg-track-map ${s.map.theme}" style="--sky1:${a.sky[0]};--sky2:${a.sky[1]};--accent:${a.accent};--art:url(/race/backdrops/${s.map.theme}.webp)" ${attrs}>
+    <span class="tg-track-art" aria-hidden="true"></span><span class="tg-map">${mapSvg(s.map)}</span>
+    <b>${esc(s.map.name)}</b><small>${s.map.loop ? `Circuit · ${s.map.laps} laps` : 'Point to point'}</small></button>`;
+};
+
 /** How long a fetched board stays fresh in the lobby before the next redraw asks again (a lobby can sit a while). */
 const BOARD_FRESH_MS = 60_000;
 
@@ -49,6 +60,10 @@ export const driveLobby: Render = (root, ctx, screen) => {
   root.innerHTML = '<div data-lobby-view><main class="tg tg-lobby" aria-label="Race lobby" tabindex="-1"></main></div>';
   const view = root.querySelector<HTMLElement>('.tg-lobby')!;
   let busy = false;
+  /** The host's saved custom maps (the map builder), for the Your maps row; fetched once. */
+  let myMaps: SavedMap[] | null = null;
+  let mapsAsked = false;
+  let mapNote = '';
   // A deep link (/?race=CODE) or a reload: connect first.
   if (!raceNet.connected) {
     if (screen.code) raceNet.join(playerName(), encodeCar(current(garage.g)), encodeRider(garage.g.rider), screen.code);
@@ -91,7 +106,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
     const scroll = view.querySelector('.tg-lobby-body')?.scrollTop ?? 0;
     const isHost = room.hostId === raceNet.id;
     const focus = (document.activeElement as HTMLElement | null)?.dataset;
-    const focusKey = focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.random !== undefined ? '[data-random]' : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.swap ? `[data-swap="${focus.swap}"]` : focus?.team ? `[data-team="${focus.team}"]` : focus?.lapstep ? `[data-lapstep="${focus.lapstep}"]` : focus?.lapset ? `[data-lapset="${focus.lapset}"]` : focus?.lapin !== undefined ? '[data-lapin]' : null;
+    const focusKey = focus?.map ? `[data-map="${focus.map}"]` : focus?.pick ? `[data-pick="${focus.pick}"]` : focus?.random !== undefined ? '[data-random]' : focus?.cup ? `[data-cup="${focus.cup}"]` : focus?.mode ? `[data-mode="${focus.mode}"]` : focus?.physics ? `[data-physics="${focus.physics}"]` : focus?.start !== undefined ? '[data-start]' : focus?.addcpu !== undefined ? '[data-addcpu]' : focus?.swap ? `[data-swap="${focus.swap}"]` : focus?.team ? `[data-team="${focus.team}"]` : focus?.lapstep ? `[data-lapstep="${focus.lapstep}"]` : focus?.lapset ? `[data-lapset="${focus.lapset}"]` : focus?.lapin !== undefined ? '[data-lapin]' : null;
     const max = RACE.maxPlayers;
     // Free roam: the open world, no CPU racers, no record ghost, and friends can drive in while it's on.
     const roam = room.mode === 'roam';
@@ -176,7 +191,8 @@ export const driveLobby: Render = (root, ctx, screen) => {
               <div class="tg-row tg-laps-picks">${LAP_PICKS.map((n) => `<button class="tg-pill" data-lapset="${n}" aria-pressed="${n === laps}" ${off}>${lapsLabel(n)}</button>`).join('')}</div>
             </div>`
       : '';
-    const ghostNote = gp || roam || royale || endurance || !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
+    const custom = isCustomTrack(room.track);
+    const ghostNote = gp || roam || royale || endurance || custom || !room.ghost ? '' : room.record ? `<p class="tg-muted tg-ghost-note">Ghost: <b>${esc(room.record.name)}</b> · <span class="tg-num">${fmtTime(room.record.time)}</span>, the record on ${esc(TRACK_DEFS[room.track].name)}.</p>` : `<p class="tg-muted tg-ghost-note">No ghost on ${esc(TRACK_DEFS[room.track].name)} yet: the next record set here leaves one.</p>`;
     const state =
       room.phase === 'lobby'
         ? isHost
@@ -191,10 +207,12 @@ export const driveLobby: Render = (root, ctx, screen) => {
     if (room.phase === 'lobby' && lastPhase && lastPhase !== 'lobby') boards.delete(room.track);
     lastPhase = room.phase;
     // Free roam's open world keeps no times, so it has no board.
-    const board = d.world ? null : boardFor(room.track);
+    const board = d.world || custom ? null : boardFor(room.track);
     const leaderboard = d.world
       ? ''
-      : lobbyBoard({
+      : custom
+        ? `<p class="tg-note tg-lobby-custom">A custom map from the map builder: just for fun. Races here pay nothing and keep no best times.</p>`
+        : lobbyBoard({
           track: room.track,
           rows: board?.rows ?? null,
           failed: !!board && !board.rows,
@@ -202,12 +220,27 @@ export const driveLobby: Render = (root, ctx, screen) => {
           here: new Set(room.racers.filter((r) => !r.cpu).map((r) => r.name.toLowerCase())),
           counts: recordMode(room.mode),
         });
+    // Your maps: the host's own custom maps, in a race or a time trial.
+    const mapModes = MAP_MODES.includes(room.mode);
+    if (isHost && mapModes && !mapsAsked) {
+      mapsAsked = true;
+      void mapApi.list().then((l) => {
+        myMaps = l;
+        redraw();
+      });
+    }
+    const yourMaps =
+      isHost && mapModes && !gp
+        ? `<h2 class="tg-h">Your maps <small>built in the map builder</small></h2>
+            ${myMaps === null ? '<p class="tg-muted">Loading your maps…</p>' : myMaps.length ? `<div class="tg-tracks">${myMaps.map((s) => mapTile(s, `data-map="${s.id}" aria-pressed="${mapTrackId(s.map) === room.track}" ${canPick ? '' : 'disabled'}`)).join('')}</div>` : '<p class="tg-muted">None yet. Build one from the garage: Map builder, then save it.</p>'}
+            ${mapNote ? `<p class="tg-status" role="status">${esc(mapNote)}</p>` : ''}`
+        : '';
     crewShown = new Set(room.racers.map((r) => r.id));
     view.innerHTML = `
         <header class="tg-top">
           <button class="tg-home" data-back aria-label="Leave the lobby">${ICON.back}</button>
           ${LOGO}
-          <div class="tg-lobby-title">${gp ? `${teamMode ? 'Team Grand Prix · ' : ''}${esc(CUPS[room.cup].name)}` : endurance ? `Endurance · ${lapsLabel(laps)}` : `${RACE_MODES[room.mode].name} lobby`}${crashOn ? (survival ? ' · Survival' : ' · Physics') : ''}${room.ghost && !gp && !roam && !royale && !endurance ? ' · Record ghost' : ''}</div>
+          <div class="tg-lobby-title">${custom ? 'Custom map · ' : ''}${gp ? `${teamMode ? 'Team Grand Prix · ' : ''}${esc(CUPS[room.cup].name)}` : endurance ? `Endurance · ${lapsLabel(laps)}` : `${RACE_MODES[room.mode].name} lobby`}${crashOn ? (survival ? ' · Survival' : ' · Physics') : ''}${room.ghost && !custom && !gp && !roam && !royale && !endurance ? ' · Record ghost' : ''}</div>
           <div class="tg-roomcode"><small>Race<br />code</small><b class="tg-bigcode">${esc(room.code)}</b></div>
         </header>
         <section class="tg-lobby-body${isHost ? '' : ' guest'}">
@@ -236,6 +269,7 @@ export const driveLobby: Render = (root, ctx, screen) => {
                 : `<h2 class="tg-h">Track ${canPick ? '<small>you pick</small>' : ''}</h2>
             <div class="tg-tracks">${tracks}</div>`
             }
+            ${yourMaps}
           </div>
           <div class="tg-lobby-col">
             <h2 class="tg-h">Your car</h2>
@@ -253,6 +287,17 @@ export const driveLobby: Render = (root, ctx, screen) => {
         </section>`;
     view.querySelector('.tg-lobby-body')!.scrollTop = scroll;
     view.querySelectorAll<HTMLElement>('[data-pick]').forEach((b) => b.addEventListener('click', () => raceNet.send({ t: 'track', track: b.dataset.pick as TrackId })));
+    view.querySelectorAll<HTMLElement>('[data-map]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const s = myMaps?.find((x) => x.id === b.dataset.map);
+        if (!s) return;
+        // The room checks it too; checking here first says what's wrong instead of nothing happening.
+        const c = checkMap(s.map);
+        mapNote = c.ok ? '' : `${s.map.name} can't be raced yet: ${c.errors[0]?.msg ?? 'open it in the map builder.'}`;
+        if (c.ok) raceNet.send({ t: 'map', map: s.map });
+        else draw();
+      }),
+    );
     view.querySelector('[data-random]')?.addEventListener('click', () => {
       const others = pool.filter((id) => id !== room.track);
       raceNet.send({ t: 'track', track: others[Math.floor(Math.random() * others.length)] });

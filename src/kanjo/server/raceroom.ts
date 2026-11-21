@@ -5,8 +5,8 @@ import { Limiter } from '../../server/limiter.ts';
 import { Race, type RaceClient, sendTo } from './race.ts';
 import type { Env } from '../../server/worker.ts';
 
-/** Room for the host's `cpus` message (up to seven CPU racers' poses at once). */
-const MAX_MESSAGE_BYTES = 4096;
+/** Room for the host's `cpus` message (up to seven CPU racers' poses at once) and a custom map (custommap.ts MAP.maxBytes). */
+const MAX_MESSAGE_BYTES = 8192;
 /** Messages a client may send per second (with a burst of twice that); a car sends 20 poses a second. Poses are relayed at once, so a flood would be everyone's problem. */
 const MAX_MESSAGES_PER_SECOND = 60;
 
@@ -79,7 +79,7 @@ export class RaceRoom extends DurableObject<Env> {
     if (this.race) return this.race;
     this.race = new Race(
       code,
-      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, ...(isGp(r.mode) ? { cup: r.cup } : {}), ...(r.mode === 'endurance' ? { laps: r.laps } : {}), ...(r.solo ? { solo: true } : {}), physics: r.physics, phase: r.phase, players: r.humans, max: r.solo ? 1 : RACE.maxPlayers })),
+      (r) => this.ctx.waitUntil(dir.reportRace({ code: r.code, host: r.hostName, track: r.track, mode: r.mode, ...(r.map ? { mapName: r.map.name } : {}), ...(isGp(r.mode) ? { cup: r.cup } : {}), ...(r.mode === 'endurance' ? { laps: r.laps } : {}), ...(r.solo ? { solo: true } : {}), physics: r.physics, phase: r.phase, players: r.humans, max: r.solo ? 1 : RACE.maxPlayers })),
       (r) => {
         this.race = null;
         this.ctx.waitUntil(dir.remove(r.code));

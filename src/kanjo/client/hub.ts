@@ -353,6 +353,10 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
           <span class="tg-hc-eyebrow">All-time boards</span>
           <span class="tg-hc-row"><span class="tg-hc-copy"><b class="tg-title">Leaderboard</b><small>Records, medals and where you stand</small></span>${beaten}<span class="tg-hc-go" aria-hidden="true">${ICON.back}</span></span>
         </button>
+        <button class="tg-hc tg-hc-maps" data-maps-open aria-label="Open the map builder">
+          <span class="tg-hc-eyebrow">Build your own</span>
+          <span class="tg-hc-row"><span class="tg-hc-copy"><b class="tg-title">Map builder</b><small>Lay out a road, test drive it, race it online</small></span><span class="tg-hc-go" aria-hidden="true">${ICON.back}</span></span>
+        </button>
         <dl class="tg-hc tg-hc-stats">
           <div><dt>Races</dt><dd class="tg-num">${g.races}</dd></div>
           <div><dt>Wins</dt><dd class="tg-num">${g.wins}</dd></div>
@@ -708,6 +712,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     panel.querySelector('[data-lb-open]')?.addEventListener('click', openLb);
     panel.querySelectorAll<HTMLElement>('[data-lb-watch]').forEach((b) => b.addEventListener('click', () => void watchRecord(b.dataset.lbWatch as TrackId)));
     panel.querySelector('[data-pass-open]')?.addEventListener('click', () => switchPage('pass'));
+    panel.querySelector('[data-maps-open]')?.addEventListener('click', () => ctx.go({ name: 'maps' }));
     panel.querySelector('[data-lbm-close]')?.addEventListener('click', closeLb);
     panel.querySelector('[data-host]')?.addEventListener('click', () => connect(null));
     const code = panel.querySelector<HTMLInputElement>('[data-code]');
@@ -1202,7 +1207,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
             .map((l) => {
               const full = l.players >= l.max;
               const state = l.phase === 'lobby' ? '' : l.mode === 'roam' ? ' · driving, drop in' : ' · racing';
-              return `<li><b>${esc(l.code)}</b><span><strong>${esc(l.host)}'s ${esc(lobbyMode(l))}${l.physics ? ' · physics' : ''}</strong><small>${esc(TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${state}</small></span><button class="tg-pill" data-joincode="${esc(l.code)}" ${full ? 'disabled' : ''}>${full ? 'Full' : 'Join'}</button></li>`;
+              return `<li><b>${esc(l.code)}</b><span><strong>${esc(l.host)}'s ${esc(lobbyMode(l))}${l.physics ? ' · physics' : ''}</strong><small>${esc(l.mapName ?? TRACK_DEFS[l.track]?.name ?? '')} · ${l.players}/${l.max}${state}</small></span><button class="tg-pill" data-joincode="${esc(l.code)}" ${full ? 'disabled' : ''}>${full ? 'Full' : 'Join'}</button></li>`;
             })
             .join('')
         : `<li class="muted">No open races right now. Host one and share the code.</li>`;
@@ -1315,7 +1320,7 @@ function focusId(el: Element | null): string | null {
   if (dl) return el.hasAttribute('data-pick') ? `input[data-dl="${dl}"]` : `button[data-dl="${dl}"][data-v="${el.getAttribute('data-v')}"]`;
   if (el.hasAttribute('data-dl-random')) return '[data-dl-random]';
   for (const attr of ['data-cr-undo', 'data-cr-reset']) if (el.hasAttribute(attr)) return `[${attr}]`;
-  for (const attr of ['data-cr-tab', 'data-cr-pose', 'data-lb-open', 'data-pass-open', 'data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-case-inside', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
+  for (const attr of ['data-cr-tab', 'data-cr-pose', 'data-lb-open', 'data-pass-open', 'data-maps-open', 'data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-case-inside', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }
