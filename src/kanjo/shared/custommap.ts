@@ -37,6 +37,85 @@ export const MAP_TRAFFIC: Record<MapTraffic, { name: string; blurb: string; widt
   highway: { name: 'Highway', blurb: 'Four lanes all going your way.', width: 16 },
 };
 
+/** How busy the traffic is: a multiplier on how many cars share the road (TrackDef.trafficDensity). */
+export const MAP_DENSITY = [
+  { name: 'Light', k: 0.55 },
+  { name: 'Normal', k: 1 },
+  { name: 'Heavy', k: 1.6 },
+] as const;
+
+/**
+ * Scenery a player places by hand (Michael, 2026-11-21: "Can they add traffic to the maps and decorations"). Everything
+ * but the road group stands off the road and is only looked at (scenery.ts draws it from the game's own props); the
+ * road group are the track props (props.ts: cones you smash through, barrels and bales that stop you), so they go on
+ * the road, point-to-point maps only, like every prop. `r` is the footprint (m): what keeps it off the road and the
+ * forest off it.
+ */
+export type DecoGroup = 'nature' | 'buildings' | 'roadside' | 'lights' | 'landmarks' | 'road';
+export const DECO_GROUPS: { id: DecoGroup; name: string }[] = [
+  { id: 'nature', name: 'Nature' },
+  { id: 'buildings', name: 'Buildings' },
+  { id: 'roadside', name: 'Roadside' },
+  { id: 'lights', name: 'Lights' },
+  { id: 'landmarks', name: 'Landmarks' },
+  { id: 'road', name: 'On the road' },
+];
+export const DECOS = {
+  tree: { name: 'Tree', group: 'nature', r: 2.5 },
+  pine: { name: 'Second tree', group: 'nature', r: 2.5 },
+  rock: { name: 'Rock pillar', group: 'nature', r: 3 },
+  house: { name: 'House', group: 'buildings', r: 6 },
+  barn: { name: 'Barn', group: 'buildings', r: 6.5 },
+  tower: { name: 'Tower block', group: 'buildings', r: 9 },
+  stand: { name: 'Grandstand', group: 'buildings', r: 19 },
+  sign: { name: 'Speed sign', group: 'roadside', r: 0.6 },
+  board: { name: 'Sponsor board', group: 'roadside', r: 3.2 },
+  pole: { name: 'Telegraph pole', group: 'roadside', r: 1.2 },
+  lamp: { name: 'Street lamp', group: 'lights', r: 0.8 },
+  flood: { name: 'Floodlight', group: 'lights', r: 1.6 },
+  lantern: { name: 'Stone lantern', group: 'lights', r: 0.8 },
+  torii: { name: 'Torii gate', group: 'landmarks', r: 3.5 },
+  shrine: { name: 'Shrine', group: 'landmarks', r: 3 },
+  pagoda: { name: 'Pagoda', group: 'landmarks', r: 6 },
+  lighthouse: { name: 'Lighthouse', group: 'landmarks', r: 4 },
+  windmill: { name: 'Windmill', group: 'landmarks', r: 4 },
+  watertower: { name: 'Water tower', group: 'landmarks', r: 3.5 },
+  mast: { name: 'Radio mast', group: 'landmarks', r: 4 },
+  wheel: { name: 'Big wheel', group: 'landmarks', r: 15 },
+  boat: { name: 'Boat', group: 'landmarks', r: 6 },
+  cone: { name: 'Cone', group: 'road', r: 0.28 },
+  barrel: { name: 'Barrel', group: 'road', r: 0.48 },
+  bale: { name: 'Hay bale', group: 'road', r: 0.8 },
+} as const satisfies Record<string, { name: string; group: DecoGroup; r: number }>;
+export type DecoKind = keyof typeof DECOS;
+export const isRoadDeco = (k: DecoKind) => DECOS[k].group === 'road';
+/**
+ * A placed piece: what, where (x, z in metres), which way it faces (degrees; 0 faces -z, like a yaw of 0) and, for
+ * scenery, how big (1 when left off; road props keep their size, since their size is their collision).
+ */
+export type MapDeco = [kind: DecoKind, x: number, z: number, yaw: number, scale?: number];
+/** How far a piece of scenery can be scaled down or up. */
+export const DECO_SCALE = { min: 0.5, max: 3 };
+const decoScale = (d: MapDeco) => d[4] ?? 1;
+
+/**
+ * Whether a piece of scenery would stand on the road (it's left out: nothing solid off the props list may block
+ * a racer). Measured from the nearest centreline, with a little verge.
+ */
+export const decoOnRoad = (t: Track, kind: DecoKind, x: number, z: number, scale = 1) => !isRoadDeco(kind) && centreGap(t, x, z) < t.half + DECOS[kind].r * scale + 1;
+/**
+ * How far (m) a spot is from the nearest sample of the road's centreline, any road of it. Exact to a sample, unlike
+ * track.ts `roadDistance` (a coarse grid for the terrain, metres out right by the road).
+ */
+export function centreGap(t: Track, x: number, z: number): number {
+  let bd = Infinity;
+  for (let i = 0; i < t.x.length; i++) {
+    const d = (t.x[i] - x) ** 2 + (t.z[i] - z) ** 2;
+    if (d < bd) bd = d;
+  }
+  return Math.sqrt(bd);
+}
+
 /** How tall the hills round the road grow (TrackDef.relief). */
 export const MAP_TERRAIN = [
   { name: 'Flat', relief: 30 },
@@ -98,6 +177,10 @@ export interface CustomMap {
   features: MapFeature[];
   props: MapProps;
   traffic: MapTraffic;
+  /** MAP_DENSITY index: how busy the traffic is. */
+  density: number;
+  /** Scenery and road props placed by hand (DECOS). */
+  deco: MapDeco[];
   /** Crash damage always on (a survival road: knocks and landings soaked as on Jigoku Drop). */
   survival: boolean;
   /** Circuits only: a floating sky road, no walls, fall off and respawn. */
@@ -130,8 +213,10 @@ export const MAP = {
   tightRadius: 14,
   /** How many maps an account (or this browser, for a guest) keeps. */
   maxSaved: 30,
-  /** A map's JSON at most this long (it goes in a socket message). */
-  maxBytes: 6000,
+  /** Pieces of scenery and road props a map can hold. */
+  maxDeco: 300,
+  /** A map's JSON at most this long (it goes in a socket message: raceroom.ts MAX_MESSAGE_BYTES is above it). */
+  maxBytes: 16000,
 };
 
 /** Rounded the way maps are stored, so the same road always gives the same id. */
@@ -190,6 +275,19 @@ export function cleanMap(x: unknown): CustomMap | null {
   }
   const props = Object.hasOwn(MAP_PROPS, m.props as string) ? (m.props as MapProps) : 'clean';
   const traffic = !loop && Object.hasOwn(MAP_TRAFFIC, m.traffic as string) ? (m.traffic as MapTraffic) : 'none';
+  const deco: MapDeco[] = [];
+  if (Array.isArray(m.deco))
+    for (const d of m.deco) {
+      if (deco.length >= MAP.maxDeco) break;
+      if (!Array.isArray(d) || (d.length !== 4 && d.length !== 5) || !Object.hasOwn(DECOS, d[0]) || !num(d[1]) || !num(d[2]) || !num(d[3])) continue;
+      const kind = d[0] as DecoKind;
+      // Road props are point-to-point only, like every prop on a built-in track.
+      if (loop && isRoadDeco(kind)) continue;
+      const piece: MapDeco = [kind, r1(clamp(d[1], -MAP.reach, MAP.reach)), r1(clamp(d[2], -MAP.reach, MAP.reach)), ((Math.round(d[3]) % 360) + 360) % 360];
+      const scale = num(d[4]) && !isRoadDeco(kind) ? Math.round(clamp(d[4], DECO_SCALE.min, DECO_SCALE.max) * 20) / 20 : 1;
+      if (scale !== 1) piece.push(scale);
+      deco.push(piece);
+    }
   return {
     v: 1,
     name,
@@ -204,6 +302,8 @@ export function cleanMap(x: unknown): CustomMap | null {
     features,
     props: loop ? 'clean' : props,
     traffic,
+    density: Math.round(clamp(num(m.density) ? m.density : 1, 0, MAP_DENSITY.length - 1)),
+    deco,
     survival: m.survival === true,
     sky: loop && m.sky === true,
   };
@@ -236,6 +336,8 @@ export function mapDef(m: CustomMap, id: TrackId = mapTrackId(m)): TrackDef {
         return { ...f } as Feature;
       });
   const traffic = m.traffic === 'town' ? true : m.traffic === 'highway' ? ('highway' as const) : undefined;
+  const decor = m.deco.filter((d) => !isRoadDeco(d[0])).map((d) => ({ kind: d[0], x: d[1], z: d[2], yaw: (d[3] * Math.PI) / 180, ...(decoScale(d) !== 1 ? { scale: decoScale(d) } : {}) }));
+  const placed = m.loop ? [] : m.deco.filter((d) => isRoadDeco(d[0])).map(([kind, x, z, yaw]) => ({ kind: kind as 'cone' | 'barrel' | 'bale', x, z, yaw: (yaw * Math.PI) / 180 }));
   return {
     id,
     name: m.name,
@@ -250,6 +352,9 @@ export function mapDef(m: CustomMap, id: TrackId = mapTrackId(m)): TrackDef {
     ...(m.loop ? { laps: m.laps } : {}),
     ...(m.sky ? { sky: true as const } : {}),
     ...(traffic ? { traffic } : {}),
+    ...(traffic && m.density !== 1 ? { trafficDensity: MAP_DENSITY[m.density].k } : {}),
+    ...(decor.length ? { decor } : {}),
+    ...(placed.length ? { placed } : {}),
     ...(m.survival ? { survival: { hit: 0.5, land: 0.15 } } : {}),
     ...(!m.loop && m.props === 'clean' ? { clean: true } : {}),
     ...(!m.loop && m.props === 'course' ? { obstacles: true as const } : {}),
@@ -370,9 +475,42 @@ export function checkMap(m: CustomMap): MapCheck {
       tight++;
       i += 40;
     }
+  // Scenery standing on the road is left out; road props off it too; and the props must leave a car's way through.
+  const onRoad = m.deco.filter((d) => decoOnRoad(t, d[0], d[1], d[2], decoScale(d)));
+  if (onRoad.length) warnings.push({ msg: `${onRoad.length === 1 ? 'A piece of scenery stands' : `${onRoad.length} pieces of scenery stand`} on the road: ${onRoad.length === 1 ? "it's" : "they're"} left out.`, at: [onRoad[0][1], onRoad[0][2]] });
+  if (m.sky && m.deco.length) warnings.push({ msg: 'A sky road has no scenery: what you placed is left out.' });
+  const off = m.deco.filter((d) => isRoadDeco(d[0]) && centreGap(t, d[1], d[2]) > t.half + 1);
+  if (off.length) warnings.push({ msg: `${off.length} road prop${off.length === 1 ? ' is' : 's are'} off the road: left out.`, at: [off[0][1], off[0][2]] });
+  const blocked = blockedAt(t);
+  if (blocked) errors.push({ msg: "Barrels and bales block the whole road here: leave a car's width through.", at: blocked });
+  const onGrid = t.props.find((p) => p.placed && p.s < t.startS + 25);
+  if (onGrid) warnings.push({ msg: 'A road prop sits on the starting grid: it\'s left out.', at: [onGrid.x, onGrid.z] });
   if (m.features.some((f) => f.kind === 'gap') && !m.survival) warnings.push({ msg: 'Gaps are harsher with crash damage on: think about turning on Survival.' });
   out.ok = errors.length === 0;
   return out;
+}
+
+/** A car's width plus room to steer: what the solid props across the road must leave clear (m). */
+const WAY_THROUGH = 2.8;
+
+/**
+ * Where solid props a player placed (barrels, bales) leave less than a car's way through the road, or null. Props
+ * within a few metres of each other along the road count as one wall across it.
+ */
+function blockedAt(t: Track): [number, number] | null {
+  const solid = t.props.filter((p) => p.placed && p.kind !== 'cone' && p.s >= t.startS + 25);
+  for (const p of solid) {
+    const spans = solid.filter((q) => Math.abs(q.s - p.s) < 4).map((q) => [q.d - q.r, q.d + q.r] as const).sort((a, b) => a[0] - b[0]);
+    let edge = -t.half;
+    let widest = 0;
+    for (const [a, b] of spans) {
+      widest = Math.max(widest, a - edge);
+      edge = Math.max(edge, b);
+    }
+    widest = Math.max(widest, t.half - edge);
+    if (widest < WAY_THROUGH) return [p.x, p.z];
+  }
+  return null;
 }
 
 /**
@@ -397,6 +535,49 @@ export function registerMap(m: CustomMap): TrackId {
   registered.push(id);
   while (registered.length > KEEP) forgetTrack(registered.shift()!);
   return id;
+}
+
+/**
+ * A part of a map to play on its own (the builder's Play from here / Play section): the road from point `a` to point
+ * `b`, as a point-to-point map with the features that fit inside it (point features strictly between the ends, ranges
+ * clipped to it). On a circuit, `b` past the last point wraps round; `b === null` plays the whole circuit from `a`
+ * (the points turned so `a` is the start, laps kept). The scenery stays where it was: what's off the new road is
+ * simply off it. Null when the part is too short to be a road.
+ */
+export function sectionMap(m: CustomMap, a: number, b: number | null): CustomMap | null {
+  const n = m.points.length;
+  if (a < 0 || a >= n) return null;
+  if (m.loop && b === null) return { ...m, points: [...m.points.slice(a), ...m.points.slice(0, a)].map((p) => [...p] as [number, number, number]), deco: m.deco.map((d) => [...d] as MapDeco) };
+  const end = b ?? n - 1;
+  const idx: number[] = [];
+  if (m.loop) {
+    const len = ((end - a + n) % n) + 1;
+    for (let k = 0; k < len; k++) idx.push((a + k) % n);
+  } else {
+    for (let k = a; k <= Math.min(end, n - 1); k++) idx.push(k);
+  }
+  if (idx.length < MAP.minPoints) return null;
+  const last = idx.length - 1;
+  const features: MapFeature[] = m.loop
+    ? []
+    : m.features.flatMap((f): MapFeature[] => {
+        if (isPointFeature(f)) return f.at > a && f.at - a < last ? [{ ...f, at: f.at - a }] : [];
+        const from = Math.max(f.from, a) - a;
+        const to = Math.min(f.to, a + last) - a;
+        return to > from ? [{ ...f, from, to }] : [];
+      });
+  return {
+    ...m,
+    loop: false,
+    laps: 1,
+    sky: false,
+    points: idx.map((k) => [...m.points[k]] as [number, number, number]),
+    features,
+    // Circuits carry no road props: a section of one is a clean road too.
+    deco: m.deco.filter((d) => !m.loop || !isRoadDeco(d[0])).map((d) => [...d] as MapDeco),
+    props: m.loop ? 'clean' : m.props,
+    traffic: m.loop ? 'none' : m.traffic,
+  };
 }
 
 /** A map as a code to share (base64 of its JSON), and back. */
@@ -487,6 +668,8 @@ export function blankMap(): CustomMap {
     features: [],
     props: 'clean',
     traffic: 'none',
+    density: 1,
+    deco: [],
     survival: false,
     sky: false,
   };
@@ -571,6 +754,8 @@ export function mapFromTrack(id: TrackId): CustomMap | null {
     features,
     props: d.clean ? 'clean' : d.obstacles ? 'course' : d.rockfall || d.climb ? 'rockfall' : 'some',
     traffic: d.traffic === 'highway' ? 'highway' : d.traffic ? 'town' : 'none',
+    density: 1,
+    deco: [],
     survival: !!d.survival,
     sky: !!d.sky,
   });

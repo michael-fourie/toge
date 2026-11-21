@@ -1,24 +1,34 @@
-// The map builder (screen `maps`): build your own track, test drive it, save it, race it online.
+// The map builder (screen `maps`): build your own track in its 3D world, play any part of it, save it, race it online.
 //
 // The map is plain data (custommap.ts `CustomMap`): control points the road threads through, settings, features
-// pinned to the points. The middle of the screen is a top-down canvas of the road at its real width (drag points,
-// click to add or insert, pan and zoom), under it the elevation profile (drag a point's handle to raise or lower it);
-// the left rail holds the map's settings and your library (saved maps, templates, remixes of built-in tracks,
-// share codes); the right rail the tools, the inspector for the picked point and its features, and what's wrong.
-// Every change rebuilds the road with the game's own track builder (`checkMap`), so what you see is what you drive.
-// The work in progress is a draft saved as you go (mapstore.ts), so a test drive or a reload never loses it.
+// pinned to the points, and scenery and road props placed by hand. The middle of the screen is the map's real world
+// in 3D (mapworld.ts: the race's own renderer under a free editor camera) with the builder's handles drawn over it:
+// drag points over the ground, lift them on their arrow, drop jumps, ramps and features anywhere on the road (a point
+// is put in where you click), place scenery and turn it on its ring. A top-down plan of the same map is one key away
+// (M). Under it the elevation profile (drag a point's handle to raise or lower it); the left rail holds the map's
+// settings and your library (saved maps, templates, remixes of built-in tracks, share codes); the right rail the
+// tools, the scenery to place, the inspector for what's picked, and what's wrong. Every change rebuilds the road with
+// the game's own track builder (`checkMap`), and the 3D world is rebuilt from it once an edit settles. Play drives the
+// whole map, from a picked point or a section between two points, and comes straight back here. The work in progress
+// is a draft saved as you go (mapstore.ts), so a drive or a reload never loses it.
 
 import {
   type CustomMap,
+  type DecoKind,
   type FeatureKind,
   type MapCheck,
   type MapFeature,
+  type MapDeco,
   type MapIssue,
   type MapProps,
   type MapTraffic,
   type SavedMap,
+  DECOS,
+  DECO_GROUPS,
+  DECO_SCALE,
   FEATURES,
   MAP,
+  MAP_DENSITY,
   MAP_PROPS,
   MAP_TEMPLATES,
   MAP_TERRAIN,
@@ -29,11 +39,14 @@ import {
   checkMap,
   cleanMap,
   decodeMapCode,
+  decoOnRoad,
   isPointFeature,
+  isRoadDeco,
   mapCode,
   mapFromTrack,
   newMapId,
   registerMap,
+  sectionMap,
 } from '../shared/custommap.ts';
 import { RACE_TRACKS, SAMPLE, TRACK_DEFS, type TrackId, spline } from '../shared/track.ts';
 import type { Render } from '../../client/menu/router.ts';
@@ -42,24 +55,39 @@ import { account } from '../../client/account.ts';
 import { ICON, LOGO } from './brand.ts';
 import { THEME_ART } from './trackart.ts';
 import { type Draft, loadDraft, mapApi, mapSvg, saveDraft } from './mapstore.ts';
+import { MapWorld } from './mapworld.ts';
 import './hub.css';
 import './mapbuilder.css';
 
-type Tool = 'select' | 'add' | 'erase' | FeatureKind;
+type Tool = 'select' | 'add' | 'erase' | 'deco' | 'ramp' | FeatureKind;
 const TOOLS: { id: Tool; name: string; key: string; hint: string }[] = [
-  { id: 'select', name: 'Move', key: 'V', hint: 'Drag a point to move it. Drag the ground to pan, scroll to zoom. Double-click the road to add a point there.' },
+  { id: 'select', name: 'Move', key: 'V', hint: 'Drag points and scenery to move them; drag a point’s arrow (or Shift-drag it) to raise it. Drag the ground to pan, scroll to zoom, right-drag to look round (WASD to fly), middle-drag to orbit.' },
   { id: 'add', name: 'Add', key: 'A', hint: 'Click the ground to extend the road from its end (Shift: from its start). Click the road to add a point in it.' },
-  { id: 'erase', name: 'Erase', key: 'X', hint: 'Click a point to take it out (its features go with it).' },
-  { id: 'crest', name: 'Crest', key: '1', hint: 'Click a point: the road rises and falls away there.' },
-  { id: 'jump', name: 'Drop jump', key: '2', hint: 'Click a point: a kicker, then the road drops onto the street below.' },
-  { id: 'gap', name: 'Gap', key: '3', hint: 'Click a point: the road stops over a ravine. Too slow and you fall in.' },
-  { id: 'bumps', name: 'Bumps', key: '4', hint: 'Click a point, then a later one: broken tarmac between them.' },
-  { id: 'gravel', name: 'Gravel', key: '5', hint: 'Click a point, then a later one: a gravel stage between them.' },
-  { id: 'canyon', name: 'Canyon', key: '6', hint: 'Click a point, then a later one: rock walls either side.' },
-  { id: 'bridge', name: 'Bridge', key: '7', hint: 'Click a point, then a later one: the ground falls away under a bridge.' },
-  { id: 'tunnel', name: 'Tunnel', key: '8', hint: 'Click a point, then a later one: a gallery through a hillside.' },
+  { id: 'erase', name: 'Erase', key: 'X', hint: 'Click a point or a piece of scenery to take it out.' },
+  { id: 'deco', name: 'Scenery', key: 'S', hint: 'Pick a piece on the right, then click the ground to place it (it turns to face the road). Cones, barrels and bales go on the road.' },
+  { id: 'ramp', name: 'Ramp', key: '9', hint: 'Click anywhere on the road: a kicker ramp that throws you in the air.' },
+  { id: 'crest', name: 'Crest', key: '1', hint: 'Click anywhere on the road: it rises and falls away there.' },
+  { id: 'jump', name: 'Drop jump', key: '2', hint: 'Click anywhere on the road: a kicker, then the road drops onto the street below.' },
+  { id: 'gap', name: 'Gap', key: '3', hint: 'Click anywhere on the road: it stops over a ravine. Too slow and you fall in.' },
+  { id: 'bumps', name: 'Bumps', key: '4', hint: 'Click the road where it starts, then where it ends: broken tarmac between.' },
+  { id: 'gravel', name: 'Gravel', key: '5', hint: 'Click the road where it starts, then where it ends: a gravel stage between.' },
+  { id: 'canyon', name: 'Canyon', key: '6', hint: 'Click the road where it starts, then where it ends: rock walls either side.' },
+  { id: 'bridge', name: 'Bridge', key: '7', hint: 'Click the road where it starts, then where it ends: the ground falls away under a bridge.' },
+  { id: 'tunnel', name: 'Tunnel', key: '8', hint: 'Click the road where it starts, then where it ends: a gallery through a hillside.' },
 ];
+/** A ramp is a drop jump with no drop: a kicker you fly off and land back on the road (track.ts `jump`). */
+const RAMP = { size: 2.6, kick: 22, drop: 0, land: 70 };
+/** Colours for the scenery groups' markers (data colours, not the brand roles). */
+const GROUP_COLOR: Record<string, string> = { nature: '#5fd38a', buildings: '#e0b872', roadside: '#a7b0bd', lights: '#ffe27a', landmarks: '#c792ff', road: '#ff7a2b' };
+/** Handles float this far over their point in 3D (m). */
+const LIFT = 1.5;
+/** How long an edit has to settle before the 3D world is rebuilt (ms): the build is the race's own, 0.2-1.5 s. */
+const WORLD_MS = 550;
+const VIEW_KEY = 'atrous.mapView';
+const CAM_KEY = 'atrous.mapCam';
 const isFeatureTool = (t: Tool): t is FeatureKind => Object.hasOwn(FEATURES, t);
+/** Tools that work on a point-to-point road only (features and ramps). */
+const roadOnly = (t: Tool) => isFeatureTool(t) || t === 'ramp';
 
 /** Colours for features on the map and the profile (data colours, not the brand roles). */
 const FEAT_COLOR: Record<FeatureKind, string> = {
@@ -102,6 +130,19 @@ export const mapBuilder: Render = (root, ctx) => {
   let snap = true;
   let rivals = 0;
   let leftTab: 'map' | 'library' = 'map';
+  let selDeco = -1; // the picked piece of scenery
+  let decoKind: DecoKind = 'tree';
+  let hoverAt: [number, number, number] | null = null;
+  let clearArmed = false;
+  /** A stretch to play on its own: from one point to a later one. */
+  let section: [number, number] | null = null;
+  let mode: '3d' | 'plan' = (() => {
+    try {
+      return localStorage.getItem(VIEW_KEY) === 'plan' ? 'plan' : '3d';
+    } catch {
+      return '3d';
+    }
+  })();
   const past: string[] = [];
   const future: string[] = [];
   /** The road as drawn: the spline through the points (SEG samples a segment), and where each point sits in the build. */
@@ -126,19 +167,23 @@ export const mapBuilder: Render = (root, ctx) => {
           <div class="tg-seg tg-mb-rivals" role="group" aria-label="Test drive with">
             <button class="tg-pill" data-rivals="0">Alone</button><button class="tg-pill" data-rivals="3">+3 CPU</button>
           </div>
-          <button class="tg-go small" data-test>${ICON.flag}Test drive</button>
+          <button class="tg-go small" data-test title="Play the whole map">${ICON.flag}Play</button>
         </div>
       </header>
       <div class="tg-mb-body">
         <aside class="tg-mb-rail" data-left></aside>
         <section class="tg-mb-stage">
-          <div class="tg-mb-view">
+          <div class="tg-mb-view" data-mode="${mode}">
+            <div class="tg-mb-world" data-world><canvas class="tg-mb-over" data-over aria-label="The map's world in 3D"></canvas></div>
             <canvas class="tg-mb-canvas" data-canvas aria-label="The map, from above"></canvas>
             <div class="tg-mb-hud">
+              <span class="tg-mb-busy" data-busy hidden>Updating the world…</span>
               <span data-scale></span>
+              <div class="tg-seg" role="group" aria-label="View"><button class="tg-pill" data-mode-to="3d">3D</button><button class="tg-pill" data-mode-to="plan">Plan</button></div>
               <button class="tg-pill" data-frame title="Fit the road in view (F)">Fit</button>
               <button class="tg-pill" data-snap aria-pressed="true" title="Snap points to a ${SNAP} m grid">Snap ${SNAP} m</button>
             </div>
+            <div class="tg-mb-section" data-section hidden></div>
             <p class="tg-mb-hint" data-hint></p>
           </div>
           <div class="tg-mb-profile">
@@ -150,6 +195,9 @@ export const mapBuilder: Render = (root, ctx) => {
     </main>`;
   const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const canvas = $<HTMLCanvasElement>('[data-canvas]');
+  const over = $<HTMLCanvasElement>('[data-over]');
+  const og = over.getContext('2d')!;
+  const world = new MapWorld($('[data-world]'));
   const prof = $<HTMLCanvasElement>('[data-profile]');
   const g = canvas.getContext('2d')!;
   const pg = prof.getContext('2d')!;
@@ -169,6 +217,7 @@ export const mapBuilder: Render = (root, ctx) => {
     if (pts || !check.track) for (const p of map.points) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[2]); z1 = Math.max(z1, p[2]); }
     else ({ x0, x1, z0, z1 } = check.track.bounds);
     if (!Number.isFinite(x0)) return;
+    world.frameBox(x0, x1, z0, z1, levelOf());
     view.cx = (x0 + x1) / 2;
     view.cz = (z0 + z1) / 2;
     view.zoom = Math.max(ZOOM.min, Math.min(ZOOM.max, Math.min((view.w - 80) / Math.max(60, x1 - x0), (view.h - 80) / Math.max(60, z1 - z0))));
@@ -177,7 +226,11 @@ export const mapBuilder: Render = (root, ctx) => {
 
   function resize() {
     view.dpr = Math.min(2, devicePixelRatio || 1);
-    const r = canvas.getBoundingClientRect();
+    // The world, its overlay and the plan all fill the view (one shows at a time).
+    const r = $('[data-mode]').getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) world.setSize(r.width, r.height);
+    over.width = Math.round(r.width * view.dpr);
+    over.height = Math.round(r.height * view.dpr);
     view.w = r.width;
     view.h = r.height;
     canvas.width = Math.round(r.width * view.dpr);
@@ -223,6 +276,71 @@ export const mapBuilder: Render = (root, ctx) => {
     draw();
     drawRight();
     drawState();
+    drawSection();
+    scheduleWorld();
+  }
+
+  // ---- the 3D world: rebuilt from the checked road once edits settle ---------------------------------------------
+  let worldTimer: ReturnType<typeof setTimeout> | null = null;
+  let worldStale = true;
+  /** The level the 3D view picks on without a road (and on a sky road): the points' middle height. */
+  const levelOf = () => {
+    const ys = map.points.map((p) => p[1]).sort((a, b) => a - b);
+    return ys.length ? ys[Math.floor(ys.length / 2)] : 0;
+  };
+  function scheduleWorld(wait = WORLD_MS) {
+    worldStale = true;
+    if (worldTimer) clearTimeout(worldTimer);
+    if (mode !== '3d') return;
+    $('[data-busy]').hidden = false;
+    worldTimer = setTimeout(() => {
+      worldTimer = null;
+      // Not under a drag: the overlay shows the edit live, the world catches up when it's let go.
+      if (drag) return scheduleWorld(150);
+      world.level = levelOf();
+      world.setTrack(check.track);
+      worldStale = false;
+      $('[data-busy]').hidden = true;
+    }, wait);
+  }
+  world.onFrame = () => drawOverlay();
+
+  /** Switches between the 3D world and the top-down plan. */
+  function setMode(m: '3d' | 'plan') {
+    mode = m;
+    try {
+      localStorage.setItem(VIEW_KEY, m);
+    } catch {
+      /* private window */
+    }
+    $('[data-mode]').dataset.mode = m;
+    root.querySelectorAll<HTMLElement>('[data-mode-to]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.modeTo === m)));
+    resize();
+    if (m === '3d' && worldStale) scheduleWorld(30);
+    if (m === 'plan') $('[data-busy]').hidden = true;
+    draw();
+  }
+
+  /** The editor camera, kept across a drive so you come back where you were. */
+  function saveCam() {
+    try {
+      sessionStorage.setItem(CAM_KEY, JSON.stringify({ x: world.pos.x, y: world.pos.y, z: world.pos.z, yaw: world.yaw, pitch: world.pitch }));
+    } catch {
+      /* private window */
+    }
+  }
+  function loadCam(): boolean {
+    try {
+      const c = JSON.parse(sessionStorage.getItem(CAM_KEY) ?? 'null') as { x: number; y: number; z: number; yaw: number; pitch: number } | null;
+      if (!c || ![c.x, c.y, c.z, c.yaw, c.pitch].every(Number.isFinite)) return false;
+      world.pos.set(c.x, c.y, c.z);
+      world.yaw = c.yaw;
+      world.pitch = c.pitch;
+      world.invalidate();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Something changed the map. `commit`: a step for Undo (drags commit once, at the end). */
@@ -248,6 +366,8 @@ export const mapBuilder: Render = (root, ctx) => {
     future.push(JSON.stringify(map));
     map = cleanMap(JSON.parse(prev)) ?? map;
     sel = Math.min(sel, map.points.length - 1);
+    selDeco = -1;
+    section = null;
     changed(false);
     drawLeft();
     drawRight();
@@ -258,6 +378,8 @@ export const mapBuilder: Render = (root, ctx) => {
     past.push(JSON.stringify(map));
     map = cleanMap(JSON.parse(next)) ?? map;
     sel = Math.min(sel, map.points.length - 1);
+    selDeco = -1;
+    section = null;
     changed(false);
     drawLeft();
     drawRight();
@@ -269,6 +391,8 @@ export const mapBuilder: Render = (root, ctx) => {
     savedId = id;
     dirty = isDirty;
     sel = -1;
+    selDeco = -1;
+    section = null;
     rangeFrom = -1;
     saveDraft({ id: savedId, map, dirty });
     check = checkMap(map);
@@ -278,6 +402,7 @@ export const mapBuilder: Render = (root, ctx) => {
     drawRight();
     drawState();
     frame();
+    scheduleWorld(30);
   }
 
   // ---- editing the points ------------------------------------------------------------------------
@@ -288,7 +413,10 @@ export const mapBuilder: Render = (root, ctx) => {
     if (map.points.length >= MAP.maxPoints) return setStatus(`A map holds ${MAP.maxPoints} points at most.`);
     map.points.splice(k, 0, p);
     map.features = map.features.map((f) => (isPointFeature(f) ? { ...f, at: f.at >= k ? f.at + 1 : f.at } : { ...f, from: f.from >= k ? f.from + 1 : f.from, to: f.to >= k ? f.to + 1 : f.to }));
+    if (rangeFrom >= k) rangeFrom++;
+    if (section) section = [section[0] >= k ? section[0] + 1 : section[0], section[1] >= k ? section[1] + 1 : section[1]];
     sel = k;
+    selDeco = -1;
   }
   function deletePoint(k: number) {
     const need = map.loop ? MAP.minLoopPoints : MAP.minPoints;
@@ -302,6 +430,7 @@ export const mapBuilder: Render = (root, ctx) => {
       // A point feature can't sit on the new end, and a range needs two points.
       .filter((f) => (isPointFeature(f) ? f.at >= 1 && f.at < last : f.from < f.to));
     sel = -1;
+    section = null;
     changed();
     drawRight();
   }
@@ -318,12 +447,51 @@ export const mapBuilder: Render = (root, ctx) => {
     return Math.round((a[1] + ((b[1] - a[1]) * da) / Math.max(1e-6, da + db)) * 10) / 10;
   }
 
+  // ---- screen and world, in whichever view is up -----------------------------------------------------------
+  const is3d = () => mode === '3d';
+  /** A world point on the screen (the plan ignores height), or null when it's behind the 3D camera. */
+  const proj = (x: number, y: number, z: number): [number, number] | null => (is3d() ? world.project(x, y, z) : toScreen(x, z));
+  /** The ground under a screen point (in the plan, the point at height 0), or null. */
+  function groundAt(sx: number, sy: number): [number, number, number] | null {
+    if (is3d()) return world.pickGround(sx, sy);
+    const [x, z] = toWorld(sx, sy);
+    return [x, 0, z];
+  }
+  /** A point's handle: floating over where it asks the road to be. */
+  const handleOf = (p: [number, number, number]) => proj(p[0], p[1] + LIFT, p[2]);
+  const decoY = (d: MapDeco) => (is3d() ? world.groundY(d[1], d[2]) : 0);
+  const decoR = (d: MapDeco) => DECOS[d[0]].r * (d[4] ?? 1);
+  /** The yaw (degrees) that turns a piece at (x, z) to face the nearest stretch of road. */
+  function faceRoad(x: number, z: number): number {
+    let best = 0;
+    let bd = Infinity;
+    for (let i = 0; i < dense.length; i += 3) {
+      const d = (dense[i][0] - x) ** 2 + (dense[i][2] - z) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = i;
+      }
+    }
+    if (!dense.length) return 0;
+    const vx = dense[best][0] - x;
+    const vz = dense[best][2] - z;
+    return Math.round(((Math.atan2(-vx, -vz) * 180) / Math.PI + 360) % 360);
+  }
+  /** Distance from (x, z) to the road's centre line as drawn (m). */
+  function roadGap(x: number, z: number): number {
+    let bd = Infinity;
+    for (let i = 0; i < dense.length; i++) bd = Math.min(bd, (dense[i][0] - x) ** 2 + (dense[i][2] - z) ** 2);
+    return Math.sqrt(bd);
+  }
+
   // ---- hit tests -----------------------------------------------------------------------------------
   function pointAtScreen(sx: number, sy: number): number {
     let best = -1;
-    let bd = HIT_POINT;
+    let bd = HIT_POINT + (is3d() ? 3 : 0);
     map.points.forEach((p, i) => {
-      const [x, y] = toScreen(p[0], p[2]);
+      const h = handleOf(p);
+      if (!h) return;
+      const [x, y] = h;
       const d = Math.hypot(x - sx, y - sy);
       if (d < bd) {
         bd = d;
@@ -334,8 +502,10 @@ export const mapBuilder: Render = (root, ctx) => {
   }
   /** The road under a screen point: which segment (insert before seg + 1) and where, or null. */
   function roadAtScreen(sx: number, sy: number): { seg: number; x: number; z: number } | null {
-    const [wx, wz] = toWorld(sx, sy);
-    const reach = map.width / 2 + HIT_ROAD / view.zoom;
+    const g = groundAt(sx, sy);
+    if (!g) return null;
+    const [wx, , wz] = g;
+    const reach = map.width / 2 + (is3d() ? 3 : HIT_ROAD / view.zoom);
     let best: { seg: number; x: number; z: number } | null = null;
     let bd = reach;
     for (let i = 0; i < dense.length; i++) {
@@ -348,8 +518,44 @@ export const mapBuilder: Render = (root, ctx) => {
     return best;
   }
 
+  /** The piece of scenery under a screen point, or -1. */
+  function decoAtScreen(sx: number, sy: number): number {
+    const g = groundAt(sx, sy);
+    let best = -1;
+    let bd = Infinity;
+    map.deco.forEach((d, i) => {
+      const at = proj(d[1], decoY(d) + 0.6, d[2]);
+      const px = at ? Math.hypot(at[0] - sx, at[1] - sy) : Infinity;
+      const m = g ? Math.hypot(g[0] - d[1], g[2] - d[2]) : Infinity;
+      // On its marker, or on its footprint.
+      const score = px < 12 ? px : m < decoR(d) + 0.6 ? 12 + m : Infinity;
+      if (score < bd) {
+        bd = score;
+        best = i;
+      }
+    });
+    return best;
+  }
+  /** The rotate knob of the picked piece: on its ring, in front of it. */
+  function knobOf(d: MapDeco): [number, number] | null {
+    const r = Math.max(3, decoR(d) + 1.5);
+    const a = (d[3] * Math.PI) / 180;
+    return proj(d[1] - Math.sin(a) * r, decoY(d) + 0.3, d[2] - Math.cos(a) * r);
+  }
+  /** The lift arrow of the picked point (3D): its tip, 46 px above the handle. */
+  function liftOf(p: [number, number, number]): [number, number] | null {
+    if (!is3d()) return null;
+    const h = handleOf(p);
+    return h ? [h[0], h[1] - 46] : null;
+  }
+
   // ---- drawing: the map from above -------------------------------------------------------------------
   function draw() {
+    if (is3d()) {
+      world.invalidate();
+      drawProfile();
+      return;
+    }
     if (!view.w) return;
     const d = view.dpr;
     g.setTransform(d, 0, 0, d, 0, 0);
@@ -535,6 +741,19 @@ export const mapBuilder: Render = (root, ctx) => {
       }
       g.fill();
     }
+    // Scenery and road props: a dot in their group's colour, their footprint when you're close enough to see it.
+    map.deco.forEach((d, i) => {
+      const [x, y] = toScreen(d[1], d[2]);
+      if (x < -40 || y < -40 || x > view.w + 40 || y > view.h + 40) return;
+      g.fillStyle = GROUP_COLOR[DECOS[d[0]].group];
+      g.globalAlpha = 0.85;
+      g.beginPath();
+      g.arc(x, y, Math.max(2.5, decoR(d) * view.zoom), 0, Math.PI * 2);
+      g.fill();
+      g.globalAlpha = 1;
+      if (i === selDeco) decoGizmo(g, d);
+    });
+    if (tool === 'deco' && hoverAt) ghost(g, hoverAt);
     // Issues: a red ring where something's wrong, amber for warnings.
     for (const [list, col] of [[check.errors, '#ff6b6b'], [check.warnings, '#ffc940']] as const)
       for (const is of list) {
@@ -565,6 +784,206 @@ export const mapBuilder: Render = (root, ctx) => {
       }
     });
     drawProfile();
+  }
+
+  /** A ring on the ground round (x, z) of radius r (m), drawn through `proj` (3D or plan). */
+  function ring(c: CanvasRenderingContext2D, x: number, y: number, z: number, r: number) {
+    c.beginPath();
+    let pen = false;
+    for (let k = 0; k <= 32; k++) {
+      const a = (k / 32) * Math.PI * 2;
+      const q = proj(x + Math.cos(a) * r, y, z + Math.sin(a) * r);
+      if (!q) {
+        pen = false;
+        continue;
+      }
+      pen ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]);
+      pen = true;
+    }
+  }
+  /** The picked piece: its footprint ring in cyan, the rotate knob in front, a tick showing which way it faces. */
+  function decoGizmo(c: CanvasRenderingContext2D, d: MapDeco) {
+    const y = decoY(d) + 0.3;
+    c.strokeStyle = '#38c9ff';
+    c.lineWidth = 2;
+    ring(c, d[1], y, d[2], Math.max(3, decoR(d) + 1.5));
+    c.stroke();
+    const centre = proj(d[1], y, d[2]);
+    const knob = knobOf(d);
+    if (centre && knob) {
+      c.beginPath();
+      c.moveTo(centre[0], centre[1]);
+      c.lineTo(knob[0], knob[1]);
+      c.stroke();
+      c.fillStyle = '#38c9ff';
+      c.beginPath();
+      c.arc(knob[0], knob[1], 6, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = '#05070b';
+      c.font = '700 9px Barlow Condensed, sans-serif';
+      c.fillText('⟳', knob[0] - 3.5, knob[1] + 3.5);
+    }
+  }
+  /** Where the picked piece would go, under the cursor. */
+  function ghost(c: CanvasRenderingContext2D, at: [number, number, number]) {
+    const road = isRoadDeco(decoKind);
+    const ok = road ? roadGap(at[0], at[2]) < map.width / 2 : roadGap(at[0], at[2]) > map.width / 2 + DECOS[decoKind].r + 1;
+    c.strokeStyle = ok ? 'rgba(255,255,255,0.85)' : '#ff6b6b';
+    c.setLineDash([4, 4]);
+    c.lineWidth = 1.5;
+    ring(c, at[0], at[1] + 0.3, at[2], Math.max(1, DECOS[decoKind].r));
+    c.stroke();
+    c.setLineDash([]);
+  }
+
+  /** The 3D view's overlay: the road's line as it is now (the world catches up when an edit settles), features,
+   * scenery markers, issues, the points' handles and the picked thing's gizmo. */
+  function drawOverlay() {
+    if (!is3d()) return;
+    const c = og;
+    const w = over.width / view.dpr;
+    const h = over.height / view.dpr;
+    c.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+    c.clearRect(0, 0, w, h);
+    c.lineJoin = 'round';
+    c.lineCap = 'round';
+    /** A polyline along the spline from sample a to b, lifted dy (breaks where it goes behind the camera). */
+    const along = (a: number, b: number, dy: number, every = 3) => {
+      c.beginPath();
+      let pen = false;
+      for (let i = a; i <= b; i += every) {
+        const p = dense[Math.min(i, dense.length - 1)];
+        const q = proj(p[0], p[1] + dy, p[2]);
+        if (!q) {
+          pen = false;
+          continue;
+        }
+        pen ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]);
+        pen = true;
+      }
+    };
+    if (dense.length >= 2) {
+      // A section to play: a broad green band.
+      if (section) {
+        along(section[0] * SEG, Math.min(dense.length - 1, section[1] * SEG), 0.8);
+        c.strokeStyle = 'rgba(61,220,132,0.45)';
+        c.lineWidth = 10;
+        c.stroke();
+      }
+      for (const f of map.features) {
+        if (isPointFeature(f)) continue;
+        along(f.from * SEG, Math.min(dense.length - 1, f.to * SEG), 0.8);
+        c.strokeStyle = FEAT_COLOR[f.kind];
+        c.lineWidth = 5;
+        c.stroke();
+      }
+      // The centre line: solid cyan while the world is catching up with an edit, a faint dash once it has.
+      along(0, dense.length - 1 + (map.loop ? 3 : 0), 0.5, 2);
+      if (map.loop) c.closePath();
+      c.strokeStyle = worldStale ? 'rgba(56,201,255,0.95)' : 'rgba(255,255,255,0.45)';
+      c.lineWidth = worldStale ? 2.5 : 1.2;
+      c.setLineDash(worldStale ? [] : [6, 6]);
+      c.stroke();
+      c.setLineDash([]);
+    }
+    c.font = '700 11px Barlow Condensed, sans-serif';
+    const t = check.track;
+    if (t) {
+      const label = (s: number, text: string, col: string) => {
+        const i = Math.min(t.n - 1, Math.round(s / SAMPLE));
+        const q = proj(t.x[i], t.y[i] + 6, t.z[i]);
+        if (!q) return;
+        c.fillStyle = col;
+        c.fillRect(q[0] - 2, q[1] - 2, 4, 4);
+        c.fillText(text, q[0] + 6, q[1] + 4);
+      };
+      label(t.startS, t.lap ? 'START / FINISH' : 'START', '#3ddc84');
+      if (!t.lap) label(t.finishS, 'FINISH', '#ff3b30');
+    }
+    for (const f of map.features) {
+      if (!isPointFeature(f)) continue;
+      const p = map.points[f.at];
+      const q = p && proj(p[0], p[1] + LIFT + 7, p[2]);
+      if (!q) continue;
+      c.fillStyle = FEAT_COLOR[f.kind];
+      c.beginPath();
+      c.arc(q[0], q[1], 5, 0, Math.PI * 2);
+      c.fill();
+      c.fillText(f.kind === 'jump' && f.drop === 0 ? 'RAMP' : FEATURES[f.kind].name.toUpperCase(), q[0] + 8, q[1] + 4);
+    }
+    // Scenery: a faint marker in its group's colour over each piece (the world draws the piece itself), so far-off or
+    // tiny pieces can still be found and picked. Close up the piece speaks for itself and only the picked one is marked.
+    c.lineWidth = 1;
+    c.strokeStyle = '#05070b';
+    map.deco.forEach((d, i) => {
+      const y = decoY(d);
+      const q = proj(d[1], y + 0.6, d[2]);
+      if (!q || q[0] < -20 || q[1] < -20 || q[0] > w + 20 || q[1] > h + 20) return;
+      const big = decoR(d) / world.metresPerPx(d[1], y, d[2]) > 14;
+      if (i !== selDeco && big) return;
+      c.globalAlpha = i === selDeco ? 1 : 0.6;
+      c.fillStyle = GROUP_COLOR[DECOS[d[0]].group];
+      c.beginPath();
+      c.arc(q[0], q[1], i === selDeco ? 5 : 2.6, 0, Math.PI * 2);
+      c.fill();
+      c.stroke();
+      c.globalAlpha = 1;
+      if (i === selDeco) decoGizmo(c, d);
+    });
+    if (tool === 'deco' && hoverAt) ghost(c, hoverAt);
+    for (const [list, col] of [[check.errors, '#ff6b6b'], [check.warnings, '#ffc940']] as const)
+      for (const is of list) {
+        const at = is.at ?? (is.point !== undefined && map.points[is.point] ? ([map.points[is.point][0], map.points[is.point][2]] as [number, number]) : null);
+        if (!at) continue;
+        c.strokeStyle = col;
+        c.lineWidth = 2;
+        ring(c, at[0], world.groundY(at[0], at[1]) + 0.5, at[1], 12);
+        c.stroke();
+      }
+    // The points: a stem down to the ground, the handle, its number.
+    map.points.forEach((p, i) => {
+      const hq = handleOf(p);
+      if (!hq) return;
+      const gq = proj(p[0], Math.min(p[1], world.groundY(p[0], p[2])), p[2]);
+      if (gq) {
+        c.strokeStyle = 'rgba(255,255,255,0.5)';
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(gq[0], gq[1]);
+        c.lineTo(hq[0], hq[1]);
+        c.stroke();
+      }
+      const r = i === sel ? 8 : i === hover ? 7 : 6;
+      c.beginPath();
+      c.arc(hq[0], hq[1], r, 0, Math.PI * 2);
+      c.fillStyle = i === sel ? '#38c9ff' : !map.loop && i === 0 ? '#3ddc84' : !map.loop && i === map.points.length - 1 ? '#ff3b30' : '#eef2f8';
+      c.fill();
+      c.lineWidth = i === rangeFrom ? 3 : 1.5;
+      c.strokeStyle = i === rangeFrom ? (FEAT_COLOR[tool as FeatureKind] ?? '#fff') : '#05070b';
+      c.stroke();
+      c.fillStyle = i === sel ? '#38c9ff' : 'rgba(238,242,248,0.85)';
+      c.fillText(String(i + 1), hq[0] + 10, hq[1] + 4);
+    });
+    // The picked point's lift arrow.
+    const sp = sel >= 0 ? map.points[sel] : null;
+    const tip = sp && liftOf(sp);
+    const base = sp && handleOf(sp);
+    if (tip && base) {
+      c.strokeStyle = '#ffc940';
+      c.fillStyle = '#ffc940';
+      c.lineWidth = 2.5;
+      c.beginPath();
+      c.moveTo(base[0], base[1] - 9);
+      c.lineTo(tip[0], tip[1]);
+      c.stroke();
+      c.beginPath();
+      c.moveTo(tip[0], tip[1] - 8);
+      c.lineTo(tip[0] - 6, tip[1] + 2);
+      c.lineTo(tip[0] + 6, tip[1] + 2);
+      c.closePath();
+      c.fill();
+      c.fillText(`${sp[1]} m`, tip[0] + 9, tip[1] + 2);
+    }
   }
 
   // ---- drawing: the elevation profile ------------------------------------------------------------------
@@ -656,8 +1075,17 @@ export const mapBuilder: Render = (root, ctx) => {
     pg.fillText(`ELEVATION · ${(check.km).toFixed(2)} km${t.lap ? ' (one lap shown)' : ''} · drag a handle to raise or lower its point`, 48, 14);
   }
 
-  // ---- pointer input on the map ---------------------------------------------------------------------
-  type Drag = { kind: 'pan'; sx: number; sy: number; cx: number; cz: number } | { kind: 'point'; i: number; moved: boolean; before: string } | { kind: 'height'; i: number; sy: number; y: number; scale: number; before: string };
+  // ---- pointer input, on the 3D overlay or the plan ----------------------------------------------------------
+  type Drag =
+    | { kind: 'pan'; sx: number; sy: number; cx: number; cz: number }
+    | { kind: 'grab'; y: number; x: number; z: number }
+    | { kind: 'look'; sx: number; sy: number }
+    | { kind: 'orbit'; sx: number; sy: number; px: number; pz: number }
+    | { kind: 'point'; i: number; moved: boolean; before: string; y: number }
+    | { kind: 'lift'; i: number; sy: number; y: number; per: number; before: string }
+    | { kind: 'deco'; i: number; moved: boolean; before: string; dx: number; dz: number }
+    | { kind: 'turn'; i: number; before: string }
+    | { kind: 'height'; i: number; sy: number; y: number; scale: number; before: string };
   let drag: Drag | null = null;
   const pointers = new Map<number, [number, number]>();
   let pinch: { d: number; zoom: number } | null = null;
@@ -665,71 +1093,146 @@ export const mapBuilder: Render = (root, ctx) => {
     const r = el.getBoundingClientRect();
     return [e.clientX - r.left, e.clientY - r.top];
   };
+  /** Commits a drag's before-state as one Undo step. */
+  const commit = (before: string) => {
+    past.push(before);
+    if (past.length > HISTORY) past.shift();
+    future.length = 0;
+  };
+  /** Starts panning: a grab of the ground in 3D, the plan's own pan otherwise. */
+  function startPan(sx: number, sy: number) {
+    if (!is3d()) {
+      drag = { kind: 'pan', sx, sy, cx: view.cx, cz: view.cz };
+      return;
+    }
+    const g = world.pickGround(sx, sy);
+    if (g) drag = { kind: 'grab', x: g[0], y: g[1], z: g[2] };
+  }
+  /** The point a road tool works on: one under the cursor or within 15 m of the click, or a new one put in the road there. */
+  function pointForRoad(sx: number, sy: number): number {
+    const hit = pointAtScreen(sx, sy);
+    if (hit >= 0) return hit;
+    const road = roadAtScreen(sx, sy);
+    if (!road) return -1;
+    const near = map.points.findIndex((p) => Math.hypot(p[0] - road.x, p[2] - road.z) < 15);
+    if (near >= 0) return near;
+    remember();
+    insertPoint(road.seg + 1, [Math.round(road.x * 10) / 10, heightNear(road.seg + 1, road.x, road.z), Math.round(road.z * 10) / 10]);
+    changed();
+    return road.seg + 1;
+  }
 
-  canvas.addEventListener('pointerdown', (e) => {
-    const [sx, sy] = local(e, canvas);
+  function down(e: PointerEvent, el: HTMLElement) {
+    const [sx, sy] = local(e, el);
     pointers.set(e.pointerId, [sx, sy]);
-    canvas.setPointerCapture(e.pointerId);
-    if (pointers.size === 2) {
+    el.setPointerCapture(e.pointerId);
+    if (pointers.size === 2 && !is3d()) {
       const [a, b] = [...pointers.values()];
       pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), zoom: view.zoom };
       drag = null;
       return;
     }
-    const hit = pointAtScreen(sx, sy);
-    const panning = e.button === 1 || e.button === 2 || (e.button === 0 && e.altKey);
-    if (panning) {
-      drag = { kind: 'pan', sx, sy, cx: view.cx, cz: view.cz };
+    if (is3d() && e.button === 2) {
+      drag = { kind: 'look', sx, sy };
+      world.setFlying(true);
       return;
     }
+    if (is3d() && (e.button === 1 || (e.button === 0 && e.altKey))) {
+      const c = world.pickGround(view.w / 2, view.h / 2) ?? [world.pos.x, 0, world.pos.z - 200];
+      drag = { kind: 'orbit', sx, sy, px: c[0], pz: c[2] };
+      return;
+    }
+    if (e.button === 1 || e.button === 2 || (e.button === 0 && e.altKey)) return startPan(sx, sy);
+    const hit = pointAtScreen(sx, sy);
     if (tool === 'select') {
+      // The picked thing's gizmo first: a point's lift arrow, a piece's rotate knob.
+      const sp = sel >= 0 ? map.points[sel] : null;
+      const tip = sp && liftOf(sp);
+      if (sp && tip && Math.hypot(tip[0] - sx, tip[1] - sy) < 12) {
+        drag = { kind: 'lift', i: sel, sy, y: sp[1], per: world.metresPerPx(sp[0], sp[1], sp[2]), before: JSON.stringify(map) };
+        return;
+      }
+      const sd = selDeco >= 0 ? map.deco[selDeco] : null;
+      const knob = sd && knobOf(sd);
+      if (knob && Math.hypot(knob[0] - sx, knob[1] - sy) < 10) {
+        drag = { kind: 'turn', i: selDeco, before: JSON.stringify(map) };
+        return;
+      }
       if (hit >= 0) {
         sel = hit;
-        drag = { kind: 'point', i: hit, moved: false, before: JSON.stringify(map) };
+        selDeco = -1;
+        const p = map.points[hit];
+        drag = e.shiftKey && is3d() ? { kind: 'lift', i: hit, sy, y: p[1], per: world.metresPerPx(p[0], p[1], p[2]), before: JSON.stringify(map) } : { kind: 'point', i: hit, moved: false, before: JSON.stringify(map), y: p[1] };
         drawRight();
-      } else {
+        draw();
+        return;
+      }
+      const dh = decoAtScreen(sx, sy);
+      if (dh >= 0) {
+        selDeco = dh;
         sel = -1;
-        drag = { kind: 'pan', sx, sy, cx: view.cx, cz: view.cz };
+        const d = map.deco[dh];
+        const g = groundAt(sx, sy);
+        drag = { kind: 'deco', i: dh, moved: false, before: JSON.stringify(map), dx: g ? d[1] - g[0] : 0, dz: g ? d[2] - g[2] : 0 };
+        drawRight();
+        draw();
+        return;
+      }
+      if (sel >= 0 || selDeco >= 0) {
+        sel = -1;
+        selDeco = -1;
         drawRight();
       }
+      startPan(sx, sy);
       draw();
       return;
     }
     if (tool === 'erase') {
-      if (hit >= 0) deletePoint(hit);
+      if (hit >= 0) return deletePoint(hit);
+      const dh = decoAtScreen(sx, sy);
+      if (dh >= 0) removeDeco(dh);
       return;
     }
     if (tool === 'add') {
       const road = hit < 0 ? roadAtScreen(sx, sy) : null;
       if (hit >= 0) {
         sel = hit;
-        drag = { kind: 'point', i: hit, moved: false, before: JSON.stringify(map) };
+        drag = { kind: 'point', i: hit, moved: false, before: JSON.stringify(map), y: map.points[hit][1] };
       } else if (road) {
         remember();
         insertPoint(road.seg + 1, [snapTo(road.x), heightNear(road.seg + 1, road.x, road.z), snapTo(road.z)]);
         changed();
       } else {
-        const [wx, wz] = toWorld(sx, sy);
+        const g = groundAt(sx, sy);
+        if (!g) return;
         remember();
         const at = e.shiftKey ? 0 : map.points.length;
         const near = map.points[at === 0 ? 0 : map.points.length - 1];
-        insertPoint(at, [snapTo(wx), near ? near[1] : 100, snapTo(wz)]);
+        insertPoint(at, [snapTo(g[0]), near ? near[1] : 100, snapTo(g[2])]);
         changed();
       }
       drawRight();
       draw();
       return;
     }
-    if (isFeatureTool(tool)) {
-      const i = hit >= 0 ? hit : nearestPointTo(sx, sy);
-      if (i < 0) return;
-      placeFeature(tool, i);
+    if (tool === 'deco') {
+      const g = groundAt(sx, sy);
+      if (g) placeDeco(g[0], g[2]);
+      return;
     }
-  });
+    if (roadOnly(tool)) {
+      if (map.loop) return setStatus('Features and ramps are for point-to-point roads: circuits stay clean.');
+      const i = pointForRoad(sx, sy);
+      if (i < 0) return setStatus('Click on the road.');
+      if (tool === 'ramp') placeRamp(i);
+      else placeFeature(tool as FeatureKind, i);
+    }
+  }
 
-  canvas.addEventListener('pointermove', (e) => {
-    const [sx, sy] = local(e, canvas);
-    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, [sx, sy]);
+  function move(e: PointerEvent, el: HTMLElement) {
+    const [sx, sy] = local(e, el);
+    const prev = pointers.get(e.pointerId);
+    if (prev) pointers.set(e.pointerId, [sx, sy]);
     if (pinch && pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       view.zoom = Math.max(ZOOM.min, Math.min(ZOOM.max, (pinch.zoom * Math.hypot(a[0] - b[0], a[1] - b[1])) / Math.max(1, pinch.d)));
@@ -738,79 +1241,180 @@ export const mapBuilder: Render = (root, ctx) => {
     }
     if (!drag) {
       const h = pointAtScreen(sx, sy);
-      if (h !== hover) {
-        hover = h;
-        draw();
+      let redraw = h !== hover;
+      hover = h;
+      if (tool === 'deco') {
+        hoverAt = groundAt(sx, sy);
+        redraw = true;
       }
-      canvas.style.cursor = h >= 0 ? 'grab' : tool === 'select' ? 'default' : 'crosshair';
+      if (redraw) draw();
+      el.style.cursor = h >= 0 ? 'grab' : tool === 'select' ? 'default' : 'crosshair';
       return;
     }
-    if (drag.kind === 'pan') {
-      view.cx = drag.cx - (sx - drag.sx) / view.zoom;
-      view.cz = drag.cz - (sy - drag.sy) / view.zoom;
-      draw();
-    } else if (drag.kind === 'point') {
-      const [wx, wz] = toWorld(sx, sy);
-      const p = map.points[drag.i];
-      p[0] = Math.max(-MAP.reach, Math.min(MAP.reach, snapTo(wx)));
-      p[2] = Math.max(-MAP.reach, Math.min(MAP.reach, snapTo(wz)));
-      drag.moved = true;
-      changed(false);
-      drawInspector();
+    switch (drag.kind) {
+      case 'pan':
+        view.cx = drag.cx - (sx - drag.sx) / view.zoom;
+        view.cz = drag.cz - (sy - drag.sy) / view.zoom;
+        draw();
+        break;
+      case 'grab': {
+        // Keep the grabbed spot of ground under the cursor.
+        const q = world.pickPlane(sx, sy, drag.y);
+        if (q) world.shift(drag.x - q[0], drag.z - q[1]);
+        break;
+      }
+      case 'look':
+        world.look(sx - drag.sx, sy - drag.sy);
+        drag.sx = sx;
+        drag.sy = sy;
+        break;
+      case 'orbit':
+        world.orbit(drag.px, drag.pz, sx - drag.sx, sy - drag.sy);
+        drag.sx = sx;
+        drag.sy = sy;
+        break;
+      case 'point': {
+        // Over the ground at the point's own height (3D), or straight under the cursor (plan).
+        const q = is3d() ? world.pickPlane(sx, sy, drag.y + LIFT) : toWorld(sx, sy);
+        if (!q) break;
+        const p = map.points[drag.i];
+        p[0] = Math.max(-MAP.reach, Math.min(MAP.reach, snapTo(q[0])));
+        p[2] = Math.max(-MAP.reach, Math.min(MAP.reach, snapTo(q[1])));
+        drag.moved = true;
+        changed(false);
+        drawInspector();
+        break;
+      }
+      case 'lift': {
+        const p = map.points[drag.i];
+        p[1] = Math.round(Math.max(MAP.heightMin, Math.min(MAP.heightMax, drag.y - (sy - drag.sy) * drag.per)) * 2) / 2;
+        changed(false);
+        drawInspector();
+        break;
+      }
+      case 'deco': {
+        const g = groundAt(sx, sy);
+        if (!g) break;
+        const d = map.deco[drag.i];
+        d[1] = Math.round((g[0] + drag.dx) * 10) / 10;
+        d[2] = Math.round((g[2] + drag.dz) * 10) / 10;
+        drag.moved = true;
+        changed(false);
+        drawInspector();
+        break;
+      }
+      case 'turn': {
+        const d = map.deco[drag.i];
+        const g = is3d() ? world.pickPlane(sx, sy, decoY(d) + 0.3) : toWorld(sx, sy);
+        if (!g) break;
+        const snapDeg = e.shiftKey ? 1 : 15;
+        d[3] = ((Math.round(((Math.atan2(-(g[0] - d[1]), -(g[1] - d[2])) * 180) / Math.PI) / snapDeg) * snapDeg) % 360 + 360) % 360;
+        changed(false);
+        drawInspector();
+        break;
+      }
     }
-  });
+  }
 
-  const endDrag = (e: PointerEvent) => {
+  function up(e: PointerEvent) {
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinch = null;
-    if (drag?.kind === 'point' && drag.moved) {
-      past.push(drag.before);
-      if (past.length > HISTORY) past.shift();
-      future.length = 0;
-    }
+    if (drag?.kind === 'look') world.setFlying(false);
+    if (drag && (drag.kind === 'point' || drag.kind === 'deco') && drag.moved) commit(drag.before);
+    if (drag && (drag.kind === 'lift' || drag.kind === 'turn')) commit(drag.before);
     drag = null;
-  };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  canvas.addEventListener('dblclick', (e) => {
-    if (tool !== 'select') return;
-    const [sx, sy] = local(e, canvas);
-    if (pointAtScreen(sx, sy) >= 0) return;
-    const road = roadAtScreen(sx, sy);
-    if (!road) return;
-    remember();
-    insertPoint(road.seg + 1, [snapTo(road.x), heightNear(road.seg + 1, road.x, road.z), snapTo(road.z)]);
-    changed();
-    drawRight();
-  });
-  canvas.addEventListener(
-    'wheel',
-    (e) => {
-      e.preventDefault();
-      const [sx, sy] = local(e, canvas);
-      const [wx, wz] = toWorld(sx, sy);
-      view.zoom = Math.max(ZOOM.min, Math.min(ZOOM.max, view.zoom * Math.exp(-e.deltaY * 0.0015)));
-      // Keep the spot under the cursor where it was.
-      view.cx = wx - (sx - view.w / 2) / view.zoom;
-      view.cz = wz - (sy - view.h / 2) / view.zoom;
-      draw();
-    },
-    { passive: false },
-  );
+  }
 
-  function nearestPointTo(sx: number, sy: number): number {
-    let best = -1;
-    let bd = 40;
-    map.points.forEach((p, i) => {
-      const [x, y] = toScreen(p[0], p[2]);
-      const d = Math.hypot(x - sx, y - sy);
-      if (d < bd) {
-        bd = d;
-        best = i;
+  for (const el of [canvas, over]) {
+    el.addEventListener('pointerdown', (e) => down(e, el));
+    el.addEventListener('pointermove', (e) => move(e, el));
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointerleave', () => {
+      if (hoverAt) {
+        hoverAt = null;
+        draw();
       }
     });
-    return best;
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('dblclick', (e) => {
+      if (tool !== 'select') return;
+      const [sx, sy] = local(e, el);
+      if (pointAtScreen(sx, sy) >= 0 || decoAtScreen(sx, sy) >= 0) return;
+      const road = roadAtScreen(sx, sy);
+      if (!road) return;
+      remember();
+      insertPoint(road.seg + 1, [snapTo(road.x), heightNear(road.seg + 1, road.x, road.z), snapTo(road.z)]);
+      changed();
+      drawRight();
+    });
+    el.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        const [sx, sy] = local(e, el);
+        if (is3d()) return world.zoom(sx, sy, -e.deltaY);
+        const [wx, wz] = toWorld(sx, sy);
+        view.zoom = Math.max(ZOOM.min, Math.min(ZOOM.max, view.zoom * Math.exp(-e.deltaY * 0.0015)));
+        // Keep the spot under the cursor where it was.
+        view.cx = wx - (sx - view.w / 2) / view.zoom;
+        view.cz = wz - (sy - view.h / 2) / view.zoom;
+        draw();
+      },
+      { passive: false },
+    );
+  }
+
+  // ---- scenery ------------------------------------------------------------------------------------------------
+  function placeDeco(x: number, z: number) {
+    if (map.deco.length >= MAP.maxDeco) return setStatus(`A map holds ${MAP.maxDeco} pieces at most.`);
+    const road = isRoadDeco(decoKind);
+    if (road && map.loop) return setStatus('Cones, barrels and bales are for point-to-point roads: circuits stay clean.');
+    const gap = roadGap(x, z);
+    if (road && gap > map.width / 2) return setStatus(`${DECOS[decoKind].name}s go on the road.`);
+    if (!road && gap < map.width / 2 + DECOS[decoKind].r + 1) return setStatus('Scenery stands off the road: place it on the verge or further out.');
+    remember();
+    map.deco.push([decoKind, Math.round(x * 10) / 10, Math.round(z * 10) / 10, faceRoad(x, z)]);
+    selDeco = map.deco.length - 1;
+    sel = -1;
+    changed();
+    drawRight();
+    if (leftTab === 'map') drawLeft();
+  }
+  function removeDeco(i: number) {
+    remember();
+    map.deco.splice(i, 1);
+    selDeco = -1;
+    changed();
+    drawRight();
+    if (leftTab === 'map') drawLeft();
+  }
+  /** Lines the built road with a piece: every `every` m, `off` m past the barrier (plus up to `jitter`), one side or both. */
+  function lineRoad(kind: DecoKind, every: number, off: number, both: boolean, jitter = 0) {
+    const t = check.track;
+    if (!t) return setStatus('Fix the road first: scenery lines up along the built road.');
+    remember();
+    const i0 = t.lap ? Math.round(t.startS / SAMPLE) : 0;
+    const i1 = t.lap ? i0 + t.lap : t.n;
+    const step = Math.max(1, Math.round(every / SAMPLE));
+    let k = 0;
+    let added = 0;
+    let rnd = 12345;
+    const rand = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647);
+    for (let i = i0 + Math.floor(step / 2); i < i1; i += step, k++)
+      for (const side of both ? [-1, 1] : [k % 2 ? 1 : -1]) {
+        if (map.deco.length >= MAP.maxDeco) break;
+        const d = side * (t.rail + (side < 0 ? t.runL[i] : t.runR[i]) + off + rand() * jitter);
+        const x = Math.round((t.x[i] - t.tz[i] * d) * 10) / 10;
+        const z = Math.round((t.z[i] + t.tx[i] * d) * 10) / 10;
+        if (decoOnRoad(t, kind, x, z)) continue;
+        map.deco.push([kind, x, z, Math.round(((Math.atan2(-(t.x[i] - x), -(t.z[i] - z)) * 180) / Math.PI + 360) % 360)]);
+        added++;
+      }
+    setStatus(added ? `Added ${added} ${DECOS[kind].name.toLowerCase()}${added === 1 ? '' : 's'}.` : 'No room left for more.');
+    changed();
+    drawLeft();
+    drawRight();
   }
 
   // ---- the profile: drag handles up and down ------------------------------------------------------------
@@ -890,6 +1494,19 @@ export const mapBuilder: Render = (root, ctx) => {
     drawRight();
   }
 
+  function placeRamp(i: number) {
+    if (map.loop) return setStatus('Ramps are for point-to-point roads: circuits stay clean.');
+    if (i <= 0 || i >= map.points.length - 1) return setStatus("A ramp can't go on the first or last point.");
+    remember();
+    map.features = map.features.filter((f) => !(isPointFeature(f) && f.at === i));
+    map.features.push({ kind: 'jump', at: i, ...RAMP });
+    sel = i;
+    selDeco = -1;
+    setStatus(`Ramp at point ${i + 1}: tune its size and landing on the right.`);
+    changed();
+    drawRight();
+  }
+
   // ---- the left rail: settings and library -------------------------------------------------------------------
   const pills = <T extends string | number>(attr: string, opts: [T, string][], on: T, disabled = false) =>
     `<div class="tg-seg tg-mb-seg">${opts.map(([v, label]) => `<button class="tg-pill" data-${attr}="${v}" aria-pressed="${v === on}" ${disabled ? 'disabled' : ''}>${esc(label)}</button>`).join('')}</div>`;
@@ -929,9 +1546,17 @@ export const mapBuilder: Render = (root, ctx) => {
         ${pills('props', (Object.keys(MAP_PROPS) as MapProps[]).map((k): [MapProps, string] => [k, MAP_PROPS[k].name]), m.props, !p2p)}
         <span class="tg-label">Traffic</span>
         ${pills('traffic', (Object.keys(MAP_TRAFFIC) as MapTraffic[]).map((k): [MapTraffic, string] => [k, MAP_TRAFFIC[k].name]), m.traffic, !p2p)}
+        ${p2p && m.traffic !== 'none' ? `<span class="tg-label">How busy</span>${pills('density', MAP_DENSITY.map((d, i): [number, string] => [i, d.name]), m.density)}` : ''}
         <span class="tg-label">Crash damage</span>
         ${pills('survival', [['off', 'Lobby decides'], ['on', 'Always on (survival)']], m.survival ? 'on' : 'off')}
         ${p2p ? '' : '<p class="tg-note">Circuits are clean: no props, traffic or features. Make it point to point for jumps, gaps and hazards.</p>'}
+      </div>
+      <div class="tg-mb-sec">
+        <h3 class="tg-h">Scenery <small>${m.deco.length} / ${MAP.maxDeco}</small></h3>
+        <p class="tg-muted">Place pieces one by one with the Scenery tool (<kbd>S</kbd>), or line the road:</p>
+        <div class="tg-mb-btns"><button class="tg-pill" data-line="lamp">Street lamps</button><button class="tg-pill" data-line="tree">Trees</button><button class="tg-pill" data-line="board">Sponsor boards</button><button class="tg-pill" data-line="pole">Telegraph poles</button></div>
+        ${m.deco.length ? `<div class="tg-mb-btns"><button class="tg-pill danger" data-cleardeco>${clearArmed ? 'Press again to clear it all' : 'Clear all scenery'}</button></div>` : ''}
+        ${m.sky ? '<p class="tg-note">A sky road floats in the clouds: no scenery shows on it.</p>' : ''}
       </div>
       <div class="tg-mb-sec tg-mb-stats" data-stats></div>`;
   }
@@ -1011,6 +1636,30 @@ export const mapBuilder: Render = (root, ctx) => {
     left.querySelectorAll<HTMLElement>('[data-terrain]').forEach((b) => b.addEventListener('click', () => setting(() => (map.terrain = Number(b.dataset.terrain)))));
     left.querySelectorAll<HTMLElement>('[data-sea]').forEach((b) => b.addEventListener('click', () => setting(() => (map.sea = b.dataset.sea === 'lake' ? 8 : null))));
     left.querySelectorAll<HTMLElement>('[data-sky]').forEach((b) => b.addEventListener('click', () => setting(() => (map.sky = b.dataset.sky === 'on'))));
+    left.querySelectorAll<HTMLElement>('[data-density]').forEach((b) => b.addEventListener('click', () => setting(() => (map.density = Number(b.dataset.density)))));
+    left.querySelectorAll<HTMLElement>('[data-line]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const k = b.dataset.line as DecoKind;
+        if (k === 'lamp') lineRoad('lamp', 50, 1.2, true);
+        else if (k === 'tree') lineRoad('tree', 30, 6, true, 25);
+        else if (k === 'board') lineRoad('board', 120, 1.5, false);
+        else lineRoad('pole', 45, 2, false);
+      }),
+    );
+    left.querySelector('[data-cleardeco]')?.addEventListener('click', () => {
+      if (!clearArmed) {
+        clearArmed = true;
+        drawLeft();
+        setTimeout(() => {
+          clearArmed = false;
+          if (root.isConnected && leftTab === 'map') drawLeft();
+        }, 3000);
+        return;
+      }
+      clearArmed = false;
+      selDeco = -1;
+      setting(() => (map.deco = []));
+    });
     left.querySelectorAll<HTMLElement>('[data-props]').forEach((b) => b.addEventListener('click', () => setting(() => (map.props = b.dataset.props as MapProps))));
     left.querySelectorAll<HTMLElement>('[data-traffic]').forEach((b) =>
       b.addEventListener('click', () =>
@@ -1152,19 +1801,41 @@ export const mapBuilder: Render = (root, ctx) => {
     right.innerHTML = `
       <div class="tg-mb-sec">
         <h3 class="tg-h">Tools</h3>
-        <div class="tg-mb-tools">${TOOLS.map((x) => `<button class="tg-mb-tool" data-tool="${x.id}" aria-pressed="${x.id === tool}" ${isFeatureTool(x.id) && map.loop ? 'disabled' : ''} title="${esc(x.name)} (${x.key})" style="${isFeatureTool(x.id) ? `--fc:${FEAT_COLOR[x.id]}` : ''}"><i>${toolIcon(x.id)}</i><span>${esc(x.name)}</span><kbd>${x.key}</kbd></button>`).join('')}</div>
+        <div class="tg-mb-tools">${TOOLS.map((x) => `<button class="tg-mb-tool" data-tool="${x.id}" aria-pressed="${x.id === tool}" ${roadOnly(x.id) && map.loop ? 'disabled' : ''} title="${esc(x.name)} (${x.key})" style="${isFeatureTool(x.id) ? `--fc:${FEAT_COLOR[x.id]}` : ''}"><i>${toolIcon(x.id)}</i><span>${esc(x.name)}</span><kbd>${x.key}</kbd></button>`).join('')}</div>
         <p class="tg-muted tg-mb-toolhint">${esc(t.hint)}</p>
       </div>
+      ${tool === 'deco' ? paletteHtml() : ''}
       <div class="tg-mb-sec" data-inspector></div>
       <div class="tg-mb-sec" data-issues></div>`;
     right.querySelectorAll<HTMLElement>('[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool as Tool)));
+    right.querySelectorAll<HTMLElement>('[data-decok]').forEach((b) =>
+      b.addEventListener('click', () => {
+        decoKind = b.dataset.decok as DecoKind;
+        right.querySelectorAll<HTMLElement>('[data-decok]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+        setStatus(`${DECOS[decoKind].name}: click the ${isRoadDeco(decoKind) ? 'road' : 'ground'} to place it.`);
+      }),
+    );
     drawInspector();
     drawIssues();
     drawStats();
     $('[data-hint]').textContent = t.hint;
   }
 
+  /** The scenery to place, by group (the Scenery tool). Road props are greyed out on a circuit. */
+  function paletteHtml(): string {
+    const kinds = Object.keys(DECOS) as DecoKind[];
+    return `<div class="tg-mb-sec"><h3 class="tg-h">Scenery <small>${map.deco.length} / ${MAP.maxDeco}</small></h3>
+      ${DECO_GROUPS.map(
+        (gr) => `<span class="tg-label">${esc(gr.name)}</span><div class="tg-mb-decos">${kinds
+          .filter((k) => DECOS[k].group === gr.id)
+          .map((k) => `<button class="tg-mb-deco" data-decok="${k}" aria-pressed="${k === decoKind}" style="--dc:${GROUP_COLOR[gr.id]}" ${isRoadDeco(k) && map.loop ? 'disabled' : ''}><i></i>${esc(DECOS[k].name)}</button>`)
+          .join('')}</div>`,
+      ).join('')}
+    </div>`;
+  }
+
   function setTool(t: Tool) {
+    if (t === 'deco' && map.loop && isRoadDeco(decoKind)) decoKind = 'tree';
     tool = t;
     rangeFrom = -1;
     drawRight();
@@ -1176,9 +1847,10 @@ export const mapBuilder: Render = (root, ctx) => {
     if (!el) return;
     // Don't rebuild the fields while one is being typed in (a drag elsewhere updates the numbers).
     if (el.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === 'INPUT') return;
+    if (selDeco >= 0 && map.deco[selDeco]) return decoInspector(el, selDeco);
     if (sel < 0 || !map.points[sel]) {
       el.innerHTML = `<h3 class="tg-h">Point</h3><p class="tg-muted">Pick a point on the map or on the profile to set where it is and how high, and to tune the features on it.</p>
-        <p class="tg-muted tg-mb-keys"><kbd>Del</kbd> remove · <kbd>←↑→↓</kbd> nudge · <kbd>PgUp</kbd>/<kbd>PgDn</kbd> height · <kbd>Ctrl Z</kbd> undo · <kbd>F</kbd> fit</p>`;
+        <p class="tg-muted tg-mb-keys"><kbd>Del</kbd> remove · <kbd>←↑→↓</kbd> nudge · <kbd>PgUp</kbd>/<kbd>PgDn</kbd> height · <kbd>Ctrl Z</kbd> undo · <kbd>F</kbd> fit · <kbd>M</kbd> 3D / plan · <kbd>P</kbd> play</p>`;
       return;
     }
     const p = map.points[sel];
@@ -1191,6 +1863,7 @@ export const mapBuilder: Render = (root, ctx) => {
         <label><span class="tg-label">Height</span><input type="number" class="tg-num" data-px="1" value="${p[1]}" step="0.5" /></label>
       </div>
       <div class="tg-mb-btns"><button class="tg-pill" data-hstep="-5">−5 m</button><button class="tg-pill" data-hstep="-1">−1 m</button><button class="tg-pill" data-hstep="1">+1 m</button><button class="tg-pill" data-hstep="5">+5 m</button><button class="tg-pill danger" data-delpoint>Remove point</button></div>
+      <div class="tg-mb-btns tg-mb-play"><button class="tg-pill" data-playfrom>Play from here</button>${map.loop ? '' : `<button class="tg-pill" data-secfrom>Section from here</button><button class="tg-pill" data-secto>Section to here</button>`}</div>
       ${here.length ? '' : `<p class="tg-muted">No features on this point.${map.loop ? '' : ' Pick a feature tool and click it.'}</p>`}
       ${here.map(({ f, i }) => featureHtml(f, i)).join('')}`;
     el.querySelectorAll<HTMLInputElement>('[data-px]').forEach((inp) =>
@@ -1212,6 +1885,9 @@ export const mapBuilder: Render = (root, ctx) => {
       }),
     );
     el.querySelector('[data-delpoint]')?.addEventListener('click', () => deletePoint(sel));
+    el.querySelector('[data-playfrom]')?.addEventListener('click', () => playFrom(sel));
+    el.querySelector('[data-secfrom]')?.addEventListener('click', () => setSection(sel, section ? section[1] : map.points.length - 1));
+    el.querySelector('[data-secto]')?.addEventListener('click', () => setSection(section ? section[0] : 0, sel));
     el.querySelectorAll<HTMLInputElement>('[data-fk]').forEach((inp) =>
       inp.addEventListener('change', () => {
         const f = map.features[Number(inp.dataset.fi)] as unknown as Record<string, number>;
@@ -1231,6 +1907,92 @@ export const mapBuilder: Render = (root, ctx) => {
         drawInspector();
       }),
     );
+  }
+
+  /** The picked piece of scenery: where it stands, which way it faces, how big it is. */
+  function decoInspector(el: HTMLElement, i: number) {
+    const d = map.deco[i];
+    const spec = DECOS[d[0]];
+    const road = isRoadDeco(d[0]);
+    const sc = d[4] ?? 1;
+    el.innerHTML = `<h3 class="tg-h">${esc(spec.name)} <small>scenery ${i + 1} of ${map.deco.length}</small></h3>
+      <div class="tg-mb-xyz">
+        <label><span class="tg-label">East</span><input type="number" class="tg-num" data-dx="1" value="${d[1]}" step="1" /></label>
+        <label><span class="tg-label">South</span><input type="number" class="tg-num" data-dx="2" value="${d[2]}" step="1" /></label>
+        <label><span class="tg-label">Facing</span><input type="number" class="tg-num" data-dx="3" value="${d[3]}" step="15" /></label>
+      </div>
+      <div class="tg-mb-btns"><button class="tg-pill" data-dturn="-15">⟲ 15°</button><button class="tg-pill" data-dturn="15">⟳ 15°</button><button class="tg-pill" data-dface>Face the road</button></div>
+      ${road ? '<p class="tg-muted">Road props keep their size: cars hit them as they are.</p>' : `<label class="tg-mb-slider"><span class="tg-label">Size <b class="tg-num">${Math.round(sc * 100)}%</b></span><input type="range" data-dscale min="${DECO_SCALE.min}" max="${DECO_SCALE.max}" step="0.05" value="${sc}" /></label>`}
+      <div class="tg-mb-btns"><button class="tg-pill" data-ddup>Duplicate</button><button class="tg-pill danger" data-ddel>Remove</button></div>
+      <p class="tg-muted tg-mb-keys">Drag it to move · drag the knob to turn · <kbd>R</kbd> turn · <kbd>[</kbd> <kbd>]</kbd> size · <kbd>Del</kbd> remove</p>`;
+    const edit = (fn: (d: MapDeco) => void, commit = true) => {
+      if (commit) remember();
+      fn(map.deco[i]);
+      changed(commit);
+      draw();
+    };
+    el.querySelectorAll<HTMLInputElement>('[data-dx]').forEach((inp) =>
+      inp.addEventListener('change', () => {
+        const v = Number(inp.value);
+        if (!Number.isFinite(v)) return;
+        const k = Number(inp.dataset.dx) as 1 | 2 | 3;
+        edit((d) => (d[k] = k === 3 ? Math.round(((v % 360) + 360) % 360) : Math.max(-MAP.reach, Math.min(MAP.reach, Math.round(v * 10) / 10))));
+      }),
+    );
+    el.querySelectorAll<HTMLElement>('[data-dturn]').forEach((b) => b.addEventListener('click', () => turnDeco(Number(b.dataset.dturn))));
+    el.querySelector('[data-dface]')?.addEventListener('click', () => edit((d) => (d[3] = faceRoad(d[1], d[2]))));
+    const scale = el.querySelector<HTMLInputElement>('[data-dscale]');
+    scale?.addEventListener('input', () => {
+      map.deco[i][4] = Number(scale.value);
+      (scale.previousElementSibling!.querySelector('b') as HTMLElement).textContent = `${Math.round(Number(scale.value) * 100)}%`;
+      draw();
+    });
+    let before = '';
+    scale?.addEventListener('pointerdown', () => (before = JSON.stringify(map)));
+    scale?.addEventListener('change', () => {
+      if (before) {
+        past.push(before);
+        if (past.length > HISTORY) past.shift();
+        future.length = 0;
+        before = '';
+      }
+      changed();
+    });
+    el.querySelector('[data-ddup]')?.addEventListener('click', () => {
+      if (map.deco.length >= MAP.maxDeco) return setStatus(`A map holds ${MAP.maxDeco} pieces at most.`);
+      remember();
+      const c = [...map.deco[i]] as MapDeco;
+      // Beside the original, stepped away from the road so the copy doesn't land on it.
+      const a = (c[3] * Math.PI) / 180;
+      const off = Math.max(4, decoR(c) * 2 + 1);
+      c[1] = Math.round((c[1] + Math.cos(a) * off) * 10) / 10;
+      c[2] = Math.round((c[2] - Math.sin(a) * off) * 10) / 10;
+      map.deco.push(c);
+      selDeco = map.deco.length - 1;
+      changed();
+      drawRight();
+    });
+    el.querySelector('[data-ddel]')?.addEventListener('click', () => removeDeco(i));
+  }
+  function turnDeco(by: number) {
+    if (selDeco < 0 || !map.deco[selDeco]) return;
+    remember();
+    const d = map.deco[selDeco];
+    d[3] = Math.round((((d[3] + by) % 360) + 360) % 360);
+    changed();
+    drawInspector();
+    draw();
+  }
+  function scaleDeco(by: number) {
+    const d = selDeco >= 0 ? map.deco[selDeco] : null;
+    if (!d || isRoadDeco(d[0])) return;
+    remember();
+    const v = Math.round(Math.max(DECO_SCALE.min, Math.min(DECO_SCALE.max, (d[4] ?? 1) + by)) * 20) / 20;
+    if (v === 1) d.length = 4;
+    else d[4] = v;
+    changed();
+    drawInspector();
+    draw();
   }
 
   function featureHtml(f: MapFeature, i: number): string {
@@ -1314,11 +2076,54 @@ export const mapBuilder: Render = (root, ctx) => {
     if (leftTab === 'library') drawLeft();
   }
 
+  /** Drives a map (the whole one, or a part of it) and comes back here: the draft keeps the whole map. */
+  function play(m: CustomMap, what: string) {
+    const c = checkMap(m);
+    if (!c.ok || !c.track) return setStatus(`${what} can't be driven yet: ${c.errors[0]?.msg ?? 'fix the road first.'}`);
+    saveCam();
+    saveDraft({ id: savedId, map, dirty });
+    ctx.drive({ track: registerMap(m), rivals, test: true });
+  }
   function testDrive() {
     if (!check.ok) return setStatus('Fix the issues on the right first.');
-    saveDraft({ id: savedId, map, dirty });
-    const track = registerMap(map);
-    ctx.drive({ track, rivals, test: true });
+    play(map, 'The map');
+  }
+  function playFrom(i: number) {
+    if (i <= 0) return testDrive();
+    if (!map.loop && i >= map.points.length - 1) return setStatus('That’s the finish: play from a point before it.');
+    const m = sectionMap(map, i, null);
+    if (m) play(m, `From point ${i + 1}, the road`);
+  }
+  function setSection(a: number, b: number) {
+    if (map.loop) return;
+    const lo = Math.max(0, Math.min(a, b));
+    const hi = Math.min(map.points.length - 1, Math.max(a, b));
+    if (hi - lo < 1) return setStatus('A section needs two different points.');
+    section = [lo, hi];
+    drawSection();
+    draw();
+  }
+  function playSection() {
+    if (!section) return;
+    const m = sectionMap(map, section[0], section[1]);
+    if (m) play(m, 'The section');
+  }
+  function drawSection() {
+    const el = $('[data-section]');
+    if (section && (map.loop || section[1] >= map.points.length)) section = null;
+    el.hidden = !section;
+    if (!section) return;
+    // Checked as it would be driven, so a part too short to race says so here and not only when you press Play.
+    const part = sectionMap(map, section[0], section[1]);
+    const c = part && checkMap(part);
+    const why = !c ? 'too short' : c.ok ? '' : c.errors[0].msg;
+    el.innerHTML = `<span>Section · points ${section[0] + 1}-${section[1] + 1}${c?.ok ? ` · ${c.km.toFixed(2)} km` : ''}</span><button class="tg-pill primary" data-secplay ${why ? `disabled title="${esc(why)}"` : ''}>Play section</button><button class="tg-pill" data-secclear aria-label="Clear the section">✕</button>${why ? `<small class="tg-mb-why">${esc(why)}</small>` : ''}`;
+    el.querySelector('[data-secplay]')!.addEventListener('click', playSection);
+    el.querySelector('[data-secclear]')!.addEventListener('click', () => {
+      section = null;
+      drawSection();
+      draw();
+    });
   }
 
   nameIn.value = map.name;
@@ -1345,6 +2150,7 @@ export const mapBuilder: Render = (root, ctx) => {
     }),
   );
   $('[data-frame]').addEventListener('click', frame);
+  root.querySelectorAll<HTMLElement>('[data-mode-to]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.modeTo as '3d' | 'plan')));
   $('[data-snap]').addEventListener('click', (e) => {
     snap = !snap;
     (e.currentTarget as HTMLElement).setAttribute('aria-pressed', String(snap));
@@ -1358,16 +2164,18 @@ export const mapBuilder: Render = (root, ctx) => {
   // Capture phase on the document, ahead of the page's own Esc = Back (src/client/main.ts): Esc first lets go of a
   // range tool's first click or the picked point, and only then leaves the builder.
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && (rangeFrom >= 0 || sel >= 0 || tool !== 'select')) {
+    if (e.key === 'Escape' && (rangeFrom >= 0 || sel >= 0 || selDeco >= 0 || tool !== 'select')) {
       e.stopPropagation();
       if (rangeFrom >= 0) rangeFrom = -1;
+      else if (selDeco >= 0) selDeco = -1;
       else if (sel >= 0) sel = -1;
       else tool = 'select';
       drawRight();
       draw();
       return;
     }
-    if (typing(e)) return;
+    // While the right button flies the camera, WASDQE belong to it.
+    if (typing(e) || world.flying) return;
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 'z') {
       e.preventDefault();
@@ -1386,8 +2194,20 @@ export const mapBuilder: Render = (root, ctx) => {
     }
     if (mod) return;
     const t = TOOLS.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
-    if (t && !(isFeatureTool(t.id) && map.loop)) return setTool(t.id);
-    if (e.key === 'f' || e.key === 'F') return frame();
+    if (t && !(roadOnly(t.id) && map.loop)) return setTool(t.id);
+    const key = e.key.toLowerCase();
+    if (key === 'f') return frame();
+    if (key === 'm') return setMode(is3d() ? 'plan' : '3d');
+    if (key === 'p') return sel >= 0 ? playFrom(sel) : testDrive();
+    if (selDeco >= 0 && map.deco[selDeco]) {
+      if (key === 'r') turnDeco(e.shiftKey ? -15 : 15);
+      else if (e.key === '[' || e.key === ']') scaleDeco(e.key === ']' ? 0.1 : -0.1);
+      else if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        removeDeco(selDeco);
+      }
+      return;
+    }
     if (sel < 0) return;
     const p = map.points[sel];
     const step = e.shiftKey ? 10 : 1;
@@ -1414,14 +2234,24 @@ export const mapBuilder: Render = (root, ctx) => {
 
   // ---- go -------------------------------------------------------------------------------------------------
   const ro = new ResizeObserver(() => resize());
-  ro.observe(canvas);
+  ro.observe($('[data-mode]'));
   ro.observe(prof);
   layout();
   drawLeft();
   drawRight();
   drawState();
-  resize();
-  frame();
+  setMode(mode);
+  if (!loadCam()) frame();
+  else {
+    // The plan view is framed on the map either way.
+    const keep = { x: world.pos.x, y: world.pos.y, z: world.pos.z, yaw: world.yaw, pitch: world.pitch };
+    frame();
+    world.pos.set(keep.x, keep.y, keep.z);
+    world.yaw = keep.yaw;
+    world.pitch = keep.pitch;
+    world.invalidate();
+  }
+  scheduleWorld(30);
   void loadLibrary();
   const offAccount = account.onChange(() => void loadLibrary());
 
@@ -1431,6 +2261,8 @@ export const mapBuilder: Render = (root, ctx) => {
     offAccount();
     if (rebuildTimer) clearTimeout(rebuildTimer);
     if (statusTimer) clearTimeout(statusTimer);
+    if (worldTimer) clearTimeout(worldTimer);
+    world.dispose();
   };
 };
 
@@ -1448,6 +2280,8 @@ function toolIcon(t: Tool): string {
     canyon: '<path d="M2 18V6l4 3v9M20 18V6l-4 3v9M9 18h4"/>',
     bridge: '<path d="M2 9h18M5 9v8M17 9v8M5 9q6 6 12 0"/>',
     tunnel: '<path d="M3 18V11a8 8 0 0116 0v7"/><path d="M7 18v-6a4 4 0 018 0v6"/>',
+    ramp: '<path d="M2 17h7l9-7"/><path d="M15 6l4 3"/>',
+    deco: '<path d="M11 3l5 8h-3l4 6H5l4-6H6z"/><path d="M11 17v3"/>',
   };
   return `<svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p[t]}</svg>`;
 }

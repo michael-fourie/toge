@@ -97,6 +97,12 @@ export interface TrackDef {
   water?: number;
   /** Four lanes of traffic to dodge (traffic.ts): two each way in town, or all four going your way on a `highway`. */
   traffic?: boolean | 'highway';
+  /** How many traffic cars share the road, against the built-in tracks' 1 (custom maps, custommap.ts MAP_DENSITY). */
+  trafficDensity?: number;
+  /** Custom maps: scenery a player placed (custommap.ts DECOS), drawn off the road by scenery.ts. Yaw in radians. */
+  decor?: { kind: string; x: number; z: number; yaw: number; scale?: number }[];
+  /** Custom maps: cones, barrels and bales a player put on the road (props.ts adds them to the track's props). */
+  placed?: { kind: 'cone' | 'barrel' | 'bale'; x: number; z: number; yaw: number }[];
   /**
    * One-way lanes painted on the road, with a dashed line between each: a `'highway'` has 4 unless it says otherwise.
    * Six spread evenly across the whole asphalt.
@@ -2193,7 +2199,7 @@ export function buildTrack(def: TrackDef): Track {
     // A pad is a place on the main road: none where a car may be on the other one.
     (!!fork && s1 > fork.s0 - 40 && s0 < fork.s1 + 40),
   );
-  if (lap || def.clean) return t; // circuits and clean passes: no obstacles
+  if (lap) return t; // circuits: no obstacles (a clean pass has only the ones a player put there)
   t.props = placeProps(t);
   return t;
 }
