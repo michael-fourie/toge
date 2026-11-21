@@ -29,6 +29,7 @@ All of them are typechecked by `tsconfig.worker.json` (Workers types, no DOM). T
 | `/api/notices` (GET your own; POST `{seen: <at>}`, ≤128 B) | Accounts `"all"` `.notices` / `.seenNotices`: "your time was beaten" notices for the session's account (null / false for guests) |
 | `/api/friends` (GET your list, POST `{a: 'add' \| 'remove', name}`) | Accounts `"all"` (`friendStore.ts`; rules in `src/shared/friends.ts`) |
 | `/api/clubs` (GET the clubs you're in, POST a `ClubAction`: `create` / `add` / `remove` / `disband`) | Accounts `"all"` (`clubStore.ts`; rules in `src/shared/clubs.ts`) |
+| `/api/maps` (GET your saved maps, POST a `MapAction`: `save` / `delete`, ≤ `MAP.maxBytes` + 512 B) | Accounts `"all"` `.maps` / `.mapAct` (`src/kanjo/server/mapStore.ts`; rules in `src/kanjo/shared/custommap.ts` `applyMapAction`): the map builder's maps, null / an error for guests (they keep theirs in localStorage) |
 | WS `/ws?game=race` | Directory `"race"` hands out a code (or checks `code=`), then RaceRoom `<code>` |
 
 - `/ws` needs `Upgrade: websocket` and a same-origin `Origin`. `Accounts.identify(cookie, name)` settles the display
@@ -76,7 +77,7 @@ that way: it's what makes the logic unit-testable.
 - Session token: 64 hex chars in an HttpOnly, SameSite=Lax cookie, 30 days, not sliding. Only `sha256(token)` is
   stored (`s:<hash>`). Users are `u:<lowercase name>`, garage `g:<user>`, best times `b:<user>`, boards `lb:<track>`,
   record ghosts `gh:<track>`, notices `nt:<user>`, friends `f:<user>` (who they added) and `fi:<user>` (who added
-  them), clubs `cl:<lower club name>` and `cm:<user>` (the clubs a user is in), all lower-cased names. Accounts copied from Gambol also carry its shooter stash (`i:<user>`, `t:<user>`),
+  them), clubs `cl:<lower club name>` and `cm:<user>` (the clubs a user is in), custom maps `mp:<user>` (at most `MAP.maxSaved`), all lower-cased names. Accounts copied from Gambol also carry its shooter stash (`i:<user>`, `t:<user>`),
   which nothing here reads.
 - Friends are one way (`FriendStore`): adding needs the account to exist, `FRIENDS_MAX` each, a per-account
   `Limiter`. A friend sees `profileOf()` (no money).

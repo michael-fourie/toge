@@ -348,6 +348,31 @@ a component or a page.
   and ghost tapes stay capped at 10 minutes. The lobby's Laps block (lobby.ts: − [n laps] +, the distance, quick
   picks 1/5/10/25/50/100; `.tg-laps` in hub.css); the loading screen and results say "Endurance · n laps".
   Tests: tests/kanjo/endurance.test.ts.
+- **The map builder** (2026-11-21, Michael: "Build a fully interactive map builder"): players lay out their own road,
+  test drive it and race it online. A map is a `CustomMap` (custommap.ts): name, blurb, theme, point to point or a
+  circuit (laps), width, hills (`MAP_TERRAIN`), a lake below the road (`sea`), a sky road, props (`MAP_PROPS`: clean,
+  a few, an obstacle course, rockfall), traffic (`MAP_TRAFFIC`, town or highway, on wide roads), crash damage
+  (`survival`), the control points `[x, y, z]` and its features, each pinned to control point indices (`FEATURES`: crest,
+  drop jump and gap at one point; bumps, gravel, canyon, bridge and tunnel between two), with `MAP` as every limit.
+  `cleanMap` makes anything safe (clamps, rounds, caps; idempotent), `checkMap` builds it and reports what's wrong in
+  the track tests' own terms (legs too close, grades over `MAP.maxGrade` with a warning from `warnGrade`, too short or
+  too long, tight bends), `mapDef` turns it into a TrackDef, and `registerMap` puts it in `TRACK_DEFS` under
+  `custom:<hash of the map>` (with its `TRACK_LENGTH_KM`), keeping the last four and dropping older ones' builds
+  (track.ts `forgetTrack`). Circuits take no features or props (as every circuit). `MAP_TEMPLATES` start one;
+  `mapFromTrack` remixes a built-in track (not the open world, forks, rivers, overpasses, arenas or shortcuts);
+  `mapCode` / `decodeMapCode` are share codes (`KJM1.` + base64url JSON).
+  The screen is `maps` (mapbuilder.ts + mapbuilder.css; the landing's Map builder card opens it): a top-down plan
+  (drag points, drag the ground to pan, wheel or pinch to zoom, double-click the road to add a point; tools Move,
+  Add, Erase and one per feature, keys V A X 1-8), the elevation profile under it (drag the handles), the inspector,
+  the check list, undo/redo (120 steps), Ctrl+S. The open map is a draft in `atrous.mapDraft`, saved as you edit.
+  *Test drive* registers it and calls `ctx.drive({ test: true })`, alone or with three CPUs; leaving the race comes
+  back to the builder. Saved maps (mapstore.ts): an account's on the server (`/api/maps`, `mp:<user>`,
+  kanjo/server/mapStore.ts), a guest's in `atrous.maps`, both through `applyMapAction` (at most `MAP.maxSaved`).
+  Online: in a Race or Time trial lobby (`MAP_MODES`) the host's maps show under the track grid ("Your maps"); picking
+  one sends `{t:'map', map}`, the room cleans and checks it, registers it and puts it on `room` and `load`, and every
+  client registers it on arrival (racenet.ts) before the lobby or the race reads the track. A `track` pick or a mode
+  outside `MAP_MODES` clears it. A custom map is for fun: no prize, drift bonus or XP, no best times or boards, no
+  record ghost, online or solo (racegame.ts skips the `solo` pay action). Tests: tests/kanjo/custommap.test.ts.
 - **Kanjo, the open world** (`kanjo` in TRACK_DEFS with `world: true`; world.ts; Michael asked for it 2026-11-08: "a free
   play map of its own... players can just drive around and hang out... great spots to go fast, and cool cutting between
   cars on the highway"). An island: a 470 m mountain, a harbour city, and 37 km of roads built as data (`layout()`): the
@@ -591,6 +616,8 @@ src/kanjo/shared/
                winRate, cardBests (the newest few of your best times from records.ts).
   royale.ts    battle royale: ROYALE (grace, minRivals), Royale (who's knocked out each lap, the winner), Knockout.
   cups.ts      Grand Prix cups (CUPS: four tracks each, the Postcard Cup five; roundsOf), GP_POINTS, addRound / rankCup (the cup table).
+  custommap.ts the map builder's maps: CustomMap, MAP limits, cleanMap / checkMap / mapDef / registerMap, templates,
+               remixes (mapFromTrack), share codes, saved maps (applyMapAction). See Content above.
   protocol.ts  race lobby wire types (RaceServerMsg / RaceClientMsg), RACE timings, RACE_MODES (race / time trial / hill
                climb / Grand Prix / Team Grand Prix / free roam / battle royale / Endurance; ENDURANCE, cleanLaps), ghostMode (time trial only), cleanMode (the host's car rule: trial and climb), modeTracks + MODE_TRACK (which tracks each mode runs, and the one it switches to).
 src/kanjo/server/race.ts (Race: lobby -> loading -> countdown -> racing -> results, ranks, prizes), raceroom.ts (the RaceRoom DO),
@@ -628,7 +655,7 @@ src/kanjo/client/ racegame.ts (the race loop), trackview.ts (sky, terrain, road,
   a single offscreen 3D shot of your car and driver, is both what you see and the PNG you download or share), settingsui.ts
   (the Settings page: graphics), friendsui.ts (the Friends page: list, add, a friend's
   profile and best times), leaderboardui.ts (Race → Leaderboard: a track's all-time board and every track's record, Watch the record), watchui.ts (the overlay when watching a record run), lowgfx.ts (Low graphics' material swap), hub.ts (the home screen `drive`: tabs and pages,
-  styled by hub.css), lobby.ts (`drivelobby`; the picked track's all-time top 5 under its hero (leaderboardui.ts `lobbyBoard`, refetched on a track change, after a race and once a minute); its Your car card switches cars (no Edit car and no car-rule pick any more, 2026-11-15: cars are always your own; hub.ts's `pitGarage` and the `pit` message are unused now), the Crew shows each racer's car with their driver in front (riderportrait.ts `racerPortrait`), and the lobby re-sends your car and driver whenever the room's copy is stale), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
+  styled by hub.css), lobby.ts (`drivelobby`; the picked track's all-time top 5 under its hero (leaderboardui.ts `lobbyBoard`, refetched on a track change, after a race and once a minute); its Your car card switches cars (no Edit car and no car-rule pick any more, 2026-11-15: cars are always your own; hub.ts's `pitGarage` and the `pit` message are unused now), the Crew shows each racer's car with their driver in front (riderportrait.ts `racerPortrait`), and the lobby re-sends your car and driver whenever the room's copy is stale), mapbuilder.ts + mapbuilder.css (the map builder, screen `maps`), mapstore.ts (saved maps and the builder's draft, `mapSvg` thumbnails), trackart.ts (track tiles and maps for the menus), loading.ts + loading.css + loadingcopy.ts (the race loading screen: track preview, tips), brand.ts (logo, icons), hud.ts (incl. the top-left leaderboard and the name tags over
   other cars, hidden behind hills), input.ts
   (keyboard + controller), audio.ts (synth engine, tyres, wind; volume in the pause menu), effects.ts (smoke, skids),
   garageStore.ts, racenet.ts, race.css, propview.ts (props, boost pads), trafficview.ts (instanced city traffic),

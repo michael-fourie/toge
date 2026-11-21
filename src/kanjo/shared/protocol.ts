@@ -9,6 +9,7 @@ import { RACE_TRACKS, TRACK_DEFS, type TrackId } from './track.ts';
 import type { GhostRun } from './ghost.ts';
 import { CUPS, type CupId, type CupRow } from './cups.ts';
 import { HIGHLIGHT } from './highlight.ts';
+import type { CustomMap } from './custommap.ts';
 
 /** One signed-in racer's new best in `records` (NewBest in records.ts, keyed by racer id). */
 export interface RecordRow {
@@ -95,6 +96,12 @@ export const modeTracks = (m: RaceMode): TrackId[] =>
 export const ENDURANCE = { min: 1, max: 100, start: 10, slowest: 12, spare: 120 } as const;
 /** A lap count the host asked for, as a whole number of laps in range (null: not a number at all). */
 export const cleanLaps = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? Math.max(ENDURANCE.min, Math.min(ENDURANCE.max, Math.round(x))) : null);
+
+/**
+ * Modes a host can run on a custom map (custommap.ts, the map builder): a race or a time trial. A custom map pays
+ * nothing, keeps no best times and has no record ghost, whatever the mode.
+ */
+export const MAP_MODES: RaceMode[] = ['race', 'trial'];
 
 /** The track a mode starts on when the host switches to it (they can still pick another the mode allows). */
 export const MODE_TRACK: Record<RaceMode, TrackId> = { race: 'koripass', trial: 'kodama', climb: 'karasu', gp: CUPS.torii.tracks[0], team: CUPS.torii.tracks[0], roam: 'kanjo', royale: 'shura', endurance: 'monza' };
@@ -217,6 +224,8 @@ export interface RaceLobbyInfo {
   solo?: boolean;
   /** An Endurance lobby's lap count. */
   laps?: number;
+  /** A custom map's name, when the lobby is on one (its `track` is then a `custom:` id). */
+  mapName?: string;
 }
 
 export type RaceServerMsg =
@@ -226,12 +235,12 @@ export type RaceServerMsg =
    * not fetched yet).
    */
   /** `cup`: the Grand Prix cup the host picked; `gp`: the cup under way (null between cups). */
-  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; ghost: boolean; record: { name: string; time: number } | null; phase: RacePhase; racers: Racer[]; cup: CupId; gp: GpState | null; solo?: true; laps: number }
+  | { t: 'room'; code: string; hostId: number; track: TrackId; mode: RaceMode; cars: CarRule; physics: boolean; ghost: boolean; record: { name: string; time: number } | null; phase: RacePhase; racers: Racer[]; cup: CupId; gp: GpState | null; solo?: true; laps: number; map?: CustomMap }
   /**
    * The race is on: build the track and say `ready`. Nobody moves until `countdown` then `go`. `rule` and `cars`
    * (each racer's car code for this race) settle what everyone drives; see raceCars().
    */
-  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost: GhostRun | null; gp?: GpState; laps?: number }
+  | { t: 'load'; track: TrackId; mode: RaceMode; grid: Record<number, number>; timeoutMs: number; rule: CarRule; cars: Record<number, string>; physics: boolean; ghost: GhostRun | null; gp?: GpState; laps?: number; map?: CustomMap }
   /** Who in the field has loaded so far (ids), sent whenever that changes. */
   | { t: 'loading'; ready: number[]; field: number[] }
   /** Everyone's loaded: `go` comes in `ms`. A racer who loads late hears the time that's left. */
@@ -261,6 +270,8 @@ export type RaceServerMsg =
 
 export type RaceClientMsg =
   | { t: 'track'; track: TrackId }
+  /** Host, lobby (a race or time trial): race this custom map (checked with custommap.ts `checkMap`). */
+  | { t: 'map'; map: CustomMap }
   | { t: 'mode'; mode: RaceMode }
   /** Host, Grand Prix lobby: which cup. */
   | { t: 'cup'; cup: CupId }

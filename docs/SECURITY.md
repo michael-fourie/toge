@@ -28,6 +28,13 @@ player sees is decided or checked by the server; anything the server can't check
 - Every race message is shape-checked before it's used or relayed (`Race.handle` in race.ts): a non-number coordinate compares
   false against every bound, so numbers are checked with `Number.isFinite`.
 - Messages per client are rate-limited in race rooms (60/s; poses are relayed at once).
+- **Custom maps** (the map builder, `src/kanjo/shared/custommap.ts`) come from players. Every path that takes one
+  (`/api/maps`, the room's `map` message, a `load` / `room` on another client, a share code) runs `cleanMap`: numbers
+  clamped and rounded, text stripped of markup and control characters and capped, at most `MAP.maxPoints` points and
+  `MAP.maxBytes` of JSON; the room also runs `checkMap` (the road must build) and takes it only from the host, in the
+  lobby, once per 1.5 s. Its name reaches the page only through `esc()`. A custom map pays nothing (prize, drift bonus
+  and XP are 0, the solo `solo` action is skipped), keeps no best times and fetches no record ghost, so a map built to
+  be easy can't farm anything. Accounts keep at most `MAP.maxSaved` (20 changes at once, then one per 2 s).
 - Typed (guest) names lose markup, quote, control, invisible and direction-flipping characters on the server
   (`cleanName`). Screens escape names as well.
 

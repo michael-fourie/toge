@@ -6,6 +6,7 @@ import { CAR_CODE_MAX } from '../kanjo/shared/cars.ts';
 import { RIDER_CODE_MAX } from '../kanjo/shared/rider.ts';
 import type { FriendAction } from '../shared/friends.ts';
 import type { ClubAction } from '../shared/clubs.ts';
+import { MAP, type MapAction } from '../kanjo/shared/custommap.ts';
 
 export { Accounts } from './accounts.ts';
 export { Directory } from './directory.ts';
@@ -225,6 +226,15 @@ async function clubsApi(req: Request, url: URL, accounts: DurableObjectStub<Acco
   return Response.json(await accounts.clubAct(token, action));
 }
 
+/** Custom maps (the map builder): GET lists yours (null for guests), POST a `MapAction` (save or delete). Signed-in only. */
+async function mapsApi(req: Request, url: URL, accounts: DurableObjectStub<Accounts>): Promise<Response> {
+  const token = readCookie(req);
+  if (req.method === 'GET') return Response.json({ maps: await accounts.maps(token) });
+  const action = await jsonBody<MapAction>(req, url, MAP.maxBytes + 512);
+  if (!action || typeof action !== 'object') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 });
+  return Response.json(await accounts.mapAct(token, action));
+}
+
 /** Joins or hosts a race lobby: a fresh 4-letter code from the 'race' directory, or the room behind a code. */
 async function raceSocket(req: Request<unknown, IncomingRequestCfProperties>, url: URL, env: Env, name: string, user: boolean): Promise<Response> {
   const dir = env.DIRECTORY.getByName('race');
@@ -287,6 +297,7 @@ export default {
     if (url.pathname === '/api/garage') return garageApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/friends') return friendsApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/clubs') return clubsApi(req, url, env.ACCOUNTS.getByName('all'));
+    if (url.pathname === '/api/maps') return mapsApi(req, url, env.ACCOUNTS.getByName('all'));
     if (url.pathname === '/api/notices') return noticesApi(req, url, env.ACCOUNTS.getByName('all'));
     // A track record's run, to watch it again from the leaderboard (public, like the board it's on; read only).
     if (url.pathname === '/api/ghost' && req.method === 'GET')

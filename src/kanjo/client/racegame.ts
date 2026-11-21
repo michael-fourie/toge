@@ -16,6 +16,7 @@ import type { NewBest } from '../shared/records.ts';
 import { ROYALE, Royale } from '../shared/royale.ts';
 import { standings } from '../shared/standings.ts';
 import { SAMPLE, type Surface, type Track, type TrackId, clearOfGaps, getTrack, gridSlot, heightAt, lapOf, locate, newLoc, onFork } from '../shared/track.ts';
+import { isCustomTrack } from '../shared/custommap.ts';
 import { gapFall, skyFall } from '../shared/skyfall.ts';
 import { type Assists, type Car, DEFAULT_ASSISTS, type DriveInput, TICK_DT, collideCars, forwardSpeed, newCar, placeCar, speedOf, stepCar, wheelLocal, yawOf } from '../shared/vehicle.ts';
 import { WORLD, respawnAt, trapCrossed } from '../shared/world.ts';
@@ -1541,7 +1542,9 @@ export class RaceGame {
     const myPlace = order.indexOf(this.me) + 1;
     const drift = this.driftMeter.total;
     const xpBefore = garage.g.xp;
-    const paid = garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift });
+    // A custom map (the map builder) pays nothing: anyone could build a short one to farm.
+    const custom = isCustomTrack(this.setup.track);
+    const paid = custom ? Promise.resolve({ ok: false as const, error: 'custom' }) : garage.act({ a: 'solo', track: this.setup.track, place: myPlace, field: field.length, drift });
     // The winner's Best Moment first, then the results (the prize is settled meanwhile).
     await this.bestMoment(order[0], order[0]?.name ?? '');
     const res = await paid;
@@ -1549,12 +1552,12 @@ export class RaceGame {
     this.myPrize = res.ok ? (res.paid ?? 0) : 0;
     const bonus = res.ok ? res.bonus : undefined;
     const lines: ResultLine[] = order.map((r, i) => ({ place: i + 1, name: r.name, car: r.code, time: r.out ? null : r.finished, out: r.out?.lap, prize: r === this.me ? this.myPrize! : 0, me: r === this.me, drift: r === this.me ? drift : undefined, bonus: r === this.me ? bonus : undefined }));
-    const note = (res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}${xpNote(res.xp ?? 0, xpBefore)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`);
+    const note = custom ? 'Custom map: no prize money, just the drive.' : (res.ok ? `You won ${money(this.myPrize)}${bonusNote(bonus)}${xpNote(res.xp ?? 0, xpBefore)}` : `No prize: ${res.error === 'Too soon.' ? 'solo races pay at most once every 45 s' : res.error}`);
     const gp = this.setup.gp;
     if (gp) return this.soloCup(gp, lines, note);
     const p = this.hud.panel(`${this.hud.resultsHtml(this.royaleOn ? `Battle royale · ${this.track.def.name}` : this.track.def.name, lines)}
       <p class="rh-note">${esc(note)}</p>
-      <div class="rh-buttons"><button data-act="again" data-autofocus>Rerace</button><button data-act="garage">Garage</button></div>`);
+      <div class="rh-buttons"><button data-act="again" data-autofocus>Rerace</button><button data-act="garage">${custom ? 'Map builder' : 'Garage'}</button></div>`);
     setMenuNav(true);
     p.querySelector('[data-act="again"]')!.addEventListener('click', () => this.restart());
     p.querySelector('[data-act="garage"]')!.addEventListener('click', () => this.exit('garage'));
@@ -1603,7 +1606,7 @@ export class RaceGame {
     if (mine) garage.credit(mine.prize, mine.place === 1 && lines.filter((l) => !l.cpu).length > 1, mine.xp ?? 0);
     // A guest's best is kept here; an account's comes from the server a moment later (`records`). Only record modes
     // keep best times (recordMode): a race's drafting and bumping would make them unfair in a time trial.
-    if (mine && mine.time !== null && !garage.onServer && recordMode(this.setup.online!.mode)) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
+    if (mine && mine.time !== null && !garage.onServer && !isCustomTrack(this.setup.track) && recordMode(this.setup.online!.mode)) mine.newBest = garage.noteTime(this.setup.track, mine.time, mine.car);
     // Kept now, so new best times (`records`) that land during the replay still mark them.
     this.shownResults = { lines, title };
     this.gpShown = gp ?? null;
