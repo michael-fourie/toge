@@ -327,7 +327,9 @@ export const isCustomTrack = (id: string) => id.startsWith(CUSTOM);
 
 /** A map as a TrackDef (under `id`, mapTrackId's by default). */
 export function mapDef(m: CustomMap, id: TrackId = mapTrackId(m)): TrackDef {
-  const seed = parseInt(hashText(m.name + m.points.length), 36) % 100000;
+  // From the name alone: adding a point mustn't reshuffle every tree and barrel (or repaint the textures the builder
+  // keeps between rebuilds).
+  const seed = parseInt(hashText(m.name), 36) % 100000;
   const low = Math.min(...m.points.map((p) => p[1]));
   const features: Feature[] = m.loop
     ? []

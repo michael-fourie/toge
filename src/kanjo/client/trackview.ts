@@ -155,7 +155,39 @@ const NIGHT_RAIL = 0.22;
 /** The terrain fades fully into the fog between these view depths (m), well before the far ring's edge (4.2 km past the track). */
 export const HORIZON_FADE = [3200, 5200];
 
-export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low = false): TrackView {
+/** Options for `buildTrackView`. */
+export interface ViewOpts {
+  /**
+   * Keeps the canvas-painted surfaces (road, gravel, ground, stone, building walls) here and takes them from here
+   * next time, keyed by what they're painted from, and never disposes them (the owner does). The map builder
+   * (mapworld.ts) rebuilds its world after every edit: painting them again was two thirds of each rebuild.
+   */
+  cache?: Map<string, object>;
+}
+/** The cache of the build under way (builds are synchronous), for `surface`. */
+let shared: Map<string, object> | null = null;
+/** A set of textures from the build's cache, or made and kept for disposal with the view. */
+function surface<T extends object>(key: string, make: () => T, keep: <D extends { dispose(): void }>(x: D) => D): T {
+  if (shared) {
+    let s = shared.get(key) as T | undefined;
+    if (!s) shared.set(key, (s = make()));
+    return s;
+  }
+  const s = make();
+  for (const tex of Object.values(s)) keep(tex as { dispose(): void });
+  return s;
+}
+
+export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low = false, opts: ViewOpts = {}): TrackView {
+  shared = opts.cache ?? null;
+  try {
+    return buildView(road, renderer, low);
+  } finally {
+    shared = null;
+  }
+}
+
+function buildView(road: Track, renderer: THREE.WebGLRenderer, low: boolean): TrackView {
   const t = lapView(road); // a circuit is drawn once round
   const look: Look = { ...LOOKS[t.def.theme], ...TRACK_LOOKS[t.def.id] };
   const scene = new THREE.Scene();
@@ -171,8 +203,7 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
 
   // --- Terrain: a fine grid around the road and a coarse ring out to the horizon
   const aniso = renderer.capabilities.getMaxAnisotropy();
-  const groundTex = ground(t.def.theme, t.def.seed, aniso);
-  for (const tex of Object.values(groundTex)) keep(tex);
+  const groundTex = surface(`ground:${t.def.theme}:${t.def.seed}:${aniso}`, () => ground(t.def.theme, t.def.seed, aniso), keep);
   const terrainMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, ...groundTex, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 1, metalness: 0 }));
   // The same detail again at 12x the scale, so the tiling never shows as a grid from a distance.
   terrainMat.onBeforeCompile = (sh) => {
@@ -374,11 +405,10 @@ export function buildTrackView(road: Track, renderer: THREE.WebGLRenderer, low =
 
   // --- Road ribbon (chunks of ~200 m)
   // At night the road is damp: the same textures, glossier, so the lamps and headlights streak on it.
-  const roadTex = asphalt(t.def.theme, t.def.seed, aniso, !!t.lap, t.def.lanes ?? (t.def.traffic === 'highway' ? 4 : 0), look.tar);
-  for (const tex of Object.values(roadTex)) keep(tex);
+  const lanes = t.def.lanes ?? (t.def.traffic === 'highway' ? 4 : 0);
+  const roadTex = surface(`asphalt:${t.def.theme}:${t.def.seed}:${aniso}:${!!t.lap}:${lanes}:${look.tar}`, () => asphalt(t.def.theme, t.def.seed, aniso, !!t.lap, lanes, look.tar), keep);
   const roadMat = keep(new THREE.MeshStandardMaterial({ ...roadTex, normalScale: new THREE.Vector2(0.9, 0.9), roughness: look.moon ? 0.62 : 1, metalness: 0, envMapIntensity: look.moon ? 2.5 : 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-  const gravelTex = gravel(t.def.theme, t.def.seed, aniso);
-  for (const tex of Object.values(gravelTex)) keep(tex);
+  const gravelTex = surface(`gravel:${t.def.theme}:${t.def.seed}:${aniso}`, () => gravel(t.def.theme, t.def.seed, aniso), keep);
   const gravelMat = keep(new THREE.MeshStandardMaterial({ ...gravelTex, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   // Across: (runoff) | verge | shoulder | road | shoulder | verge | (runoff), matching the texture's columns.
   // The runoff columns have no width where there's none; where there is, the dirt below covers them.
@@ -991,8 +1021,7 @@ function scatter(
   const bushCols = BUSH_COLOURS[theme].map((c) => new THREE.Color(c));
   const brng = mulberry(t.def.seed * 131 + 3);
   const rock = keep(rockGeometry());
-  const rockTex = stone(t.def.seed);
-  for (const tex of Object.values(rockTex)) keep(tex);
+  const rockTex = surface(`stone:${t.def.seed}`, () => stone(t.def.seed), keep);
   rockTex.map.colorSpace = THREE.SRGBColorSpace;
   const rockMat = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(...look.rock).multiplyScalar(1.1), ...rockTex, roughness: 1, flatShading: true }));
   // Every tree a little different in shade and hue, even in a plain green forest.
@@ -1340,9 +1369,7 @@ function village(scene: THREE.Scene, t: Track, rng: () => number, keep: <T exten
       scene.add(g);
     }
   }
-  const fac = facade(t.def.seed, theme);
-  keep(fac.map);
-  keep(fac.glow);
+  const fac = surface(`facade:${t.def.seed}:${theme}`, () => facade(t.def.seed, theme), keep);
   const roofGeo = keep(new THREE.CylinderGeometry(0.72, 0.72, 1, 3, 1));
   roofGeo.rotateZ(Math.PI / 2);
   roofGeo.rotateY(Math.PI / 2);
@@ -1423,8 +1450,7 @@ function village(scene: THREE.Scene, t: Track, rng: () => number, keep: <T exten
 
 /** Concrete for bridges and tunnels: a deck on piers over each gorge, a lit gallery through each hill. */
 function structures(scene: THREE.Scene, t: Track, keep: <T extends { dispose(): void }>(x: T) => T, night: boolean) {
-  const tex = stone(t.def.seed + 1);
-  for (const x of Object.values(tex)) keep(x);
+  const tex = surface(`stone:${t.def.seed + 1}`, () => stone(t.def.seed + 1), keep);
   tex.map.colorSpace = THREE.SRGBColorSpace;
   const concrete = keep(new THREE.MeshStandardMaterial({ color: 0xa3a19b, ...tex, normalScale: new THREE.Vector2(0.5, 0.5), roughness: 1 }));
   const lampMat = keep(new THREE.MeshStandardMaterial({ color: 0xfff4d8, emissive: 0xffe2a8, emissiveIntensity: night ? 6 : 3 }));

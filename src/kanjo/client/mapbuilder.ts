@@ -55,25 +55,32 @@ import { account } from '../../client/account.ts';
 import { ICON, LOGO } from './brand.ts';
 import { THEME_ART } from './trackart.ts';
 import { type Draft, loadDraft, mapApi, mapSvg, saveDraft } from './mapstore.ts';
+import * as THREE from 'three';
 import { MapWorld } from './mapworld.ts';
 import './hub.css';
 import './mapbuilder.css';
 
-type Tool = 'select' | 'add' | 'erase' | 'deco' | 'ramp' | FeatureKind;
+type Tool = 'select' | 'add' | 'feature' | 'deco' | 'erase';
+/** What the Features tool drops: a ramp or one of the road's features. */
+type FeatPick = FeatureKind | 'ramp';
 const TOOLS: { id: Tool; name: string; key: string; hint: string }[] = [
-  { id: 'select', name: 'Move', key: 'V', hint: 'Drag points and scenery to move them; drag a point’s arrow (or Shift-drag it) to raise it. Drag the ground to pan, scroll to zoom, right-drag to look round (WASD to fly), middle-drag to orbit.' },
-  { id: 'add', name: 'Add', key: 'A', hint: 'Click the ground to extend the road from its end (Shift: from its start). Click the road to add a point in it.' },
-  { id: 'erase', name: 'Erase', key: 'X', hint: 'Click a point or a piece of scenery to take it out.' },
-  { id: 'deco', name: 'Scenery', key: 'S', hint: 'Pick a piece on the right, then click the ground to place it (it turns to face the road). Cones, barrels and bales go on the road.' },
-  { id: 'ramp', name: 'Ramp', key: '9', hint: 'Click anywhere on the road: a kicker ramp that throws you in the air.' },
-  { id: 'crest', name: 'Crest', key: '1', hint: 'Click anywhere on the road: it rises and falls away there.' },
-  { id: 'jump', name: 'Drop jump', key: '2', hint: 'Click anywhere on the road: a kicker, then the road drops onto the street below.' },
-  { id: 'gap', name: 'Gap', key: '3', hint: 'Click anywhere on the road: it stops over a ravine. Too slow and you fall in.' },
-  { id: 'bumps', name: 'Bumps', key: '4', hint: 'Click the road where it starts, then where it ends: broken tarmac between.' },
-  { id: 'gravel', name: 'Gravel', key: '5', hint: 'Click the road where it starts, then where it ends: a gravel stage between.' },
-  { id: 'canyon', name: 'Canyon', key: '6', hint: 'Click the road where it starts, then where it ends: rock walls either side.' },
-  { id: 'bridge', name: 'Bridge', key: '7', hint: 'Click the road where it starts, then where it ends: the ground falls away under a bridge.' },
-  { id: 'tunnel', name: 'Tunnel', key: '8', hint: 'Click the road where it starts, then where it ends: a gallery through a hillside.' },
+  { id: 'select', name: 'Move', key: '1', hint: 'Click a point or a piece of scenery to pick it and drag it to move it. Drag a picked point’s yellow arrow to raise or lower it. Drag empty ground to pan, right-drag to orbit, scroll to zoom, WASD to move.' },
+  { id: 'add', name: 'Road', key: '2', hint: 'Click the ground to carry the road on from its finish (Shift: from its start). Click the road itself to put a point in it.' },
+  { id: 'feature', name: 'Features', key: '3', hint: 'Pick a ramp or a feature on the right, then click the road where it goes. Long ones (bumps, gravel, canyon, bridge, tunnel): click where it starts, then where it ends.' },
+  { id: 'deco', name: 'Scenery', key: '4', hint: 'Pick a piece on the right, then click the ground to place it (it turns to face the road). Cones, barrels and bales go on the road.' },
+  { id: 'erase', name: 'Erase', key: '5', hint: 'Click a point or a piece of scenery to take it out.' },
+];
+/** The Features tool's palette, in order: what each is and how it goes down. */
+const FEAT_PICKS: { id: FeatPick; name: string; hint: string }[] = [
+  { id: 'ramp', name: 'Ramp', hint: 'A kicker that throws you in the air and lands you back on the road.' },
+  { id: 'crest', name: 'Crest', hint: 'The road rises and falls away: a blind brow.' },
+  { id: 'jump', name: 'Drop jump', hint: 'A kicker, then the road drops onto the street below.' },
+  { id: 'gap', name: 'Gap', hint: 'The road stops over a ravine. Too slow and you fall in.' },
+  { id: 'bumps', name: 'Bumps', hint: 'Broken tarmac between two points.' },
+  { id: 'gravel', name: 'Gravel', hint: 'A gravel stage between two points.' },
+  { id: 'canyon', name: 'Canyon', hint: 'Rock walls either side between two points.' },
+  { id: 'bridge', name: 'Bridge', hint: 'The ground falls away under a bridge between two points.' },
+  { id: 'tunnel', name: 'Tunnel', hint: 'A gallery through a hillside between two points.' },
 ];
 /** A ramp is a drop jump with no drop: a kicker you fly off and land back on the road (track.ts `jump`). */
 const RAMP = { size: 2.6, kick: 22, drop: 0, land: 70 };
@@ -84,10 +91,12 @@ const LIFT = 1.5;
 /** How long an edit has to settle before the 3D world is rebuilt (ms): the build is the race's own, 0.2-1.5 s. */
 const WORLD_MS = 550;
 const VIEW_KEY = 'atrous.mapView';
+/** A leg steeper than this (rise over run) is drawn red on the point's height bar, as `checkMap` refuses it. */
+const STEEP = MAP.maxGrade * 1.15;
 const CAM_KEY = 'atrous.mapCam';
-const isFeatureTool = (t: Tool): t is FeatureKind => Object.hasOwn(FEATURES, t);
 /** Tools that work on a point-to-point road only (features and ramps). */
-const roadOnly = (t: Tool) => isFeatureTool(t) || t === 'ramp';
+const roadOnly = (t: Tool) => t === 'feature';
+const HELP_KEY = 'atrous.mapHelp';
 
 /** Colours for features on the map and the profile (data colours, not the brand roles). */
 const FEAT_COLOR: Record<FeatureKind, string> = {
@@ -132,6 +141,13 @@ export const mapBuilder: Render = (root, ctx) => {
   let leftTab: 'map' | 'library' = 'map';
   let selDeco = -1; // the picked piece of scenery
   let decoKind: DecoKind = 'tree';
+  let featKind: FeatPick = 'ramp';
+  const featColor = () => FEAT_COLOR[featKind === 'ramp' ? 'jump' : featKind];
+  /** The road under the cursor for the Features tool (where it would go). */
+  let hoverRoad: [number, number] | null = null;
+  /** The last check whose road built: the 3D world keeps showing it while the map can't be built. */
+  let worldKey = '';
+  let broken = '';
   let hoverAt: [number, number, number] | null = null;
   let clearArmed = false;
   /** A stretch to play on its own: from one point to a later one. */
@@ -148,6 +164,8 @@ export const mapBuilder: Render = (root, ctx) => {
   /** The road as drawn: the spline through the points (SEG samples a segment), and where each point sits in the build. */
   let dense: [number, number, number][] = [];
   let pointS: number[] = [];
+  /** Distance along the spline at each of `dense`'s samples, when the road doesn't build (the profile falls back on it). */
+  let denseS: number[] = [];
 
   // ---- the shell --------------------------------------------------------------------------------
   root.innerHTML = `
@@ -179,11 +197,15 @@ export const mapBuilder: Render = (root, ctx) => {
             <div class="tg-mb-hud">
               <span class="tg-mb-busy" data-busy hidden>Updating the world…</span>
               <span data-scale></span>
-              <div class="tg-seg" role="group" aria-label="View"><button class="tg-pill" data-mode-to="3d">3D</button><button class="tg-pill" data-mode-to="plan">Plan</button></div>
+              <div class="tg-seg" role="group" aria-label="View"><button class="tg-pill" data-mode-to="3d" title="The map's world in 3D (M)">3D</button><button class="tg-pill" data-mode-to="plan" title="The map from above (M)">Plan</button></div>
+              <button class="tg-pill" data-top title="Look straight down, and back (T)">Top</button>
               <button class="tg-pill" data-frame title="Fit the road in view (F)">Fit</button>
               <button class="tg-pill" data-snap aria-pressed="true" title="Snap points to a ${SNAP} m grid">Snap ${SNAP} m</button>
             </div>
             <div class="tg-mb-section" data-section hidden></div>
+            <div class="tg-mb-pop" data-pop hidden></div>
+            <button class="tg-mb-helpbtn" data-helpbtn title="Controls" aria-label="Controls">?</button>
+            <div class="tg-mb-help" data-help hidden>${helpHtml()}</div>
             <p class="tg-mb-hint" data-hint></p>
           </div>
           <div class="tg-mb-profile">
@@ -249,7 +271,14 @@ export const mapBuilder: Render = (root, ctx) => {
     dense = map.points.length >= 2 ? spline(map.points, map.loop) : map.points.slice();
     pointS = [];
     const t = check.track;
-    if (!t) return;
+    if (!t) {
+      // No build: measure along the spline, so the profile still shows the points and they can be dragged back.
+      let s = 0;
+      denseS = [0];
+      for (let i = 1; i < dense.length; i++) denseS.push((s += Math.hypot(dense[i][0] - dense[i - 1][0], dense[i][2] - dense[i - 1][2])));
+      map.points.forEach((_, k) => pointS.push(denseS[Math.min(dense.length - 1, k * SEG)] ?? 0));
+      return;
+    }
     // Where each point sits along the built road: the nearest sample, searched forward from the last point.
     const i0 = t.lap ? Math.round(t.startS / SAMPLE) : 0;
     const i1 = t.lap ? i0 + t.lap : t.n;
@@ -288,22 +317,52 @@ export const mapBuilder: Render = (root, ctx) => {
     const ys = map.points.map((p) => p[1]).sort((a, b) => a - b);
     return ys.length ? ys[Math.floor(ys.length / 2)] : 0;
   };
+  /** What the 3D world is built from: the map less what doesn't show (its blurb, how busy the traffic is). */
+  const keyOf = (m: CustomMap) => JSON.stringify({ ...m, blurb: '', density: 0 });
   function scheduleWorld(wait = WORLD_MS) {
-    worldStale = true;
+    // A map that doesn't build keeps the last world that did (raise a point too far and the road is refused: the
+    // world used to vanish), and says why on the chip.
+    broken = check.track ? '' : map.points.length >= 2 ? (check.errors[0]?.msg ?? 'The road can’t be built as it is.') : '';
+    const key = check.track ? keyOf(map) : worldKey;
+    worldStale = key !== worldKey || !world.built;
     if (worldTimer) clearTimeout(worldTimer);
-    if (mode !== '3d') return;
-    $('[data-busy]').hidden = false;
+    showBusy();
+    if (mode !== '3d' || !check.track || !worldStale) return;
     worldTimer = setTimeout(() => {
       worldTimer = null;
       // Not under a drag: the overlay shows the edit live, the world catches up when it's let go.
       if (drag) return scheduleWorld(150);
+      if (!check.track) return;
       world.level = levelOf();
       world.setTrack(check.track);
+      yMemo.clear();
+      worldKey = keyOf(map);
       worldStale = false;
-      $('[data-busy]').hidden = true;
+      showBusy();
     }, wait);
   }
+  function showBusy() {
+    const el = $('[data-busy]');
+    const busy = mode === '3d' && (broken || (worldStale && !!check.track));
+    el.hidden = !busy;
+    el.classList.toggle('bad', !!broken);
+    el.textContent = broken ? `${world.built ? 'Showing the last road that built · ' : ''}${broken}` : 'Updating the world…';
+  }
   world.onFrame = () => drawOverlay();
+  // Dev hook for measuring the builder (`window.__mb`).
+  if (import.meta.env.DEV) (window as unknown as { __mb: unknown }).__mb = { world, map: () => map, check: () => check };
+  world.keysOn = () => mode === '3d' && !typing(document.activeElement);
+  /** Ground heights under markers, kept per world build (heightAt is too dear to ask 300 times a frame). */
+  const yMemo = new Map<string, number>();
+  const groundY = (x: number, z: number) => {
+    const k = `${x},${z}`;
+    let y = yMemo.get(k);
+    if (y === undefined) {
+      if (yMemo.size > 4000) yMemo.clear();
+      yMemo.set(k, (y = world.groundY(x, z)));
+    }
+    return y;
+  };
 
   /** Switches between the 3D world and the top-down plan. */
   function setMode(m: '3d' | 'plan') {
@@ -316,8 +375,8 @@ export const mapBuilder: Render = (root, ctx) => {
     $('[data-mode]').dataset.mode = m;
     root.querySelectorAll<HTMLElement>('[data-mode-to]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.modeTo === m)));
     resize();
-    if (m === '3d' && worldStale) scheduleWorld(30);
-    if (m === 'plan') $('[data-busy]').hidden = true;
+    if (m === '3d') scheduleWorld(30);
+    showBusy();
     draw();
   }
 
@@ -336,7 +395,7 @@ export const mapBuilder: Render = (root, ctx) => {
       world.pos.set(c.x, c.y, c.z);
       world.yaw = c.yaw;
       world.pitch = c.pitch;
-      world.invalidate();
+      world.snap();
       return true;
     } catch {
       return false;
@@ -346,9 +405,11 @@ export const mapBuilder: Render = (root, ctx) => {
   /** Something changed the map. `commit`: a step for Undo (drags commit once, at the end). */
   function changed(commit = true) {
     dirty = true;
-    saveDraft({ id: savedId, map, dirty });
     dense = map.points.length >= 2 ? spline(map.points, map.loop) : map.points.slice();
     if (commit) future.length = 0;
+    // Mid-drag only the handles and the line follow: the save, the check and the world wait for the drag's end.
+    if (drag) return draw();
+    saveDraft({ id: savedId, map, dirty });
     if (rebuildTimer) clearTimeout(rebuildTimer);
     rebuildTimer = setTimeout(rebuild, REBUILD_MS);
     draw();
@@ -459,7 +520,7 @@ export const mapBuilder: Render = (root, ctx) => {
   }
   /** A point's handle: floating over where it asks the road to be. */
   const handleOf = (p: [number, number, number]) => proj(p[0], p[1] + LIFT, p[2]);
-  const decoY = (d: MapDeco) => (is3d() ? world.groundY(d[1], d[2]) : 0);
+  const decoY = (d: MapDeco) => (is3d() ? groundY(d[1], d[2]) : 0);
   const decoR = (d: MapDeco) => DECOS[d[0]].r * (d[4] ?? 1);
   /** The yaw (degrees) that turns a piece at (x, z) to face the nearest stretch of road. */
   function faceRoad(x: number, z: number): number {
@@ -504,8 +565,9 @@ export const mapBuilder: Render = (root, ctx) => {
   function roadAtScreen(sx: number, sy: number): { seg: number; x: number; z: number } | null {
     const g = groundAt(sx, sy);
     if (!g) return null;
-    const [wx, , wz] = g;
-    const reach = map.width / 2 + (is3d() ? 3 : HIT_ROAD / view.zoom);
+    const [wx, wy, wz] = g;
+    // A few pixels' grace past the road's edge, however far away it is.
+    const reach = map.width / 2 + (is3d() ? Math.max(3, HIT_ROAD * world.metresPerPx(wx, wy, wz)) : HIT_ROAD / view.zoom);
     let best: { seg: number; x: number; z: number } | null = null;
     let bd = reach;
     for (let i = 0; i < dense.length; i++) {
@@ -550,9 +612,16 @@ export const mapBuilder: Render = (root, ctx) => {
   }
 
   // ---- drawing: the map from above -------------------------------------------------------------------
+  let overlayQueued = false;
   function draw() {
     if (is3d()) {
-      world.invalidate();
+      if (!overlayQueued) {
+        overlayQueued = true;
+        requestAnimationFrame(() => {
+          overlayQueued = false;
+          drawOverlay();
+        });
+      }
       drawProfile();
       return;
     }
@@ -754,6 +823,7 @@ export const mapBuilder: Render = (root, ctx) => {
       if (i === selDeco) decoGizmo(g, d);
     });
     if (tool === 'deco' && hoverAt) ghost(g, hoverAt);
+    queueMicrotask(placePop);
     // Issues: a red ring where something's wrong, amber for warnings.
     for (const [list, col] of [[check.errors, '#ff6b6b'], [check.warnings, '#ffc940']] as const)
       for (const is of list) {
@@ -775,7 +845,7 @@ export const mapBuilder: Render = (root, ctx) => {
       g.fillStyle = i === sel ? '#38c9ff' : !map.loop && i === 0 ? '#3ddc84' : !map.loop && i === map.points.length - 1 ? '#ff3b30' : '#eef2f8';
       g.fill();
       g.lineWidth = i === rangeFrom ? 3 : 1.5;
-      g.strokeStyle = i === rangeFrom ? FEAT_COLOR[tool as FeatureKind] ?? '#fff' : '#05070b';
+      g.strokeStyle = i === rangeFrom ? featColor() : '#05070b';
       g.stroke();
       if (view.zoom > 0.12 || i === sel || i === 0) {
         g.font = '700 11px Barlow Condensed, sans-serif';
@@ -880,9 +950,10 @@ export const mapBuilder: Render = (root, ctx) => {
       // The centre line: solid cyan while the world is catching up with an edit, a faint dash once it has.
       along(0, dense.length - 1 + (map.loop ? 3 : 0), 0.5, 2);
       if (map.loop) c.closePath();
-      c.strokeStyle = worldStale ? 'rgba(56,201,255,0.95)' : 'rgba(255,255,255,0.45)';
-      c.lineWidth = worldStale ? 2.5 : 1.2;
-      c.setLineDash(worldStale ? [] : [6, 6]);
+      const live = worldStale || !!broken;
+      c.strokeStyle = broken ? 'rgba(255,107,107,0.95)' : live ? 'rgba(56,201,255,0.95)' : 'rgba(255,255,255,0.45)';
+      c.lineWidth = live ? 2.5 : 1.2;
+      c.setLineDash(live ? [] : [6, 6]);
       c.stroke();
       c.setLineDash([]);
     }
@@ -931,20 +1002,32 @@ export const mapBuilder: Render = (root, ctx) => {
       if (i === selDeco) decoGizmo(c, d);
     });
     if (tool === 'deco' && hoverAt) ghost(c, hoverAt);
+    if (tool === 'feature' && hoverRoad && !map.loop) {
+      const y = groundY(hoverRoad[0], hoverRoad[1]);
+      c.strokeStyle = featColor();
+      c.lineWidth = 3;
+      ring(c, hoverRoad[0], y + 0.4, hoverRoad[1], Math.max(4, map.width / 2));
+      c.stroke();
+      const q = proj(hoverRoad[0], y + 4, hoverRoad[1]);
+      if (q) {
+        c.fillStyle = featColor();
+        c.fillText(FEAT_PICKS.find((f) => f.id === featKind)!.name.toUpperCase() + (rangeFrom >= 0 ? ' · ENDS HERE' : ''), q[0] + 10, q[1]);
+      }
+    }
     for (const [list, col] of [[check.errors, '#ff6b6b'], [check.warnings, '#ffc940']] as const)
       for (const is of list) {
         const at = is.at ?? (is.point !== undefined && map.points[is.point] ? ([map.points[is.point][0], map.points[is.point][2]] as [number, number]) : null);
         if (!at) continue;
         c.strokeStyle = col;
         c.lineWidth = 2;
-        ring(c, at[0], world.groundY(at[0], at[1]) + 0.5, at[1], 12);
+        ring(c, at[0], groundY(at[0], at[1]) + 0.5, at[1], 12);
         c.stroke();
       }
     // The points: a stem down to the ground, the handle, its number.
     map.points.forEach((p, i) => {
       const hq = handleOf(p);
       if (!hq) return;
-      const gq = proj(p[0], Math.min(p[1], world.groundY(p[0], p[2])), p[2]);
+      const gq = proj(p[0], Math.min(p[1], groundY(p[0], p[2])), p[2]);
       if (gq) {
         c.strokeStyle = 'rgba(255,255,255,0.5)';
         c.lineWidth = 1;
@@ -959,7 +1042,7 @@ export const mapBuilder: Render = (root, ctx) => {
       c.fillStyle = i === sel ? '#38c9ff' : !map.loop && i === 0 ? '#3ddc84' : !map.loop && i === map.points.length - 1 ? '#ff3b30' : '#eef2f8';
       c.fill();
       c.lineWidth = i === rangeFrom ? 3 : 1.5;
-      c.strokeStyle = i === rangeFrom ? (FEAT_COLOR[tool as FeatureKind] ?? '#fff') : '#05070b';
+      c.strokeStyle = i === rangeFrom ? (featColor()) : '#05070b';
       c.stroke();
       c.fillStyle = i === sel ? '#38c9ff' : 'rgba(238,242,248,0.85)';
       c.fillText(String(i + 1), hq[0] + 10, hq[1] + 4);
@@ -984,7 +1067,56 @@ export const mapBuilder: Render = (root, ctx) => {
       c.fill();
       c.fillText(`${sp[1]} m`, tip[0] + 9, tip[1] + 2);
     }
+    placePop();
   }
+
+  // ---- the picked point's bar: its height, nudges, the grades either side, play from it -------------------------
+  const pop = $('[data-pop]');
+  let popFor = '';
+  /** The grade (rise over run) from point a to point b. */
+  const gradeOf = (a: [number, number, number], b: [number, number, number]) => (b[1] - a[1]) / Math.max(1, Math.hypot(b[0] - a[0], b[2] - a[2]));
+  function placePop() {
+    const p = sel >= 0 ? map.points[sel] : null;
+    const at = p && handleOf(p);
+    if (!p || !at || at[0] < 0 || at[1] < 0 || at[0] > view.w || at[1] > view.h) {
+      pop.hidden = true;
+      popFor = '';
+      return;
+    }
+    const n = map.points.length;
+    const prev = sel > 0 ? map.points[sel - 1] : map.loop ? map.points[n - 1] : null;
+    const next = sel < n - 1 ? map.points[sel + 1] : map.loop ? map.points[0] : null;
+    const leg = (g: number | null, dir: string) => {
+      if (g === null) return '';
+      const pc = Math.round(Math.abs(g) * 100);
+      const cls = Math.abs(g) > STEEP ? 'bad' : Math.abs(g) > MAP.warnGrade ? 'warn' : '';
+      return `<span class="tg-mb-grade ${cls}" title="Grade ${dir}">${dir === 'before' ? '◂' : '▸'} ${g >= 0 ? '↗' : '↘'} ${pc}%</span>`;
+    };
+    const key = `${sel}|${p.join(',')}|${prev?.join(',')}|${next?.join(',')}|${n}|${map.loop}`;
+    if (key !== popFor) {
+      popFor = key;
+      pop.innerHTML = `<b>Point ${sel + 1}</b><span class="tg-num">${p[1]} m</span>
+        <button class="tg-pill" data-ph="-5" title="Lower 5 m (Shift+PgDn)">−5</button><button class="tg-pill" data-ph="-1" title="Lower 1 m (PgDn)">−1</button><button class="tg-pill" data-ph="1" title="Raise 1 m (PgUp)">+1</button><button class="tg-pill" data-ph="5" title="Raise 5 m (Shift+PgUp)">+5</button>
+        ${leg(prev ? gradeOf(prev, p) : null, 'before')}${leg(next ? gradeOf(p, next) : null, 'after')}
+        <button class="tg-pill primary" data-pplay title="Play from this point (P)">${ICON.flag}Play from here</button>`;
+    }
+    pop.hidden = false;
+    // Beside the handle, kept inside the view.
+    const r = pop.getBoundingClientRect();
+    const x = Math.max(8, Math.min(view.w - r.width - 8, at[0] + 18));
+    const y = Math.max(8, Math.min(view.h - r.height - 8, at[1] - r.height - 14));
+    pop.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  }
+  pop.addEventListener('pointerdown', (e) => e.stopPropagation());
+  pop.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('button');
+    if (!b || sel < 0) return;
+    if (b.dataset.pplay !== undefined) return playFrom(sel);
+    remember();
+    map.points[sel][1] = Math.max(MAP.heightMin, Math.min(MAP.heightMax, map.points[sel][1] + Number(b.dataset.ph)));
+    changed();
+    drawInspector();
+  });
 
   // ---- drawing: the elevation profile ------------------------------------------------------------------
   /** The profile's frame for the current build: distance range and height range. */
@@ -999,11 +1131,7 @@ export const mapBuilder: Render = (root, ctx) => {
     pg.fillRect(0, 0, pw.w, pw.h);
     const t = check.track;
     pg.font = '700 10px Barlow Condensed, sans-serif';
-    if (!t) {
-      pg.fillStyle = '#8e9ab0';
-      pg.fillText('ELEVATION · fix the issues on the right to see the road', 14, 18);
-      return;
-    }
+    if (!t) return drawRoughProfile();
     const i0 = Math.round(t.startS / SAMPLE);
     const i1 = t.lap ? i0 + t.lap : Math.round(t.finishS / SAMPLE);
     let lo = Infinity;
@@ -1075,12 +1203,50 @@ export const mapBuilder: Render = (root, ctx) => {
     pg.fillText(`ELEVATION · ${(check.km).toFixed(2)} km${t.lap ? ' (one lap shown)' : ''} · drag a handle to raise or lower its point`, 48, 14);
   }
 
+  /** The profile of a map that doesn't build: the spline through the points, legs too steep in red. */
+  function drawRoughProfile() {
+    if (dense.length < 2 || !denseS.length) {
+      pg.fillStyle = '#8e9ab0';
+      pg.fillText('ELEVATION · place at least two points', 14, 18);
+      return;
+    }
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const p of dense) {
+      lo = Math.min(lo, p[1]);
+      hi = Math.max(hi, p[1]);
+    }
+    const pad = Math.max(6, (hi - lo) * 0.15);
+    pf = { s0: 0, s1: Math.max(1, denseS[denseS.length - 1]), y0: lo - pad, y1: hi + pad };
+    pg.lineWidth = 2;
+    for (let i = 0; i + 1 < dense.length; i++) {
+      const ds = Math.max(0.01, denseS[i + 1] - denseS[i]);
+      const grade = Math.abs(dense[i + 1][1] - dense[i][1]) / ds;
+      pg.strokeStyle = grade > STEEP ? '#ff3b30' : grade > MAP.warnGrade ? '#ff6b6b' : '#38c9ff';
+      pg.beginPath();
+      pg.moveTo(profX(denseS[i]), profY(dense[i][1]));
+      pg.lineTo(profX(denseS[i + 1]), profY(dense[i + 1][1]));
+      pg.stroke();
+    }
+    map.points.forEach((p, i) => {
+      const x = profX(pointS[i] ?? 0);
+      pg.beginPath();
+      pg.arc(x, profY(p[1]), i === sel ? 6 : 4.5, 0, Math.PI * 2);
+      pg.fillStyle = i === sel ? '#38c9ff' : '#eef2f8';
+      pg.fill();
+      pg.strokeStyle = '#05070b';
+      pg.lineWidth = 1.5;
+      pg.stroke();
+    });
+    pg.fillStyle = '#ff6b6b';
+    pg.fillText('ELEVATION · the road can’t be built as it is: drag the points until no leg is red', 48, 14);
+  }
+
   // ---- pointer input, on the 3D overlay or the plan ----------------------------------------------------------
   type Drag =
     | { kind: 'pan'; sx: number; sy: number; cx: number; cz: number }
     | { kind: 'grab'; y: number; x: number; z: number }
-    | { kind: 'look'; sx: number; sy: number }
-    | { kind: 'orbit'; sx: number; sy: number; px: number; pz: number }
+    | { kind: 'orbit'; sx: number; sy: number; p: THREE.Vector3 }
     | { kind: 'point'; i: number; moved: boolean; before: string; y: number }
     | { kind: 'lift'; i: number; sy: number; y: number; per: number; before: string }
     | { kind: 'deco'; i: number; moved: boolean; before: string; dx: number; dz: number }
@@ -1132,14 +1298,11 @@ export const mapBuilder: Render = (root, ctx) => {
       drag = null;
       return;
     }
-    if (is3d() && e.button === 2) {
-      drag = { kind: 'look', sx, sy };
-      world.setFlying(true);
-      return;
-    }
-    if (is3d() && (e.button === 1 || (e.button === 0 && e.altKey))) {
-      const c = world.pickGround(view.w / 2, view.h / 2) ?? [world.pos.x, 0, world.pos.z - 200];
-      drag = { kind: 'orbit', sx, sy, px: c[0], pz: c[2] };
+    if (is3d() && (e.button === 2 || (e.button === 0 && e.altKey))) {
+      // Orbit round the ground you pressed on (or the middle of the view, over the sky).
+      const c = world.pickGround(sx, sy) ?? world.pickGround(view.w / 2, view.h / 2);
+      drag = { kind: 'orbit', sx, sy, p: c ? new THREE.Vector3(...c) : world.pos.clone().add(new THREE.Vector3(0, -150, -150)) };
+      el.style.cursor = 'move';
       return;
     }
     if (e.button === 1 || e.button === 2 || (e.button === 0 && e.altKey)) return startPan(sx, sy);
@@ -1220,12 +1383,12 @@ export const mapBuilder: Render = (root, ctx) => {
       if (g) placeDeco(g[0], g[2]);
       return;
     }
-    if (roadOnly(tool)) {
+    if (tool === 'feature') {
       if (map.loop) return setStatus('Features and ramps are for point-to-point roads: circuits stay clean.');
       const i = pointForRoad(sx, sy);
       if (i < 0) return setStatus('Click on the road.');
-      if (tool === 'ramp') placeRamp(i);
-      else placeFeature(tool as FeatureKind, i);
+      if (featKind === 'ramp') placeRamp(i);
+      else placeFeature(featKind, i);
     }
   }
 
@@ -1247,8 +1410,14 @@ export const mapBuilder: Render = (root, ctx) => {
         hoverAt = groundAt(sx, sy);
         redraw = true;
       }
+      if (tool === 'feature') {
+        const r = h < 0 ? roadAtScreen(sx, sy) : null;
+        const hp = h >= 0 ? map.points[h] : null;
+        hoverRoad = r ? [r.x, r.z] : hp ? [hp[0], hp[2]] : null;
+        redraw = true;
+      }
       if (redraw) draw();
-      el.style.cursor = h >= 0 ? 'grab' : tool === 'select' ? 'default' : 'crosshair';
+      el.style.cursor = h >= 0 ? 'grab' : tool === 'select' ? (decoAtScreen(sx, sy) >= 0 ? 'grab' : 'default') : tool === 'erase' ? 'not-allowed' : 'crosshair';
       return;
     }
     switch (drag.kind) {
@@ -1263,13 +1432,8 @@ export const mapBuilder: Render = (root, ctx) => {
         if (q) world.shift(drag.x - q[0], drag.z - q[1]);
         break;
       }
-      case 'look':
-        world.look(sx - drag.sx, sy - drag.sy);
-        drag.sx = sx;
-        drag.sy = sy;
-        break;
       case 'orbit':
-        world.orbit(drag.px, drag.pz, sx - drag.sx, sy - drag.sy);
+        world.orbit(drag.p, sx - drag.sx, sy - drag.sy);
         drag.sx = sx;
         drag.sy = sy;
         break;
@@ -1319,10 +1483,16 @@ export const mapBuilder: Render = (root, ctx) => {
   function up(e: PointerEvent) {
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinch = null;
-    if (drag?.kind === 'look') world.setFlying(false);
-    if (drag && (drag.kind === 'point' || drag.kind === 'deco') && drag.moved) commit(drag.before);
-    if (drag && (drag.kind === 'lift' || drag.kind === 'turn')) commit(drag.before);
+    const d = drag;
     drag = null;
+    (e.currentTarget as HTMLElement | null)?.style.removeProperty('cursor');
+    // A drag that changed the map is one Undo step, and now it's saved, checked and the world rebuilt.
+    const edited = d && (((d.kind === 'point' || d.kind === 'deco') && d.moved) || d.kind === 'lift' || d.kind === 'turn');
+    if (d && edited && 'before' in d && d.before !== JSON.stringify(map)) {
+      commit(d.before);
+      changed(false);
+      drawInspector();
+    }
   }
 
   for (const el of [canvas, over]) {
@@ -1447,12 +1617,13 @@ export const mapBuilder: Render = (root, ctx) => {
     drawInspector();
   });
   const endHeight = () => {
-    if (drag?.kind === 'height') {
-      past.push(drag.before);
-      if (past.length > HISTORY) past.shift();
-      future.length = 0;
-    }
+    const d = drag;
     drag = null;
+    if (d?.kind === 'height' && d.before !== JSON.stringify(map)) {
+      commit(d.before);
+      changed(false);
+      drawInspector();
+    }
   };
   prof.addEventListener('pointerup', endHeight);
   prof.addEventListener('pointercancel', endHeight);
@@ -1801,13 +1972,24 @@ export const mapBuilder: Render = (root, ctx) => {
     right.innerHTML = `
       <div class="tg-mb-sec">
         <h3 class="tg-h">Tools</h3>
-        <div class="tg-mb-tools">${TOOLS.map((x) => `<button class="tg-mb-tool" data-tool="${x.id}" aria-pressed="${x.id === tool}" ${roadOnly(x.id) && map.loop ? 'disabled' : ''} title="${esc(x.name)} (${x.key})" style="${isFeatureTool(x.id) ? `--fc:${FEAT_COLOR[x.id]}` : ''}"><i>${toolIcon(x.id)}</i><span>${esc(x.name)}</span><kbd>${x.key}</kbd></button>`).join('')}</div>
+        <div class="tg-mb-tools">${TOOLS.map((x) => `<button class="tg-mb-tool" data-tool="${x.id}" aria-pressed="${x.id === tool}" ${roadOnly(x.id) && map.loop ? 'disabled' : ''} title="${esc(x.name)} (${x.key})"><i>${toolIcon(x.id)}</i><span>${esc(x.name)}</span><kbd>${x.key}</kbd></button>`).join('')}</div>
         <p class="tg-muted tg-mb-toolhint">${esc(t.hint)}</p>
       </div>
-      ${tool === 'deco' ? paletteHtml() : ''}
+      ${tool === 'deco' ? paletteHtml() : tool === 'feature' ? featPaletteHtml() : ''}
       <div class="tg-mb-sec" data-inspector></div>
       <div class="tg-mb-sec" data-issues></div>`;
     right.querySelectorAll<HTMLElement>('[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool as Tool)));
+    right.querySelectorAll<HTMLElement>('[data-featk]').forEach((b) =>
+      b.addEventListener('click', () => {
+        featKind = b.dataset.featk as FeatPick;
+        rangeFrom = -1;
+        right.querySelectorAll<HTMLElement>('[data-featk]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+        const f = FEAT_PICKS.find((x) => x.id === featKind)!;
+        const note = right.querySelector('[data-feathint]');
+        if (note) note.textContent = f.hint;
+        setStatus(`${f.name}: ${f.hint} Click the road.`);
+      }),
+    );
     right.querySelectorAll<HTMLElement>('[data-decok]').forEach((b) =>
       b.addEventListener('click', () => {
         decoKind = b.dataset.decok as DecoKind;
@@ -1834,10 +2016,23 @@ export const mapBuilder: Render = (root, ctx) => {
     </div>`;
   }
 
+  /** The ramp and the road's features, for the Features tool. */
+  function featPaletteHtml(): string {
+    return `<div class="tg-mb-sec"><h3 class="tg-h">Features</h3>
+      <div class="tg-mb-feats">${FEAT_PICKS.map((f) => {
+        const col = FEAT_COLOR[f.id === 'ramp' ? 'jump' : f.id];
+        return `<button class="tg-mb-featb" data-featk="${f.id}" aria-pressed="${f.id === featKind}" style="--fc:${col}" title="${esc(f.hint)}"><i>${featIcon(f.id)}</i>${esc(f.name)}</button>`;
+      }).join('')}</div>
+      <p class="tg-muted" data-feathint>${esc(FEAT_PICKS.find((f) => f.id === featKind)!.hint)}</p>
+    </div>`;
+  }
+
   function setTool(t: Tool) {
     if (t === 'deco' && map.loop && isRoadDeco(decoKind)) decoKind = 'tree';
     tool = t;
     rangeFrom = -1;
+    hoverRoad = null;
+    hoverAt = null;
     drawRight();
     draw();
   }
@@ -1847,10 +2042,16 @@ export const mapBuilder: Render = (root, ctx) => {
     if (!el) return;
     // Don't rebuild the fields while one is being typed in (a drag elsewhere updates the numbers).
     if (el.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === 'INPUT') return;
+    // Mid-drag, only the numbers change.
+    if (drag) {
+      if (sel >= 0 && map.points[sel]) el.querySelectorAll<HTMLInputElement>('[data-px]').forEach((inp) => (inp.value = String(map.points[sel][Number(inp.dataset.px)])));
+      if (selDeco >= 0 && map.deco[selDeco]) el.querySelectorAll<HTMLInputElement>('[data-dx]').forEach((inp) => (inp.value = String(map.deco[selDeco][Number(inp.dataset.dx) as 1 | 2 | 3])));
+      return;
+    }
     if (selDeco >= 0 && map.deco[selDeco]) return decoInspector(el, selDeco);
     if (sel < 0 || !map.points[sel]) {
       el.innerHTML = `<h3 class="tg-h">Point</h3><p class="tg-muted">Pick a point on the map or on the profile to set where it is and how high, and to tune the features on it.</p>
-        <p class="tg-muted tg-mb-keys"><kbd>Del</kbd> remove · <kbd>←↑→↓</kbd> nudge · <kbd>PgUp</kbd>/<kbd>PgDn</kbd> height · <kbd>Ctrl Z</kbd> undo · <kbd>F</kbd> fit · <kbd>M</kbd> 3D / plan · <kbd>P</kbd> play</p>`;
+        <p class="tg-muted tg-mb-keys"><kbd>Del</kbd> remove · <kbd>←↑→↓</kbd> nudge · <kbd>PgUp</kbd>/<kbd>PgDn</kbd> height · <kbd>Ctrl Z</kbd> undo · <kbd>P</kbd> play · <kbd>?</kbd> all the controls</p>`;
       return;
     }
     const p = map.points[sel];
@@ -1864,7 +2065,7 @@ export const mapBuilder: Render = (root, ctx) => {
       </div>
       <div class="tg-mb-btns"><button class="tg-pill" data-hstep="-5">−5 m</button><button class="tg-pill" data-hstep="-1">−1 m</button><button class="tg-pill" data-hstep="1">+1 m</button><button class="tg-pill" data-hstep="5">+5 m</button><button class="tg-pill danger" data-delpoint>Remove point</button></div>
       <div class="tg-mb-btns tg-mb-play"><button class="tg-pill" data-playfrom>Play from here</button>${map.loop ? '' : `<button class="tg-pill" data-secfrom>Section from here</button><button class="tg-pill" data-secto>Section to here</button>`}</div>
-      ${here.length ? '' : `<p class="tg-muted">No features on this point.${map.loop ? '' : ' Pick a feature tool and click it.'}</p>`}
+      ${here.length ? '' : `<p class="tg-muted">No features on this point.${map.loop ? '' : ' Pick Features (3) and click the road.'}</p>`}
       ${here.map(({ f, i }) => featureHtml(f, i)).join('')}`;
     el.querySelectorAll<HTMLInputElement>('[data-px]').forEach((inp) =>
       inp.addEventListener('change', () => {
@@ -2150,6 +2351,20 @@ export const mapBuilder: Render = (root, ctx) => {
     }),
   );
   $('[data-frame]').addEventListener('click', frame);
+  $('[data-top]').addEventListener('click', () => (is3d() ? world.topDown() : setMode('3d')));
+  const help = $('[data-help]');
+  function showHelp(on: boolean) {
+    help.hidden = !on;
+    if (!on)
+      try {
+        localStorage.setItem(HELP_KEY, '1');
+      } catch {
+        /* private window */
+      }
+  }
+  $('[data-helpbtn]').addEventListener('click', () => showHelp(help.hidden));
+  help.addEventListener('click', (e) => (e.target as HTMLElement).closest('[data-helpclose]') && showHelp(false));
+  help.addEventListener('pointerdown', (e) => e.stopPropagation());
   root.querySelectorAll<HTMLElement>('[data-mode-to]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.modeTo as '3d' | 'plan')));
   $('[data-snap]').addEventListener('click', (e) => {
     snap = !snap;
@@ -2157,13 +2372,17 @@ export const mapBuilder: Render = (root, ctx) => {
   });
 
   // ---- keys -----------------------------------------------------------------------------------------------
-  const typing = (e: KeyboardEvent) => {
-    const t = e.target as HTMLElement | null;
+  function typing(target: EventTarget | null) {
+    const t = target as HTMLElement | null;
     return !!t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
-  };
+  }
   // Capture phase on the document, ahead of the page's own Esc = Back (src/client/main.ts): Esc first lets go of a
   // range tool's first click or the picked point, and only then leaves the builder.
   const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && !help.hidden) {
+      e.stopPropagation();
+      return showHelp(false);
+    }
     if (e.key === 'Escape' && (rangeFrom >= 0 || sel >= 0 || selDeco >= 0 || tool !== 'select')) {
       e.stopPropagation();
       if (rangeFrom >= 0) rangeFrom = -1;
@@ -2175,7 +2394,7 @@ export const mapBuilder: Render = (root, ctx) => {
       return;
     }
     // While the right button flies the camera, WASDQE belong to it.
-    if (typing(e) || world.flying) return;
+    if (typing(e.target)) return;
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 'z') {
       e.preventDefault();
@@ -2193,10 +2412,14 @@ export const mapBuilder: Render = (root, ctx) => {
       return;
     }
     if (mod) return;
-    const t = TOOLS.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
+    const t = TOOLS.find((x) => x.key === e.key);
     if (t && !(roadOnly(t.id) && map.loop)) return setTool(t.id);
     const key = e.key.toLowerCase();
+    // W A S D Q E move the camera (mapworld.ts).
+    if ('wasdqe'.includes(key) && key.length === 1) return;
+    if (e.key === '?') return showHelp(help.hidden);
     if (key === 'f') return frame();
+    if (key === 't' && is3d()) return world.topDown();
     if (key === 'm') return setMode(is3d() ? 'plan' : '3d');
     if (key === 'p') return sel >= 0 ? playFrom(sel) : testDrive();
     if (selDeco >= 0 && map.deco[selDeco]) {
@@ -2241,17 +2464,24 @@ export const mapBuilder: Render = (root, ctx) => {
   drawRight();
   drawState();
   setMode(mode);
-  if (!loadCam()) frame();
-  else {
+  if (!loadCam()) {
+    frame();
+    world.snap();
+  } else {
     // The plan view is framed on the map either way.
     const keep = { x: world.pos.x, y: world.pos.y, z: world.pos.z, yaw: world.yaw, pitch: world.pitch };
     frame();
     world.pos.set(keep.x, keep.y, keep.z);
     world.yaw = keep.yaw;
     world.pitch = keep.pitch;
-    world.invalidate();
+    world.snap();
   }
   scheduleWorld(30);
+  try {
+    if (!localStorage.getItem(HELP_KEY)) showHelp(true);
+  } catch {
+    /* private window */
+  }
   void loadLibrary();
   const offAccount = account.onChange(() => void loadLibrary());
 
@@ -2266,12 +2496,21 @@ export const mapBuilder: Render = (root, ctx) => {
   };
 };
 
-/** Small line icons for the tools (inline SVG, currentColor). */
+/** Small line icons for the tools and the features (inline SVG, currentColor). */
+const svg = (d: string) => `<svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
 function toolIcon(t: Tool): string {
   const p: Record<Tool, string> = {
     select: '<path d="M5 3l12 8-5 1.5L9.5 18z"/>',
-    add: '<circle cx="11" cy="11" r="7"/><path d="M11 7v8M7 11h8"/>',
+    add: '<path d="M3 18c4-1 5-6 8-8s6-2 8-6"/><circle cx="19" cy="4" r="1.6"/><path d="M5 9v6M2 12h6"/>',
+    feature: '<path d="M2 17h7l9-7"/><path d="M15 6l4 3"/>',
+    deco: '<path d="M11 3l5 8h-3l4 6H5l4-6H6z"/><path d="M11 17v3"/>',
     erase: '<path d="M5 15l7-9 6 5-6 7H8z"/><path d="M4 19h14"/>',
+  };
+  return svg(p[t]);
+}
+function featIcon(k: FeatPick): string {
+  const p: Record<FeatPick, string> = {
+    ramp: '<path d="M2 17h7l9-7"/><path d="M15 6l4 3"/>',
     crest: '<path d="M2 16c4 0 5-8 9-8s5 8 9 8"/>',
     jump: '<path d="M2 14h7l4-4v8M13 18h7"/>',
     gap: '<path d="M2 12h6M14 12h6M8 12v6M14 12v6"/>',
@@ -2280,8 +2519,32 @@ function toolIcon(t: Tool): string {
     canyon: '<path d="M2 18V6l4 3v9M20 18V6l-4 3v9M9 18h4"/>',
     bridge: '<path d="M2 9h18M5 9v8M17 9v8M5 9q6 6 12 0"/>',
     tunnel: '<path d="M3 18V11a8 8 0 0116 0v7"/><path d="M7 18v-6a4 4 0 018 0v6"/>',
-    ramp: '<path d="M2 17h7l9-7"/><path d="M15 6l4 3"/>',
-    deco: '<path d="M11 3l5 8h-3l4 6H5l4-6H6z"/><path d="M11 17v3"/>',
   };
-  return `<svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p[t]}</svg>`;
+  return svg(p[k]);
+}
+
+/** The controls card (the ? button; shown once on the first visit). */
+function helpHtml(): string {
+  const row = (k: string, v: string) => `<li><span>${k}</span><b>${v}</b></li>`;
+  return `<div class="tg-mb-helpcard" role="dialog" aria-label="Map builder controls">
+    <h3 class="tg-h">Controls</h3>
+    <div class="tg-mb-helpcols">
+      <ul><li class="tg-label">Camera</li>
+        ${row('Drag empty ground', 'Pan')}
+        ${row('Right-drag (or Alt + drag)', 'Orbit round that spot')}
+        ${row('Scroll', 'Zoom toward the cursor')}
+        ${row('<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · <kbd>Q</kbd><kbd>E</kbd>', 'Move · turn (Shift: faster)')}
+        ${row('<kbd>T</kbd> · <kbd>F</kbd> · <kbd>M</kbd>', 'Look down · fit the road · 3D / plan')}
+      </ul>
+      <ul><li class="tg-label">Building</li>
+        ${row('<kbd>1</kbd>–<kbd>5</kbd>', 'Move, Road, Features, Scenery, Erase')}
+        ${row('Drag a point', 'Move it over the ground')}
+        ${row('Its yellow arrow, or <kbd>PgUp</kbd> <kbd>PgDn</kbd>', 'Raise or lower it')}
+        ${row('Double-click the road', 'Put a point in it')}
+        ${row('<kbd>Ctrl</kbd> <kbd>Z</kbd> · <kbd>Ctrl</kbd> <kbd>S</kbd>', 'Undo · save')}
+        ${row('<kbd>P</kbd>', 'Play from the picked point (or the start)')}
+      </ul>
+    </div>
+    <button class="tg-go small" data-helpclose>Got it</button>
+  </div>`;
 }
