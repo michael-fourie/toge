@@ -373,17 +373,28 @@ a component or a page.
   The screen is `maps` (mapbuilder.ts + mapbuilder.css; the landing's Map builder card opens it), a 3D world editor
   since 2026-11-21 (Michael: "Make it more of a 3d world editor … Make it easy to drop in and play sections of it"):
   mapworld.ts `MapWorld` shows the map's real world (trackview.ts `buildTrackView` + `Post` + `PropView`, rebuilt
-  `WORLD_MS` after an edit settles, never mid-drag) under a free editor camera (drag the ground to pan, wheel to zoom
-  at the cursor, right-drag to look and WASD/QE to fly while it's held, middle- or Alt-drag to orbit); the builder's
-  handles are drawn over it on a 2D overlay that follows edits live. Points are dragged over the ground and lifted on
-  their arrow (or Shift-drag); road tools (Ramp: a `jump` with no drop, and the features) work anywhere on the road
-  (a point is put in where you click, `pointForRoad`); the Scenery tool places the picked piece (it turns to face the
-  road), Move drags it and turns it on its ring's knob, the inspector sets its spot, facing and size. M switches to the
-  old top-down plan (the choice in `atrous.mapView`). Play drives the whole map; a point's *Play from here* and a
+  `WORLD_MS` after an edit settles, never mid-drag: mid-drag only the overlay and the profile redraw) under an orbit
+  camera (2026-11-22, Michael: "It's super laggy, the 3d view disappears after changing the elevation … make it
+  better"): left-drag the ground to pan, right- or Alt-drag to orbit round the spot under the cursor, wheel to zoom at
+  the cursor, WASD to pan and Q/E to orbit, T or the Top button for a top view, F to fit; keyed moves ease (`CAM.ease`),
+  drags snap. Rebuilds are cheap: the new view is built before the old one goes (three.js reuses its shaders), the
+  painted textures are cached per world by key (`ViewOpts.cache`: ground, asphalt, gravel, stone, facades), and a custom
+  map's seed comes from its name alone, so adding a point doesn't reshuffle the world or miss the cache (~1.5 s to
+  ~0.45 s in SwiftShader). A map `checkMap` can't build (too steep, too tight) keeps the last world that built, with a
+  red chip saying what's wrong and the centre line red; the profile then draws the rough road from the points (legs
+  coloured by grade) so they can be dragged back. Adaptive resolution (`RES` in mapworld.ts) steps the pixel ratio
+  down while frames drawn back to back are slow. The handles are drawn over the world on a 2D overlay. Points are
+  dragged over the ground and lifted on their arrow (or Shift-drag); the picked point gets a pop bar beside it (its
+  height, -5/-1/+1/+5, the grades of the legs either side, *Play from here*). Tools, keys 1-5: Move, Road (add points),
+  Features (a palette: Ramp, a `jump` with no drop, and every feature; clicking the road puts a point in where needed,
+  `pointForRoad`, with a ghost ring under the cursor), Scenery (places the picked piece, turned to face the road) and
+  Erase. Move drags a piece and turns it on its ring's knob; the inspector sets its spot, facing and size. `?` opens a
+  help card of every control (shown on the first visit; `atrous.mapHelp` once closed). M switches to the top-down plan
+  (the choice in `atrous.mapView`). Play drives the whole map; *Play from here* and a
   section between two points (the green band; *Play section*) drive custommap.ts `sectionMap` (point features re-pinned,
   ranges clipped; a circuit from a point keeps its laps). Left rail extras: how busy the traffic is, and lining the
-  road with lamps, trees, boards or poles (`lineRoad`). Keys: V A X S 9 1-8, M, P, R / Shift+R and [ ] for the picked
-  piece. The elevation profile, inspector, check list, undo/redo (120 steps) and Ctrl+S stay. The open map is a draft
+  road with lamps, trees, boards or poles (`lineRoad`). Other keys: M, P, R / Shift+R and [ ] for the picked piece,
+  Esc. The elevation profile, inspector, check list, undo/redo (120 steps) and Ctrl+S stay. The open map is a draft
   in `atrous.mapDraft`, saved as you edit, and the camera is kept in sessionStorage (`atrous.mapCam`) across a drive.
   Every drive registers the map (or the section) and calls `ctx.drive({ test: true })`, alone or with three CPUs;
   leaving the race comes back to the builder. Saved maps (mapstore.ts): an account's on the server (`/api/maps`, `mp:<user>`,

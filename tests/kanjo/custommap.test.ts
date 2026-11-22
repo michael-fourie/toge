@@ -341,3 +341,12 @@ test('sections: play a part of the map on its own, features re-pinned to it', ()
   assert.equal(arc.loop, false);
   assert.equal(arc.points.length, 4);
 });
+
+test('a map keeps its world when a point goes in: the seed comes from the name alone', () => {
+  // Michael, 2026-11-21: the builder was "super laggy". Its 3D world is rebuilt after edits and keeps its painted
+  // textures by seed; a seed that moved with the point count reshuffled every tree and barrel and repainted them all.
+  const m = blankMap();
+  const more: CustomMap = { ...m, points: [...m.points.slice(0, 1), [(m.points[0][0] + m.points[1][0]) / 2, (m.points[0][1] + m.points[1][1]) / 2, (m.points[0][2] + m.points[1][2]) / 2], ...m.points.slice(1)] };
+  assert.equal(getTrack(registerMap(more)).def.seed, getTrack(registerMap(m)).def.seed);
+  assert.notEqual(getTrack(registerMap({ ...m, name: 'Another road' })).def.seed, getTrack(registerMap(m)).def.seed);
+});
