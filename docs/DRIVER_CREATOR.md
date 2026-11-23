@@ -126,6 +126,9 @@ Per base:
   - tops lose the sleeve a mech arm cut (triangles with average arm weight > 0.5);
   - recolour shader on tops (`topColors`), bottoms (`bottomColors`), shoes, hair, brows; role materials on kit and seat (`METAL`, `LEATHER`:
     the legends' pale satin metals and dusky leathers; the battle pass metals keep their shine);
+  - fashion pieces (`Look.fashion`, shared/fashion.ts) made at assembly by `dress()` in client/fashion.ts:
+    shells from the body's own surface for jackets and trousers, domes for hats, measured shades and chains
+    (src/kanjo/CLAUDE.md "Fashion"); the clothes and kit they cover aren't drawn;
   - soft cel shading on every material (`toonAll`, toon.ts).
 - `loadDriver(id | look)` covers legends and custom drivers; seating, showroom and culling are shared.
 
@@ -141,7 +144,8 @@ Per base:
     (style tiles, colour), **Top** (tops, then the one-pieces, then the worn top's colour zones),
     **Bottom** (bottoms and the worn one's zones; under a one-piece, a note that it covers both and that
     picking a bottom brings separates back), **Shoes**, **Kit** (by where it's worn, metal, leather, glow,
-    battle pass gear), **Wheel**;
+    battle pass gear), **Fashion** (pieces bought in Shop → Fashion: owned ones toggle, the rest show
+    their price; the Top and Bottom tabs say when a jacket or trousers is worn over them), **Wheel**;
   - garments are option tiles (`.tg-opt`): a silhouette in the garment's own colour, its name and a chip
     per zone; each zone is a row of the house cloth swatches plus a free picker, with a dot showing the
     colour it has now and "Stock colours" to go back.

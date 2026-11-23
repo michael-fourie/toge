@@ -6,8 +6,9 @@
 import { CARS, type CarId, type Look, MAX_LEVEL, type OwnedCar, PARTS, type Part, type Tune, cleanCar, cleanLook, cleanTune, decodeCar, encodeCar, isCarId, newOwnedCar } from './cars.ts';
 import { COS_ITEMS, COS_SLOTS, type CaseId, type CosSlot, RARITY, cleanPlate, cosById, cosCaseById, fitsModel, passOnly, rollCosCase } from './cosmetics.ts';
 import { clampDrift, driftPay } from './drift.ts';
+import { FASHION, FASHION_IDS, type FashionId, isFashionId } from './fashion.ts';
 import { decodeLook, encodeLook } from './look.ts';
-import { type BgId, PASS, type PassState, STAGES, TIERS, TITLES, type TitleId, lockedLookParts, ownedLook, owns, raceXp, tierFor, tierOf, unlocked } from './pass.ts';
+import { type BgId, PASS, type PassState, STAGES, TIERS, TITLES, type TitleId, type Wardrobe, lockedLookParts, ownedLook, owns, raceXp, tierFor, tierOf, unlocked } from './pass.ts';
 import { type Rider, cleanRider, defaultRider } from './rider.ts';
 import type { TrackId } from './track.ts';
 import { TRACK_DEFS } from './track.ts';
@@ -35,9 +36,11 @@ export interface Garage extends PassState {
   bg: BgId | '';
   /** The title on your player card (pass.ts `TITLES`; '' = none). */
   title: TitleId | '';
+  /** Fashion pieces bought in the Shop (fashion.ts), each once, in catalogue order. */
+  fash: FashionId[];
 }
 
-export const newGarage = (): Garage => ({ money: START_MONEY, cars: [newOwnedCar('pebble', 0)], sel: 0, races: 0, wins: 0, lastReward: 0, cos: [], rider: defaultRider(), look: '', xp: 0, pass: false, given: 0, bg: '', title: '' });
+export const newGarage = (): Garage => ({ money: START_MONEY, cars: [newOwnedCar('pebble', 0)], sel: 0, races: 0, wins: 0, lastReward: 0, cos: [], rider: defaultRider(), look: '', xp: 0, pass: false, given: 0, bg: '', title: '', fash: [] });
 
 /** Anything (stored JSON, a request body) to a valid garage. */
 export function cleanGarage(x: unknown): Garage {
@@ -56,6 +59,7 @@ export function cleanGarage(x: unknown): Garage {
   g.given = g.pass ? Math.min(whole(o.given), tierOf(g.xp)) : 0;
   // Pass cosmetics only while the pass has them unlocked (they're handed over by givePass, never rolled).
   g.cos = Array.isArray(o.cos) ? [...new Set(o.cos.filter((id) => { const it = cosById(id); return it && (!passOnly(it) || unlocked(g, tierFor('cos', it.id))); }))].slice(0, COS_ITEMS.length) as string[] : [];
+  g.fash = Array.isArray(o.fash) ? FASHION_IDS.filter((id) => (o.fash as unknown[]).includes(id)) : [];
   g.rider = ownedRider(g, cleanRider(o.rider));
   g.look = typeof o.look === 'string' && decodeLook(o.look) ? ownedRider(g, o.look as Rider) : '';
   g.bg = typeof o.bg === 'string' && o.bg in STAGES && owns(g, 'bg', o.bg) ? (o.bg as BgId) : '';
@@ -68,8 +72,9 @@ export function cleanGarage(x: unknown): Garage {
 
 export const current = (g: Garage): OwnedCar => g.cars[g.sel] ?? g.cars[0];
 
-/** A driver (a legend's id, or your own look's code) with any battle pass piece the garage hasn't unlocked taken off. */
-export function ownedRider(p: PassState, r: Rider): Rider {
+/** A driver (a legend's id, or your own look's code) with any battle pass piece the garage hasn't unlocked, or fashion
+ * piece it hasn't bought, taken off. */
+export function ownedRider(p: Wardrobe, r: Rider): Rider {
   const l = decodeLook(r);
   return l && lockedLookParts(p, l).length ? encodeLook(ownedLook(p, l)) : r;
 }
@@ -238,6 +243,8 @@ export type GarageAction =
   | { a: 'rider'; rider: Rider; look?: string }
   /** Buy the battle pass. */
   | { a: 'pass' }
+  /** Buy a fashion piece (fashion.ts) for your own driver. */
+  | { a: 'fashion'; id: FashionId }
   /** Pick the home background or the card title ('' = none): pass rewards you've unlocked. */
   | { a: 'bg'; id: BgId | '' }
   | { a: 'title'; id: TitleId | '' };
@@ -331,13 +338,25 @@ export function applyAction(g: Garage, act: GarageAction, rnd: () => number, now
         const l = decodeLook(code);
         return l ? lockedLookParts(g, l) : [];
       });
-      if (locked.length) return { ok: false, error: `${locked[0]} is a battle pass reward you haven’t unlocked.` };
+      if (locked.length) {
+        const name = locked[0];
+        const shop = FASHION_IDS.some((id) => FASHION[id].name === name);
+        return { ok: false, error: shop ? `${name} is in the Shop’s Fashion page: buy it first.` : `${name} is a battle pass reward you haven’t unlocked.` };
+      }
       return { ok: true, g: { ...g, rider: cleanRider(act.rider), look: act.look ?? g.look } };
     }
     case 'pass': {
       if (g.pass) return { ok: false, error: 'You already own the battle pass.' };
       if (g.money < PASS.price) return { ok: false, error: 'Not enough money.' };
       return { ok: true, g: givePass({ ...g, money: g.money - PASS.price, pass: true, given: 0 }) };
+    }
+    case 'fashion': {
+      if (!isFashionId(act.id)) return { ok: false, error: 'No such piece.' };
+      if (g.fash.includes(act.id)) return { ok: false, error: 'You already own it.' };
+      const price = FASHION[act.id].price;
+      if (g.money < price) return { ok: false, error: 'Not enough money.' };
+      const own = new Set([...g.fash, act.id]);
+      return { ok: true, g: { ...g, money: g.money - price, fash: FASHION_IDS.filter((id) => own.has(id)) } };
     }
     case 'bg': {
       if (act.id !== '' && !(typeof act.id === 'string' && act.id in STAGES)) return { ok: false, error: 'No such background.' };

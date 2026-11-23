@@ -36,18 +36,22 @@ import {
   WHEELS,
   withBase,
   withBottom,
+  withFashion,
   withKit,
   withTop,
 } from '../shared/look.ts';
+import { FASHION, FASHION_IDS, FASHION_SLOTS, isFashionId } from '../shared/fashion.ts';
+import { fashionArt, SLOT_NAME } from './fashionui.ts';
+import { money } from './hud.ts';
 import { esc } from '../../client/menu/ui.ts';
-import { GEAR_NAMES, type PassState, PASS_METAL_NAMES, owns, tierFor } from '../shared/pass.ts';
+import { GEAR_NAMES, type PassState, PASS_METAL_NAMES, type Wardrobe, owns, tierFor } from '../shared/pass.ts';
 
 /** The creator's categories, in tab order. */
-export const CREATOR_TABS = ['body', 'face', 'hair', 'top', 'bottom', 'shoes', 'kit', 'wheel'] as const;
+export const CREATOR_TABS = ['body', 'face', 'hair', 'top', 'bottom', 'shoes', 'kit', 'fashion', 'wheel'] as const;
 export type CreatorTab = (typeof CREATOR_TABS)[number];
-const TAB_NAME: Record<CreatorTab, string> = { body: 'Body', face: 'Face', hair: 'Hair', top: 'Top', bottom: 'Bottom', shoes: 'Shoes', kit: 'Kit', wheel: 'Wheel' };
+const TAB_NAME: Record<CreatorTab, string> = { body: 'Body', face: 'Face', hair: 'Hair', top: 'Top', bottom: 'Bottom', shoes: 'Shoes', kit: 'Kit', fashion: 'Fashion', wheel: 'Wheel' };
 /** What the showroom frames while a tab is open (showroom.ts `frameRider`). */
-export const TAB_FRAME: Record<CreatorTab, 'full' | 'head' | 'feet'> = { body: 'full', face: 'head', hair: 'head', top: 'full', bottom: 'full', shoes: 'feet', kit: 'full', wheel: 'full' };
+export const TAB_FRAME: Record<CreatorTab, 'full' | 'head' | 'feet'> = { body: 'full', face: 'head', hair: 'head', top: 'full', bottom: 'full', shoes: 'feet', kit: 'full', fashion: 'full', wheel: 'full' };
 
 /** What the creator shows besides the look itself. */
 export interface CreatorView {
@@ -192,7 +196,7 @@ const frameOf = (b: BaseId) => BASES[b];
 const buildOf = (b: BaseId) => b.split('_')[1] as keyof typeof BUILDS;
 
 /** What a control changes: a field of the look, a garment's zone colour ('tz:i' top, 'bz:i' bottom), or a kit piece. */
-type Field = 'frame' | 'build' | 'skin' | 'eyes' | 'brows' | 'hair' | 'hairColor' | 'top' | 'bottom' | 'shoes' | 'shoeColor' | 'kit' | 'gear' | 'metal' | 'leather' | 'glow' | 'wheel' | 'recolour' | `tz:${number}` | `bz:${number}`;
+type Field = 'frame' | 'build' | 'skin' | 'eyes' | 'brows' | 'hair' | 'hairColor' | 'top' | 'bottom' | 'shoes' | 'shoeColor' | 'kit' | 'gear' | 'fashion' | 'metal' | 'leather' | 'glow' | 'wheel' | 'recolour' | `tz:${number}` | `bz:${number}`;
 
 const pill = (f: Field, v: string, label: string, on: boolean, extra = '') =>
   `<button class="tg-pill" data-dl="${f}" data-v="${v}" aria-pressed="${on}" ${extra}>${label}</button>`;
@@ -273,6 +277,7 @@ function topPage(l: Look) {
     return tile('top', t, on, TOP[t][0], chips(cs), art(TOP[t][1], cs[cs.length - 1]));
   };
   return `
+    ${covered(l, 'jacket', 'top')}
     <h3 class="tg-h">Tops</h3>
     <div class="tg-opts">${TOP_IDS.filter((t) => !isFull(t)).map(card).join('')}</div>
     <h3 class="tg-h">One-pieces <small>top and bottom in one: they replace your bottom</small></h3>
@@ -288,6 +293,7 @@ function bottomPage(l: Look) {
   };
   const one = l.bottom === NO_BOTTOM;
   return `
+    ${covered(l, 'pants', 'bottom')}
     ${one ? `<p class="tg-note"><b>${esc(TOP[l.top][0])}</b> is a one-piece: it covers top and bottom, and its colours are on the Top tab. Pick a bottom here to wear separates again (a ${esc(TOP.plain_tee[0].toLowerCase())} goes on with it).</p>` : ''}
     <h3 class="tg-h">Bottoms</h3>
     <div class="tg-opts">${BOTTOM_IDS.map(card).join('')}</div>
@@ -319,14 +325,37 @@ function kitPage(l: Look, pass: PassState) {
     <div class="tg-seg">${GEAR.map((g) => passPill(pass, 'gear', g, esc(GEAR_NAMES[g]), l.gear.includes(g))).join('')}</div>`;
 }
 
+/** A note on the Top / Bottom tab while a Fashion piece is worn over it. */
+function covered(l: Look, slot: 'jacket' | 'pants', what: string): string {
+  const id = l.fashion.find((x) => FASHION[x].slot === slot);
+  return id ? `<p class="tg-note"><b>${esc(FASHION[id].name)}</b> is worn over your ${what}. Take it off on the Fashion tab to show it again.</p>` : '';
+}
+
+/** Shop pieces (shared/fashion.ts): the ones you own put on and take off; the rest show their price, bought in Shop → Fashion. */
+function fashionPage(l: Look, w: Wardrobe) {
+  const groups = FASHION_SLOTS.map((slot) => {
+    const ids = FASHION_IDS.filter((id) => FASHION[id].slot === slot);
+    const tiles = ids.map((id) => {
+      const it = FASHION[id];
+      return w.fash.includes(id)
+        ? tile('fashion', id, l.fashion.includes(id), it.name, esc(it.house), fashionArt(it))
+        : `<button class="tg-opt fa-locked" disabled title="In Shop → Fashion">${fashionArt(it)}<b>${esc(it.name)}</b><small class="tg-num">${money(it.price)}</small></button>`;
+    });
+    return `<h3 class="tg-h">${SLOT_NAME[slot][0]} <small>one at a time</small></h3><div class="tg-opts">${tiles.join('')}</div>`;
+  }).join('');
+  return `
+    <p class="tg-note">${w.fash.length ? `You own <b>${w.fash.length} of ${FASHION_IDS.length}</b> pieces.` : 'Luxury pieces for your driver, from the Shop.'} <button class="tg-link" data-goto="fashion">Shop fashion</button></p>
+    ${groups}`;
+}
+
 function wheelPage(l: Look) {
   return `
     <h3 class="tg-h">Steering wheel <small>yours in every car</small></h3>
     <div class="tg-opts">${WHEELS.map((w) => tile('wheel', w, l.wheel === w, WHEEL[w][0], WHEEL[w][1], art('wheel', 'var(--tg-dim)'))).join('')}</div>`;
 }
 
-/** `pass`: what the battle pass has unlocked (its metals and gear show locked until then). */
-export function creatorHtml(l: Look, pass: PassState, view: CreatorView): string {
+/** `pass`: what the battle pass has unlocked (its metals and gear show locked until then) and the fashion you own. */
+export function creatorHtml(l: Look, pass: Wardrobe, view: CreatorView): string {
   const pages: Record<CreatorTab, () => string> = {
     body: () => bodyPage(l),
     face: () => facePage(l),
@@ -335,6 +364,7 @@ export function creatorHtml(l: Look, pass: PassState, view: CreatorView): string
     bottom: () => bottomPage(l),
     shoes: () => shoesPage(l),
     kit: () => kitPage(l, pass),
+    fashion: () => fashionPage(l, pass),
     wheel: () => wheelPage(l),
   };
   const seated = view.seated || view.tab === 'wheel';
@@ -390,6 +420,8 @@ export function lookAfter(l: Look, el: HTMLElement): Look | null {
       return l.bottom === NO_BOTTOM ? l : { ...l, bottomColors: [...BOTTOMS[l.bottom].colors] };
     case 'kit':
       return withKit(l, raw as KitId, !l.kit.includes(raw as KitId));
+    case 'fashion':
+      return isFashionId(raw) ? withFashion(l, raw, !l.fashion.includes(raw)) : null;
     case 'gear': {
       const g = raw as GearId;
       return { ...l, gear: l.gear.includes(g) ? l.gear.filter((x) => x !== g) : GEAR.filter((x) => x === g || l.gear.includes(x)) };

@@ -14,10 +14,12 @@
 
 import * as THREE from 'three';
 import { addGear } from './passgear.ts';
+import { type WornMesh, dress } from './fashion.ts';
+import { FASHION, FASHION_COVERS } from '../shared/fashion.ts';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { type GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { type Look, type MetalId, type LeatherId, NO_BOTTOM } from '../shared/look.ts';
+import { KIT, type Look, type MetalId, type LeatherId, NO_BOTTOM } from '../shared/look.ts';
 import { toonAll } from './toon.ts';
 
 const ROOT = '/models/drivers/wardrobe/';
@@ -342,8 +344,12 @@ export async function assemble(look: Look): Promise<Assembled> {
   // Kit that hugs the clothes is fitted per top (`kit_<id>@<top>`), or per bottom where the top doesn't reach it
   // (`kit_<id>@_<bottom>`: a belt under a crop top); head kit is shared.
   const kitPart = (k: string) => [`kit_${k}@${look.top}`, `kit_${k}@_${look.bottom}`].find((id) => info.parts[id]) ?? `kit_${k}`;
-  const clothes = look.bottom === NO_BOTTOM ? [look.top] : [look.top, look.bottom];
-  const ids = [...clothes, look.shoes, look.brows, ...(look.hair === 'none' ? [] : [look.hair]), ...look.kit.map(kitPart), 'wheel_' + look.wheel];
+  // Fashion (fashion.ts): a jacket stands in for the top and trousers for the bottom, and kit a piece covers stays off.
+  const slots = new Set(look.fashion.map((id) => FASHION[id].slot));
+  const covers = new Set(look.fashion.flatMap((id) => FASHION_COVERS[FASHION[id].slot]));
+  const clothes = [...(slots.has('jacket') ? [] : [look.top]), ...(look.bottom === NO_BOTTOM || slots.has('pants') ? [] : [look.bottom])];
+  const kit = look.kit.filter((k) => !covers.has(KIT[k]));
+  const ids = [...clothes, look.shoes, look.brows, ...(look.hair === 'none' ? [] : [look.hair]), ...kit.map(kitPart), 'wheel_' + look.wheel];
   for (const id of ids) if (!info.parts[id]) throw new Error(`wardrobe base ${look.base} has no ${id}`);
   const masks = ids.map((id) => info.parts[id].mask).filter((m): m is string => !!m);
   const [base, parts, skin, iris, maskTex] = await Promise.all([
@@ -372,6 +378,7 @@ export async function assemble(look: Look): Promise<Assembled> {
   // Every part's meshes, rebound to the base's bones and parked beside the body.
   const holder = (body as THREE.SkinnedMesh).parent!;
   const inv = holder.matrixWorld.clone().invert();
+  const wornMeshes: WornMesh[] = [];
   ids.forEach((id, i) => {
     const p = info.parts[id];
     const src = parts[i].scene;
@@ -399,16 +406,20 @@ export async function assemble(look: Look): Promise<Assembled> {
       inv.clone().multiply(sm.matrixWorld).decompose(mesh.position, mesh.quaternion, mesh.scale);
       holder.add(mesh);
       mesh.bind(skel, sm.bindMatrix);
+      const role = p.slot === 'top' || p.slot === 'bottom' || p.slot === 'shoes' || p.slot === 'hair' || p.slot === 'brows' ? p.slot : p.slot === 'wheel' ? 'other' : 'kit';
+      wornMeshes.push({ mesh, role });
     });
   });
 
   // The base's own meshes: body (minus covered skin, plus repaints), eyes, lashes, seat.
   const worn = ids.map((id) => info.parts[id].hide).filter((h): h is number => h !== undefined);
+  let fullBody: THREE.BufferGeometry | null = null;
   scene.traverse((o) => {
     const m = o as THREE.SkinnedMesh;
     if (!m.isSkinnedMesh || !m.geometry) return;
     const mat = m.material as THREE.MeshStandardMaterial;
     if (o === body) {
+      fullBody = m.geometry;
       m.geometry = bodyFor(m, look.base, worn, sleeves, paints);
       const s = own(mat.clone());
       s.map = skin;
@@ -425,6 +436,15 @@ export async function assemble(look: Look): Promise<Assembled> {
     }
     cards(m.material as THREE.Material);
   });
+  // Fashion pieces (fashion.ts), fitted over everything else. Trousers stay under the top where it covers them.
+  if (look.fashion.length && fullBody) {
+    const top = !slots.has('jacket') ? info.parts[look.top] : undefined;
+    const bit = top?.hide;
+    const attr = bit === undefined ? null : (fullBody as THREE.BufferGeometry).getAttribute(Math.floor(bit / HIDE_BITS) ? `_hide${Math.floor(bit / HIDE_BITS) + 1}` : '_hide');
+    const topCover = attr && bit !== undefined ? (v: number) => (Math.round(attr.getX(v)) & (1 << (bit % HIDE_BITS))) !== 0 : null;
+    const key = `${look.base}|${ids.join(',')}`;
+    owned.push(...dress(scene, body, fullBody, key, look.fashion, wornMeshes, topCover).owned);
+  }
   // Battle pass gear (passgear.ts), on the head bone.
   owned.push(...addGear(scene, look));
   toonAll(scene);

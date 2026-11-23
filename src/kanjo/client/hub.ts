@@ -1,7 +1,7 @@
 // KANJO's home: the garage. Six tabs (DESIGN.md §6): Race (the landing: your car and driver centred, Host / Join below, cards round
 // them for the Battle pass (passui.ts, its own page) and the Leaderboard (leaderboardui.ts, a large modal)); Garage (My cars, Dealer,
 // Upgrades, Tuning); Style (Paint, Locker, Driver: cosmeticsui.ts, riderui.ts); Shop (shopui.ts: the Battle pass, every cosmetic case
-// and the upgrade crate on one page of cards); Social (friendsui.ts: Friends, with their garages and best times, and Clubs); Settings
+// and the upgrade crate on one page of cards; Fashion, fashionui.ts: clothes for your own driver); Social (friendsui.ts: Friends, with their garages and best times, and Clubs); Settings
 // (graphics: settingsui.ts). LB / RB walk every page in that order. The showroom fills the window behind the glass rail, with your car
 // framed in the free space and its card bottom right (the Race landing and the Shop have no rail beside the car).
 
@@ -10,6 +10,8 @@ import { CRATES, type CrateResult, MYSTERY_COST, current, tunerCost } from '../s
 import { type CaseId, type CosSlot, COS_ITEMS, COS_SLOTS, cosById, cosCaseById, fitsModel } from '../shared/cosmetics.ts';
 import { lockerTab, showCaseReel } from './cosmeticsui.ts';
 import { caseInside, shopTab } from './shopui.ts';
+import { fashionTab } from './fashionui.ts';
+import { FASHION, type FashionId, isFashionId } from '../shared/fashion.ts';
 import { type Rider, decodeRider, defaultRider, encodeRider, isLegend, isRider, riderInfo } from '../shared/rider.ts';
 import { driverCard, driverTab } from './riderui.ts';
 import { cardData, openPlayerCard } from './playercard.ts';
@@ -26,7 +28,7 @@ import type { RaceLobbyInfo } from '../shared/protocol.ts';
 import { account } from '../../client/account.ts';
 import type { Ctx, Render, Screen } from '../../client/menu/router.ts';
 import { $, esc, playerName } from '../../client/menu/ui.ts';
-import { DEFAULT_LOOK, decodeLook, encodeLook, type Look as DriverLook } from '../shared/look.ts';
+import { DEFAULT_LOOK, decodeLook, encodeLook, type Look as DriverLook, withFashion } from '../shared/look.ts';
 import { type CreatorTab, CREATOR_TABS, lookAfter, TAB_FRAME } from './creator.ts';
 import { passCard, passChip, passRibbon, passTab } from './passui.ts';
 import { PASS, TIERS, type BgId, type TitleId, tierOf } from '../shared/pass.ts';
@@ -38,13 +40,13 @@ import { GAME, ICON, LOGO } from './brand.ts';
 import './race.css';
 import './hub.css';
 
-type Page = 'race' | 'pass' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'driver' | 'shop' | 'friends' | 'clubs' | 'settings';
+type Page = 'race' | 'pass' | 'garage' | 'dealer' | 'upgrades' | 'tuning' | 'paint' | 'locker' | 'driver' | 'shop' | 'fashion' | 'friends' | 'clubs' | 'settings';
 type TabId = 'race' | 'garage' | 'style' | 'shop' | 'social' | 'settings';
 const TABS: { id: TabId; label: string; pages: [Page, string][] }[] = [
   { id: 'race', label: 'Race', pages: [['race', 'Race'], ['pass', 'Battle pass']] },
   { id: 'garage', label: 'Garage', pages: [['garage', 'My cars'], ['upgrades', 'Upgrades'], ['tuning', 'Tuning'], ['dealer', 'Dealer']] },
   { id: 'style', label: 'Style', pages: [['paint', 'Paint'], ['locker', 'Locker'], ['driver', 'Driver']] },
-  { id: 'shop', label: 'Shop', pages: [['shop', 'Shop']] },
+  { id: 'shop', label: 'Shop', pages: [['shop', 'Shop'], ['fashion', 'Fashion']] },
   { id: 'social', label: 'Social', pages: [['friends', 'Friends'], ['clubs', 'Clubs']] },
   { id: 'settings', label: 'Settings', pages: [['settings', 'Settings']] },
 ];
@@ -121,6 +123,8 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
   /** Locker: the slot being browsed, and a not-yet-owned item being tried on in the showroom. */
   let lockerSlot: CosSlot = 'paint';
   let trying: string | null = null;
+  /** Fashion: a piece not bought yet, tried on your driver in the showroom. */
+  let fashTry: FashionId | null = null;
   /** A driver pick not saved yet (it saves a moment after the last change, like paint). */
   let riderDraft: Rider | null = null;
   let riderTimer = 0;
@@ -243,7 +247,10 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     const l = ownLook();
     return kind === 'metal' ? { ...l, metal: id as DriverLook['metal'] } : { ...l, gear: l.gear.includes(id as DriverLook['gear'][number]) ? l.gear : [...l.gear, id as DriverLook['gear'][number]] };
   };
+  /** Your own driver as the Fashion page shows them: as saved, plus the piece being tried on. */
+  const fashionLook = (): DriverLook => (fashTry ? withFashion(ownLook(), fashTry, true) : ownLook());
   const viewedRider = (): Rider => {
+    if (page === 'fashion') return encodeLook(fashionLook());
     const f = visiting();
     if (f) return decodeRider(f.rider) ?? defaultRider();
     const pr = passReward();
@@ -311,7 +318,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     $(root, '[data-stage-name]').innerHTML = `<small>${esc(b.maker)}</small>${esc(b.name)}`;
     showroom.showRider(viewedRider());
     const pr = passReward();
-    const onRider = page === 'driver' || pr?.kind === 'metal' || pr?.kind === 'gear';
+    const onRider = page === 'driver' || page === 'fashion' || pr?.kind === 'metal' || pr?.kind === 'gear';
     showroom.focus(onRider ? 'rider' : 'car');
     // The creator frames what its open tab is about, and seats the driver for the wheel (or when asked).
     const making = page === 'driver' && !pr && !isLegend(viewedRider());
@@ -319,6 +326,8 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     showroom.stage(viewedStage());
     if (onRider) {
       $(root, '[data-card]').innerHTML = driverCard(viewedRider());
+      const rib = fashTry && root.querySelector<HTMLElement>('[data-card] .tg-card-ribbon');
+      if (rib) rib.textContent = `Trying on · ${FASHION[fashTry!].name}`;
       $(root, '[data-stage-name]').innerHTML = `<small>Driver</small>${esc(riderInfo(viewedRider()).name)}`;
     }
     const key = JSON.stringify([c.model, c.look, c.cos, c.plate]);
@@ -516,6 +525,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
 
   const lockerPage = () => lockerTab(garage.g, car(), CARS[car().model].name, lockerSlot, trying, status);
   const shopPage = () => shopTab(garage.g, CARS[car().model].name, status);
+  const fashionPage = () => fashionTab(garage.g, ownLook(), fashTry, !isLegend(riderDraft ?? garage.g.rider), status);
   const driverPage = () => driverTab(viewedRider(), ownLook(), garage.g, status, { tab: crTab, undo: lookPast.length > 0, seated: crSeated });
   const passPage = () => passTab({ g: garage.g, sel: passSel, car: CARS[car().model].name, status });
   const settingsPage = () => settingsTab(graphics(), status);
@@ -591,7 +601,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     if (account.user && !friendList) void loadFriends();
     return clubsTab({ user: account.user, clubs: clubList, friends: friendList?.friends ?? [], status });
   };
-  const BODIES: Record<Page, () => string> = { race: racePage, pass: passPage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, shop: shopPage, driver: driverPage, friends: friendsPage, clubs: clubsPage, settings: settingsPage };
+  const BODIES: Record<Page, () => string> = { race: racePage, pass: passPage, garage: garagePage, dealer: dealerPage, upgrades: upgradesPage, tuning: tuningPage, paint: paintPage, locker: lockerPage, shop: shopPage, fashion: fashionPage, driver: driverPage, friends: friendsPage, clubs: clubsPage, settings: settingsPage };
 
   // --- drawing and wiring ----------------------------------------------------------------------
 
@@ -676,6 +686,7 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
     flushDraft();
     preview = null;
     trying = null;
+    fashTry = null;
     page = p;
     lastPage[tabOf(p).id] = p;
     status = '';
@@ -952,6 +963,38 @@ function mountHub(root: HTMLElement, ctx: Ctx, screen: Screen, pit: Pit | null):
         const [kind, id] = (b.dataset.passWear ?? '').split(':') as ['metal' | 'gear', string];
         const code = encodeLook(lookWith(kind, id));
         void act({ a: 'rider', rider: code, look: code }).then((r) => r !== null && setStatus('Your driver is wearing it.'));
+      }),
+    );
+    // Fashion: try a piece on, buy it (it goes straight on), wear or take off one you own.
+    const wearFashion = (id: FashionId, on: boolean) => {
+      const code = encodeLook(withFashion(ownLook(), id, on));
+      return act({ a: 'rider', rider: code, look: code });
+    };
+    panel.querySelectorAll<HTMLElement>('[data-fash-try]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const id = b.dataset.fashTry;
+        if (!isFashionId(id)) return;
+        fashTry = fashTry === id ? null : id;
+        status = '';
+        draw();
+      }),
+    );
+    panel.querySelectorAll<HTMLElement>('[data-fash-buy]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const id = b.dataset.fashBuy;
+        if (!isFashionId(id) || (await act({ a: 'fashion', id })) === null) return;
+        fashTry = null;
+        const worn = (await wearFashion(id, true)) !== null;
+        setStatus(worn ? `The ${FASHION[id].name} is yours, and your driver is wearing it.` : `The ${FASHION[id].name} is yours.`);
+        draw();
+      }),
+    );
+    panel.querySelectorAll<HTMLElement>('[data-fash-wear]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const id = b.dataset.fashWear;
+        if (!isFashionId(id)) return;
+        const on = !ownLook().fashion.includes(id);
+        void wearFashion(id, on).then((r) => r !== null && setStatus(on ? `Wearing the ${FASHION[id].name}.` : `Took off the ${FASHION[id].name}.`));
       }),
     );
     panel.querySelectorAll<HTMLElement>('[data-buy]').forEach((b) =>
@@ -1320,7 +1363,7 @@ function focusId(el: Element | null): string | null {
   if (dl) return el.hasAttribute('data-pick') ? `input[data-dl="${dl}"]` : `button[data-dl="${dl}"][data-v="${el.getAttribute('data-v')}"]`;
   if (el.hasAttribute('data-dl-random')) return '[data-dl-random]';
   for (const attr of ['data-cr-undo', 'data-cr-reset']) if (el.hasAttribute(attr)) return `[${attr}]`;
-  for (const attr of ['data-cr-tab', 'data-cr-pose', 'data-lb-open', 'data-pass-open', 'data-maps-open', 'data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-case-inside', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
+  for (const attr of ['data-cr-tab', 'data-cr-pose', 'data-lb-open', 'data-pass-open', 'data-maps-open', 'data-pass-tier', 'data-pass-bg', 'data-pass-title', 'data-select', 'data-sell', 'data-part', 'data-crate', 'data-tune', 'data-preview', 'data-buy', 'data-case-open', 'data-case-inside', 'data-fash-try', 'data-fash-buy', 'data-fash-wear', 'data-slot', 'data-cos', 'data-friend-car', 'data-friend-open', 'data-friend-add']) {
     const v = el.getAttribute(attr);
     if (v !== null) return `[${attr}="${v}"]`;
   }

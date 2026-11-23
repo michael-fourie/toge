@@ -1,7 +1,8 @@
 // The Shop tab (hub.ts hosts it): everything you can spend garage money on that isn't a car, on one full-width page of
-// cards. The Battle pass is the hero; under it the cosmetic cases (each with its odds, price and a look inside) and
-// the upgrade crate; the Dealer is a card that points at the cars. Pure markup: hub.ts wires the buttons
-// (data-pass-buy, data-goto, data-case-open, data-case-inside, data-crate). Styled by shop.css.
+// cards. The Battle pass is the hero, then the way into Fashion (fashionui.ts, the tab's second page); under them the
+// cosmetic cases (each with its odds, price and a look inside) and the upgrade crate; the Dealer is a card that points
+// at the cars. Pure markup: hub.ts wires the buttons (data-pass-buy, data-goto, data-case-open, data-case-inside,
+// data-crate). Styled by shop.css.
 
 import { CRATES, MYSTERY_COST, type Garage } from '../shared/garage.ts';
 import { COS_CASES, COS_ITEMS, type CosCase, caseItems } from '../shared/cosmetics.ts';
@@ -10,6 +11,8 @@ import { esc } from '../../client/menu/ui.ts';
 import { contents, crateArt, oddsRow } from './cosmeticsui.ts';
 import { rewardArt } from './passui.ts';
 import { money } from './hud.ts';
+import { FASHION, FASHION_IDS, FASHION_PRICES } from '../shared/fashion.ts';
+import { fashionArt } from './fashionui.ts';
 import './shop.css';
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
@@ -45,6 +48,23 @@ function passHero(g: Garage): string {
   </section>`;
 }
 
+/** The way into Shop → Fashion: a strip of the grails and the price range. */
+function fashionBanner(g: Garage): string {
+  const show = (['emperor_fur', 'iced_pendant', 'chrome_bomber', 'gold_rounds', 'maison_bucket'] as const).map((id) => `<li>${fashionArt(FASHION[id])}</li>`).join('');
+  return `<section class="sh-fash" aria-label="Fashion">
+    <div class="sh-fash-copy">
+      <small class="tg-eyebrow">New · Fashion</small>
+      <h2 class="sh-fash-title">Dress to kill</h2>
+      <p>Jackets, trousers, hats, shades and chains for your own driver, from ${money(FASHION_PRICES.min)} to ${money(FASHION_PRICES.max)}. Try them on first.</p>
+      <div class="sh-hero-act">
+        <button class="tg-go alt" data-goto="fashion">Shop fashion</button>
+        <small class="tg-num sh-fash-own">${g.fash.length}/${FASHION_IDS.length} owned</small>
+      </div>
+    </div>
+    <ul class="sh-fash-art" aria-hidden="true">${show}</ul>
+  </section>`;
+}
+
 /** One case: its crate, the odds and the way in. */
 function caseCard(box: CosCase, g: Garage, i: number): string {
   const have = caseItems(box.id).filter((it) => g.cos.includes(it.id)).length;
@@ -68,6 +88,7 @@ function caseCard(box: CosCase, g: Garage, i: number): string {
 export function shopTab(g: Garage, carName: string, status: string): string {
   return `<div class="sh">
     ${passHero(g)}
+    ${fashionBanner(g)}
     <h2 class="tg-h">Cosmetic cases <small>${g.cos.length}/${COS_ITEMS.length} collected · duplicates pay money back</small></h2>
     <div class="sh-grid">${COS_CASES.map((b, i) => caseCard(b, g, i)).join('')}</div>
     <h2 class="tg-h">Upgrades &amp; cars</h2>

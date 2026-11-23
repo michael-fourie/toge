@@ -6,6 +6,8 @@
 // colours as 6 hex digits), carried in `driver=` where a legend's id would be. `L2.` codes, from when
 // clothes were whole outfits, still decode: each outfit becomes its top and bottom (`L2_OUTFITS`).
 
+import { FASHION, FASHION_IDS, type FashionId } from './fashion.ts';
+
 /** Body bases: a MakeHuman frame ('m' or 'f') and build each, with their own skeleton and seated pose. */
 export const BASES = { m_slim: 'm', m_avg: 'm', m_heavy: 'm', f_slim: 'f', f_avg: 'f', f_heavy: 'f' } as const;
 /**
@@ -140,6 +142,8 @@ export interface Look {
   wheel: WheelId;
   /** Battle pass gear (empty for most looks; the code only carries it when there is some). */
   gear: GearId[];
+  /** Fashion pieces from the Shop (fashion.ts), one per slot, in catalogue order (the code only carries them when there are some). */
+  fashion: FashionId[];
 }
 
 const BASE_IDS = Object.keys(BASES) as BaseId[];
@@ -193,6 +197,7 @@ export const DEFAULT_LOOK: Look = {
   glow: 0xffae3c,
   wheel: 'wood',
   gear: [],
+  fashion: [],
 };
 
 /** Why a look can't be worn, or null. */
@@ -218,7 +223,26 @@ export function lookProblem(l: Look): string | null {
   if (!LEATHERS.includes(l.leather)) return 'leather';
   if (!WHEELS.includes(l.wheel)) return 'wheel';
   if (l.gear.length > GEAR.length || new Set(l.gear).size !== l.gear.length || l.gear.some((x) => !GEAR.includes(x))) return 'gear';
+  const fp = fashionProblem(l);
+  if (fp) return fp;
   for (const c of [l.hairColor, l.shoeColor, l.glow, ...l.topColors, ...l.bottomColors]) if (!Number.isInteger(c) || c < 0 || c > 0xffffff) return 'colour';
+  return null;
+}
+
+/** Why a look's fashion pieces can't be worn together, or null: one per slot, in catalogue order, and a jacket or
+ * trousers only over separates (they stand in for the top or the bottom, which a one-piece is both of). */
+function fashionProblem(l: Look): string | null {
+  if (!Array.isArray(l.fashion)) return 'fashion';
+  let last = -1;
+  const slots = new Set<string>();
+  for (const id of l.fashion) {
+    const i = FASHION_IDS.indexOf(id);
+    if (i <= last) return 'fashion';
+    last = i;
+    if (slots.has(FASHION[id].slot)) return 'two fashion pieces in one slot';
+    slots.add(FASHION[id].slot);
+  }
+  if (isFull(l.top) && (slots.has('jacket') || slots.has('pants'))) return 'fashion over a one-piece';
   return null;
 }
 
@@ -236,7 +260,9 @@ export function withBase(l: Look, base: BaseId): Look {
 export function withTop(l: Look, top: TopId): Look {
   if (top === l.top) return l;
   const bottom = isFull(top) ? NO_BOTTOM : l.bottom === NO_BOTTOM ? SPARE_BOTTOM : l.bottom;
-  return { ...l, top, topColors: topColors(top), bottom, bottomColors: bottom === l.bottom ? l.bottomColors : bottomColors(bottom) };
+  // A one-piece takes a fashion jacket and trousers off with the separates they stood in for.
+  const fashion = isFull(top) ? l.fashion.filter((id) => FASHION[id].slot !== 'jacket' && FASHION[id].slot !== 'pants') : l.fashion;
+  return { ...l, top, topColors: topColors(top), bottom, bottomColors: bottom === l.bottom ? l.bottomColors : bottomColors(bottom), fashion };
 }
 
 /** Puts on another bottom in its own colours; the top stays, unless it was a one-piece (then the spare top goes on). */
@@ -244,6 +270,18 @@ export function withBottom(l: Look, bottom: BottomId): Look {
   if (bottom === l.bottom) return l;
   const top = isFull(l.top) ? SPARE_TOP : l.top;
   return { ...l, top, topColors: top === l.top ? l.topColors : topColors(top), bottom, bottomColors: bottomColors(bottom) };
+}
+
+/**
+ * Puts a fashion piece on (taking off whatever held its slot) or takes it off. A jacket or trousers over a one-piece
+ * brings separates back (the spare tee and jeans), since they stand in for one half.
+ */
+export function withFashion(l: Look, id: FashionId, on: boolean): Look {
+  const slot = FASHION[id].slot;
+  const fashion = FASHION_IDS.filter((x) => (x === id ? on : l.fashion.includes(x) && FASHION[x].slot !== slot));
+  const halves = on && isFull(l.top) && (slot === 'jacket' || slot === 'pants');
+  const sep: Partial<Look> = halves ? { top: SPARE_TOP, topColors: topColors(SPARE_TOP), bottom: SPARE_BOTTOM, bottomColors: bottomColors(SPARE_BOTTOM) } : {};
+  return { ...l, ...sep, fashion };
 }
 
 /** Adds a kit piece, taking off whatever held its slot (and the oldest piece if over the limit). */
@@ -276,8 +314,10 @@ export function encodeLook(l: Look): LookCode {
     idx(LEATHERS, l.leather),
     hex(l.glow),
     idx(WHEELS, l.wheel),
-    // A last field only when there's gear (as in `L2.` codes), so a look without any has one spelling.
-    ...(l.gear.length ? [l.gear.map((x) => idx(GEAR, x)).join('-')] : []),
+    // A gear field only when there's gear or fashion after it, and a fashion field only when there's some, so a look
+    // has one spelling.
+    ...(l.gear.length || l.fashion.length ? [l.gear.map((x) => idx(GEAR, x)).join('-')] : []),
+    ...(l.fashion.length ? [l.fashion.map((x) => idx(FASHION_IDS, x)).join('-')] : []),
   ].join('.') as LookCode;
 }
 
@@ -288,9 +328,10 @@ export function decodeLook(code: unknown): Look | null {
   if (!old && !code.startsWith('L3.')) return null;
   const f = code.split('.');
   // `L2.`: 16 fields, `L3.`: 18 (the outfit and its colours became top, bottom and theirs); one more with battle pass
-  // gear (never an empty one: a code has one spelling).
+  // gear (never an empty one: a code has one spelling); in `L3.`, two more with fashion (the gear field may be empty
+  // then, the fashion one never).
   const n = old ? 16 : 18;
-  if (f.length !== n && !(f.length === n + 1 && f[n])) return null;
+  if (f.length !== n && !(f.length === n + 1 && f[n]) && !(!old && f.length === n + 2 && f[n + 1])) return null;
   const pick = <T>(list: readonly T[], s: string): T | undefined => (/^[0-9a-z]{1,2}$/.test(s) ? list[parseInt(s, 36)] : undefined);
   const col = (s: string) => (/^[0-9a-f]{6}$/.test(s) ? parseInt(s, 16) : NaN);
   const cols = (s: string) => (s === '' ? [] : s.split('-').map(col));
@@ -309,6 +350,7 @@ export function decodeLook(code: unknown): Look | null {
   const g = f.slice(old ? 9 : 11);
   const kit = g[2] === '' ? [] : g[2].split('-').map((s) => pick(KIT_IDS, s));
   const gear = g[7] ? g[7].split('-').map((s) => pick(GEAR, s)) : [];
+  const fashion = g[8] ? g[8].split('-').map((s) => pick(FASHION_IDS, s)) : [];
   const l = {
     base: pick(BASE_IDS, f[1]),
     skin: pick(ALL_SKINS, f[2]),
@@ -325,8 +367,9 @@ export function decodeLook(code: unknown): Look | null {
     glow: col(g[5]),
     wheel: pick(WHEELS, g[6]),
     gear,
+    fashion,
   };
-  if (Object.values(l).some((v) => v === undefined) || kit.some((k) => k === undefined) || gear.some((x) => x === undefined)) return null;
+  if (Object.values(l).some((v) => v === undefined) || [...kit, ...gear, ...fashion].some((x) => x === undefined)) return null;
   return lookProblem(l as Look) ? null : (l as Look);
 }
 
@@ -362,6 +405,7 @@ export function randomLook(rand: () => number = Math.random): Look {
     glow: any(GLOW_COLORS),
     wheel: any(WHEELS),
     gear: [],
+    fashion: [],
   };
   const n = 1 + Math.floor(rand() * 3);
   for (let i = 0; i < n; i++) l = withKit(l, any(KIT_IDS), true);
