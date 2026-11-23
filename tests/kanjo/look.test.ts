@@ -43,7 +43,7 @@ test('random looks round-trip', () => {
 test('junk codes are refused', () => {
   const good = encodeLook(DEFAULT_LOOK);
   assert.ok(good.startsWith('L3.'));
-  for (const bad of [undefined, 42, '', 'marlowe', 'L3.', 'L2.', good + '.', good + '.0.0', good.replace('L3.', 'L1.'), good.replace('L3.', 'L2.'), good.replace(/\.[0-9a-f]{6}\./, '.zzzzzz.'), 'L3.' + 'x'.repeat(300)]) {
+  for (const bad of [undefined, 42, '', 'marlowe', 'L3.', 'L2.', good + '.', good + '.0.0.0', good + '..', good.replace('L3.', 'L1.'), good.replace('L3.', 'L2.'), good.replace(/\.[0-9a-f]{6}\./, '.zzzzzz.'), 'L3.' + 'x'.repeat(300)]) {
     assert.equal(decodeLook(bad), null, String(bad));
   }
   const f = good.split('.');
@@ -124,7 +124,7 @@ test('looks saved as whole outfits (L2 codes) still load, as their top and botto
   // What encodeLook wrote before separates: base, skin, eyes, brows, hair, hair colour, outfit, its zone colours,
   // shoes, shoe colour, kit, metal, leather, glow, wheel (, gear).
   const old = (outfit: number, colors: string, gear = '') => `L2.1.0.7.6.2.7a5a4a.${outfit.toString(36)}.${colors}.2.8a6350.0-5.0.0.ffae3c.0${gear}`;
-  const rest = { base: 'm_avg', skin: 'young_caucasian_male', eyes: 'grey', brows: 'eyebrow007', hair: 'short02', hairColor: 0x7a5a4a, shoes: 'shoes03', shoeColor: 0x8a6350, kit: ['goggles_up', 'collar'], metal: 'brass', leather: 'leather', glow: 0xffae3c, wheel: 'wood', gear: [] };
+  const rest = { base: 'm_avg', skin: 'young_caucasian_male', eyes: 'grey', brows: 'eyebrow007', hair: 'short02', hairColor: 0x7a5a4a, shoes: 'shoes03', shoeColor: 0x8a6350, kit: ['goggles_up', 'collar'], metal: 'brass', leather: 'leather', glow: 0xffae3c, wheel: 'wood', gear: [], fashion: [] };
   // The default look of the day: a three-piece (tie, suit, shirt).
   assert.deepEqual(decodeLook(old(0, 'f0c26a-6fa08c-fbf2de')), { ...rest, top: 'suit_jacket', topColors: [0xf0c26a, 0x6fa08c, 0xfbf2de], bottom: 'suit_trousers', bottomColors: [0x6fa08c] });
   // Overalls (overalls, tee) and the denim suit (patches, clothes) stay whole.

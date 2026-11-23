@@ -7,6 +7,7 @@
 
 import { type CosItem, cosById } from './cosmetics.ts';
 import { type GearId, type Look, PASS_METALS, type MetalId } from './look.ts';
+import { FASHION } from './fashion.ts';
 
 export const PASS = {
   /** What the pass costs, in garage money. */
@@ -168,20 +169,25 @@ export const unlocked = (p: PassState, n: number): boolean => p.pass && n >= 1 &
 /** Whether a reward is yours to use (bought the pass and reached its tier). */
 export const owns = (p: PassState, kind: PassReward['kind'], id: string): boolean => unlocked(p, tierFor(kind, id));
 
-/** A driver look's pass pieces that this garage hasn't unlocked (empty: it can wear it). */
-export function lockedLookParts(p: PassState, l: Look): string[] {
+/** What a garage has to dress a driver with beyond the free wardrobe: the pass's unlocks and the fashion it bought. */
+export type Wardrobe = PassState & { fash: readonly string[] };
+
+/** A driver look's pieces that this garage hasn't unlocked or bought (empty: it can wear it). */
+export function lockedLookParts(p: Wardrobe, l: Look): string[] {
   const out: string[] = [];
   if (PASS_METALS.includes(l.metal) && !owns(p, 'metal', l.metal)) out.push(PASS_METAL_NAMES[l.metal] ?? l.metal);
   for (const x of l.gear) if (!owns(p, 'gear', x)) out.push(GEAR_NAMES[x]);
+  for (const x of l.fashion) if (!p.fash.includes(x)) out.push(FASHION[x].name);
   return out;
 }
 
-/** A look with the pass pieces this garage hasn't unlocked taken off (the race shows the rest). */
-export function ownedLook(p: PassState, l: Look): Look {
+/** A look with the pieces this garage hasn't unlocked or bought taken off (the race shows the rest). */
+export function ownedLook(p: Wardrobe, l: Look): Look {
   return {
     ...l,
     metal: PASS_METALS.includes(l.metal) && !owns(p, 'metal', l.metal) ? 'brass' : l.metal,
     gear: l.gear.filter((x) => owns(p, 'gear', x)),
+    fashion: l.fashion.filter((x) => p.fash.includes(x)),
   };
 }
 

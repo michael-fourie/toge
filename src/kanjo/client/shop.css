@@ -1,4 +1,5 @@
-/* KANJO Shop (shopui.ts): one full-width page of cards over the dimmed showroom. Built on hub.css's tokens
+/* KANJO Shop (shopui.ts): one full-width page of cards over the dimmed showroom; and its Fashion page (fashionui.ts),
+   a rail of clothing cards beside your driver. Built on hub.css's tokens
    (red acts, cyan selects, gold pays) and the clipped-corner card shape. See src/kanjo/DESIGN.md. */
 
 /* The page has no car card and no rail: the panel takes the whole width and the showroom sits behind it, dimmed. */
@@ -18,9 +19,6 @@
   .tg-shopmode .tg-panel {
     padding-inline: max(var(--tg-gutter), calc((100% - 1240px) / 2));
   }
-}
-.tg-shopmode .tg-subtabs {
-  display: none;
 }
 
 .sh {
@@ -314,9 +312,171 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+/* ---- the Fashion banner on the Shop page ---- */
+.sh-fash {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 24px;
+  align-items: center;
+  margin-top: 14px;
+  padding: clamp(16px, 2.2vw, 28px);
+  overflow: hidden;
+  background:
+    radial-gradient(80% 140% at 100% 50%, rgba(255, 201, 64, 0.16), transparent 62%),
+    linear-gradient(135deg, #1d1a24, #0e1119);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 201, 64, 0.28),
+    var(--tg-shadow);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 22px), calc(100% - 22px) 100%, 0 100%);
+}
+.sh-fash-title {
+  margin: 8px 0 8px;
+  font: italic 800 clamp(34px, 4.2vw, 56px) / 0.92 var(--tg-display);
+  text-transform: uppercase;
+  background: linear-gradient(100deg, var(--tg-gold), #fff 70%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.sh-fash-copy p {
+  max-width: 44ch;
+  margin: 0 0 14px;
+  color: #c3ccda;
+}
+.sh-fash-own {
+  color: var(--tg-dim);
+}
+.sh-fash-art {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sh-fash-art li {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 3 / 4;
+  background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.08), rgba(5, 7, 11, 0.55) 70%);
+  box-shadow: inset 0 0 0 1px var(--tg-line);
+  border-radius: var(--tg-radius);
+  transform: skewX(-4deg);
+}
+.sh-fash-art .fa-svg {
+  width: 78%;
+  transform: skewX(4deg);
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.5));
+}
+
+/* ---- Shop → Fashion: cards in the rail, your driver in the showroom ---- */
+.fa-count {
+  display: block;
+  color: var(--tg-dim);
+}
+.fa-list {
+  display: grid;
+  gap: 10px;
+}
+.fa-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-areas: 'art copy' 'art act';
+  column-gap: 14px;
+  row-gap: 10px;
+  padding: 12px 14px 12px 12px;
+  background: linear-gradient(100deg, color-mix(in srgb, var(--c) 16%, transparent), transparent 60%), var(--tg-ink-2);
+  box-shadow: inset 0 0 0 1px var(--tg-line);
+  border-radius: var(--tg-radius);
+  animation: sh-in 0.5s var(--tg-ease) both;
+  animation-delay: calc(var(--i) * 40ms);
+}
+.fa-card.on {
+  box-shadow:
+    inset 0 0 0 2px var(--tg-cyan),
+    0 0 18px rgba(56, 201, 255, 0.18);
+}
+.fa-card.grail::after {
+  /* the grails get a thin gold edge */
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--tg-gold);
+  border-radius: var(--tg-radius) 0 0 var(--tg-radius);
+}
+.fa-art {
+  grid-area: art;
+  display: grid;
+  place-items: center;
+  align-self: start;
+  aspect-ratio: 1;
+  background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.1), rgba(5, 7, 11, 0.6) 72%);
+  box-shadow: inset 0 0 0 1px var(--tg-line);
+  border-radius: var(--tg-radius);
+}
+.fa-svg {
+  width: 82%;
+  height: auto;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45));
+}
+.fa-copy {
+  grid-area: copy;
+  min-width: 0;
+}
+.fa-copy h3 {
+  margin: 4px 0 2px;
+  font: italic 800 19px/1.05 var(--tg-display);
+  text-transform: uppercase;
+}
+.fa-copy p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--tg-dim);
+}
+.fa-act {
+  grid-area: act;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 900px) {
+  .sh-fash {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 560px) {
+  .sh-fash-art li:nth-child(n + 4) {
+    display: none;
+  }
+  .sh-fash-art {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .fa-card {
+    grid-template-columns: 60px minmax(0, 1fr);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .sh-card {
+  .sh-card,
+  .fa-card {
     animation: none;
     transition: none;
   }
+}
+
+/* The creator's Fashion tab (creator.ts): pieces drawn in their own colours, the unbought ones dimmed with a price. */
+.tg-opt .fa-svg {
+  width: 44px;
+  height: 44px;
+}
+.tg-opt.fa-locked {
+  opacity: 0.55;
+  cursor: default;
+}
+.tg-opt.fa-locked small {
+  color: var(--tg-gold);
 }

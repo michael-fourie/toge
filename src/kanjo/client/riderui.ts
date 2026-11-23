@@ -1,18 +1,18 @@
 // The Driver page (hub.ts hosts it): the four legends as cards, each in their glow colour, and a fifth for your own
-// driver, which opens the creator under the cards (creator.ts: tabs for body, face, hair, top, bottom, shoes, kit and
-// wheel). A pick shows on the platform beside your car at once and saves a moment later (free).
+// driver, which opens the creator under the cards (creator.ts: tabs for body, face, hair, top, bottom, shoes, kit, fashion
+// and wheel). A pick shows on the platform beside your car at once and saves a moment later (free).
 
 import { RIDERS, RIDER_IDS, type Rider, riderInfo } from '../shared/rider.ts';
 import { esc } from '../../client/menu/ui.ts';
 import type { Look } from '../shared/look.ts';
 import { type CreatorView, creatorHtml } from './creator.ts';
-import type { PassState } from '../shared/pass.ts';
+import type { Wardrobe } from '../shared/pass.ts';
 import { ICON } from './brand.ts';
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
 /** The page body. `own`: your own driver's look (shown on its card and in the creator); `view`: the creator's open tab and toolbar. */
-export function driverTab(r: Rider, own: Look, pass: PassState, status: string, view: CreatorView): string {
+export function driverTab(r: Rider, own: Look, pass: Wardrobe, status: string, view: CreatorView): string {
   const cards = RIDER_IDS.map((id) => {
     const d = RIDERS[id];
     const on = id === r;

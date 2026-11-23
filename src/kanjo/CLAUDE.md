@@ -472,7 +472,7 @@ a component or a page.
 - **Your own driver** (look.ts, docs/DRIVER_CREATOR.md): the Driver page's fifth card opens the creator (creator.ts):
   six bodies, skin, eyes, brows, hair, separates (10 tops and 10 bottoms in any pairing, plus two one-pieces that take
   both places), each with its own colour zones, shoes, up to five kit pieces (mech arms, gloves), metal, leather, glow,
-  wheel. The creator is tabbed (Body, Face, Hair, Top, Bottom, Shoes, Kit, Wheel) with undo, Surprise me, reset and a
+  wheel. The creator is tabbed (Body, Face, Hair, Top, Bottom, Shoes, Kit, Fashion, Wheel) with undo, Surprise me, reset and a
   seated preview; the showroom frames what the open tab is about and zooms. A look is an `L3.` code (`L2.` codes from
   before separates, 2026-11-15, still decode: look.ts `L2_OUTFITS`) and is itself a `Rider`, so it travels everywhere a
   legend's id does; the garage also keeps it as `look` while you drive a legend. wardrobe.ts assembles it from
@@ -481,6 +481,22 @@ a component or a page.
   `tests/kanjo/look.test.ts` green after a wardrobe rebuild. Clothes are fitted at build time so nothing pokes through
   in any pairing (docs/DRIVERS.md "The fit"); the drivers' colours are dusty pastels (muted 2026-11-15: keep new ones
   in that range).
+- **Fashion** (shared/fashion.ts, the Shop → Fashion page in client/fashionui.ts; Michael asked for it 2026-11-23:
+  "really expensive clothing pieces ... 50k - 1mil ... that render well on the body and don't merge with the skin
+  weird"): 17 pieces in five slots (jacket, trousers, hat, shades, chain), $50,000 to $1,000,000, bought once with
+  garage money (`{a:'fashion', id}`, server-side for accounts; `Garage.fash`) and worn by your own driver (`Look.fashion`,
+  one per slot, a look code's optional 18th field; you can't wear one you haven't bought: `lockedLookParts`, and racer
+  codes are stripped by `ownedRider`). A jacket stands in for the top and trousers for the bottom (a one-piece takes
+  them off, a jacket over a one-piece brings separates back: `withTop`, `withFashion`), and hides the kit it covers
+  (`FASHION_COVERS`). They aren't Blender parts: client/fashion.ts makes them at assembly (`dress()`, called from
+  wardrobe.ts): jackets and trousers are shells cut from the body's own surface along smooth fields (neck, hem, cuffs,
+  waist, ankles), lifted along the normals clear of whatever is worn under them, draped off the chest, skinned with
+  the body's weights, with the body and clothes underneath culled; hats are domes fitted over the head and hair (the
+  hair inside is dropped or tucked to the head bone); shades and chains are measured off the face and chest. So every
+  piece fits every body, standing and seated, with no poke-through. Patterns (monogram, camo, stripes, puffer
+  channels, fur, chrome) are shader patches on `MeshPhysicalMaterial` (`PAINT`, `FEEL`). Try on is free in the
+  showroom; the creator's Fashion tab wears and takes off what you own. Append only; keep
+  `tests/kanjo/fashion.test.ts` green.
 - **Battle pass** (pass.ts, the Race → Battle pass page in passui.ts; Michael asked for it 2026-11-06): a 50-tier season
   (`PASS`, $50,000 of garage money, 500 XP a tier). Every race earns XP whether or not you own the pass (`raceXp`:
   finishing, cars beaten, a win, drifting; solo a 0.6 share, only when the solo prize pays), carried on the garage
